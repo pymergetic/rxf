@@ -1,0 +1,15 @@
+# Start locally (safe default):
+#   rxf serve --config rxf-server.example.toml
+# Expose on all IPv4 interfaces:
+#   rxf serve --config rxf-server.example.toml --host 0.0.0.0 --port 8420
+# External exposure is unauthenticated and read-only. Restrict access with a host
+# firewall or a trusted reverse proxy.
+# Every exposed directory is an explicit top-level mount.
+# Relative paths are resolved from this configuration file.
+max_file_size = 536870912
+
+[mounts.examples]
+path = "examples"
+
+# [mounts.snapshots]
+# path = "/srv/pymergetic/rxf-snapshots"

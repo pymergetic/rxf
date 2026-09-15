@@ -5,9 +5,9 @@ resolved at load time against whatever the host happens to have.
 
 ```c
 typedef struct pm_state_ref {
-    uint32_t from;        /* node id of the referring object */
-    uint32_t from_slot;   /* which slot within it (byte offset or ordinal) */
-    uint32_t to;          /* node id of the referent */
+    uint64_t from;        /* node id of the referring object */
+    uint64_t from_slot;   /* byte offset or ordinal */
+    uint64_t to;          /* node id of the referent */
     uint64_t to_off;      /* sub-offset within the referent */
     uint16_t kind;        /* CALL, DATA, ENTRY, TYPE, IMPORT */
     uint16_t binding;     /* MANDATORY or OPTIONAL */
@@ -88,7 +88,7 @@ which is exactly what makes the id model cheap.
 ## Bounded relocation
 
 Because references are ids, the fixup table stays tiny — the handful of places where a
-real machine address must be written into a mapped section: the arena base, the address
+real machine address must be written into a mapped section: an external runtime allocator base, the address
 of the internal path driver, a program-counter-relative call into a selected code
 variant. Each entry names section, offset, width and kind, and the boot check proves
 each one admissible before it is applied.

@@ -17,12 +17,12 @@ is the "nothing may die where it should refuse" non-negotiable, holding.
 
 ## 1 — The cell heap
 
-`pymergetic.state`: the cell header, intrinsics, domains, bump frontiers, the directory
-(id -> domain+offset, sorted), and the tree faces of `01` re-ranked under the face of `10`.
-Reclaim is domain retirement; there is no free list anywhere. Capacity as knobs under
-`pymergetic.state`, growth on demand, refusals that name the knob.
+`pymergetic.state`: the 48-byte cell header, intrinsics, one global bump frontier, the directory
+(id -> global offset, sorted), and the tree faces of `01` re-ranked under the face of `10`.
+Reclamation and free-span reuse are deferred; there is no free list in the first slice. Capacity
+is represented by committed and known bounds, with refusals that name the bound.
 
-*Prove:* build a tree in a domain, walk it, resolve paths; assert a stale handle is refused and
+*Prove:* build a tree in the global heap, walk it, resolve paths; assert a stale handle is refused and
 never redirected; assert a listing is ordered and reproducible; assert a squeeze refuses the
 next cell rather than corrupting one; assert the directory rebuild-from-spans equals the
 recorded directory (this same function is the boot check). Determinism: the same tree on two
@@ -66,18 +66,17 @@ symbols, and a missing mandatory import is a loud refusal naming the symbol.
 ## 5 — The container
 
 Header, section table, mapping kinds, entry record, a writer, a reader, and the boot checker.
-Write an artifact holding a trivial state (one type, one function, one live object, one
-domain) and mount it from outside without starting it — through every channel bound at that
+Write an artifact holding a trivial state (one type, one function, one live object, one global heap) and mount it from outside without starting it — through every channel bound at that
 stage, per `10`.
 
 *Prove:* round-trip — write, mount externally, read every node, compare against the source
 tree; then assert the boot checker rejects each of a set of deliberately broken candidates
-(overlapping domains, unresolvable mandatory reference, out-of-range relocation, missing
+(out-of-range global spans, unresolvable mandatory reference, out-of-range relocation, missing
 target variant, unreachable entry). The reader works on every seat, including the browser.
 
 ## 6 — Boot from the artifact
 
-The COPY spans per domain, the resource binding, the checks (the stage-1 directory rebuild),
+The copied global heap span, the resource binding, the checks (the stage-1 directory rebuild),
 and the hand-over. First allocation after boot bumps a restored frontier — no scan, no free
 structure to materialize, because none exists (`03`).
 
@@ -107,7 +106,7 @@ behaviour, and roll back.
 
 *Prove:* the filing's own worked example — change an increment from 1 to 2 through a generated
 view, assert the closure covers the function, its caller, the new code body, the code mapping,
-the reference, the directory entry, the domain occupancy and the entry path; assert the
+the reference, the global cell offset, the committed bounds and the entry path; assert the
 candidate is refused when the base generation is stale; assert the accepted successor boots and
 the first increment adds 2.
 
@@ -129,7 +128,7 @@ invariant of `11`), and the quorum disagrees loudly on any divergence.
 publish face, and holds neither commit key nor commit capability; only a separated acceptance
 gate mints activation evidence. On hosted seats the gate reads the candidate over the HTTP
 channel like any other client — network separation is the honest kind (`10`). Today the build
-actor and the seat are one trust domain in one process; this is a design task to start early,
+actor and the seat share one process and trust boundary; this is a design task to start early,
 because it constrains stages 7 and 8 rather than following them.
 
 **Per-transaction limit views.** The plasmid's change contract carries resource ceilings as an
@@ -152,7 +151,7 @@ not just the seed.
   Stage 4 territory.
 - `process.budget_set` refuses `cap <= 0` while knobs treat 0 as unlimited
   (`metal/process/__impl__.c`) — an inconsistency in the one place that already maps an id to
-  a memory region.
+  a globally addressed memory span.
 - The µPy bridge reads signatures into a 160-byte buffer while the registry stores up to 256
   (`ports/micropython/nativecall.c:238`), so a long signature is stored fine and silently
   unreadable from Python.

@@ -37,23 +37,23 @@ with every semantic node addressed by a stable node id.
 
 ```c
 typedef struct pm_state_fn_rec {     /* payload of an FN node */
-    uint32_t signature;      /* node id of a signature record */
+    uint64_t signature;      /* node id of a signature record */
     uint32_t n_ops;          /* operations, in a canonical order */
-    uint32_t ops;            /* offset into the semantics section */
+    uint64_t ops;            /* global image offset */
     uint32_t n_edges;        /* control edges + data edges */
-    uint32_t edges;
+    uint64_t edges;
     uint32_t effects;        /* memory writes, io, allocation */
-    uint32_t error_fn;       /* node id of the error path, 0 = none */
-    uint32_t view_hint;      /* node id of the preferred view generator */
+    uint64_t error_fn;       /* node id of the error path, 0 = none */
+    uint64_t view_hint;      /* node id of the preferred view generator */
 } pm_state_fn_rec_t;
 
 typedef struct pm_state_op {
-    uint32_t id;             /* node id: an operation is an object too */
+    uint64_t id;             /* node id: an operation is an object too */
     uint16_t op;             /* semantic operation code */
     uint16_t n_in;
-    uint32_t in;             /* operand node ids */
-    uint32_t out;            /* result node id */
-    uint32_t type;           /* result type node id */
+    uint64_t in;             /* operand node ids */
+    uint64_t out;            /* result node id */
+    uint64_t type;           /* result type node id */
     uint32_t origin;         /* position in the generating view, for diagnostics */
 } pm_state_op_t;
 ```
@@ -81,7 +81,7 @@ Three things it lacks for our purpose: type identity is a **descriptor pointer**
 stable id (`is_instance_of` walks the parent chain comparing pointers,
 `types/__impl__.c:405`), which cannot be written to a file; descriptors carry **no
 alignment**; and the registry has **no removal path** — a staged row lives as long as
-the process, by the same contract as the arena its values come from.
+the process, by the same contract as the global committed span containing its values.
 
 **The `edit` card is span-addressed, and its own header says so.** `parse_c` does not
 produce an AST. It produces a flat array of byte-span descriptors for exactly two
@@ -173,3 +173,8 @@ sink abstraction for reading current bytes, comparing, and reporting
 `Unchanged / Wrote / Drift / Missing` (`extmod/wasmmod/src/pymergetic/util/gen/sink.rs:170`),
 which is the shape of an idempotent apply — though it lives host-side in Rust and
 nothing under `metal/**` implements it.
+
+
+## Static generic and trait authority
+
+Template parameters, ordered TYPE bindings, specialization digests, Trait requirements, Conformances, and concrete implementation bindings are semantic records inside RXF. A source-language generic or operator spelling is a view; the selected concrete Function and its recorded specialization/conformance are authority. Dynamic dispatch remains deferred.

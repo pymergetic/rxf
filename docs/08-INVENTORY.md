@@ -14,8 +14,8 @@ Every "no" here was checked by search, not assumed.
 | Object directory (id → type, location, size, align, generation) | **nothing**. Searches for `object_id`, `obj_table`, `handle_table`, `objdir` return zero hits in `metal/src`, `wasmmod/src`, `wasmmod/ports` | — | **missing** |
 | Stable id + generation handle discipline | yes, for registry modules: `{index, generation}`, bump on slot reuse, one validating chokepoint | `wasmmod/src/.../registry/__types__.h:42`; `__impl__.rs:1162`, `:1220` | **have** (as pattern) |
 | Runtime type catalog with layout | yes: kind, instance size, fqn, parent, fields with offsets; runtime registration; full copy-out introspection | `wasmmod/src/pymergetic/types/__types__.h:109`, `:86`; `__impl__.c:985`, `:1031`, `:1063` | **have**, needs ids + align |
-| Cell heap / object directory (id → layout, size, align, generation) | **nothing**. The design no longer images an existing allocator — `03` replaces it with a cell heap that has no free lists to image. No `object_id`, `obj_table`, `cell`, `domain` implementation exists | searched `metal/src`, `wasmmod/src`, `wasmmod/ports` | **missing** (this is now the first thing to build, `09` stage 1) |
-| Arena enumeration (diagnostics, image-free) | `tlsf_walk_pool` / `tlsf_get_pool` / `tlsf_check_pool` vendored, **zero callers**; card face is scalar stats only. No longer the imager's input (that role is gone); still useful for the arena-pressure diagnostics the boards live with | `wasmmod/third_party/tlsf/tlsf.h:80`; `util/mem/__exports__.h:16-43` | optional, demoted |
+| Cell heap / object directory (id → layout, size, align, generation) | **nothing**. The design no longer images an existing allocator — `03` replaces it with a cell heap that has no free lists to image. No `object_id`, `obj_table`, or global RXF cell implementation exists | searched `metal/src`, `wasmmod/src`, `wasmmod/ports` | **missing** (this is now the first thing to build, `09` stage 1) |
+| External Metal arena enumeration (diagnostics, not RXF imaging) | `tlsf_walk_pool` / `tlsf_get_pool` / `tlsf_check_pool` vendored, **zero callers**; card face is scalar stats only. No longer the imager's input (that role is gone); still useful for the arena-pressure diagnostics the boards live with | `wasmmod/third_party/tlsf/tlsf.h:80`; `util/mem/__exports__.h:16-43` | optional, demoted |
 | Semantic records as authority | **no**. Authority is embedded text, 25 MB, compiled against on-disk include paths | `metal/src/.../inspect/src_embed.inc.h` (88 cards); consumed by `build/__impl__.c:2189` | **missing**, see `05` |
 | A real AST for some language | yes, two: rsx (48 kinds) and cppx (27), both lossy one-way lowerings with `#line` provenance | `metal/src/.../jit/rs/compiler/__types__.h:160`, `:108`; `jit/cpp/__types__.h:131` | partial |
 | C parsed representation | span-addressed only: 2 kinds (fn, define), no ids, no nesting, no re-emitter | `metal/src/.../edit/__types__.h:50`, `:56`; `__impl__.c:344` | partial |
@@ -28,15 +28,15 @@ Every "no" here was checked by search, not assumed.
 | Enumerable hierarchy (readdir) | yes for pack source (`list_files`/`list_modules`/`list_submodules`); **no** for fs, inspect, or the registry | `pack/source.h:86-105` | pattern only |
 | Generated view with provenance | yes: `/docs/<fqn>/<fn>` renders from embedded source and reports file + line | `metal/src/.../inspect/__impl__.c:1322`, `:948` | **have** |
 | Writable view | **no**. Only mutating route is `POST /build` (rebuild), which takes no bytes | `inspect/__impl__.c:3118-3228` | **missing** |
-| Contained compiler | yes: TCC in-image on all four boards, four target lanes, arena-backed | `metal/src/.../jit/c/__types__.h:68`; `metal/port/fw_tcc.mk` | **have** |
+| Contained compiler | yes: TCC in-image on all four boards, four target lanes, backed by the external Metal allocator arena | `metal/src/.../jit/c/__types__.h:68`; `metal/port/fw_tcc.mk` | **have** |
 | Contained linker | **host and unix µPy only**; boards refuse | `metal/Makefile:176`, `metal/metal.mk:121`; refusal at `build/__impl__.c:1599` | **partial — the big gap** |
-| Compiler refuses instead of dying | **no**. Upstream reallocator `exit(1)`; our arena reallocator returns NULL and `tcc_mallocz` memsets it | `metal/externals/tcc/libtcc.c:258`, `:294-311`; `jit/c/__impl__.c:44-81` | **missing** (channel exists: `libtcc.c:697`, armed at `:814`) |
+| Compiler refuses instead of dying | **no**. Upstream reallocator `exit(1)`; the external Metal arena reallocator returns NULL and `tcc_mallocz` memsets it | `metal/externals/tcc/libtcc.c:258`, `:294-311`; `jit/c/__impl__.c:44-81` | **missing** (channel exists: `libtcc.c:697`, armed at `:814`) |
 | Boot checker | **nothing**. Acceptance today is "it linked" | — | **missing** |
 | Journal / prepare / commit / recovery | **nothing**: no journal, no WAL, no A/B slot, no atomic commit, no superblock, no checksum over a persisted record | searched `metal/src`, `metal/port`, `tools` | **missing** |
 | Durable write of any kind | block write works on firmware; **only three callers, all unit tests**. FAT read-only. One `fopen("wb")` is a unix-only debug mirror, off by default, never read back | `drivers/blk/virtio/__impl__.c:236`; `fs/__fat__.c` (no `write`); `workspace/__impl__.c:83` | **missing** |
 | Chainload a new image | **nothing**. No kexec, no UEFI `LoadImage`; only `pm_metal_process_reboot` | — | **missing** |
 | Dynamic capacity everywhere | yes: knobs with soft/hard/default/used, per card, runtime-movable from C, C++, Rust, Python | `wasmmod/src/pymergetic/util/limits/` | **have** |
-| Trust separation (generator vs gate) | **no**. Build actor and seat are one trust domain in one process | `build/__impl__.c:4011` | **missing** |
+| Trust separation (generator vs gate) | **no**. Build actor and seat are one process and trust boundary | `build/__impl__.c:4011` | **missing** |
 
 ## Measured numbers
 

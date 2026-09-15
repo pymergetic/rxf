@@ -134,7 +134,7 @@ class CounterState:
 The assignment slot carries flags — `A.MUT` (mutable), `A.val(n)` (const), `A.at(off)`
 (pinned offset) — and `Fields.add` offers the imperative twin for generated content
 (`tables.add(...)` in a loop). Both produce the same `FieldRec` list through the same
-gates. Registry contents shadow-check against the artifact's intrinsics (ids 1..31,
+gates. Registry contents shadow-check against the artifact's fixed built-in TYPE namespace (ids 1..57,
 `03`); a build type shadowing an intrinsic is a typed refusal.
 
 ### Layout is computed once, in the API — and recorded everywhere else
@@ -176,3 +176,11 @@ The counter example (`increment`, with an authored-out-of-order `const` proving
 edges-not-position) plus a `ring` template instantiated twice lives in the README of the
 `rxf` pill and doubles as a corpus fixture: the fixture must compile to the same bytes
 from its JSON form, its Python-API form, and after `rxf fmt` reformatting.
+## Authoring modules
+
+Authors create typed `ModuleObject` nodes and attach ordinary types, functions, and data beneath them. Names contain one component, never a dotted path. Dotted FQNs are output derived from parent links, not input fields. Module categorization is organizational and does not imply ownership, lifetime, allocation, or heap placement. Use the complete canonical RXF primitive TYPE family: `void`, `bool`, `uint8_t`, `uint16_t`, `uint32_t`, `uint64_t`, `int8_t`, `int16_t`, `int32_t`, `int64_t`, `float` (IEEE-754 binary32), and `double` (IEEE-754 binary64). Do not invent generic `uint`, word-sized, or raw-pointer persisted aliases; use `uint64_t` for durable IDs and heap offsets, with target-specific execution metadata for native ABI details.
+
+
+## Generic and trait authoring
+
+Authors declare ordered `GenericParameter` objects and bind them with concrete TYPE `GenericArgument` objects. Trait requirements use `ABSTRACT` Functions with normal Signatures. Authoring must emit exact Conformance coverage and may use static resolver APIs to select the concrete Function before emitting a Call.
