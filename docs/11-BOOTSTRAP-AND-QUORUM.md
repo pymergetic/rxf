@@ -117,7 +117,7 @@ system's own successors, development direction inverts — every change to the a
 authored as a view write -> delta -> successor, including changes to its own type records.
 
 Do not share code between external and internal cores. Share the **byte schema** and the
-**face** — and never trade input domains either. The external core consumes authoring
+**face** — and never trade input categories either. The external core consumes authoring
 material (models, JSON, views) and writes seeds; the contained core consumes live state
 through the face and writes successors. The external core never executes the artifact; the
 contained core never reads an authoring file. The intrinsics are hand-written twice
@@ -185,7 +185,7 @@ floor of zero and never reaches it.
 
 Stage 2 of the old plan (compiler refusal) already holds in-tree: the nomem escape is armed
 around every compile path (`jit/c/__impl__.c`, `externals/tcc/libtcc.c:313`) and the
-out-of-room prove (squeezed arena -> typed refusal -> healthy arena still compiles) exists in
+out-of-room prove (squeezed external Metal allocator arena -> typed refusal -> healthy allocator arena still compiles) exists in
 `jit/c/__tests__.c`. The plan's remaining stages re-cut against the face/channels and the
 porting ladder above; the container, boot, durability and successor stages consume the cell
 allocator of `03` instead of a TLSF image.

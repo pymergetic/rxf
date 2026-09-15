@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>RXF Inspector</title>
+  <style>
+    :root{color-scheme:dark;--bg:#080b10;--panel:#121821;--border:#263140;--text:#d6deeb;--muted:#7d8da1;--blue:#61aeee}*{box-sizing:border-box}body{min-height:100vh;margin:0;background:var(--bg);color:var(--text);font:13px/1.45 system-ui,sans-serif}.topbar{height:56px;display:flex;align-items:center;gap:14px;padding:0 18px;border-bottom:1px solid var(--border);background:#0d1117}.brand{font-weight:750}.spacer{flex:1}.action{border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--panel);color:var(--text)}main{max-width:900px;margin:0 auto;padding:32px 20px}h1{margin:0 0 6px}.muted{color:var(--muted)}.mount{margin-top:24px}.entries{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}.entry{display:block;padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--text);text-decoration:none}.entry:hover{border-color:var(--blue)}.entry small{display:block;margin-top:4px;color:var(--muted)}
+  </style>
+</head>
+<body>
+<header class="topbar"><div class="brand">RXF Inspector</div><div class="spacer"></div><form method="post" action="/rescan"><button class="action" type="submit">Rescan</button></form></header>
+<main><h1>Mounted RXF images</h1><p class="muted">Select an image to open its integrated inspector workspace.</p>{% for mount in mounts %}<section class="mount"><h2>{{ mount.name }}</h2><div class="entries">{% for entry in mount.entries %}<a class="entry" href="/rxf/{{ entry.encoded_id }}"><strong>{{ entry.relative_path }}</strong><small>{{ entry.size }} bytes</small></a>{% endfor %}</div></section>{% else %}<p class="muted">No loadable RXFs.</p>{% endfor %}</main>
+</body>
+</html>

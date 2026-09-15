@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pymergetic-rxf"
+dynamic = ["version"]
+description = "Reversible eXecutable Format — mint, inspect, replay, certify state binaries"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+  { name = "Rouven Raudzus", email = "raudzus@pymergetic.com" }
+]
+keywords = ["pymergetic", "rxf", "state-binary", "executable-format"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+]
+
+dependencies = ["pydantic>=2"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+server = ["fastapi>=0.110", "uvicorn[standard]>=0.27", "jinja2>=3", "python-multipart>=0.0.20"]
+
+[project.scripts]
+rxf = "pymergetic.rxf.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/pymergetic/rxf"
+Repository = "https://github.com/pymergetic/rxf"
+Issues = "https://github.com/pymergetic/rxf/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"pymergetic.rxf.server" = ["templates/*.jinja2"]
+
+[tool.setuptools_scm]
+version_scheme = "no-guess-dev"
+local_scheme = "no-local-version"
+fallback_version = "0.0.0"
