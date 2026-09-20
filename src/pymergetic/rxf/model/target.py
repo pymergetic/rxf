@@ -37,6 +37,7 @@ class CallingConvention(IntEnum):
 class EnvironmentKind(IntEnum):
     LINUX = 1
     UEFI = 2
+    BIOS = 3
 
 
 class FeatureKind(IntEnum):
@@ -328,6 +329,10 @@ EMPTY_FEATURES_ID = 816
 X86_64_BASELINE_FEATURE_ID = 819
 AARCH64_BASELINE_FEATURE_ID = 820
 AARCH64_FEATURES_ID = 821
+BIOS_ID = 822
+AARCH64_LINUX_TARGET_ID = 823
+X86_64_UEFI_TARGET_ID = 824
+X86_64_BIOS_TARGET_ID = 825
 X86_64_LINUX_TARGET_ID = 817
 AARCH64_UEFI_TARGET_ID = 818
 X86_64_RETURN_U32 = b"\x89\xf8\xc3"
@@ -351,6 +356,7 @@ def native_target_nodes(parent: int) -> list[NodeDef]:
         ABIObject(AAPCS64_ID, "aapcs64", parent, ABIKind.AAPCS64, AARCH64_ID).to_node(),
         EnvironmentObject(LINUX_ID, "linux", parent, EnvironmentKind.LINUX).to_node(),
         EnvironmentObject(UEFI_ID, "uefi", parent, EnvironmentKind.UEFI).to_node(),
+        EnvironmentObject(BIOS_ID, "bios", parent, EnvironmentKind.BIOS).to_node(),
         FeatureObject(
             X86_64_BASELINE_FEATURE_ID,
             "x86_64_baseline",
@@ -391,5 +397,32 @@ def native_target_nodes(parent: int) -> list[NodeDef]:
             AAPCS64_ID,
             UEFI_ID,
             AARCH64_FEATURES_ID,
+        ).to_node(),
+        RuntimeTargetObject(
+            AARCH64_LINUX_TARGET_ID,
+            "aarch64_linux_aapcs64",
+            parent,
+            AARCH64_ID,
+            AAPCS64_ID,
+            LINUX_ID,
+            AARCH64_FEATURES_ID,
+        ).to_node(),
+        RuntimeTargetObject(
+            X86_64_UEFI_TARGET_ID,
+            "x86_64_uefi_sysv",
+            parent,
+            X86_64_ID,
+            SYSV_ID,
+            UEFI_ID,
+            EMPTY_FEATURES_ID,
+        ).to_node(),
+        RuntimeTargetObject(
+            X86_64_BIOS_TARGET_ID,
+            "x86_64_bios_sysv",
+            parent,
+            X86_64_ID,
+            SYSV_ID,
+            BIOS_ID,
+            EMPTY_FEATURES_ID,
         ).to_node(),
     ]

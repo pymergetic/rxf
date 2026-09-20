@@ -152,8 +152,8 @@ def test_manifest_contract_code_bijection():
 
     nodes = numeric_nodes()
     by_id = {n.id: n for n in nodes}
-    used = {817: set(), 818: set()}
-    manifests = {817: X86_64, 818: AARCH64}
+    used = {817: set(), 818: set(), 823: set()}
+    manifests = {817: X86_64, 818: AARCH64, 823: AARCH64}
     functions = [
         n
         for n in nodes
@@ -167,7 +167,7 @@ def test_manifest_contract_code_bijection():
         ]
         assert (
             len(refs(CallRole.NUMERIC_CONTRACT)) == 1
-            and len(refs(CallRole.IMPLEMENTATION)) == 2
+            and len(refs(CallRole.IMPLEMENTATION)) == 3
         )
         for code_id in refs(CallRole.IMPLEMENTATION):
             code = by_id[code_id]
@@ -178,7 +178,32 @@ def test_manifest_contract_code_bijection():
                 len([r for r in code.refs if r.to_off == int(CallRole.ABI_SIGNATURE)])
                 == 1
             )
-    assert used[817] == set(X86_64) and used[818] == set(AARCH64)
+    assert used[817] == set(X86_64)
+    assert used[818] == used[823] == set(AARCH64)
+    by_function_target = {
+        (decode_code(node).owner_function, decode_code(node).target_id): (
+            node.id,
+            decode_code(node),
+        )
+        for node in nodes
+        if node.kind.name == "CODE"
+    }
+    for function in functions:
+        uefi_id, uefi = by_function_target[(function.id, 818)]
+        linux_id, linux = by_function_target[(function.id, 823)]
+        assert uefi.raw_bytes == linux.raw_bytes
+        assert uefi.semantic_digest == linux.semantic_digest
+        uefi_abi = next(
+            ref.target
+            for ref in by_id[uefi_id].refs
+            if ref.to_off == int(CallRole.ABI_SIGNATURE)
+        )
+        linux_abi = next(
+            ref.target
+            for ref in by_id[linux_id].refs
+            if ref.to_off == int(CallRole.ABI_SIGNATURE)
+        )
+        assert uefi_id != linux_id and uefi_abi != linux_abi
 
 
 def test_qemu_executes_exact_aarch64_bytes(tmp_path):

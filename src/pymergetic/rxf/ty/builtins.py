@@ -94,6 +94,17 @@ REFUSAL_VARIANT_TYPE = 153
 NUMERIC_CONTRACT_TYPE = 154
 ABI_SIGNATURE_TYPE = 155
 COMPILER_PROVENANCE_TYPE = 156
+ABI_VALUE_LOCATION_TYPE = 177
+CAPABILITY_REQUIREMENT_TYPE = 167
+CAPABILITY_KIND_FIELD = 168
+CAPABILITY_VERSION_FIELD = 169
+CAPABILITY_RIGHTS_FIELD = 170
+CAPABILITY_EFFECTS_FIELD = 171
+CAPABILITY_TARGET_COUNT_FIELD = 172
+CAPABILITY_ENVIRONMENT_COUNT_FIELD = 173
+CAPABILITY_POLICY_SIZE_FIELD = 174
+CAPABILITY_DIGEST_FIELD = 175
+CAPABILITY_REFUSAL_SET_FIELD = 176
 GENERIC_PARAMETER_INDEX_FIELD = 80
 GENERIC_PARAMETER_KIND_FIELD = 81
 GENERIC_PARAMETER_FLAGS_FIELD = 82
@@ -347,6 +358,22 @@ BUILTINS = (
         8,
         TypeFlags.SELF_DESCRIBING,
     ),
+    BuiltinSpec(
+        ABI_VALUE_LOCATION_TYPE,
+        "ABIValueLocation",
+        TypeForm.STRUCT,
+        80,
+        8,
+        TypeFlags.SELF_DESCRIBING,
+    ),
+    BuiltinSpec(
+        CAPABILITY_REQUIREMENT_TYPE,
+        "CapabilityRequirement",
+        TypeForm.STRUCT,
+        72,
+        8,
+        TypeFlags.SELF_DESCRIBING | TypeFlags.VARIABLE_SIZE,
+    ),
 )
 
 
@@ -444,6 +471,7 @@ def builtin_nodes() -> list[NodeDef]:
         NUMERIC_CONTRACT_TYPE,
         ABI_SIGNATURE_TYPE,
         COMPILER_PROVENANCE_TYPE,
+        CAPABILITY_REQUIREMENT_TYPE,
     }
     for spec in BUILTINS:
         field_count = (
@@ -470,6 +498,7 @@ def builtin_nodes() -> list[NodeDef]:
                 CONFORMANCE_TYPE: 4,
                 IMPLEMENTATION_BINDING_TYPE: 3,
                 SPECIALIZATION_TYPE: 6,
+                CAPABILITY_REQUIREMENT_TYPE: 9,
             }.get(spec.id, 0)
         )
         descriptor = TypeObject(
@@ -715,6 +744,62 @@ def builtin_nodes() -> list[NodeDef]:
             U8_TYPE,
             56,
             count=32,
+        ),
+        FieldObject(
+            CAPABILITY_KIND_FIELD, "kind", CAPABILITY_REQUIREMENT_TYPE, U32_TYPE, 0
+        ),
+        FieldObject(
+            CAPABILITY_VERSION_FIELD,
+            "version",
+            CAPABILITY_REQUIREMENT_TYPE,
+            U32_TYPE,
+            4,
+        ),
+        FieldObject(
+            CAPABILITY_RIGHTS_FIELD, "rights", CAPABILITY_REQUIREMENT_TYPE, U32_TYPE, 8
+        ),
+        FieldObject(
+            CAPABILITY_EFFECTS_FIELD,
+            "effects",
+            CAPABILITY_REQUIREMENT_TYPE,
+            U32_TYPE,
+            12,
+        ),
+        FieldObject(
+            CAPABILITY_TARGET_COUNT_FIELD,
+            "target_count",
+            CAPABILITY_REQUIREMENT_TYPE,
+            U32_TYPE,
+            16,
+        ),
+        FieldObject(
+            CAPABILITY_ENVIRONMENT_COUNT_FIELD,
+            "environment_count",
+            CAPABILITY_REQUIREMENT_TYPE,
+            U32_TYPE,
+            20,
+        ),
+        FieldObject(
+            CAPABILITY_POLICY_SIZE_FIELD,
+            "policy_size",
+            CAPABILITY_REQUIREMENT_TYPE,
+            U32_TYPE,
+            24,
+        ),
+        FieldObject(
+            CAPABILITY_DIGEST_FIELD,
+            "semantic_digest",
+            CAPABILITY_REQUIREMENT_TYPE,
+            U8_TYPE,
+            28,
+            count=32,
+        ),
+        FieldObject(
+            CAPABILITY_REFUSAL_SET_FIELD,
+            "refusal_set",
+            CAPABILITY_REQUIREMENT_TYPE,
+            U64_TYPE,
+            64,
         ),
     )
     nodes.extend(

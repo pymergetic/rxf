@@ -1,0 +1,11 @@
+#include <stdint.h>
+#include "stdlib_runtime.h"
+#include "../generated/compiler_fp_qemu_bindings.h"
+typedef uint32_t u32; typedef uint64_t u64; typedef float f32; typedef double f64;
+extern u32 composed_f32(rxf_runtime_context*,f32*),composed_f64(rxf_runtime_context*,f64*); extern u32 blob_checked_add_float(f32,f32,f32*),blob_checked_multiply_float(f32,f32,f32*),blob_checked_add_double(f64,f64,f64*),blob_checked_multiply_double(f64,f64,f64*);
+static void puts(const char*s){volatile u32*u=(volatile u32*)0x09000000;while(*s)*u=(u32)*s++;} static void finish(u32 ok){static u64 b[2];b[0]=ok?0x20026:0x20023;b[1]=0;register u64 x0 __asm__("x0")=0x20;register void*x1 __asm__("x1")=b;__asm__ volatile("hlt #0xf000"::"r"(x0),"r"(x1):"memory");for(;;)__asm__ volatile("wfe");}
+static f32 fv[3]={1.25f,2.5f,2.0f}; static f64 dv[3]={1.25,2.5,2.0};
+static rxf_native_slot ff[2]={{RXF_F32_ADD_FUNCTION_ID,1,(u64)(uintptr_t)blob_checked_add_float},{RXF_F32_MUL_FUNCTION_ID,1,(u64)(uintptr_t)blob_checked_multiply_float}},df[2]={{RXF_F64_ADD_FUNCTION_ID,1,(u64)(uintptr_t)blob_checked_add_double},{RXF_F64_MUL_FUNCTION_ID,1,(u64)(uintptr_t)blob_checked_multiply_double}};
+static rxf_object_entry fo[3]={{RXF_FP_OBJECT_0_ID,1,31,(u64)(uintptr_t)&fv[0],4,4,RXF_OBJECT_LIVE,0,0,0},{RXF_FP_OBJECT_1_ID,1,31,(u64)(uintptr_t)&fv[1],4,4,RXF_OBJECT_LIVE,0,0,0},{RXF_FP_OBJECT_2_ID,1,31,(u64)(uintptr_t)&fv[2],4,4,RXF_OBJECT_LIVE,0,0,0}},doo[3]={{RXF_FP_OBJECT_0_ID,1,10,(u64)(uintptr_t)&dv[0],8,8,RXF_OBJECT_LIVE,0,0,0},{RXF_FP_OBJECT_1_ID,1,10,(u64)(uintptr_t)&dv[1],8,8,RXF_OBJECT_LIVE,0,0,0},{RXF_FP_OBJECT_2_ID,1,10,(u64)(uintptr_t)&dv[2],8,8,RXF_OBJECT_LIVE,0,0,0}};
+static rxf_runtime_context context(rxf_native_slot*f,rxf_object_entry*o){rxf_runtime_context c={0};c.version=RXF_RUNTIME_ABI_VERSION;c.size=sizeof(c);c.function_count=2;c.functions=(u64)(uintptr_t)f;c.object_count=3;c.objects=(u64)(uintptr_t)o;return c;}
+int rxf_qemu_main(void){puts("RXF-COMPOSED-FP-START\n");rxf_runtime_context c=context(ff,fo);union{f32 f;u32 u;}a={.u=0x7fc12345};if(composed_f32(&c,&a.f)||a.u!=0x40f00000){puts("RXF-COMPOSED-F32-FAIL\n");finish(0);}rxf_runtime_context d=context(df,doo);union{f64 f;u64 u;}b={.u=0x7ff8123456789abcULL};if(composed_f64(&d,&b.f)||b.u!=0x401e000000000000ULL){puts("RXF-COMPOSED-F64-FAIL\n");finish(0);}puts("RXF-COMPOSED-FP-PASS\n");finish(1);return 0;}

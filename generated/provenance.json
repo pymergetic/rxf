@@ -1,0 +1,66 @@
+{
+  "artifacts": [
+    {
+      "path": "native/conversions.c",
+      "sha256": "6973c72204f16e883c3c617cb4f4a88e67b1e9818ba46fcbeff61d3a94856d00"
+    },
+    {
+      "path": "generated/native_x86_64.json",
+      "sha256": "ddcb58dbee791939e4a60aa492249f6c32e69117c876ff80c2ec6585d20de73d"
+    },
+    {
+      "path": "generated/native_aarch64.json",
+      "sha256": "43bcff420a4b59f9fc7788b4688415db05333b21c7a7c49a33173ce9847eb616"
+    },
+    {
+      "path": "generated/qemu_aarch64_blobs.S",
+      "sha256": "ef817d597ec30c4a32958726b5a4bb7cb40cc3e7efa888ee6d8de181ba01a721"
+    }
+  ],
+  "compiler": {
+    "name": "clang-18.1.3",
+    "recipe": "-std=c11 -O2 -ffreestanding -fno-builtin -fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables -ffunction-sections -fdata-sections -fno-ident -fno-addrsig -fno-pic -fno-jump-tables",
+    "target": "x86_64-unknown-linux-gnu"
+  },
+  "generators": [
+    {
+      "path": "tools/generate_conversions.py",
+      "sha256": "cdd1f24861b9a07d835394c2b23e5b6b199dd069dbfe20e3e55900b9f955615b"
+    },
+    {
+      "path": "tools/generate_native.py",
+      "sha256": "962a7b21f1ee57b69e04104c0f78d1762b5733c71dcdf9c8cf4b49ae4c7f49c1"
+    },
+    {
+      "path": "tools/generate_qemu_blobs.py",
+      "sha256": "cc4df2dfcf6911df89466fabc6b2ea10d2a169505c0662105e36089816c309b2"
+    }
+  ],
+  "schema": 1,
+  "sources": [
+    {
+      "path": "native/basics.c",
+      "sha256": "db8d489942d6649e79836a882c1c1666bb49357ef72356473420a6af0e8d3b54"
+    },
+    {
+      "path": "native/basics.h",
+      "sha256": "10afc81a7cc578c0e642beef3ae6a886afa046c4580836ac5824d8fa782ddff7"
+    },
+    {
+      "path": "tools/generate_conversions.py",
+      "sha256": "cdd1f24861b9a07d835394c2b23e5b6b199dd069dbfe20e3e55900b9f955615b"
+    },
+    {
+      "path": "tools/generate_native.py",
+      "sha256": "962a7b21f1ee57b69e04104c0f78d1762b5733c71dcdf9c8cf4b49ae4c7f49c1"
+    },
+    {
+      "path": "tools/extract_native.py",
+      "sha256": "400ed8b01e6461e7cd35bd4628ac3454060a236b21cfb054d5e8f9205a879927"
+    },
+    {
+      "path": "tools/native_symbols.py",
+      "sha256": "7cca03ab82009e630adf7d221f81a65b8205fbc7a1e29319cde8457870f43052"
+    }
+  ]
+}

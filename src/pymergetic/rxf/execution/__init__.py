@@ -24,6 +24,13 @@ from pymergetic.rxf.execution.decode import (
     decode_relocation,
     decode_target,
 )
+from pymergetic.rxf.model.capabilities import (
+    CapabilityKind,
+    CapabilityManifest,
+    CapabilityProvider,
+    CapabilityRequirement,
+    CapabilityRights,
+)
 
 __all__ = [
     "Binding",
@@ -31,6 +38,11 @@ __all__ = [
     "BoundFunction",
     "BoundImport",
     "Candidate",
+    "CapabilityKind",
+    "CapabilityManifest",
+    "CapabilityProvider",
+    "CapabilityRequirement",
+    "CapabilityRights",
     "CodeRecord",
     "Diagnostic",
     "FunctionRecord",
@@ -48,4 +60,19 @@ __all__ = [
     "decode_target",
     "preflight",
     "reachable_terminal_functions",
+]
+
+from pymergetic.rxf.execution.boot import BootPlan, boot_preflight
+from pymergetic.rxf.execution.reachability import (
+    ReachabilityReport,
+    dce_report,
+    target_reachability,
+)
+
+__all__ += [
+    "BootPlan",
+    "ReachabilityReport",
+    "boot_preflight",
+    "dce_report",
+    "target_reachability",
 ]

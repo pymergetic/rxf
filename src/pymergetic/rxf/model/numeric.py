@@ -9,7 +9,11 @@ from pymergetic.rxf.generated_native import AARCH64, COMPILER, RECIPE, X86_64
 from pymergetic.rxf.model.contracts import (
     ABIClass,
     ABIKind,
+    ABIPassingMode,
+    ABIRegisterBank,
+    ABIRole,
     ABISignature,
+    ABIValueLocation,
     CompilerProvenance,
     NumericContract,
     NumericOperation,
@@ -31,7 +35,12 @@ from pymergetic.rxf.model.execution import (
     SignatureObject,
 )
 from pymergetic.rxf.model.node import NodeDef
-from pymergetic.rxf.model.target import AARCH64_UEFI_TARGET_ID, X86_64_LINUX_TARGET_ID
+from pymergetic.rxf.model.target import (
+    AARCH64_LINUX_TARGET_ID,
+    AARCH64_UEFI_TARGET_ID,
+    X86_64_LINUX_TARGET_ID,
+    X86_64_UEFI_TARGET_ID,
+)
 from pymergetic.rxf.model.traits import (
     AssociatedType,
     Conformance,
@@ -59,6 +68,12 @@ from pymergetic.rxf.ty.builtins import (
 )
 
 NUMERIC_ID_BASE = 10000
+NUMERIC_AARCH64_LINUX_ABI_BASE = 20_000_000
+NUMERIC_AARCH64_LINUX_LOCATION_BASE = 21_000_000
+NUMERIC_AARCH64_LINUX_CODE_BASE = 22_000_000
+NUMERIC_X86_64_UEFI_ABI_BASE = 23_000_000
+NUMERIC_X86_64_UEFI_LOCATION_BASE = 24_000_000
+NUMERIC_X86_64_UEFI_CODE_BASE = 25_000_000
 TYPES = (
     (U8_TYPE, "uint8_t", 8, False),
     (U16_TYPE, "uint16_t", 16, False),
@@ -315,30 +330,123 @@ def numeric_nodes() -> list[NodeDef]:
             ).to_node()
         )
         abi_x, abi_a = ids.next(), ids.next()
+        abi_linux = NUMERIC_AARCH64_LINUX_ABI_BASE + fid
+        abi_uefi_x = NUMERIC_X86_64_UEFI_ABI_BASE + fid
         classes = tuple(
             ABIClass.FLOAT if source in FLOAT else ABIClass.INTEGER
             for _ in range(arity)
         )
-        nodes.append(
-            ABISignature(
-                abi_x,
-                "sysv_status_out",
-                fid,
-                X86_64_LINUX_TARGET_ID,
-                ABIKind.SYSV_X86_64,
-                classes,
-            ).to_node()
+        result_type = BOOL_TYPE if op in BOOL_RESULT else dt
+        result_width = 1 if result_type == BOOL_TYPE else TYPE_BY_NAME[dest][1] // 8
+        argument_widths = tuple(
+            4 if op.startswith("shift_") and index == 1 else swidth // 8
+            for index in range(arity)
         )
-        nodes.append(
-            ABISignature(
-                abi_a,
-                "aapcs64_status_out",
-                fid,
-                AARCH64_UEFI_TARGET_ID,
-                ABIKind.AAPCS64,
-                classes,
-            ).to_node()
+        abi_records = (
+            (abi_x, X86_64_LINUX_TARGET_ID, ABIKind.SYSV_X86_64),
+            (abi_a, AARCH64_UEFI_TARGET_ID, ABIKind.AAPCS64),
+            (abi_linux, AARCH64_LINUX_TARGET_ID, ABIKind.AAPCS64),
+            (abi_uefi_x, X86_64_UEFI_TARGET_ID, ABIKind.SYSV_X86_64),
         )
+        for abi_id, target_id, abi_kind in abi_records:
+            location_base = (
+                NUMERIC_AARCH64_LINUX_LOCATION_BASE + fid * 8
+                if target_id == AARCH64_LINUX_TARGET_ID
+                else (
+                    NUMERIC_X86_64_UEFI_LOCATION_BASE + fid * 8
+                    if target_id == X86_64_UEFI_TARGET_ID
+                    else 1_000_000 + abi_id * 8
+                )
+            )
+            location_ids = tuple(range(location_base, location_base + arity + 2))
+            nodes.append(
+                ABISignature(
+                    abi_id,
+                    "sysv_status_out"
+                    if abi_kind == ABIKind.SYSV_X86_64
+                    else (
+                        "aapcs64_linux_status_out"
+                        if target_id == AARCH64_LINUX_TARGET_ID
+                        else "aapcs64_uefi_status_out"
+                    ),
+                    fid,
+                    target_id,
+                    abi_kind,
+                    classes,
+                    ABIClass.POINTER,
+                    location_ids,
+                ).to_node()
+            )
+            integer_index = 0
+            float_index = 0
+            for index, (parameter_id, value_class, width) in enumerate(
+                zip(ps, classes, argument_widths, strict=True)
+            ):
+                if value_class == ABIClass.FLOAT:
+                    bank = ABIRegisterBank.FLOAT
+                    register = float_index
+                    float_index += 1
+                else:
+                    bank = ABIRegisterBank.INTEGER
+                    register = integer_index
+                    integer_index += 1
+                nodes.append(
+                    ABIValueLocation(
+                        location_ids[index],
+                        f"argument_{index}",
+                        abi_id,
+                        parameter_id,
+                        index,
+                        ABIRole.SEMANTIC_ARGUMENT,
+                        ABIPassingMode.DIRECT_SCALAR,
+                        value_class,
+                        width,
+                        width,
+                        1,
+                        bank,
+                        (register,),
+                    ).to_node()
+                )
+            nodes.append(
+                ABIValueLocation(
+                    location_ids[-2],
+                    "output",
+                    abi_id,
+                    result,
+                    0,
+                    ABIRole.TRANSIENT_OUTPUT,
+                    ABIPassingMode.INDIRECT_BY_REFERENCE,
+                    ABIClass.POINTER,
+                    result_width,
+                    min(result_width, 8),
+                    1,
+                    ABIRegisterBank.INTEGER,
+                    (integer_index,),
+                    pointee_type=result_type,
+                    hidden=True,
+                    mutable=True,
+                    output_only=True,
+                ).to_node()
+            )
+            nodes.append(
+                ABIValueLocation(
+                    location_ids[-1],
+                    "status",
+                    abi_id,
+                    0,
+                    0,
+                    ABIRole.STATUS_RETURN,
+                    ABIPassingMode.DIRECT_SCALAR,
+                    ABIClass.INTEGER,
+                    4,
+                    4,
+                    1,
+                    ABIRegisterBank.RETURN,
+                    (0,),
+                    pointee_type=U32_TYPE,
+                    hidden=True,
+                ).to_node()
+            )
         sig = next(node.data for node in nodes if node.id == sid)
         result_payload = next(node.data for node in nodes if node.id == result)
         refusal = next(node.data for node in nodes if node.id == refusals)
@@ -347,6 +455,7 @@ def numeric_nodes() -> list[NodeDef]:
             sig, [result_payload], refusal, numeric_payload, 0, 1
         )
         cx, ca = ids.next(), ids.next()
+        cl = NUMERIC_AARCH64_LINUX_CODE_BASE + fid
         nodes.append(
             FunctionObject(
                 fid,
@@ -355,7 +464,7 @@ def numeric_nodes() -> list[NodeDef]:
                 sid,
                 FunctionImplementation.CODE_BACKED,
                 FunctionLayer.BASIC,
-                implementation_ids=(cx, ca),
+                implementation_ids=(cx, ca, cl, NUMERIC_X86_64_UEFI_CODE_BASE + fid),
                 numeric_contract_id=nc,
                 semantic_digest_override=digest,
             ).to_node()
@@ -391,6 +500,40 @@ def numeric_nodes() -> list[NodeDef]:
                 1,
                 digest,
                 abi_signature_id=abi_a,
+                provenance_id=provenance,
+            ).to_node()
+        )
+        nodes.append(
+            CodeObject(
+                cl,
+                "aarch64_linux",
+                fid,
+                fid,
+                AARCH64_LINUX_TARGET_ID,
+                CodeFormat.NATIVE,
+                AARCH64[symbol],
+                sid,
+                Effect.NONE,
+                1,
+                digest,
+                abi_signature_id=abi_linux,
+                provenance_id=provenance,
+            ).to_node()
+        )
+        nodes.append(
+            CodeObject(
+                NUMERIC_X86_64_UEFI_CODE_BASE + fid,
+                "x86_64_uefi",
+                fid,
+                fid,
+                X86_64_UEFI_TARGET_ID,
+                CodeFormat.NATIVE,
+                X86_64[symbol],
+                sid,
+                Effect.NONE,
+                1,
+                digest,
+                abi_signature_id=abi_uefi_x,
                 provenance_id=provenance,
             ).to_node()
         )

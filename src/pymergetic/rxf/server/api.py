@@ -13,6 +13,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from pymergetic.rxf.checker import check
 from pymergetic.rxf.execution.binder import preflight
+from pymergetic.rxf.execution.boot import boot_preflight
 from pymergetic.rxf.execution.decode import (
     decode_code,
     decode_function,
@@ -21,6 +22,8 @@ from pymergetic.rxf.execution.decode import (
     decode_signature,
     decode_target,
 )
+from pymergetic.rxf.execution.reachability import target_reachability
+from pymergetic.rxf.model.capabilities import CapabilityRequirement
 from pymergetic.rxf.model.execution import CallRole, Effect
 from pymergetic.rxf.model.generics import (
     GenericArgument,
@@ -28,7 +31,6 @@ from pymergetic.rxf.model.generics import (
     Specialization,
     Template,
 )
-from pymergetic.rxf.model.module import derived_fqns
 from pymergetic.rxf.model.target import (
     ABIObject,
     ArchitectureObject,
@@ -46,7 +48,17 @@ from pymergetic.rxf.model.traits import (
 )
 from pymergetic.rxf.output.header import BinaryHeader
 from pymergetic.rxf.output.node import NodeEntry, RefBinding, RefKind
+from pymergetic.rxf.reflection import (
+    migration_plan,
+    reflect_functions,
+    reflect_types,
+    tooling_graph_json,
+)
 from pymergetic.rxf.schema import NODE_INVALID, NodeKind
+from pymergetic.rxf.server.compiler_views import (
+    compiler_artifact_view,
+    executable_plan_view,
+)
 from pymergetic.rxf.server.config import ServerConfig
 from pymergetic.rxf.server.state import RXFLibrary, RXFSnapshot
 from pymergetic.rxf.ty.builtins import (
@@ -56,6 +68,7 @@ from pymergetic.rxf.ty.builtins import (
     ARGUMENT_TYPE,
     ASSOCIATED_TYPE_TYPE,
     CALL_TYPE,
+    CAPABILITY_REQUIREMENT_TYPE,
     CODE_TYPE,
     CONFORMANCE_TYPE,
     ENVIRONMENT_TYPE,
@@ -123,7 +136,9 @@ def _heap_view(loaded: RXFSnapshot) -> dict[str, Any]:
         "limit": heap.limit,
         "align": heap.align,
         "page_size": heap.page_size,
-        "stored_size": len(heap.to_wire()),
+        # The packed snapshot already records the immutable heap extent. Re-encoding
+        # every cell here is both redundant and disproportionately expensive.
+        "stored_size": heap.frontier,
     }
 
 
@@ -173,25 +188,23 @@ def _decoded(token: str) -> str:
 
 
 def _tree_children(loaded: RXFSnapshot, parent: int | None) -> list[dict[str, Any]]:
-    nodes = loaded.layout.nodes
-    fqns = derived_fqns(nodes)
-    known = {node.id for node in nodes}
-    children_by_parent: dict[int, list[NodeEntry]] = {}
-    for node in nodes:
-        children_by_parent.setdefault(node.parent, []).append(node)
     if parent is None:
-        selected = [
-            node for node in nodes if node.kind == NodeKind.ROOT and node.id == 0
-        ]
+        selected = tuple(
+            node
+            for node in loaded.layout.nodes
+            if node.kind == NodeKind.ROOT and node.id == 0
+        )
+    elif parent in loaded.layout_nodes_by_id:
+        selected = loaded.children_by_parent.get(parent, ())
     else:
-        selected = children_by_parent.get(parent, []) if parent in known else []
+        selected = ()
     return [
         {
-            **_node_view(node, fqns[node.id]),
-            "has_children": bool(children_by_parent.get(node.id)),
-            "child_count": len(children_by_parent.get(node.id, [])),
+            **_node_view(node, loaded.fqns[node.id]),
+            "has_children": bool(loaded.children_by_parent.get(node.id)),
+            "child_count": len(loaded.children_by_parent.get(node.id, ())),
         }
-        for node in sorted(selected, key=lambda item: (item.name, item.id))
+        for node in selected
     ]
 
 
@@ -203,6 +216,12 @@ def _memory_bins(
     start = max(0, min(start, limit - 1))
     end = max(start + 1, min(end or limit, limit))
     bins = max(16, min(bins, 4096))
+    cache_key = (start, end, bins)
+    with loaded.memory_lock:
+        cached = loaded.memory_cache.get(cache_key)
+        if cached is not None:
+            loaded.memory_cache.move_to_end(cache_key)
+            return cached
     span = end - start
     result = [
         {
@@ -215,13 +234,11 @@ def _memory_bins(
         }
         for _ in range(bins)
     ]
-    nodes = {n.id: n for n in loaded.layout.nodes}
-    for cell in heap.cells:
+    for cell in loaded.memory_cells:
         if cell.end <= start or cell.offset >= end:
             continue
         first = max(0, (max(cell.offset, start) - start) * bins // span)
         last = min(bins - 1, (max(cell.end - 1, start) - start) * bins // span)
-        node = nodes[cell.header.id]
         for index in range(first, last + 1):
             bs = start + index * span // bins
             be = start + (index + 1) * span // bins
@@ -229,17 +246,16 @@ def _memory_bins(
             item = result[index]
             item["used"] += used
             item["count"] += 1
-            item["types"][str(cell.header.type_id)] = (
-                item["types"].get(str(cell.header.type_id), 0) + used
+            item["types"][cell.type_id] = item["types"].get(cell.type_id, 0) + used
+            item["owners"][cell.owner_kind] = (
+                item["owners"].get(cell.owner_kind, 0) + used
             )
-            item["owners"][node.owner_kind.name] = (
-                item["owners"].get(node.owner_kind.name, 0) + used
+            item["dispositions"][cell.disposition] = (
+                item["dispositions"].get(cell.disposition, 0) + used
             )
-            item["dispositions"][node.state.disposition.name] = (
-                item["dispositions"].get(node.state.disposition.name, 0) + used
+            item["node_id"] = (
+                cell.node_id if item["node_id"] in (None, cell.node_id) else None
             )
-            cell_id = _object_id(cell.header.id)
-            item["node_id"] = cell_id if item["node_id"] in (None, cell_id) else None
     for i, item in enumerate(result):
         width = max(1, start + (i + 1) * span // bins - (start + i * span // bins))
         item["occupancy"] = min(1.0, item["used"] / width)
@@ -257,7 +273,18 @@ def _memory_bins(
         del item["types"]
         del item["owners"]
         del item["dispositions"]
-    return {"heap": _heap_view(loaded), "start": start, "end": end, "bins": result}
+    response: dict[str, Any] = {
+        "heap": _heap_view(loaded),
+        "start": start,
+        "end": end,
+        "bins": result,
+    }
+    with loaded.memory_lock:
+        loaded.memory_cache[cache_key] = response
+        loaded.memory_cache.move_to_end(cache_key)
+        while len(loaded.memory_cache) > 32:
+            loaded.memory_cache.popitem(last=False)
+    return response
 
 
 def _parse_object_id(value: str, label: str) -> int:
@@ -571,16 +598,57 @@ def create_app(library: RXFLibrary | None = None) -> FastAPI:
         library.scan()
         return index()
 
+    @app.post("/api/rxfs/{entry_id}/preload")
+    def api_preload(entry_id: str) -> dict[str, object]:
+        logical_id = _decoded(entry_id)
+        try:
+            library.preload(logical_id)
+            return library.load_progress(logical_id)
+        except KeyError as error:
+            raise HTTPException(404, f"RXF {logical_id!r} was not found") from error
+
+    @app.get("/api/rxfs/{entry_id}/load-progress")
+    def api_load_progress(entry_id: str) -> dict[str, object]:
+        logical_id = _decoded(entry_id)
+        try:
+            return library.load_progress(logical_id)
+        except KeyError as error:
+            raise HTTPException(404, f"RXF {logical_id!r} was not found") from error
+
     @app.get("/rxf/{entry_id}", response_class=HTMLResponse)
     def document(
-        entry_id: str, object: str | None = Query(default=None)
+        entry_id: str,
+        object: str | None = Query(default=None),
+        ready: str | None = Query(default=None),
     ) -> HTMLResponse:
-        loaded = snapshot(entry_id)
-        initial_object = (
-            object
-            if object is not None
-            else _object_id(loaded.container.header.entry_node)
-        )
+        logical_id = _decoded(entry_id)
+        try:
+            loaded = library.cached(logical_id)
+            if loaded is None:
+                library.preload(logical_id)
+                return _render(
+                    "loading.jinja2",
+                    {
+                        "entry_id": entry_id,
+                        "relative_path": library.get_entry(logical_id).relative_path,
+                        "query": {"object": object},
+                    },
+                )
+        except KeyError as error:
+            raise HTTPException(404, f"RXF {logical_id!r} was not found") from error
+        entry_object = loaded.container.header.entry_node
+        initial_object = _object_id(entry_object)
+        initial_object_diagnostic = None
+        if object is not None:
+            try:
+                requested_object = _parse_object_id(object, "object")
+            except HTTPException as error:
+                initial_object_diagnostic = str(error.detail)
+            else:
+                if loaded.container.node_by_id(requested_object) is None:
+                    initial_object_diagnostic = f"Object {requested_object} was not found; selected entry instead."
+                else:
+                    initial_object = _object_id(requested_object)
         functions = []
         layer_counts: dict[str, int] = {}
         implementation_counts: dict[str, int] = {}
@@ -602,7 +670,7 @@ def create_app(library: RXFLibrary | None = None) -> FastAPI:
                 }
             )
         functions.sort(key=lambda item: (item["layer"], item["name"]))
-        fqns = derived_fqns(loaded.layout.nodes)
+        fqns = loaded.fqns
         active_targets = sorted(
             node.id
             for node in loaded.container.nodes
@@ -643,6 +711,7 @@ def create_app(library: RXFLibrary | None = None) -> FastAPI:
             "layer_counts": layer_counts,
             "implementation_counts": implementation_counts,
             "initial_object": initial_object,
+            "initial_object_diagnostic": initial_object_diagnostic,
             "entry_node": _object_id(loaded.container.header.entry_node),
             "navigation": {
                 "application": next(
@@ -783,17 +852,16 @@ def create_app(library: RXFLibrary | None = None) -> FastAPI:
     @app.get("/api/rxfs/{entry_id}/nodes")
     def api_nodes(entry_id: str) -> list[dict[str, Any]]:
         loaded = snapshot(entry_id)
-        fqns = derived_fqns(loaded.layout.nodes)
-        return [_node_view(node, fqns[node.id]) for node in loaded.layout.nodes]
+        return [_node_view(node, loaded.fqns[node.id]) for node in loaded.layout.nodes]
 
     @app.get("/api/rxfs/{entry_id}/nodes/{node_id}")
     def api_node(entry_id: str, node_id: int) -> dict[str, Any]:
         loaded = snapshot(entry_id)
-        node = next((item for item in loaded.layout.nodes if item.id == node_id), None)
+        node = loaded.layout_nodes_by_id.get(node_id)
         if node is None:
             raise HTTPException(404, f"Node {node_id} was not found")
-        nodes = {item.id: item for item in loaded.layout.nodes}
-        fqns = derived_fqns(loaded.layout.nodes)
+        nodes = loaded.layout_nodes_by_id
+        fqns = loaded.fqns
         children = [
             {
                 "id": _object_id(item.id),
@@ -827,6 +895,7 @@ def create_app(library: RXFLibrary | None = None) -> FastAPI:
                 "implementation": record.implementation.name,
                 "layer": record.layer.name,
                 "intrinsic": record.intrinsic.name,
+                "compiler_artifacts": {"available": True},
                 "object_links": [
                     {
                         "role": "Signature",
@@ -956,6 +1025,7 @@ def create_app(library: RXFLibrary | None = None) -> FastAPI:
             SIGNATURE_TYPE,
             PARAMETER_TYPE,
             CALL_TYPE,
+            CAPABILITY_REQUIREMENT_TYPE,
             ARGUMENT_TYPE,
             VALUE_TYPE,
             RESULT_TYPE,
@@ -1024,6 +1094,49 @@ def create_app(library: RXFLibrary | None = None) -> FastAPI:
             "execution": execution,
         }
 
+    @app.get("/api/rxfs/{entry_id}/functions/{function_id}/compiler")
+    def api_compiler_artifact(
+        entry_id: str,
+        function_id: str,
+        architecture: str = Query(default="x86_64"),
+        mode: str = Query(default="optimized"),
+    ) -> dict[str, Any]:
+        loaded = snapshot(entry_id)
+        selected_function = _parse_object_id(function_id, "function_id")
+        node = loaded.container.node_by_id(selected_function)
+        if node is None:
+            raise HTTPException(404, f"Function {selected_function} was not found")
+        if node.type_id != FUNCTION_TYPE:
+            raise HTTPException(422, f"Object {selected_function} is not a Function")
+        if architecture not in {"x86_64", "aarch64"}:
+            raise HTTPException(422, "architecture must be x86_64 or aarch64")
+        if mode not in {"optimized", "unoptimized"}:
+            raise HTTPException(422, "mode must be optimized or unoptimized")
+        return compiler_artifact_view(
+            loaded.container,
+            selected_function,
+            architecture,
+            mode == "optimized",
+        )
+
+    @app.get("/api/rxfs/{entry_id}/functions/{function_id}/executable-plan")
+    def api_executable_plan(
+        entry_id: str, function_id: str, target: str = Query(...)
+    ) -> dict[str, Any]:
+        loaded = snapshot(entry_id)
+        selected_function = _parse_object_id(function_id, "function_id")
+        node = loaded.container.node_by_id(selected_function)
+        if node is None:
+            raise HTTPException(404, f"Function {selected_function} was not found")
+        if node.type_id != FUNCTION_TYPE:
+            raise HTTPException(422, f"Object {selected_function} is not a Function")
+        try:
+            return executable_plan_view(
+                loaded.container, loaded.blob, selected_function, target
+            )
+        except (TypeError, ValueError) as error:
+            raise HTTPException(422, str(error)) from error
+
     @app.get("/api/rxfs/{entry_id}/targets")
     def api_targets(
         entry_id: str, active_target: str | None = Query(default=None)
@@ -1077,6 +1190,121 @@ def create_app(library: RXFLibrary | None = None) -> FastAPI:
         ):
             raise HTTPException(404, f"Target {active} was not found")
         return _plan_view(preflight(loaded.container, entry, active))
+
+    @app.get("/api/rxfs/{entry_id}/capabilities")
+    def api_capabilities(entry_id: str) -> dict[str, Any]:
+        loaded = snapshot(entry_id)
+        requirements = [
+            CapabilityRequirement.from_node(node)
+            for node in loaded.container.nodes
+            if node.type_id == CAPABILITY_REQUIREMENT_TYPE
+        ]
+        return {
+            "requirements": [
+                {
+                    "id": _object_id(item.id),
+                    "name": item.name,
+                    "kind": item.kind.name,
+                    "version": item.version,
+                    "rights": int(item.rights),
+                    "effects": int(item.effects),
+                    "targets": [_object_id(value) for value in item.target_ids],
+                    "environments": [
+                        _object_id(value) for value in item.environment_ids
+                    ],
+                    "semantic_digest": item.semantic_digest.hex(),
+                }
+                for item in sorted(requirements, key=lambda value: value.id)
+            ]
+        }
+
+    @app.get("/api/rxfs/{entry_id}/boot")
+    def api_boot(
+        entry_id: str, entry_function: str = Query(...), active_target: str = Query(...)
+    ) -> dict[str, object]:
+        loaded = snapshot(entry_id)
+        return boot_preflight(
+            loaded.container,
+            _parse_object_id(entry_function, "entry_function"),
+            _parse_object_id(active_target, "active_target"),
+        ).to_dict()
+
+    @app.get("/api/rxfs/{entry_id}/reachability")
+    def api_reachability(
+        entry_id: str, entry_function: str = Query(...), active_target: str = Query(...)
+    ) -> dict[str, object]:
+        loaded = snapshot(entry_id)
+        try:
+            return target_reachability(
+                loaded.container,
+                _parse_object_id(entry_function, "entry_function"),
+                _parse_object_id(active_target, "active_target"),
+            ).to_dict()
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.get("/api/rxfs/{entry_id}/reflection")
+    def api_reflection(entry_id: str) -> dict[str, object]:
+        loaded = snapshot(entry_id)
+        return {
+            "types": [
+                item.__dict__
+                | {
+                    "id": _object_id(item.id),
+                    "fields": [
+                        field.__dict__
+                        | {
+                            "id": _object_id(field.id),
+                            "owner_type": _object_id(field.owner_type),
+                            "value_type": _object_id(field.value_type),
+                        }
+                        for field in item.fields
+                    ],
+                }
+                for item in reflect_types(loaded.container)
+            ],
+            "functions": [
+                item.__dict__
+                | {
+                    "id": _object_id(item.id),
+                    "signature_id": _object_id(item.signature_id),
+                }
+                for item in reflect_functions(loaded.container)
+            ],
+        }
+
+    @app.get("/api/rxfs/{entry_id}/migration")
+    def api_migration(
+        entry_id: str, source_type: str = Query(...), destination_type: str = Query(...)
+    ) -> dict[str, object]:
+        loaded = snapshot(entry_id)
+        plan = migration_plan(
+            loaded.container,
+            _parse_object_id(source_type, "source_type"),
+            _parse_object_id(destination_type, "destination_type"),
+        )
+        return {
+            "ok": plan.ok,
+            "source_type": _object_id(plan.source_type),
+            "destination_type": _object_id(plan.destination_type),
+            "steps": [
+                {
+                    "source_field": _object_id(item.source_field),
+                    "destination_field": _object_id(item.destination_field),
+                }
+                for item in plan.steps
+            ],
+            "refusals": list(plan.refusals),
+        }
+
+    @app.get("/api/rxfs/{entry_id}/canonical.json")
+    def api_canonical_json(entry_id: str) -> Response:
+        body = tooling_graph_json(snapshot(entry_id).container) + "\n"
+        return Response(
+            body,
+            media_type="application/json",
+            headers={"Content-Disposition": "attachment; filename=canonical.json"},
+        )
 
     @app.get("/api/rxfs/{entry_id}/heap")
     def api_heap(entry_id: str) -> dict[str, Any]:

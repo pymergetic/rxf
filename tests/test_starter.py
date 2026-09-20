@@ -15,7 +15,12 @@ from pymergetic.rxf.expand import (
     starter_template,
 )
 from pymergetic.rxf.model.module import derived_fqns
-from pymergetic.rxf.model.target import AARCH64_UEFI_TARGET_ID, X86_64_LINUX_TARGET_ID
+from pymergetic.rxf.model.target import (
+    AARCH64_LINUX_TARGET_ID,
+    AARCH64_UEFI_TARGET_ID,
+    X86_64_LINUX_TARGET_ID,
+    X86_64_UEFI_TARGET_ID,
+)
 from pymergetic.rxf.output.engine import pack_layout
 
 ROOT = Path(__file__).parents[1]
@@ -37,13 +42,35 @@ def test_starter_tree_entry_and_reachability() -> None:
     assert len(reachable_terminal_functions(container, STARTER_MAIN_FUNCTION_ID)) == 4
 
 
-def test_starter_preflights_exact_code_for_both_targets() -> None:
+def test_starter_preflights_exact_code_for_all_targets() -> None:
     container = starter_template().build()
     x86 = preflight(container, STARTER_MAIN_FUNCTION_ID, X86_64_LINUX_TARGET_ID)
     arm = preflight(container, STARTER_MAIN_FUNCTION_ID, AARCH64_UEFI_TARGET_ID)
-    assert x86.ok and len(x86.functions) == 4
-    assert arm.ok and len(arm.functions) == 4
-    assert all(item.code_id for item in (*x86.functions, *arm.functions))
+    linux_arm = preflight(container, STARTER_MAIN_FUNCTION_ID, AARCH64_LINUX_TARGET_ID)
+    uefi_x86 = preflight(container, STARTER_MAIN_FUNCTION_ID, X86_64_UEFI_TARGET_ID)
+    plans = (x86, arm, linux_arm, uefi_x86)
+    assert all(plan.ok and len(plan.functions) == 4 for plan in plans)
+    assert all(item.code_id for plan in plans for item in plan.functions)
+    uefi = {item.function_id: item.code_id for item in arm.functions}
+    linux = {item.function_id: item.code_id for item in linux_arm.functions}
+    assert uefi.keys() == linux.keys()
+    assert all(uefi[function_id] != linux[function_id] for function_id in uefi)
+
+
+def test_stdlib_generates_numeric_callback_index_once(monkeypatch) -> None:
+    from pymergetic.rxf.model import stdlib_corpus
+
+    calls = 0
+    generate = stdlib_corpus.numeric_nodes
+
+    def counted_numeric_nodes():
+        nonlocal calls
+        calls += 1
+        return generate()
+
+    monkeypatch.setattr(stdlib_corpus, "numeric_nodes", counted_numeric_nodes)
+    stdlib_corpus.stdlib_nodes()
+    assert calls == 1
 
 
 def test_checked_in_starter_artifacts_are_deterministic() -> None:

@@ -7,6 +7,7 @@ from pymergetic.rxf.execution.decode import (
     decode_relocation,
     decode_signature,
 )
+from pymergetic.rxf.model.capabilities import CapabilityRequirement
 from pymergetic.rxf.model.container import Container
 from pymergetic.rxf.model.execution import (
     CallRole,
@@ -51,6 +52,7 @@ from pymergetic.rxf.ty.builtins import (
     ARGUMENT_TYPE,
     ASSOCIATED_TYPE_TYPE,
     CALL_TYPE,
+    CAPABILITY_REQUIREMENT_TYPE,
     CFG_BLOCK_TYPE,
     CFG_OP_TYPE,
     CODE_TYPE,
@@ -244,6 +246,14 @@ def check(container: Container) -> list[str]:
             except ValueError as error:
                 errors.append(str(error))
 
+    for requirement_node in (
+        node for node in container.nodes if node.type_id == CAPABILITY_REQUIREMENT_TYPE
+    ):
+        try:
+            CapabilityRequirement.from_node(requirement_node)
+        except ValueError as error:
+            errors.append(str(error))
+
     functions = [node for node in container.nodes if node.type_id == FUNCTION_TYPE]
     for function in functions:
         try:
@@ -302,6 +312,20 @@ def check(container: Container) -> list[str]:
                 errors.append(
                     f"imported Function {function.id} requires exactly one bound Import"
                 )
+            elif container.header.version >= 5:
+                try:
+                    imported_record = decode_import(imported[0])
+                    requirement = by_id.get(imported_record.requirement_id)
+                    if (
+                        not imported_record.requirement_id
+                        or requirement is None
+                        or requirement.type_id != CAPABILITY_REQUIREMENT_TYPE
+                    ):
+                        errors.append(
+                            f"imported Function {function.id} requires a capability requirement"
+                        )
+                except ValueError as error:
+                    errors.append(str(error))
         if (
             record.implementation == FunctionImplementation.INTRINSIC
             and record.intrinsic.name == "NONE"
@@ -402,6 +426,7 @@ def check(container: Container) -> list[str]:
             argument = by_id.get(argument_id)
             if argument is not None and argument.type_id not in (
                 ABI_TYPE,
+                CAPABILITY_REQUIREMENT_TYPE,
                 ARCHITECTURE_TYPE,
                 ARGUMENT_TYPE,
                 FUNCTION_TYPE,
@@ -484,7 +509,11 @@ def check(container: Container) -> list[str]:
                 errors.append(str(error))
 
     for imported in (node for node in container.nodes if node.type_id == IMPORT_TYPE):
-        callees = [ref.target for ref in imported.refs if ref.kind == RefKind.IMPORT]
+        callees = [
+            ref.target
+            for ref in imported.refs
+            if ref.kind == RefKind.IMPORT and ref.to_off == int(CallRole.CALLEE)
+        ]
         if (
             len(callees) != 1
             or by_id.get(callees[0], None) is None

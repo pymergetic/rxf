@@ -13,6 +13,12 @@ from pymergetic.rxf.execution.decode import (
     decode_import,
     decode_relocation,
 )
+from pymergetic.rxf.model.capabilities import (
+    CapabilityManifest,
+    CapabilityProvider,
+    CapabilityRequirement,
+    provider_satisfies,
+)
 from pymergetic.rxf.model.container import Container
 from pymergetic.rxf.model.execution import (
     CallRole,
@@ -30,6 +36,7 @@ from pymergetic.rxf.model.target import (
 from pymergetic.rxf.ty.builtins import (
     ARGUMENT_TYPE,
     CALL_TYPE,
+    CAPABILITY_REQUIREMENT_TYPE,
     CODE_TYPE,
     FUNCTION_TYPE,
     IMPORT_TYPE,
@@ -79,7 +86,8 @@ class BoundFunction:
 class BoundImport:
     import_id: int
     function_id: int
-    capability: object
+    requirement_id: int
+    capability: CapabilityProvider | object
 
 
 @dataclass(frozen=True)
@@ -338,16 +346,22 @@ def preflight(
     container: Container,
     entry_function: int,
     target_id: int,
-    capabilities: Mapping[int, object] | None = None,
+    capabilities: Mapping[int, object] | CapabilityManifest | None = None,
 ) -> BindingPlan:
-    capabilities = {} if capabilities is None else capabilities
+    if capabilities is None:
+        capability_map: Mapping[int, object] = {}
+    elif isinstance(capabilities, CapabilityManifest):
+        capability_map = capabilities.by_requirement()
+    else:
+        capability_map = capabilities
     diagnostics = []
     bound = []
     imports = []
     patches = []
     all_candidates = []
     try:
-        _target(container, target_id)
+        active_target = _target(container, target_id)
+        active_environment = active_target[2]
         terminals = reachable_terminal_functions(container, entry_function)
     except ValueError as error:
         return BindingPlan(
@@ -389,19 +403,70 @@ def preflight(
                 )
                 continue
             imp = decode_import(import_nodes[0])
-            capability = capabilities.get(function_id)
+            if isinstance(capabilities, CapabilityManifest) and not imp.requirement_id:
+                diagnostics.append(
+                    Diagnostic(
+                        RefusalCode.MALFORMED,
+                        import_nodes[0].id,
+                        "v5 executable Import requires a capability requirement id",
+                        (function_id,),
+                    )
+                )
+                continue
+            key = imp.requirement_id or function_id
+            capability = capability_map.get(key)
             if capability is None and not imp.optional:
                 diagnostics.append(
                     Diagnostic(
                         RefusalCode.MISSING_CAPABILITY,
                         import_nodes[0].id,
-                        "mandatory capability is absent",
-                        (function_id,),
+                        f"mandatory capability requirement {key} is absent",
+                        (function_id, key),
                     )
                 )
                 continue
+            if capability is not None and imp.requirement_id:
+                requirement_node = container.node_by_id(imp.requirement_id)
+                if (
+                    requirement_node is None
+                    or requirement_node.type_id != CAPABILITY_REQUIREMENT_TYPE
+                ):
+                    diagnostics.append(
+                        Diagnostic(
+                            RefusalCode.MALFORMED,
+                            import_nodes[0].id,
+                            f"capability requirement {imp.requirement_id} is missing",
+                        )
+                    )
+                    continue
+                requirement = CapabilityRequirement.from_node(requirement_node)
+                if not isinstance(capability, CapabilityProvider):
+                    diagnostics.append(
+                        Diagnostic(
+                            RefusalCode.INCOMPATIBLE,
+                            import_nodes[0].id,
+                            "v5 capability provider is not typed",
+                            (imp.requirement_id,),
+                        )
+                    )
+                    continue
+                reason = provider_satisfies(
+                    requirement, capability, target_id, active_environment
+                )
+                if reason is not None:
+                    diagnostics.append(
+                        Diagnostic(
+                            RefusalCode.INCOMPATIBLE,
+                            import_nodes[0].id,
+                            reason,
+                            (imp.requirement_id,),
+                        )
+                    )
+                    continue
             if capability is not None:
-                imports.append(BoundImport(import_nodes[0].id, function_id, capability))
+                imports.append(
+                    BoundImport(import_nodes[0].id, function_id, key, capability)
+                )
             continue
         details = candidate_details(container, function_id, target_id)
         all_candidates.extend(details)
