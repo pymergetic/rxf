@@ -5,6 +5,7 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass
 
+from pymergetic.rxf.model.contracts import ABIClass, ABIKind
 from pymergetic.rxf.model.execution import (
     CodeFormat,
     Effect,
@@ -44,6 +45,31 @@ class FunctionRecord:
     body_id: int
     intrinsic: FunctionIntrinsic
     semantic_digest: bytes
+
+
+@dataclass(frozen=True)
+class ABISignatureRecord:
+    target_id: int
+    kind: ABIKind
+    argument_classes: tuple[ABIClass, ...]
+    output_class: ABIClass
+    location_count: int
+
+
+def decode_abi_signature(node: NodeDef) -> ABISignatureRecord:
+    if len(node.data) < 24:
+        raise ValueError(f"ABISignature {node.id} payload truncated")
+    target, kind, count, output, locations = struct.unpack("<Q4I", node.data[:24])
+    raw = node.data[24:]
+    if len(raw) != count:
+        raise ValueError(f"ABISignature {node.id} class extent invalid")
+    return ABISignatureRecord(
+        target,
+        ABIKind(kind),
+        tuple(ABIClass(v) for v in raw),
+        ABIClass(output),
+        locations,
+    )
 
 
 @dataclass(frozen=True)
@@ -138,6 +164,7 @@ def decode_code(node: NodeDef) -> CodeRecord:
 class ImportRecord:
     function_id: int
     optional: bool
+    requirement_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -150,12 +177,16 @@ class RelocationRecord:
 
 
 def decode_import(node: NodeDef) -> ImportRecord:
-    if len(node.data) != 16:
-        raise ValueError(f"Import object {node.id} payload must be 16 bytes")
-    function_id, optional = struct.unpack("<QI4x", node.data)
+    if len(node.data) == 16:  # explicit pre-v5 compatibility
+        function_id, optional = struct.unpack("<QI4x", node.data)
+        requirement_id = 0
+    elif len(node.data) == 24:
+        function_id, optional, requirement_id = struct.unpack("<QI4xQ", node.data)
+    else:
+        raise ValueError(f"Import object {node.id} payload must be 16 or 24 bytes")
     if optional not in (0, 1):
         raise ValueError(f"Import object {node.id} optional flag is invalid")
-    return ImportRecord(function_id, bool(optional))
+    return ImportRecord(function_id, bool(optional), requirement_id)
 
 
 def decode_relocation(node: NodeDef) -> RelocationRecord:

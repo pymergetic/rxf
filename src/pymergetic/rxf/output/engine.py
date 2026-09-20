@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import struct
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 from pymergetic.rxf.model.state import ObjectState, OwnerKind
 from pymergetic.rxf.output.binary import BinaryLayout
@@ -31,6 +31,19 @@ REF_ENTRY_FORMAT = "<QQII"
 REF_ENTRY_SIZE = struct.calcsize(REF_ENTRY_FORMAT)
 SECTION_ENTRY_FORMAT = "<QQQQII"
 SECTION_ENTRY_SIZE = struct.calcsize(SECTION_ENTRY_FORMAT)
+
+LoadProgressCallback = Callable[[str, int, int, str], None]
+
+
+def _progress(
+    callback: LoadProgressCallback | None,
+    phase: str,
+    completed: int,
+    total: int,
+    unit: str,
+) -> None:
+    if callback is not None:
+        callback(phase, completed, total, unit)
 
 
 def _validate_range(data: bytes, offset: int, size: int, label: str) -> None:
@@ -232,7 +245,9 @@ def pack_layout(layout: BinaryLayout) -> bytes:
     return bytes(output)
 
 
-def unpack_layout(data: bytes) -> BinaryLayout:
+def unpack_layout(
+    data: bytes, progress: LoadProgressCallback | None = None
+) -> BinaryLayout:
     """Parse and validate a canonical RXF v5 image."""
     bootstrap_size = 16
     _validate_range(data, 0, bootstrap_size, "header bootstrap")
@@ -253,6 +268,7 @@ def unpack_layout(data: bytes) -> BinaryLayout:
     if any(data[header_size:header_capacity]):
         raise ValueError("reserved header bytes must be zero")
     header = BinaryHeader.from_wire(data)
+    _progress(progress, "header", 1, 1, "header")
     header.version = version  # preserve explicit v4 inspection translation
     if header.image_size != len(data):
         raise ValueError(
@@ -316,6 +332,10 @@ def unpack_layout(data: bytes) -> BinaryLayout:
         references.append(
             RefEntry(target=target, to_off=to_off, kind=kind, binding=binding)
         )
+        if index % 128 == 127 or index + 1 == header.ref_table_count:
+            _progress(
+                progress, "references", index + 1, header.ref_table_count, "references"
+            )
 
     sections: list[SectionSpan] = []
     for index in range(header.section_table_count):
@@ -334,6 +354,10 @@ def unpack_layout(data: bytes) -> BinaryLayout:
                 perm=SectionPerm(perm_value),
             )
         )
+        if index % 128 == 127 or index + 1 == header.section_table_count:
+            _progress(
+                progress, "sections", index + 1, header.section_table_count, "sections"
+            )
 
     nodes: list[NodeEntry] = []
     for index in range(header.node_count):
@@ -383,7 +407,10 @@ def unpack_layout(data: bytes) -> BinaryLayout:
                 attrs=attrs,
             )
         )
+        if index % 128 == 127 or index + 1 == header.node_count:
+            _progress(progress, "nodes", index + 1, header.node_count, "nodes")
 
+    _progress(progress, "heap", 0, header.frontier, "bytes")
     heap = HeapImage.from_wire(
         data[header.heap_off : header.heap_off + header.frontier],
         image_size=header.image_size,
@@ -392,6 +419,13 @@ def unpack_layout(data: bytes) -> BinaryLayout:
         limit=limit,
         align=header.heap_align,
         page_size=header.page_size,
+        progress=(
+            None
+            if progress is None
+            else lambda completed, total: _progress(
+                progress, "heap", completed, total, "bytes"
+            )
+        ),
     )
     nodes_by_id = {node.id: node for node in nodes}
     if len(nodes_by_id) != len(nodes):
@@ -418,12 +452,15 @@ def unpack_layout(data: bytes) -> BinaryLayout:
         if actual != expected:
             raise ValueError(f"cell {cell_id} disagrees with node table")
 
-    type_table = [
-        TypeLocation.from_wire(
-            data, header.type_table_off + index * TYPE_TABLE_ENTRY_SIZE
+    type_table = []
+    for index in range(header.type_table_count):
+        type_table.append(
+            TypeLocation.from_wire(
+                data, header.type_table_off + index * TYPE_TABLE_ENTRY_SIZE
+            )
         )
-        for index in range(header.type_table_count)
-    ]
+        if index % 128 == 127 or index + 1 == header.type_table_count:
+            _progress(progress, "types", index + 1, header.type_table_count, "types")
     type_ids = [entry.type_id for entry in type_table]
     if type_ids != sorted(set(type_ids)):
         raise ValueError("type table must be sorted with unique type IDs")
@@ -437,12 +474,17 @@ def unpack_layout(data: bytes) -> BinaryLayout:
                 f"type-table entry {entry.type_id} has an invalid cell location"
             )
 
-    code_table = [
-        CodeLocation.from_wire(
-            data, header.code_table_off + index * CODE_TABLE_ENTRY_SIZE
+    code_table = []
+    for index in range(header.code_table_count):
+        code_table.append(
+            CodeLocation.from_wire(
+                data, header.code_table_off + index * CODE_TABLE_ENTRY_SIZE
+            )
         )
-        for index in range(header.code_table_count)
-    ]
+        if index % 128 == 127 or index + 1 == header.code_table_count:
+            _progress(
+                progress, "code", index + 1, header.code_table_count, "code entries"
+            )
     code_keys = [
         (entry.function_id, entry.target_id, entry.code_id) for entry in code_table
     ]

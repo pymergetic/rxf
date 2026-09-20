@@ -7,9 +7,13 @@ from pathlib import Path
 
 from pymergetic.rxf import __version__ as _version
 from pymergetic.rxf.bridge import layout_to_container
+from pymergetic.rxf.executable.artifact import extract_rxf
 from pymergetic.rxf.expand import COUNTER
 from pymergetic.rxf.face import (
+    boot,
+    build_executable,
     certify,
+    certify_lane,
     compile,
     dump_cmd,
     inspect,
@@ -32,6 +36,9 @@ COMMANDS = {
     "layout": "memory cell map + relation graph",
     "replay": "unpack + repack, verify identity",
     "certify": "validate + report",
+    "certify-lane": "strict certification with external tools",
+    "boot": "build deterministic boot plan",
+    "build": "package executable image for a canonical target",
     "compile": "compile composed Function for native targets",
     "targets": "list native runtime targets [active-target-id]",
     "preflight": "validate entry Function binding for a target",
@@ -48,6 +55,34 @@ commands:
 """ + "\n".join(f"  {k:<10} {v}" for k, v in sorted(COMMANDS.items()))
 
 _SERVE_USAGE = "usage: rxf serve --config FILE [--host HOST] [--port PORT]"
+
+_BUILD_USAGE = "usage: rxf build <image.rxf> --entry <function-id> --target <id-or-name> --output <path>"
+
+
+def _parse_build_arguments(arguments: list[str]) -> tuple[str, int, str, str]:
+    if not arguments or arguments[0].startswith("-"):
+        raise ValueError(_BUILD_USAGE)
+    path = arguments[0]
+    values: dict[str, str] = {}
+    remaining = arguments[1:]
+    while remaining:
+        option = remaining.pop(0)
+        if option not in {"--entry", "--target", "--output"} or not remaining:
+            raise ValueError(_BUILD_USAGE)
+        if option in values:
+            raise ValueError(f"build: duplicate {option}\n{_BUILD_USAGE}")
+        values[option] = remaining.pop(0)
+    missing = [option for option in ("--entry", "--target", "--output") if option not in values]
+    if missing:
+        raise ValueError(f"build: {' '.join(missing)} required\n{_BUILD_USAGE}")
+    try:
+        entry = int(values["--entry"], 0)
+    except ValueError as error:
+        raise ValueError(f"build: --entry requires an integer\n{_BUILD_USAGE}") from error
+    if not 0 <= entry < 1 << 64:
+        raise ValueError(f"build: --entry is outside uint64 range\n{_BUILD_USAGE}")
+    return path, entry, values["--target"], values["--output"]
+
 
 
 def _parse_serve_arguments(arguments: list[str]) -> tuple[str, str, int]:
@@ -148,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
         result = inspect(argv[2])
 
     elif cmd == "view":
-        blob = Path(argv[2]).read_bytes()
+        blob = extract_rxf(Path(argv[2]).read_bytes())
         layout = unpack_layout(blob)
         container = layout_to_container(layout)
         print(view(container))
@@ -159,7 +194,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     elif cmd == "layout":
-        blob = Path(argv[2]).read_bytes()
+        blob = extract_rxf(Path(argv[2]).read_bytes())
         layout = unpack_layout(blob)
         container = layout_to_container(layout)
         print("── RELATIONS ──")
@@ -171,6 +206,30 @@ def main(argv: list[str] | None = None) -> int:
 
     elif cmd == "targets":
         result = targets(argv[2], int(argv[3], 0) if len(argv) > 3 else None)
+
+    elif cmd == "build":
+        try:
+            path, entry, target, output = _parse_build_arguments(argv[2:])
+        except ValueError as error:
+            print(error, file=sys.stderr)
+            return 2
+        result = build_executable(path, entry, target, output)
+        if result.get("ok"):
+            # Detailed bindings and object addresses live in the manifest, not
+            # thousands of terminal lines (and never a second hex copy of RXF).
+            result = {
+                key: value for key, value in result.items()
+                if key not in {"layout", "plan", "selected"}
+            }
+
+    elif cmd == "boot":
+        if len(argv) != 5:
+            print(
+                "usage: rxf boot <path> <entry-function-id> <target-id>",
+                file=sys.stderr,
+            )
+            return 2
+        result = boot(argv[2], int(argv[3], 0), int(argv[4], 0))
 
     elif cmd == "preflight":
         if len(argv) != 5:
@@ -192,6 +251,9 @@ def main(argv: list[str] | None = None) -> int:
 
     elif cmd == "certify":
         result = certify(argv[2])
+
+    elif cmd == "certify-lane":
+        result = certify_lane(argv[2])
 
     elif cmd == "serve":
         import uvicorn

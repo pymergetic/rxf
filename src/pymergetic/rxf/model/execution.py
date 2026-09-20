@@ -103,6 +103,7 @@ class CallRole(IntEnum):
     NUMERIC_CONTRACT = 220
     ABI_SIGNATURE = 221
     PROVENANCE = 222
+    CAPABILITY_REQUIREMENT = 223
     ARCHITECTURE = 213
     ABI = 214
     ENVIRONMENT = 215
@@ -412,16 +413,34 @@ class ImportObject:
     parent: int
     function_id: int
     optional: bool = False
+    requirement_id: int = 0
 
     def to_node(self) -> NodeDef:
+        refs = [_ref(self.id, self.function_id, CallRole.CALLEE, RefKind.IMPORT)]
+        if self.requirement_id:
+            refs.append(
+                _ref(
+                    self.id,
+                    self.requirement_id,
+                    CallRole.CAPABILITY_REQUIREMENT,
+                    RefKind.IMPORT,
+                )
+            )
+        data = (
+            struct.pack(
+                "<QI4xQ", self.function_id, int(self.optional), self.requirement_id
+            )
+            if self.requirement_id
+            else struct.pack("<QI4x", self.function_id, int(self.optional))
+        )
         return NodeDef(
             id=self.id,
             name=self.name,
             kind=NodeKind.IMPORT,
             parent=self.parent,
             type_id=IMPORT_TYPE,
-            data=struct.pack("<QI4x", self.function_id, int(self.optional)),
-            refs=[_ref(self.id, self.function_id, CallRole.CALLEE, RefKind.IMPORT)],
+            data=data,
+            refs=refs,
         )
 
 

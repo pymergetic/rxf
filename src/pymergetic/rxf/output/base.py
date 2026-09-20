@@ -10,7 +10,7 @@ Wire protocol:
 
 import enum
 import struct as _stdlib_struct
-from typing import ClassVar, Self, get_args, get_origin, get_type_hints
+from typing import ClassVar, NamedTuple, Self, get_args, get_origin, get_type_hints
 
 from pydantic import BaseModel
 
@@ -73,6 +73,13 @@ class BaseRXFModel(RXFObject, BaseModel):
 # ══════════════════════════════════════════════════════════════════════════════
 
 
+class _WireField(NamedTuple):
+    name: str
+    width: int
+    is_bytes: bool
+    format: str | None
+
+
 class Struct(BaseRXFModel):
     """Fixed-size wire-format struct.
 
@@ -80,44 +87,61 @@ class Struct(BaseRXFModel):
     Each field: ``Annotated[int | float, PrimitiveSubclass]`` or fixed bytes.
     """
 
+    _wire_metadata: ClassVar[tuple[object, tuple[_WireField, ...]] | None] = None
+
     @classmethod
-    def _field_widths(cls) -> dict[str, int]:
-        widths: dict[str, int] = {}
+    def _wire_fields(cls) -> tuple[_WireField, ...]:
+        # Store immutable metadata on the defining class, never on an instance.
+        # Do not inherit a parent's cache or reuse it after model_rebuild().
+        schema = cls.__pydantic_core_schema__
+        cached = cls.__dict__.get("_wire_metadata")
+        if cached is not None and cached[0] is schema:
+            return cached[1]
+        fields: list[_WireField] = []
         raw_hints = get_type_hints(cls, include_extras=True)
         for name, fid in cls.model_fields.items():
             tp = fid.annotation
             raw = raw_hints.get(name)
             primitive = _primitive_type(raw) if raw is not None else None
+            is_bytes = _is_bytes_type(fid)
             if primitive is not None:
-                widths[name] = primitive.__width__
-            elif tp is bytes or _is_bytes_type(fid):
-                ml = _max_length(fid)
-                if ml:
-                    widths[name] = ml
-                else:
+                width = primitive.__width__
+            elif is_bytes:
+                width = _max_length(fid)
+                if not width:
                     raise TypeError(
                         f"bytes field {name!r} on {cls.__name__} needs max_length"
                     )
             elif isinstance(tp, type) and (
                 issubclass(tp, enum.IntFlag) or issubclass(tp, enum.IntEnum)
             ):
-                widths[name] = 4  # enums pack as u32
+                width = 4  # enums pack as u32
             else:
-                # fallback: check raw hint for Primitive
-                if raw is not None:
-                    primitive = _primitive_type(raw)
-                    if primitive is not None:
-                        widths[name] = primitive.__width__
-                        continue
                 raise TypeError(
                     f"unsupported type {tp!r} for {name!r} on {cls.__name__}"
                 )
-        return widths
+            fields.append(
+                _WireField(
+                    name,
+                    width,
+                    is_bytes,
+                    f"<{primitive.__wire_format__}" if primitive is not None else None,
+                )
+            )
+        result = tuple(fields)
+        if cls.__pydantic_complete__:
+            cls._wire_metadata = (schema, result)
+        return result
+
+    @classmethod
+    def _field_widths(cls) -> dict[str, int]:
+        # Keep the helper's fresh, mutable dict independent of the cache.
+        return {field.name: field.width for field in cls._wire_fields()}
 
     @classmethod
     def body_size(cls) -> int:
         """Exact declared field width before trailing alignment."""
-        return sum(cls._field_widths().values())
+        return sum(field.width for field in cls._wire_fields())
 
     @classmethod
     def padding_size(cls) -> int:
@@ -130,24 +154,18 @@ class Struct(BaseRXFModel):
         return align_up(raw, cls.__align__) if cls.__pad_after__ else raw
 
     def to_wire(self) -> bytes:
-        widths = self._field_widths()
-        raw_hints = get_type_hints(type(self), include_extras=True)
-        padded = self.wire_size()
-        buf = bytearray(padded)
+        fields = self._wire_fields()
+        buf = bytearray(self.wire_size())
         offset = 0
-        for name in type(self).model_fields:
-            w = widths[name]
-            val = getattr(self, name)
+        for field in fields:
+            w = field.width
+            val = getattr(self, field.name)
             if isinstance(val, bytes):
                 buf[offset : offset + w] = val[:w].ljust(w, b"\x00")
+            elif field.format is None:
+                _stdlib_struct.pack_into("<I", buf, offset, int(val))
             else:
-                primitive = _primitive_type(raw_hints[name])
-                if primitive is None:
-                    _stdlib_struct.pack_into("<I", buf, offset, int(val))
-                else:
-                    _stdlib_struct.pack_into(
-                        f"<{primitive.__wire_format__}", buf, offset, val
-                    )
+                _stdlib_struct.pack_into(field.format, buf, offset, val)
             offset += w
         return bytes(buf)
 
@@ -159,17 +177,15 @@ class Struct(BaseRXFModel):
                 f"{cls.__name__} wire bytes are out of bounds: "
                 f"offset={offset}, size={size}, data_size={len(data)}"
             )
-        widths = cls._field_widths()
-        raw_hints = get_type_hints(cls, include_extras=True)
         values: dict[str, object] = {}
         off = offset
-        for name, fid in cls.model_fields.items():
-            w = widths[name]
-            if _is_bytes_type(fid):
-                values[name] = data[off : off + w]
+        for field in cls._wire_fields():
+            w = field.width
+            if field.is_bytes:
+                values[field.name] = data[off : off + w]
             else:
-                primitive = _primitive_type(raw_hints[name])
-                fmt = primitive.__wire_format__ if primitive is not None else "I"
-                values[name] = _stdlib_struct.unpack_from(f"<{fmt}", data, off)[0]
+                values[field.name] = _stdlib_struct.unpack_from(
+                    field.format or "<I", data, off
+                )[0]
             off += w
         return cls(**values)

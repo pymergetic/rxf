@@ -3,6 +3,7 @@
 from copy import deepcopy
 from dataclasses import dataclass, field
 
+from pymergetic.rxf.model.capability_corpus import capability_nodes, toolchain_nodes
 from pymergetic.rxf.model.container import Container, Header
 from pymergetic.rxf.model.contracts import ResultObject
 from pymergetic.rxf.model.execution import (
@@ -22,8 +23,8 @@ from pymergetic.rxf.model.module import ModuleCategory, ModuleObject
 from pymergetic.rxf.model.node import NodeDef
 from pymergetic.rxf.model.numeric import control_nodes, numeric_nodes
 from pymergetic.rxf.model.refs import RefDef
-from pymergetic.rxf.model.target import native_target_nodes
 from pymergetic.rxf.model.stdlib_corpus import stdlib_nodes
+from pymergetic.rxf.model.target import native_target_nodes
 from pymergetic.rxf.model.templates_traits import proving_nodes
 from pymergetic.rxf.ops.lowering import with_lowered
 from pymergetic.rxf.schema import NodeKind, RefKind
@@ -421,6 +422,8 @@ def starter_template() -> Template:
         *numeric,
         *control_nodes(),
         *stdlib_nodes(),
+        *capability_nodes(),
+        *toolchain_nodes(),
         *(_module_node(m) for m in modules),
         NodeDef(id=0, name="root", kind=NodeKind.ROOT),
     ]

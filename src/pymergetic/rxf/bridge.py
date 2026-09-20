@@ -1,5 +1,7 @@
 """Copy between the semantic RXF v5 graph and compact global heap layout."""
 
+from collections.abc import Callable
+
 from pymergetic.rxf.execution.decode import decode_code
 from pymergetic.rxf.model.container import Container
 from pymergetic.rxf.model.container import Header as ContainerHeader
@@ -8,7 +10,7 @@ from pymergetic.rxf.model.refs import RefDef
 from pymergetic.rxf.model.state import Disposition
 from pymergetic.rxf.model.storage import HeapDef, SectionDef
 from pymergetic.rxf.output.binary import BinaryLayout
-from pymergetic.rxf.output.cell import CELL_HEADER_SIZE, HeapImage
+from pymergetic.rxf.output.cell import CELL_HEADER_SIZE, Cell, CellHeader, HeapImage
 from pymergetic.rxf.output.code_table import CodeLocation
 from pymergetic.rxf.output.header import (
     FORMAT_VERSION,
@@ -118,17 +120,42 @@ def container_to_layout(container: Container) -> BinaryLayout:
             )
         )
 
+    # This is a fresh compact image, not incremental allocation into a mutable
+    # heap. Build its already offset-ordered cells once; allocate() must scan and
+    # sort caller-owned cells on every call to support arbitrary heap mutations.
+    cells: list[Cell] = []
+    offsets: dict[int, int] = {}
+    frontier = 0
     for node in payload_nodes:
-        heap.allocate(
-            node_id=node.id,
-            type_id=node.type_id,
-            payload=node.data,
-            parent=node.parent,
-            generation=node.generation,
-            state=emitted_states[node.id],
+        if node.id in offsets:
+            raise ValueError(f"node {node.id} is already allocated")
+        offset = align_up(frontier, heap.align)
+        end = offset + CELL_HEADER_SIZE + len(node.data)
+        if end > heap.committed_size:
+            raise MemoryError(
+                f"global heap committed boundary exceeded: {end}>{heap.committed_size}"
+            )
+        if heap.limit is not None and end > heap.limit:
+            raise MemoryError(f"global heap known limit exceeded: {end}>{heap.limit}")
+        cells.append(
+            Cell(
+                offset=offset,
+                align=heap.align,
+                header=CellHeader(
+                    id=node.id,
+                    type_id=node.type_id,
+                    generation=node.generation,
+                    parent=node.parent,
+                    payload_size=len(node.data),
+                    flags=emitted_states[node.id].pack(),
+                ),
+                payload=bytes(node.data),
+            )
         )
-
-    offsets = {cell.header.id: cell.offset for cell in heap.cells}
+        offsets[node.id] = offset
+        frontier = end
+    heap.cells = cells
+    heap.frontier = frontier
     semantic_types = TypeTable.from_container(
         Container(header=container.header, heap=container.heap, nodes=kept)
     )
@@ -162,7 +189,9 @@ def container_to_layout(container: Container) -> BinaryLayout:
     )
 
 
-def layout_to_container(layout: BinaryLayout) -> Container:
+def layout_to_container(
+    layout: BinaryLayout, progress: Callable[[int, int], None] | None = None
+) -> Container:
     payloads = {cell.header.id: cell.payload for cell in layout.heap.cells}
     nodes: list[NodeDef] = []
     for node in layout.nodes:
@@ -203,6 +232,10 @@ def layout_to_container(layout: BinaryLayout) -> Container:
                 data=payloads.get(node.id, b""),
             )
         )
+        if progress is not None and (
+            len(nodes) % 128 == 0 or len(nodes) == len(layout.nodes)
+        ):
+            progress(len(nodes), len(layout.nodes))
 
     header = layout.header
     return Container(

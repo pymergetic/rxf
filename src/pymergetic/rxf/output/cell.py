@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Annotated
 
 from pydantic import Field
@@ -151,6 +152,7 @@ class HeapImage(BaseRXFModel):
         limit: int | None = None,
         align: int = 8,
         page_size: int = 4096,
+        progress: Callable[[int, int], None] | None = None,
     ) -> HeapImage:
         if frontier > len(data) or frontier > committed_size:
             raise ValueError("heap frontier exceeds stored or committed bytes")
@@ -177,6 +179,10 @@ class HeapImage(BaseRXFModel):
                 )
             )
             offset = end
+            if progress is not None and (len(cells) % 128 == 0 or offset >= frontier):
+                progress(min(offset, frontier), frontier)
+        if progress is not None and not frontier:
+            progress(0, 0)
         return cls(
             image_size=image_size,
             committed_size=committed_size,
