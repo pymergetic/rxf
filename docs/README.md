@@ -19,7 +19,7 @@ Runtime object pointers and function entry points resolve into the embedded RXF 
 there is no stripped native program plus a detached metadata copy and no bytecode
 interpreter between the object world and its lowest-level machine Code.
 
-![RXF Inspector showing the application object tree, global HeapImage, and selected Function](images/inspector-overview.png)
+![RXF Inspector showing the application object tree, global HeapImage, and selected Function](docs/images/inspector-overview.png)
 
 *One view of the same program: semantic objects on the left, physical cell layout in
 the center, and the selected object's type, lifecycle, references, and body on the right.*
@@ -37,7 +37,7 @@ Native machine code is not opaque external cargo. A Code object names its Functi
 RuntimeTarget, ABI, effects, provenance, imports, and relocations, while retaining its
 exact bytes inside the object heap:
 
-![RXF Inspector showing an x86-64 Code object, raw bytes, target contract, imports, and relocations](images/inspector-native-code.png)
+![RXF Inspector showing an x86-64 Code object, raw bytes, target contract, imports, and relocations](docs/images/inspector-native-code.png)
 
 *An x86-64 terminal Code object remains linked to its semantic Function and target
 contract. Other architecture implementations coexist in the same RXF image.*
