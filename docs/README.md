@@ -66,18 +66,19 @@ Read in order:
 5. [Semantic authority](docs/05-SEMANTIC-AUTHORITY.md)
 6. [Paths and views](docs/06-PATHS-AND-VIEWS.md)
 7. [Successor and activation](docs/07-SUCCESSOR-AND-ACTIVATION.md)
-8. [Inventory](docs/08-INVENTORY.md)
-9. [Plan](docs/09-PLAN.md)
-10. [Faces and channels](docs/10-FACE-AND-CHANNELS.md)
-11. [Bootstrap and quorum](docs/11-BOOTSTRAP-AND-QUORUM.md)
+8. [Current implementation inventory](docs/08-INVENTORY.md)
+9. [Development roadmap](docs/09-PLAN.md)
+10. [Operations and adapters](docs/10-FACE-AND-CHANNELS.md)
+11. [Bootstrap, verification, and trust](docs/11-BOOTSTRAP-AND-QUORUM.md)
 12. [Authoring](docs/12-AUTHORING.md)
 13. [Execution layers](docs/13-EXECUTION-LAYERS.md)
 14. [Templates, traits, and static dispatch](docs/14-TEMPLATES-TRAITS-AND-DISPATCH.md)
 15. [Standard library stages 4–8](docs/15-STDLIB-STAGES-4-8.md)
 16. [Capabilities and toolchain stages 9–15](docs/16-CAPABILITIES-AND-TOOLCHAIN.md)
 
-Documents use DOMAIN only when explicitly rejecting the obsolete model and use arena
-only for identified external Metal implementation details. RXF v5 has neither construct.
+These documents specify RXF independently of any runtime provider. Historical Metal-derived
+design research is preserved under [`docs/history/`](docs/history/README.md); the optional
+Metal binding is described separately in [`docs/integrations/metal.md`](docs/integrations/metal.md).
 
 ## RXF v5 binary model
 
