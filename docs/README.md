@@ -59,22 +59,22 @@ contract. Other architecture implementations coexist in the same RXF image.*
 
 Read in order:
 
-1. [Object model](01-OBJECT-MODEL.md)
-2. [Container and wire layout](02-CONTAINER.md)
-3. [Allocator state](03-ALLOCATOR-STATE.md)
-4. [References](04-REFERENCES.md)
-5. [Semantic authority](05-SEMANTIC-AUTHORITY.md)
-6. [Paths and views](06-PATHS-AND-VIEWS.md)
-7. [Successor and activation](07-SUCCESSOR-AND-ACTIVATION.md)
-8. [Inventory](08-INVENTORY.md)
-9. [Plan](09-PLAN.md)
-10. [Faces and channels](10-FACE-AND-CHANNELS.md)
-11. [Bootstrap and quorum](11-BOOTSTRAP-AND-QUORUM.md)
-12. [Authoring](12-AUTHORING.md)
-13. [Execution layers](13-EXECUTION-LAYERS.md)
-14. [Templates, traits, and static dispatch](14-TEMPLATES-TRAITS-AND-DISPATCH.md)
-15. [Standard library stages 4–8](15-STDLIB-STAGES-4-8.md)
-16. [Capabilities and toolchain stages 9–15](16-CAPABILITIES-AND-TOOLCHAIN.md)
+1. [Object model](docs/01-OBJECT-MODEL.md)
+2. [Container and wire layout](docs/02-CONTAINER.md)
+3. [Allocator state](docs/03-ALLOCATOR-STATE.md)
+4. [References](docs/04-REFERENCES.md)
+5. [Semantic authority](docs/05-SEMANTIC-AUTHORITY.md)
+6. [Paths and views](docs/06-PATHS-AND-VIEWS.md)
+7. [Successor and activation](docs/07-SUCCESSOR-AND-ACTIVATION.md)
+8. [Inventory](docs/08-INVENTORY.md)
+9. [Plan](docs/09-PLAN.md)
+10. [Faces and channels](docs/10-FACE-AND-CHANNELS.md)
+11. [Bootstrap and quorum](docs/11-BOOTSTRAP-AND-QUORUM.md)
+12. [Authoring](docs/12-AUTHORING.md)
+13. [Execution layers](docs/13-EXECUTION-LAYERS.md)
+14. [Templates, traits, and static dispatch](docs/14-TEMPLATES-TRAITS-AND-DISPATCH.md)
+15. [Standard library stages 4–8](docs/15-STDLIB-STAGES-4-8.md)
+16. [Capabilities and toolchain stages 9–15](docs/16-CAPABILITIES-AND-TOOLCHAIN.md)
 
 Documents use DOMAIN only when explicitly rejecting the obsolete model and use arena
 only for identified external Metal implementation details. RXF v5 has neither construct.
