@@ -1,0 +1,825 @@
+# One expression: an operand, then as many operators of two operands as the source has. It is the
+# same expression the host reads, level by level, written as one loop over the two stacks of the
+# operands and of the operators, so that nothing recurses. A body of an `fn` is a frame that ends
+# the expression it holds; the paren of a `load64` is an operator that takes its address at the `)`.
+
+# the value of the digit `g0` in a number, or 255 when it is not one
+proc digit_value {
+    R = 255;
+    if (48 <= g0) & (g0 <= 57) {
+        R = g0 - 48;
+        ret;
+    }
+    if (97 <= g0) & (g0 <= 102) {
+        R = g0 - 87;
+        ret;
+    }
+    if (65 <= g0) & (g0 <= 70) {
+        R = g0 - 55;
+    }
+}
+
+# The number of the token tk. It is what the host makes of it: `0x` is hexadecimal, otherwise it is
+# decimal, and an underscore between the digits is nothing. A number of more than 64 bits, or one
+# the host would not read at all, is refused.
+proc parse_number {
+    store64(work + PN_TEXT, load64(tk + 8));
+    store64(work + PN_LEN, load64(tk + 16));
+    store64(work + PN_BASE, 10);
+    store64(work + PN_I, 0);
+    if load64(work + PN_LEN) >= 2 {
+        if load8(load64(work + PN_TEXT)) == 48 {
+            store64(work + PN_C, load8(load64(work + PN_TEXT) + 1));
+            if (load64(work + PN_C) == 120) | (load64(work + PN_C) == 88) {
+                store64(work + PN_BASE, 16);
+                store64(work + PN_I, 2);
+            }
+        }
+    }
+    if load64(work + PN_BASE) == 10 {
+        if (load64(work + PN_LEN) > 1) & (load8(load64(work + PN_TEXT)) == 48) {
+            st = BAD_SOURCE;
+            at = load64(tk + 24);
+            ret;
+        }
+    }
+    store64(work + PN_V, 0);
+    while load64(work + PN_I) < load64(work + PN_LEN) {
+        store64(work + PN_C, load8(load64(work + PN_TEXT) + load64(work + PN_I)));
+        if load64(work + PN_C) == 95 {
+            store64(work + PN_I, load64(work + PN_I) + 1);
+            continue;
+        }
+        g0 = load64(work + PN_C);
+        call digit_value;
+        store64(work + PN_D, R);
+        if load64(work + PN_D) >= load64(work + PN_BASE) {
+            st = BAD_SOURCE;
+            at = load64(tk + 24);
+            ret;
+        }
+        if load64(work + PN_BASE) == 16 {
+            store64(work + PN_V, (load64(work + PN_V) << 4) + load64(work + PN_D));
+        } else {
+            store64(work + PN_V, ((load64(work + PN_V) << 3) + (load64(work + PN_V) << 1))
+                    + load64(work + PN_D));
+        }
+        store64(work + PN_I, load64(work + PN_I) + 1);
+    }
+    R = load64(work + PN_V);
+}
+
+# ---- the stacks ------------------------------------------------------------------------------
+
+proc ex_push_value {
+    if nval >= NVAL {
+        st = OUT_OF_MEMORY;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + W_VALUES + (nval * 16), ev_kind);
+    store64(work + W_VALUES + (nval * 16) + 8, ev_value);
+    nval = nval + 1;
+}
+
+proc ex_pop_value {
+    if nval == 0 {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    nval = nval - 1;
+    ev_kind = load64(work + W_VALUES + (nval * 16));
+    ev_value = load64(work + W_VALUES + (nval * 16) + 8);
+}
+
+# an operator or a marker: what it is, and how tightly it holds
+proc ex_push_op {
+    if nop >= NOP {
+        st = OUT_OF_MEMORY;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + W_OPS + (nop * 32), load64(work + RO_WHAT));
+    store64(work + W_OPS + (nop * 32) + 8, load64(work + RO_PREC));
+    store64(work + W_OPS + (nop * 32) + 16, load64(work + RO_NUM));
+    store64(work + W_OPS + (nop * 32) + 24, load64(work + RO_LABEL));
+    nop = nop + 1;
+}
+
+# ---- what two numbers are ---------------------------------------------------------------------
+
+# a * b of 64 bits: R is the low 64 bits
+proc fold_mul {
+    R = 0;
+    store64(work + FM_A, load64(work + G_FO_A));
+    store64(work + FM_B, load64(work + G_FO_B));
+    while load64(work + FM_B) != 0 {
+        if (load64(work + FM_B) & 1) != 0 {
+            R = R + load64(work + FM_A);
+        }
+        store64(work + FM_A, load64(work + FM_A) << 1);
+        store64(work + FM_B, load64(work + FM_B) >> 1);
+    }
+}
+
+# What two numbers that are known when the program is made are: G_FO_OP on G_FO_A and G_FO_B. It is
+# what the host works out before it writes a word.
+proc ex_fold {
+    if load64(work + G_FO_OP) == OP_ADD {
+        R = load64(work + G_FO_A) + load64(work + G_FO_B);
+        ret;
+    }
+    if load64(work + G_FO_OP) == OP_SUB {
+        R = load64(work + G_FO_A) - load64(work + G_FO_B);
+        ret;
+    }
+    if load64(work + G_FO_OP) == OP_MUL {
+        call fold_mul;
+        ret;
+    }
+    if load64(work + G_FO_OP) == OP_AND {
+        R = load64(work + G_FO_A) & load64(work + G_FO_B);
+        ret;
+    }
+    if load64(work + G_FO_OP) == OP_OR {
+        R = load64(work + G_FO_A) | load64(work + G_FO_B);
+        ret;
+    }
+    if load64(work + G_FO_OP) == OP_SHL {
+        R = 0;
+        if load64(work + G_FO_B) < 64 {
+            R = load64(work + G_FO_A) << load64(work + G_FO_B);
+        }
+        ret;
+    }
+    if load64(work + G_FO_OP) == OP_SHR {
+        R = 0;
+        if load64(work + G_FO_B) < 64 {
+            R = load64(work + G_FO_A) >> load64(work + G_FO_B);
+        }
+        ret;
+    }
+    R = 0;
+    if load64(work + G_FO_OP) == OP_EQ {
+        if load64(work + G_FO_A) == load64(work + G_FO_B) { R = 1; }
+        ret;
+    }
+    if load64(work + G_FO_OP) == OP_NE {
+        if load64(work + G_FO_A) != load64(work + G_FO_B) { R = 1; }
+        ret;
+    }
+    if load64(work + G_FO_OP) == OP_LT {
+        if load64(work + G_FO_A) < load64(work + G_FO_B) { R = 1; }
+        ret;
+    }
+    if load64(work + G_FO_OP) == OP_LE {
+        if load64(work + G_FO_A) <= load64(work + G_FO_B) { R = 1; }
+        ret;
+    }
+    if load64(work + G_FO_OP) == OP_GT {
+        if load64(work + G_FO_A) > load64(work + G_FO_B) { R = 1; }
+        ret;
+    }
+    if load64(work + G_FO_OP) == OP_GE {
+        if load64(work + G_FO_A) >= load64(work + G_FO_B) { R = 1; }
+    }
+}
+
+# The call of a leaf with the two operands G_BI_*: both that are read are free again, the answer is
+# a temporary. ev_kind and ev_value are what it gives back.
+proc ex_emit_call {
+    store64(work + G_EV_KIND, load64(work + G_BI_AK));
+    store64(work + G_EV_VALUE, load64(work + G_BI_AV));
+    call free_value;
+    store64(work + G_EV_KIND, load64(work + G_BI_BK));
+    store64(work + G_EV_VALUE, load64(work + G_BI_BV));
+    call free_value;
+    call temp_alloc;
+    if st != 0 { ret; }
+    store64(work + EE_OUT, R);
+    call_begin(load64(work + G_BI_LEAF), load64(work + EE_OUT));
+    store64(work + G_EO_KIND, load64(work + G_BI_AK));
+    store64(work + G_EO_VALUE, load64(work + G_BI_AV));
+    call eo_push;
+    store64(work + G_EO_KIND, load64(work + G_BI_BK));
+    store64(work + G_EO_VALUE, load64(work + G_BI_BV));
+    call eo_push;
+    call emit_call;
+    ev_kind = V_SLOT;
+    ev_value = load64(work + EE_OUT);
+}
+
+# x * 2^k is x << k, and 2^k * x is x << k. What is not a power of two is refused, as the host does.
+proc ex_mul {
+    store64(work + EMK, 0);
+    if (load64(work + G_BI_BK) == V_LIT) & (load64(work + G_BI_BV) != 0) {
+        if (load64(work + G_BI_BV) & (load64(work + G_BI_BV) - 1)) == 0 {
+            store64(work + EMT, load64(work + G_BI_BV));
+            while load64(work + EMT) > 1 {
+                store64(work + EMT, load64(work + EMT) >> 1);
+                store64(work + EMK, load64(work + EMK) + 1);
+            }
+            store64(work + G_BI_OP, OP_SHL);
+            store64(work + G_BI_BK, V_LIT);
+            store64(work + G_BI_BV, load64(work + EMK));
+            call ex_binary;
+            ret;
+        }
+    }
+    store64(work + EMK, 0);
+    if (load64(work + G_BI_AK) == V_LIT) & (load64(work + G_BI_AV) != 0) {
+        if (load64(work + G_BI_AV) & (load64(work + G_BI_AV) - 1)) == 0 {
+            store64(work + EMT, load64(work + G_BI_AV));
+            while load64(work + EMT) > 1 {
+                store64(work + EMT, load64(work + EMT) >> 1);
+                store64(work + EMK, load64(work + EMK) + 1);
+            }
+            store64(work + ESWAP_K, load64(work + G_BI_BK));
+            store64(work + ESWAP_V, load64(work + G_BI_BV));
+            store64(work + G_BI_BK, load64(work + G_BI_AK));
+            store64(work + G_BI_BV, load64(work + G_BI_AV));
+            store64(work + G_BI_AK, load64(work + ESWAP_K));
+            store64(work + G_BI_AV, load64(work + ESWAP_V));
+            store64(work + G_BI_OP, OP_SHL);
+            store64(work + G_BI_BK, V_LIT);
+            store64(work + G_BI_BV, load64(work + EMK));
+            call ex_binary;
+            ret;
+        }
+    }
+    st = BAD_SOURCE;
+    at = load64(work + G_LASTLINE);
+}
+
+# What G_BI_OP makes of the operands G_BI_*: ev_kind and ev_value. Two numbers that are known when
+# the program is made are worked out here; `!=`, `>`, `<=` and `>=` are the operators the host has,
+# and `*` is a shift of a power of two.
+proc ex_binary {
+    if (load64(work + G_BI_AK) == V_LIT) & (load64(work + G_BI_BK) == V_LIT) {
+        store64(work + G_FO_OP, load64(work + G_BI_OP));
+        store64(work + G_FO_A, load64(work + G_BI_AV));
+        store64(work + G_FO_B, load64(work + G_BI_BV));
+        call ex_fold;
+        ev_kind = V_LIT;
+        ev_value = R;
+        ret;
+    }
+    if load64(work + G_BI_OP) == OP_MUL {
+        call ex_mul;
+        ret;
+    }
+    if load64(work + G_BI_OP) == OP_NE {
+        store64(work + G_BI_LEAF, LEAF_EQ);
+        call ex_emit_call;
+        if st != 0 { ret; }
+        store64(work + G_BI_AK, ev_kind);
+        store64(work + G_BI_AV, ev_value);
+        store64(work + G_BI_BK, V_LIT);
+        store64(work + G_BI_BV, 0);
+        store64(work + G_BI_LEAF, LEAF_EQ);
+        call ex_emit_call;
+        ret;
+    }
+    if load64(work + G_BI_OP) == OP_GT {
+        store64(work + ESWAP_K, load64(work + G_BI_AK));
+        store64(work + ESWAP_V, load64(work + G_BI_AV));
+        store64(work + G_BI_AK, load64(work + G_BI_BK));
+        store64(work + G_BI_AV, load64(work + G_BI_BV));
+        store64(work + G_BI_BK, load64(work + ESWAP_K));
+        store64(work + G_BI_BV, load64(work + ESWAP_V));
+        store64(work + G_BI_OP, OP_LT);
+    }
+    if load64(work + G_BI_OP) == OP_LE {
+        store64(work + ESWAP_K, load64(work + G_BI_AK));
+        store64(work + ESWAP_V, load64(work + G_BI_AV));
+        store64(work + G_BI_AK, load64(work + G_BI_BK));
+        store64(work + G_BI_AV, load64(work + G_BI_BV));
+        store64(work + G_BI_BK, load64(work + ESWAP_K));
+        store64(work + G_BI_BV, load64(work + ESWAP_V));
+        store64(work + G_BI_LEAF, LEAF_LT);
+        call ex_emit_call;
+        if st != 0 { ret; }
+        store64(work + G_BI_AK, ev_kind);
+        store64(work + G_BI_AV, ev_value);
+        store64(work + G_BI_BK, V_LIT);
+        store64(work + G_BI_BV, 0);
+        store64(work + G_BI_LEAF, LEAF_EQ);
+        call ex_emit_call;
+        ret;
+    }
+    if load64(work + G_BI_OP) == OP_GE {
+        store64(work + G_BI_LEAF, LEAF_LT);
+        call ex_emit_call;
+        if st != 0 { ret; }
+        store64(work + G_BI_AK, ev_kind);
+        store64(work + G_BI_AV, ev_value);
+        store64(work + G_BI_BK, V_LIT);
+        store64(work + G_BI_BV, 0);
+        store64(work + G_BI_LEAF, LEAF_EQ);
+        call ex_emit_call;
+        ret;
+    }
+    store64(work + G_BI_LEAF, LEAF_ADD);
+    if load64(work + G_BI_OP) == OP_SUB { store64(work + G_BI_LEAF, LEAF_SUB); }
+    if load64(work + G_BI_OP) == OP_AND { store64(work + G_BI_LEAF, LEAF_AND); }
+    if load64(work + G_BI_OP) == OP_OR { store64(work + G_BI_LEAF, LEAF_OR); }
+    if load64(work + G_BI_OP) == OP_SHL { store64(work + G_BI_LEAF, LEAF_SHL); }
+    if load64(work + G_BI_OP) == OP_SHR { store64(work + G_BI_LEAF, LEAF_SHR); }
+    if load64(work + G_BI_OP) == OP_EQ { store64(work + G_BI_LEAF, LEAF_EQ); }
+    if load64(work + G_BI_OP) == OP_LT { store64(work + G_BI_LEAF, LEAF_LT); }
+    call ex_emit_call;
+}
+
+# The operator that is on top of the stack does its work: a prefix takes one operand, an operator
+# of two takes two.
+proc ex_reduce_one {
+    nop = nop - 1;
+    store64(work + RO_WHAT, load64(work + W_OPS + (nop * 32)));
+    store64(work + RO_NUM, load64(work + W_OPS + (nop * 32) + 16));
+    if load64(work + RO_WHAT) == O_PREFIX {
+        call ex_pop_value;
+        if st != 0 { ret; }
+        store64(work + G_BI_AK, ev_kind);
+        store64(work + G_BI_AV, ev_value);
+        store64(work + G_BI_BK, V_LIT);
+        store64(work + G_BI_BV, 0);
+        store64(work + G_BI_OP, OP_EQ);
+        if load64(work + RO_NUM) == OP_NEG {
+            store64(work + G_BI_AK, V_LIT);
+            store64(work + G_BI_AV, 0);
+            store64(work + G_BI_BK, ev_kind);
+            store64(work + G_BI_BV, ev_value);
+            store64(work + G_BI_OP, OP_SUB);
+        }
+        if load64(work + RO_NUM) == OP_BITNOT {
+            store64(work + G_BI_AK, V_LIT);
+            store64(work + G_BI_AV, MASK);
+            store64(work + G_BI_BK, ev_kind);
+            store64(work + G_BI_BV, ev_value);
+            store64(work + G_BI_OP, OP_SUB);
+        }
+        call ex_binary;
+        if st != 0 { ret; }
+        call ex_push_value;
+        ret;
+    }
+    call ex_pop_value;
+    if st != 0 { ret; }
+    store64(work + G_BI_BK, ev_kind);
+    store64(work + G_BI_BV, ev_value);
+    call ex_pop_value;
+    if st != 0 { ret; }
+    store64(work + G_BI_AK, ev_kind);
+    store64(work + G_BI_AV, ev_value);
+    store64(work + G_BI_OP, load64(work + RO_NUM));
+    call ex_binary;
+    if st != 0 { ret; }
+    call ex_push_value;
+}
+
+# The expression of the frame that is on top is over: the operators it began with are done and the
+# one value it made is what an `fn` stands for. What it left half open is not an expression.
+proc ex_unwind {
+    fr = frame_top();
+    store64(work + G_UW_VALS, load64(fr + 40));
+    store64(work + G_UW_OPS, load64(fr + 48));
+    while nop > load64(work + G_UW_OPS) {
+        store64(work + RO_WHAT, load64(work + W_OPS + ((nop - 1) * 32)));
+        if (load64(work + RO_WHAT) == O_PAREN) | (load64(work + RO_WHAT) == O_LOAD) {
+            st = BAD_SOURCE;
+            at = load64(work + G_LASTLINE);
+            ret;
+        }
+        call ex_reduce_one;
+        if st != 0 { ret; }
+    }
+    if nval != load64(work + G_UW_VALS) + 1 {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    # the one value is what the expression is worth: ev_kind and ev_value, and nothing on the stack
+    call ex_pop_value;
+    call frame_pop;
+}
+
+# A `)` closes the paren or the `load` that is open: what is between them is done, and a `load`
+# reads its address into a temporary here.
+proc ex_close_paren {
+    while nop > 0 {
+        store64(work + RO_WHAT, load64(work + W_OPS + ((nop - 1) * 32)));
+        if (load64(work + RO_WHAT) == O_PAREN) | (load64(work + RO_WHAT) == O_LOAD) {
+            break;
+        }
+        call ex_reduce_one;
+        if st != 0 { ret; }
+    }
+    if nop == 0 {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + RO_WHAT, load64(work + W_OPS + ((nop - 1) * 32)));
+    store64(work + RO_NUM, load64(work + W_OPS + ((nop - 1) * 32) + 16));
+    nop = nop - 1;
+    call next_tok;
+    if st != 0 { ret; }
+    if load64(work + RO_WHAT) == O_LOAD {
+        call ex_pop_value;
+        if st != 0 { ret; }
+        store64(work + EL_AK, ev_kind);
+        store64(work + EL_AV, ev_value);
+        store64(work + LO_SIZE, load64(work + RO_NUM));
+        call emit_load;
+        if st != 0 { ret; }
+        ev_kind = V_SLOT;
+        ev_value = R;
+        call ex_push_value;
+    }
+}
+
+# The operator the token tk is: R is its number and R0 how tightly it holds, or 0 and 0 when it is
+# not one.
+proc op_of {
+    R = 0;
+    R0 = 0;
+    if load64(tk) != K_OP { ret; }
+    store64(work + OO_LEN, load64(tk + 16));
+    if (load64(work + OO_LEN) != 1) & (load64(work + OO_LEN) != 2) { ret; }
+    store64(work + OO_TEXT, load64(tk + 8));
+    store64(work + OO_A, load8(load64(work + OO_TEXT)));
+    if load64(work + OO_LEN) == 2 {
+        store64(work + OO_B, load8(load64(work + OO_TEXT) + 1));
+        if (load64(work + OO_A) == 60) & (load64(work + OO_B) == 60) {
+            R = OP_SHL;
+            R0 = 4;
+        }
+        if (load64(work + OO_A) == 62) & (load64(work + OO_B) == 62) {
+            R = OP_SHR;
+            R0 = 4;
+        }
+        if (load64(work + OO_A) == 61) & (load64(work + OO_B) == 61) {
+            R = OP_EQ;
+            R0 = 2;
+        }
+        if (load64(work + OO_A) == 33) & (load64(work + OO_B) == 61) {
+            R = OP_NE;
+            R0 = 2;
+        }
+        if (load64(work + OO_A) == 60) & (load64(work + OO_B) == 61) {
+            R = OP_LE;
+            R0 = 3;
+        }
+        if (load64(work + OO_A) == 62) & (load64(work + OO_B) == 61) {
+            R = OP_GE;
+            R0 = 3;
+        }
+        ret;
+    }
+    if load64(work + OO_A) == 124 {
+        R = OP_OR;
+        R0 = 0;
+    }
+    if load64(work + OO_A) == 38 {
+        R = OP_AND;
+        R0 = 1;
+    }
+    if load64(work + OO_A) == 60 {
+        R = OP_LT;
+        R0 = 3;
+    }
+    if load64(work + OO_A) == 62 {
+        R = OP_GT;
+        R0 = 3;
+    }
+    if load64(work + OO_A) == 43 {
+        R = OP_ADD;
+        R0 = 5;
+    }
+    if load64(work + OO_A) == 45 {
+        R = OP_SUB;
+        R0 = 5;
+    }
+    if load64(work + OO_A) == 42 {
+        R = OP_MUL;
+        R0 = 6;
+    }
+}
+
+# ---- the operand -----------------------------------------------------------------------------
+
+# The name tk is a `load8`, `load16`, `load32` or `load64`: R is the number of bytes, or 0.
+proc load_size_of {
+    R = 0;
+    if load64(tk) != K_NAME { ret; }
+    store64(work + G_R1, load64(tk + 16));
+    if (load64(work + G_R1) != 5) & (load64(work + G_R1) != 6) { ret; }
+    store64(work + LS_TEXT, load64(tk + 8));
+    name_is_kw(load64(work + LS_TEXT), load64(work + G_R1), KW_LOAD8, KW_LEN_LOAD);
+    if R == 1 {
+        R = 1;
+        ret;
+    }
+    name_is_kw(load64(work + LS_TEXT), load64(work + G_R1), KW_LOAD16, KW_LEN_LOAD16);
+    if R == 1 {
+        R = 2;
+        ret;
+    }
+    name_is_kw(load64(work + LS_TEXT), load64(work + G_R1), KW_LOAD32, KW_LEN_LOAD16);
+    if R == 1 {
+        R = 4;
+        ret;
+    }
+    name_is_kw(load64(work + LS_TEXT), load64(work + G_R1), KW_LOAD64, KW_LEN_LOAD16);
+    if R == 1 {
+        R = 8;
+        ret;
+    }
+    R = 0;
+}
+
+# The body of the `fn` of the name tk is put where it is used, and becomes a frame of its own that
+# ends the expression it holds.
+proc apply_fn {
+    store64(work + AF_TEXT, load64(tk + 8));
+    store64(work + AF_LEN, load64(tk + 16));
+    store64(work + G_FI_BASE, work + W_FNS);
+    store64(work + G_FI_COUNT, load64(work + G_NFN));
+    store64(work + G_FI_STRIDE, 6);
+    store64(work + G_FI_MAX, NFN);
+    store64(work + G_FI_TEXT, load64(work + AF_TEXT));
+    store64(work + G_FI_LEN, load64(work + AF_LEN));
+    call find_in;
+    if R == 0 {
+        st = BAD_SOURCE;
+        at = load64(tk + 24);
+        ret;
+    }
+    store64(work + AF_E, R);
+    store64(work + EX_C, 40);
+    call expect_op;
+    if st != 0 { ret; }
+    call arguments;
+    if st != 0 { ret; }
+    store64(work + AF_NPARAM, load64(load64(work + AF_E) + 24));
+    if load64(work + AR_N) != load64(work + AF_NPARAM) {
+        st = BAD_SOURCE;
+        at = load64(tk + 24);
+        ret;
+    }
+    store64(work + SB_BODY, load64(load64(work + AF_E) + 40));
+    store64(work + SB_COUNT, load64(load64(work + AF_E) + 48));
+    store64(work + SB_PARAMS, load64(load64(work + AF_E) + 32));
+    store64(work + SB_NPARAM, load64(work + AF_NPARAM));
+    store64(work + AF_SAVED, load64(work + G_ARENATOP));
+    call substitute;
+    if st != 0 { ret; }
+    store64(work + AF_ABASE, R);
+    store64(work + AF_ANCOUNT, R0);
+    store64(work + G_ARENATOP,
+            load64(work + AF_SAVED) + (load64(work + AF_ANCOUNT) * TOKEN));
+    g0 = load64(work + AF_ABASE);
+    g1 = load64(work + AF_ANCOUNT);
+    g2 = F_EXPR;
+    g3 = 0;
+    call frame_push;
+    if st != 0 { ret; }
+    call ex_run;
+    if st != 0 { call frame_pop; ret; }
+    # the body was one expression and no more (ex_run refuses what is left half open); what it is
+    # worth is in ev_kind, ev_value, and an operand leaves it on the stack of the use
+    call ex_push_value;
+}
+
+# One operand: a number, a name that is a number or a slot of the frame, a body of an `fn`, a `(`,
+# or a prefix. EX_NEED is what comes after it: 1 when another operand does.
+proc ex_unary {
+    call next_tok;
+    if st != 0 { ret; }
+    tk = R;
+    if load64(tk) == K_NUMBER {
+        call parse_number;
+        if st != 0 { ret; }
+        ev_kind = V_LIT;
+        ev_value = R;
+        call ex_push_value;
+        store64(work + EX_NEED, 0);
+        ret;
+    }
+    if load64(tk) == K_OP {
+        if load64(tk + 16) == 1 {
+            store64(work + UU_C, load8(load64(tk + 8)));
+            if load64(work + UU_C) == 40 {
+                store64(work + RO_WHAT, O_PAREN);
+                store64(work + RO_PREC, 0);
+                store64(work + RO_NUM, 0);
+                store64(work + RO_LABEL, 0);
+                call ex_push_op;
+                store64(work + EX_NEED, 1);
+                ret;
+            }
+            store64(work + RO_WHAT, O_PREFIX);
+            store64(work + RO_PREC, 7);
+            store64(work + RO_NUM, OP_NOT);
+            store64(work + RO_LABEL, 0);
+            if load64(work + UU_C) == 45 {
+                store64(work + RO_NUM, OP_NEG);
+            }
+            if load64(work + UU_C) == 126 {
+                store64(work + RO_NUM, OP_BITNOT);
+            }
+            if (load64(work + UU_C) == 33) | (load64(work + UU_C) == 45)
+               | (load64(work + UU_C) == 126) {
+                call ex_push_op;
+                store64(work + EX_NEED, 1);
+                ret;
+            }
+        }
+        st = BAD_SOURCE;
+        at = load64(tk + 24);
+        ret;
+    }
+    if load64(tk) != K_NAME {
+        st = BAD_SOURCE;
+        at = load64(tk + 24);
+        ret;
+    }
+    store64(work + UU_TEXT, load64(tk + 8));
+    store64(work + UU_LEN, load64(tk + 16));
+    call load_size_of;
+    if st != 0 { ret; }
+    if R != 0 {
+        store64(work + UU_SIZE, R);
+        call next_tok;
+        if st != 0 { ret; }
+        if load64(R) != K_OP {
+            st = BAD_SOURCE;
+            at = load64(R + 24);
+            ret;
+        }
+        if load64(R + 16) != 1 {
+            st = BAD_SOURCE;
+            at = load64(R + 24);
+            ret;
+        }
+        if load8(load64(R + 8)) != 40 {
+            st = BAD_SOURCE;
+            at = load64(R + 24);
+            ret;
+        }
+        store64(work + RO_WHAT, O_LOAD);
+        store64(work + RO_PREC, 0);
+        store64(work + RO_NUM, load64(work + UU_SIZE));
+        store64(work + RO_LABEL, 0);
+        call ex_push_op;
+        store64(work + EX_NEED, 1);
+        ret;
+    }
+    store64(work + G_FI_BASE, work + W_CONSTS);
+    store64(work + G_FI_COUNT, load64(work + G_NCONST));
+    store64(work + G_FI_STRIDE, 6);
+    store64(work + G_FI_MAX, NCONST);
+    store64(work + G_FI_TEXT, load64(work + UU_TEXT));
+    store64(work + G_FI_LEN, load64(work + UU_LEN));
+    call find_in;
+    if R != 0 {
+        ev_kind = V_LIT;
+        ev_value = load64(R + 24);
+        call ex_push_value;
+        store64(work + EX_NEED, 0);
+        ret;
+    }
+    store64(work + G_FI_BASE, work + W_VARS);
+    store64(work + G_FI_COUNT, load64(work + G_NVAR));
+    store64(work + G_FI_STRIDE, 6);
+    store64(work + G_FI_MAX, NVAR);
+    store64(work + G_FI_TEXT, load64(work + UU_TEXT));
+    store64(work + G_FI_LEN, load64(work + UU_LEN));
+    call find_in;
+    if R != 0 {
+        ev_kind = V_SLOT;
+        ev_value = load64(R + 24);
+        call ex_push_value;
+        store64(work + EX_NEED, 0);
+        ret;
+    }
+    store64(work + G_FI_BASE, work + W_FNS);
+    store64(work + G_FI_COUNT, load64(work + G_NFN));
+    store64(work + G_FI_STRIDE, 6);
+    store64(work + G_FI_MAX, NFN);
+    store64(work + G_FI_TEXT, load64(work + UU_TEXT));
+    store64(work + G_FI_LEN, load64(work + UU_LEN));
+    call find_in;
+    if R != 0 {
+        call apply_fn;
+        if st != 0 { ret; }
+        store64(work + EX_NEED, 0);
+        ret;
+    }
+    st = BAD_SOURCE;
+    at = load64(tk + 24);
+}
+
+# ---- the expression ---------------------------------------------------------------------------
+
+# One expression. ev_kind and ev_value are what it is worth.
+proc ex_run {
+    store64(work + EX_NEED, 1);
+    while 1 {
+        if nframes > 0 {
+            fr = frame_top();
+            if load64(fr + 24) == F_EXPR {
+                if load64(fr + 16) >= load64(fr + 8) {
+                    call ex_unwind;
+                    if st != 0 { ret; }
+                    # the body of an `fn` is over: what it is worth is the value
+                    ret;
+                }
+            }
+        }
+        if load64(work + EX_NEED) == 1 {
+            call ex_unary;
+            if st != 0 { ret; }
+            continue;
+        }
+        call peek_tok;
+        tk = R;
+        if tk == 0 {
+            break;
+        }
+        store64(work + TK_C, 0);
+        store64(work + TK_LEN, load64(tk + 16));
+        if load64(tk) == K_OP {
+            if load64(work + TK_LEN) == 1 {
+                store64(work + TK_C, load8(load64(tk + 8)));
+            }
+        }
+        if load64(work + TK_C) == 41 {
+            # a `)` closes the paren or the `load` this expression opened, when there is one open;
+            # otherwise it is the `)` of the statement that uses the expression
+            store64(work + EX_SCAN, 0);
+            while load64(work + EX_SCAN) < nop {
+                store64(work + RO_WHAT,
+                        load64(work + W_OPS + (load64(work + EX_SCAN) * 32)));
+                if (load64(work + RO_WHAT) == O_PAREN)
+                   | (load64(work + RO_WHAT) == O_LOAD) {
+                    break;
+                }
+                store64(work + EX_SCAN, load64(work + EX_SCAN) + 1);
+            }
+            if load64(work + EX_SCAN) < nop {
+                call ex_close_paren;
+                if st != 0 { ret; }
+                store64(work + EX_NEED, 0);
+                continue;
+            }
+            break;
+        }
+        call op_of;
+        if R == 0 {
+            break;
+        }
+        store64(work + PO_NUM, R);
+        store64(work + PO_PREC, R0);
+        call next_tok;
+        if st != 0 { ret; }
+        while nop > 0 {
+            store64(work + RO_WHAT, load64(work + W_OPS + ((nop - 1) * 32)));
+            if (load64(work + RO_WHAT) == O_PAREN)
+               | (load64(work + RO_WHAT) == O_LOAD) {
+                break;
+            }
+            if load64(work + W_OPS + ((nop - 1) * 32) + 8) < load64(work + PO_PREC) {
+                break;
+            }
+            call ex_reduce_one;
+            if st != 0 { ret; }
+        }
+        store64(work + RO_WHAT, O_OP);
+        store64(work + RO_PREC, load64(work + PO_PREC));
+        store64(work + RO_NUM, load64(work + PO_NUM));
+        store64(work + RO_LABEL, 0);
+        call ex_push_op;
+        store64(work + EX_NEED, 1);
+    }
+    if nframes > 0 {
+        fr = frame_top();
+        if load64(fr + 24) == F_EXPR {
+            st = BAD_SOURCE;
+            at = load64(work + G_LASTLINE);
+            ret;
+        }
+    }
+    while nop > 0 {
+        store64(work + RO_WHAT, load64(work + W_OPS + ((nop - 1) * 32)));
+        if (load64(work + RO_WHAT) == O_PAREN) | (load64(work + RO_WHAT) == O_LOAD) {
+            st = BAD_SOURCE;
+            at = load64(work + G_LASTLINE);
+            ret;
+        }
+        call ex_reduce_one;
+        if st != 0 { ret; }
+    }
+    call ex_pop_value;
+}

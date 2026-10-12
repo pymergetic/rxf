@@ -1,0 +1,665 @@
+# The words of the front end: the numbers of its request and work memory, and the few expressions
+# it repeats.
+#
+# The numbers of native/graph.h (RXF_OP_CALL, RXF_LEAF_MEMORY_COPY, RXF_GRAPH_MAGIC ...) and the
+# refusals of native/basics.h are known to the language already. What follows is what only this
+# program needs. The request is the one of docs/19: source text, the files an `include` can name,
+# and the numbers the source may use, in; the words of a program of the interpreter, out.
+#
+# The frame of a program is RXF_GRAPH_FRAME (1024) bytes: 128 slots. Only the words that the
+# program passes between its own procedures live there. Everything else -- every counter, every
+# name that one procedure sets for another -- is a word of the work memory at `work + G_*`.
+
+# the request (words of 8 bytes)
+const R_SOURCE = 0;          # the bytes of the source
+const R_SOURCE_SIZE = 8;
+const R_OUT = 16;            # where the words of the program are written
+const R_OUT_CAPACITY = 24;
+const R_WORK = 32;           # everything the front end keeps while it works
+const R_WORK_CAPACITY = 40;
+const R_OUT_SIZE = 48;       # (out) the bytes written
+const R_AT = 56;             # (out) the line where it stopped, 0 when it did not
+const R_FILES = 64;          # the table of the files an `include` can name
+const R_FILE_COUNT = 72;
+const R_CONSTS = 80;         # the numbers the source may use without a `const`
+const R_CONST_COUNT = 88;
+
+const FILE_ENTRY = 32;       # name, its length, text, its length
+const CONST_ROW = 32;        # name, its length, value, 0
+const TOKEN = 32;            # kind, text, its length, line
+const TOKEN_SHIFT = 5;       # TOKEN == 1 << TOKEN_SHIFT
+const FILE_ROW = 64;         # hash, name, its length, text, its length, first token, count, taken
+
+# the kind of a token (the groups of the pattern the host reads with)
+const K_NUMBER = 1;
+const K_NAME = 2;
+const K_STRING = 3;
+const K_OP = 4;
+
+# the operator tokens that an expression knows
+const OP_OR = 1;
+const OP_AND = 2;
+const OP_EQ = 3;
+const OP_NE = 4;
+const OP_LT = 5;
+const OP_LE = 6;
+const OP_GT = 7;
+const OP_GE = 8;
+const OP_SHL = 9;
+const OP_SHR = 10;
+const OP_ADD = 11;
+const OP_SUB = 12;
+const OP_MUL = 13;
+const OP_NOT = 20;           # a prefix of an operand, not an operator of two
+const OP_NEG = 21;
+const OP_BITNOT = 22;
+
+# the kind of a value that is pushed on the stack of an expression
+const V_LIT = 1;
+const V_SLOT = 2;
+const V_WIDE = 3;
+
+# what an item of the operator stack is
+const O_OP = 0;
+const O_PREFIX = 1;
+const O_PAREN = 2;
+const O_LOAD = 3;
+
+# what a construct on the block stack is
+const C_WHILE = 2;
+const C_SWITCH = 3;
+const C_IF = 4;              # one level of a chain of `if` `else if`
+const C_CHAIN = 5;           # the marker under the chain
+
+# the leaves every operator is (the ones tools/native/rxfc.py calls). The operators the language
+# has no leaf for (`!=`, `>`, `<=`, `>=`, `~`, unary `-`, `!`) are worked out by `==` and `<`.
+const LEAF_ADD = RXF_LEAF_WRAPPING_ADD_UINT64_T;
+const LEAF_SUB = RXF_LEAF_WRAPPING_SUBTRACT_UINT64_T;
+const LEAF_AND = RXF_LEAF_BIT_AND_UINT64_T;
+const LEAF_OR = RXF_LEAF_BIT_OR_UINT64_T;
+const LEAF_SHL = RXF_LEAF_SHIFT_LEFT_UINT64_T;
+const LEAF_SHR = RXF_LEAF_SHIFT_RIGHT_UINT64_T;
+const LEAF_EQ = RXF_LEAF_EQUAL_UINT64_T;
+const LEAF_LT = RXF_LEAF_LESS_UINT64_T;
+const LEAF_COPY = RXF_LEAF_MEMORY_COPY;
+const LEAF_FILL = RXF_LEAF_MEMORY_FILL;
+
+# the opcodes of the instructions (native/graph.h)
+const CALL = RXF_OP_CALL;
+const MOVE = RXF_OP_MOVE;
+const GOTO = RXF_OP_GOTO;
+const BRANCH = RXF_OP_BRANCH;
+const SWITCH = RXF_OP_SWITCH;
+const RETURN = RXF_OP_RETURN;
+const REFUSE = RXF_OP_REFUSE;
+
+const SLOT = RXF_OPERAND_SLOT;
+const LITERAL = RXF_OPERAND_LITERAL;
+const NONE = RXF_GRAPH_NONE;
+const NONZERO = RXF_MODE_NONZERO;
+const OUT_OF_MEMORY = RXF_REFUSE_OUT_OF_MEMORY;
+const BAD_SOURCE = RXF_REFUSE_TYPE_MISMATCH;
+const MASK = 0xFFFFFFFFFFFFFFFF;
+
+# how far a value can reach: the length of a name, of a number and of a token stream
+const BIG = 1 << 40;
+
+# ---- the work memory, in this order ---------------------------------------------------------
+
+const NTOK = 65536;          # the tokens of the files
+const NFRAME = 256;          # the streams that are open (a file, a macro, a body, an fn)
+const NCONST = 1024;
+const NMACRO = 256;
+const NFN = 128;
+const NPROC = 512;
+const NVAR = 4096;
+const NLABEL = 16384;
+const NPATCH = 65536;
+const NSITE = 32768;         # the call sites of the procs
+const NCONSTRUCT = 256;      # the blocks that are open (while, switch)
+const NCASE = 8192;          # the cases of the switch that is open
+const NBODYREC = 8192;       # the bodies of the switches that are open
+const NSW = 64;              # the switches that are open
+const NVAL = 512;            # the stack of the operands of an expression
+const NOP = 512;             # the stack of its operators
+const NARENA = 131072;       # the tokens an expansion writes
+const NMPARM = 4096;         # the parameters of the macros
+const NFPARM = 1024;         # the parameters of the fns
+const NARGS = 64;            # the arguments of one use
+const NEOPS = 64;            # the operands of the call that is being written
+const NTEMP = 1024;          # the temporaries of the frame
+const NFILE = 128;           # the files an `include` can name
+
+const FRAME_ENTRY = 64;      # base, count, pos, kind, arena base, nval, nop
+const CONST_ENTRY = 64;      # hash, name, its length, value
+const MACRO_ENTRY = 64;      # hash, name, its length, params, count, body, start, end
+const PROC_ENTRY = 64;       # hash, name, its length, proc/end/back labels, sites, defined
+const VAL_ENTRY = 16;        # kind, value
+const OP_ENTRY = 32;         # what it is, its precedence, its number, its label
+const CONSTRUCT_ENTRY = 64;
+const BODYREC_ENTRY = 32;    # a body: its label, its base, its byte count
+const SW_ENTRY = 64;         # a switch: end, default, first body, count, has default, index
+
+const W_TOKENS = 0;
+const W_FRAMES = W_TOKENS + NTOK * TOKEN;
+const W_CONSTS = W_FRAMES + NFRAME * FRAME_ENTRY;
+const W_MACROS = W_CONSTS + NCONST * CONST_ENTRY;
+const W_FNS = W_MACROS + NMACRO * MACRO_ENTRY;
+const W_PROCS = W_FNS + NFN * MACRO_ENTRY;
+const W_VARS = W_PROCS + NPROC * PROC_ENTRY;
+const W_PINFO = W_VARS + NVAR * PROC_ENTRY;
+const W_LABELS = W_PINFO + NPROC * 16;
+const W_PATCHES = W_LABELS + NLABEL * 8;
+const W_CALLS = W_PATCHES + NPATCH * 16;  # 16 bytes a site: the label it returns to, the proc
+const W_CONSTRUCT = W_CALLS + NSITE * 16;
+const W_CASES = W_CONSTRUCT + NCONSTRUCT * CONSTRUCT_ENTRY;
+const W_BODYREC = W_CASES + NCASE * 16;
+const W_SW = W_BODYREC + NBODYREC * BODYREC_ENTRY;
+const W_VALUES = W_SW + NSW * SW_ENTRY;
+const W_OPS = W_VALUES + NVAL * VAL_ENTRY;
+const W_SYNTH = W_OPS + NOP * OP_ENTRY;   # the `(` and `)` a substitution wraps with
+const W_ARENA = W_SYNTH + 2 * TOKEN + 8;  # and the two bytes their text points at
+const W_PARGS = W_ARENA + NARENA * TOKEN;  # the parameters of the program: slot, width
+const W_MPARAM = W_PARGS + 64 * 16;
+const W_FPARAM = W_MPARAM + NMPARM * 16;
+const W_ARGS = W_FPARAM + NFPARM * 16;
+const W_EOPS = W_ARGS + NARGS * 32;
+const W_TEMPS = W_EOPS + NEOPS * 16;
+const W_TLIVE = W_TEMPS + NTEMP * 8;
+const W_LIVE = W_TLIVE + NTEMP * 8;
+const W_FILES = W_LIVE + RXF_GRAPH_FRAME;
+const W_G = W_FILES + NFILE * FILE_ROW;
+const NG = 256;              # the scalars the procedures pass to each other
+
+# the scratch of the procedures: one word each, and the stack of the ways back of `call`
+const W_X = W_G + (NG * 8);
+const NX = 256;
+const W_CALLSTACK = W_X + NX * 8;
+const NCALLSTACK = 512;
+const WORK_BYTES = W_CALLSTACK + NCALLSTACK * 8;
+
+const SLOTS_MAX = RXF_GRAPH_FRAME;   # the frame of a program is what the variables may take
+
+# the entry of the stream that is on top: the flags of a frame
+const F_FILE = 0;
+const F_BLOCK = 1;           # the body of a macro or of a switch case, closed by `}` or by its end
+const F_EXPR = 2;            # the body of an `fn`, the end of it ends the expression
+
+# the word of the request at byte offset i
+fn rq(i) = load64(request + (i));
+
+# ---- the scalars of the work memory ---------------------------------------------------------
+# Every one is a word at `work + G_*`. They are named for the procedure that writes them.
+
+# what the run is doing (the words that are hottest -- `st`, `at`, `tk`, `ow`, the counters of the
+# stacks -- are slots of the frame instead, and are not here)
+const G_SOURCE = W_G + 24;
+const G_SOURCE_SIZE = W_G + 32;
+const G_OUT = W_G + 40;
+const G_OUT_CAP = W_G + 48;
+const G_LAST_START = W_G + 64;
+const G_NINST = W_G + 72;
+const G_WIDE = W_G + 88;
+const G_BACK = W_G + 96;
+const G_LASTLINE = W_G + 16;
+
+# how much of each table is taken
+const G_NCONST = W_G + 120;
+const G_NMACRO = W_G + 128;
+const G_NFN = W_G + 136;
+const G_NPROC = W_G + 144;
+const G_NVAR = W_G + 152;
+const G_NSITE = W_G + 176;
+const G_NCONSTRUCT = W_G + 184;
+const G_NCASE = W_G + 192;
+const G_NBODYREC = W_G + 200;
+const G_NSW = W_G + 208;
+const G_ARENATOP = W_G + 232;
+const G_NMPARM = W_G + 240;
+const G_NFPARM = W_G + 248;
+const G_NFILES = W_G + 272;
+const G_NPARAMS = W_G + 280;
+const G_HAS_PROGRAM = W_G + 288;
+const G_CUR_PROC = W_G + 296;
+const G_CUR_LEN = W_G + 304;
+const G_SP_TEXT = W_G + 312;
+
+const G_R1 = W_G + 360;      # the second answer of a procedure
+
+# the name that is looked up (find_in)
+const G_FI_BASE = W_G + 368;
+const G_FI_COUNT = W_G + 376;
+const G_FI_STRIDE = W_G + 384;
+const G_FI_TEXT = W_G + 392;
+const G_FI_LEN = W_G + 400;
+const G_FI_H = W_G + 408;
+const G_FI_I = W_G + 416;
+const G_FI_E = W_G + 424;
+
+# the entry that is written (add_entry)
+const G_AE_H = W_G + 432;
+const G_AE_TEXT = W_G + 440;
+const G_AE_LEN = W_G + 448;
+const G_AE_VALUE = W_G + 456;
+const G_AE_X1 = W_G + 464;
+const G_AE_X2 = W_G + 472;
+const G_AE_X3 = W_G + 480;
+const G_AE_X4 = W_G + 488;
+const G_AE_BASE = W_G + 496;
+const G_AE_STRIDE = W_G + 504;
+const G_AE_COUNT = W_G + 512;
+const G_AE_MAX = W_G + 520;
+
+# the name that is compared to a word (name_is)
+const G_NI_TEXT = W_G + 528;
+const G_NI_LEN = W_G + 536;
+const G_NI_WORD = W_G + 544;
+const G_NI_WLEN = W_G + 552;
+const G_NI_I = W_G + 560;
+const G_NI_W = W_G + 568;
+
+# the lexer
+const G_LX_AT = W_G + 576;
+const G_LX_LINE = W_G + 584;
+const G_LX_START = W_G + 592;
+const G_LX_KIND = W_G + 600;
+const G_LX_C = W_G + 608;
+const G_LX_I = W_G + 616;
+const G_LX_P = W_G + 624;
+
+# the token that is expected
+const G_EX_C = W_G + 632;
+
+# the operands and the operator of a binary step
+const G_BI_AK = W_G + 640;
+const G_BI_AV = W_G + 648;
+const G_BI_BK = W_G + 656;
+const G_BI_BV = W_G + 664;
+const G_BI_OP = W_G + 672;
+const G_BI_LEAF = W_G + 680;
+
+# the call that is being set aside
+const G_EO_LEAF = W_G + 688;
+const G_EO_OUT = W_G + 696;
+const G_EO_N = W_G + 704;
+const G_EO_KIND = W_G + 712;
+const G_EO_VALUE = W_G + 720;
+
+# the instruction that is being written
+const G_W1 = W_G + 728;
+const G_OT_KIND = W_G + 736;
+const G_OT_VALUE = W_G + 744;
+const G_EM_DST = W_G + 752;
+const G_EM_KIND = W_G + 760;
+const G_EM_VALUE = W_G + 768;
+const G_PL_LABEL = W_G + 776;
+const G_EG_LABEL = W_G + 784;
+const G_EB_KIND = W_G + 792;
+const G_EB_VALUE = W_G + 800;
+const G_EB_MODE = W_G + 808;
+const G_EB_TAKEN = W_G + 816;
+const G_EB_OTHER = W_G + 824;
+const G_ES_KIND = W_G + 832;
+const G_ES_VALUE = W_G + 840;
+const G_ES_N = W_G + 848;
+const G_ES_DEFAULT = W_G + 856;
+const G_ER_KIND = W_G + 864;
+const G_ER_VALUE = W_G + 872;
+const G_EJ_KIND = W_G + 880;
+const G_EJ_VALUE = W_G + 888;
+const G_SA_WIDTH = W_G + 896;
+
+# the tokens of a body and of a use
+const G_TK2 = W_G + 904;
+const G_STB_BASE = W_G + 912;
+const G_STB_COUNT = W_G + 920;
+
+# the numbers that are known when the program is made
+const G_FO_OP = W_G + 928;
+const G_FO_A = W_G + 936;
+const G_FO_B = W_G + 944;
+
+# the frame of the stream that is on top
+const G_UW_VALS = W_G + 952;
+const G_UW_OPS = W_G + 960;
+
+# the word that is written next and where the program is in the source
+const G_ECI = W_G + 968;
+const G_ESI = W_G + 976;
+
+# ---- the words the source is made of --------------------------------------------------------
+# As the bytes of the name in one number, lowest byte first. A name is compared to one of these
+# the way the host compares it: byte for byte, of the same length.
+
+const KW_INCLUDE = 105 | (110 << 8) | (99 << 16) | (108 << 24) | (117 << 32) | (100 << 40) | (101 << 48);
+const KW_CONST = 99 | (111 << 8) | (110 << 16) | (115 << 24) | (116 << 32);
+const KW_MACRO = 109 | (97 << 8) | (99 << 16) | (114 << 24) | (111 << 32);
+const KW_FN = 102 | (110 << 8);
+const KW_PROGRAM = 112 | (114 << 8) | (111 << 16) | (103 << 24) | (114 << 32) | (97 << 40) | (109 << 48);
+const KW_PROC = 112 | (114 << 8) | (111 << 16) | (99 << 24);
+const KW_VAR = 118 | (97 << 8) | (114 << 16);
+const KW_IF = 105 | (102 << 8);
+const KW_ELSE = 101 | (108 << 8) | (115 << 16) | (101 << 24);
+const KW_WHILE = 119 | (104 << 8) | (105 << 16) | (108 << 24) | (101 << 32);
+const KW_SWITCH = 115 | (119 << 8) | (105 << 16) | (116 << 24) | (99 << 32) | (104 << 40);
+const KW_BREAK = 98 | (114 << 8) | (101 << 16) | (97 << 24) | (107 << 32);
+const KW_CONTINUE = 99 | (111 << 8) | (110 << 16) | (116 << 24) | (105 << 32) | (110 << 40) | (117 << 48) | (101 << 56);
+const KW_CALL = 99 | (97 << 8) | (108 << 16) | (108 << 24);
+const KW_RET = 114 | (101 << 8) | (116 << 16);
+const KW_RETURN = 114 | (101 << 8) | (116 << 16) | (117 << 24) | (114 << 32) | (110 << 40);
+const KW_REFUSE = 114 | (101 << 8) | (102 << 16) | (117 << 24) | (115 << 32) | (101 << 40);
+const KW_PUT = 112 | (117 << 8) | (116 << 16);
+const KW_COPY = 99 | (111 << 8) | (112 << 16) | (121 << 24);
+const KW_FILL = 102 | (105 << 8) | (108 << 16) | (108 << 24);
+const KW_DEFAULT = 100 | (101 << 8) | (102 << 16) | (97 << 24) | (117 << 32) | (108 << 40) | (116 << 48);
+const KW_CASE = 99 | (97 << 8) | (115 << 16) | (101 << 24);
+const KW_STORE8 = 115 | (116 << 8) | (111 << 16) | (114 << 24) | (101 << 32) | (56 << 40);
+const KW_STORE16 = 115 | (116 << 8) | (111 << 16) | (114 << 24) | (101 << 32) | (49 << 40) | (54 << 48);
+const KW_STORE32 = 115 | (116 << 8) | (111 << 16) | (114 << 24) | (101 << 32) | (51 << 40) | (50 << 48);
+const KW_STORE64 = 115 | (116 << 8) | (111 << 16) | (114 << 24) | (101 << 32) | (54 << 40) | (52 << 48);
+const KW_LOAD8 = 108 | (111 << 8) | (97 << 16) | (100 << 24) | (56 << 32);
+const KW_LOAD16 = 108 | (111 << 8) | (97 << 16) | (100 << 24) | (49 << 32) | (54 << 40);
+const KW_LOAD32 = 108 | (111 << 8) | (97 << 16) | (100 << 24) | (51 << 32) | (50 << 40);
+const KW_LOAD64 = 108 | (111 << 8) | (97 << 16) | (100 << 24) | (54 << 32) | (52 << 40);
+
+const KW_LEN_INCLUDE = 7;
+const KW_LEN_CONST = 5;
+const KW_LEN_MACRO = 5;
+const KW_LEN_FN = 2;
+const KW_LEN_PROGRAM = 7;
+const KW_LEN_PROC = 4;
+const KW_LEN_VAR = 3;
+const KW_LEN_IF = 2;
+const KW_LEN_ELSE = 4;
+const KW_LEN_WHILE = 5;
+const KW_LEN_SWITCH = 6;
+const KW_LEN_BREAK = 5;
+const KW_LEN_CONTINUE = 8;
+const KW_LEN_CALL = 4;
+const KW_LEN_RET = 3;
+const KW_LEN_RETURN = 6;
+const KW_LEN_REFUSE = 6;
+const KW_LEN_PUT = 3;
+const KW_LEN_COPY = 4;
+const KW_LEN_FILL = 4;
+const KW_LEN_DEFAULT = 7;
+const KW_LEN_CASE = 4;
+const KW_LEN_STORE = 6;
+const KW_LEN_STORE16 = 7;
+const KW_LEN_LOAD = 5;
+const KW_LEN_LOAD16 = 6;
+
+# the name (G_NI_TEXT, G_NI_LEN) is the word (G_NI_WORD) of G_NI_WLEN bytes: R is 1 or 0
+macro name_is_kw(txt, ln, wd, wl) {
+    store64(work + G_NI_TEXT, (txt));
+    store64(work + G_NI_LEN, (ln));
+    store64(work + G_NI_WORD, (wd));
+    store64(work + G_NI_WLEN, (wl));
+    call name_is;
+}
+
+# The call of a leaf is set aside: its leaf, the slot it writes, and no operand yet. `eo_push`
+# takes the operands and `emit_call` writes the words.
+macro call_begin(leaf, out_slot) {
+    store64(work + G_EO_LEAF, (leaf));
+    store64(work + G_EO_OUT, (out_slot));
+    store64(work + G_EO_N, 0);
+}
+
+# ---- the scratch of the procedures ----------------------------------------------------------
+# One word each, at `work + <name>`. It is what a procedure keeps while it works, and what one
+# hands to the procedure it calls. Every name is its own word: the frame of the program is only
+# 1024 bytes and holds the words that cross a `call` of the leaves.
+
+
+# the names and the tables
+const NH_I = W_X + 0;
+const NS_I = W_X + 8;
+const NI_I = W_X + 16;
+const NI_W = W_X + 24;
+const TN_T = W_X + 32;
+const EX_TOK = W_X + 40;
+const AE_E = W_X + 48;
+
+# a body that is set aside
+const TB_I = W_X + 56;
+const TB_T = W_X + 64;
+const TB_KIND = W_X + 72;
+const TB_C = W_X + 80;
+const TB_N = W_X + 88;
+const TB_BASE = W_X + 96;
+
+# the tokens of an expansion
+const SB_N = W_X + 104;
+const SB_I = W_X + 112;
+const SB_T = W_X + 120;
+const SB_TLINE = W_X + 128;
+const SB_HIT = W_X + 136;
+const SB_J = W_X + 144;
+const SB_AC = W_X + 152;
+const SB_AB = W_X + 160;
+const SB_K = W_X + 168;
+const SB_WHICH = W_X + 176;
+const SB_D = W_X + 184;
+const SB_BODY = W_X + 192;
+const SB_COUNT = W_X + 200;
+const SB_PARAMS = W_X + 208;
+const SB_NPARAM = W_X + 216;
+
+# the arguments of a use
+const AR_N = W_X + 224;
+const AR_DEPTH = W_X + 232;
+const AR_STARTED = W_X + 240;
+const AR_COUNT = W_X + 248;
+const AR_PREV = W_X + 256;
+const AR_BASE = W_X + 264;
+const AR_T = W_X + 272;
+const AR_C = W_X + 280;
+
+# a number
+const PN_TEXT = W_X + 288;
+const PN_LEN = W_X + 296;
+const PN_BASE = W_X + 304;
+const PN_I = W_X + 312;
+const PN_C = W_X + 320;
+const PN_V = W_X + 328;
+const PN_D = W_X + 336;
+
+# an item of the operator stack
+const RO_WHAT = W_X + 344;
+const RO_PREC = W_X + 352;
+const RO_NUM = W_X + 360;
+const RO_LABEL = W_X + 368;
+
+# what two numbers are worked out to
+const FM_A = W_X + 376;
+const FM_B = W_X + 384;
+const EE_OUT = W_X + 392;
+const EMK = W_X + 400;
+const EMT = W_X + 408;
+const ESWAP_K = W_X + 416;
+const ESWAP_V = W_X + 424;
+
+# the operator token
+const OO_LEN = W_X + 432;
+const OO_TEXT = W_X + 440;
+const OO_A = W_X + 448;
+const OO_B = W_X + 456;
+const LS_TEXT = W_X + 464;
+
+# the body of an `fn` that is put where it is used
+const AF_TEXT = W_X + 472;
+const AF_LEN = W_X + 480;
+const AF_E = W_X + 488;
+const AF_NPARAM = W_X + 496;
+const AF_SAVED = W_X + 504;
+const AF_ABASE = W_X + 512;
+const AF_ANCOUNT = W_X + 520;
+
+# one operand
+const UU_C = W_X + 528;
+const UU_TEXT = W_X + 536;
+const UU_LEN = W_X + 544;
+const UU_SIZE = W_X + 552;
+const EX_NEED = W_X + 560;
+const TK_C = W_X + 568;
+const TK_LEN = W_X + 576;
+const PO_NUM = W_X + 584;
+const PO_PREC = W_X + 592;
+
+# the patches
+const RP_I = W_X + 600;
+const RP_AT = W_X + 608;
+const RP_LABEL = W_X + 616;
+const RP_W = W_X + 624;
+
+# the temporaries
+const FV_I = W_X + 632;
+const FV_J = W_X + 640;
+const RT_I = W_X + 648;
+
+# the instructions
+const EC_E = W_X + 656;
+const ESW_WIDE = W_X + 664;
+const EL_WIDE = W_X + 672;
+const EL_OUT = W_X + 680;
+const LO_SIZE = W_X + 688;
+const SO_AK = W_X + 696;
+const SO_AV = W_X + 704;
+const SV_KIND = W_X + 712;
+const SV_VALUE = W_X + 720;
+const ES_SIZE = W_X + 728;
+
+# the statements
+const EX_C = W_X + 736;
+const IFE_THEN = W_X + 744;
+const IFE_OTHER = W_X + 752;
+const IFE_END = W_X + 760;
+const IFE_AT = W_X + 768;
+const PIE_E = W_X + 776;
+const IFC_CK = W_X + 784;
+const IFC_CV = W_X + 792;
+const WH_TOP = W_X + 784;
+const WH_BODY = W_X + 792;
+const WH_END = W_X + 800;
+const WH_CK = W_X + 808;
+const WH_CV = W_X + 816;
+const BL_E = W_X + 824;
+const CN_E = W_X + 832;
+
+# a switch
+const SW_CK = W_X + 840;
+const SW_CV = W_X + 848;
+const SW_DEFAULT = W_X + 856;
+const SW_END = W_X + 864;
+const SW_NTAG = W_X + 872;
+const SW_NBODY = W_X + 880;
+const SW_HASDEF = W_X + 888;
+const SWB_LABEL = W_X + 896;
+const RB_E = W_X + 904;
+const RB_I = W_X + 912;
+const SW_AT = W_X + 920;
+const SW_I = W_X + 928;
+const SW_COUNT = W_X + 936;
+
+# `call` and `proc`
+const CL_TEXT = W_X + 944;
+const CL_LEN = W_X + 952;
+const CL_E = W_X + 960;
+const CL_IDX = W_X + 968;
+const CL_SITES = W_X + 984;
+const CL_TAG = W_X + 992;
+const CL_BACK = W_X + 1000;
+const SP_SLOT = W_X + 1008;
+const PR_TEXT = W_X + 1016;
+const PR_LEN = W_X + 1024;
+const PR_E = W_X + 1032;
+const PR_V = W_X + 1040;
+const PR_B = W_X + 1048;
+
+# the items
+const AV_TEXT = W_X + 1056;
+const AV_LEN = W_X + 1064;
+const AV_SLOT = W_X + 1072;
+const AP2_TEXT = W_X + 1080;
+const AP2_LEN = W_X + 1088;
+const AP2_PL = W_X + 1096;
+const AP2_EL = W_X + 1104;
+const AP2_BL = W_X + 1112;
+const MC_TEXT = W_X + 1120;
+const MC_LEN = W_X + 1128;
+const MC_PARAMS = W_X + 1136;
+const MC_NPARAM = W_X + 1144;
+const MC_BODY = W_X + 1152;
+const MC_COUNT = W_X + 1160;
+const MC_PBASE = W_X + 1168;
+const FN_TEXT = W_X + 1176;
+const FN_LEN = W_X + 1184;
+const FN_PARAMS = W_X + 1192;
+const FN_NPARAM = W_X + 1200;
+const FN_BODY = W_X + 1208;
+const FN_COUNT = W_X + 1216;
+const FN_PBASE = W_X + 1224;
+const AC_TEXT = W_X + 1232;
+const AC_LEN = W_X + 1240;
+const AC_VALUE = W_X + 1248;
+const IC_TEXT = W_X + 1256;
+const IC_LEN = W_X + 1264;
+const IC_T = W_X + 1272;
+
+# the statements of memory
+const PUT_PTR = W_X + 1280;
+const PUT_SIZE = W_X + 1288;
+const CO_DST = W_X + 1296;
+const CO_SRC = W_X + 1304;
+const CO_N = W_X + 1312;
+const FL_DST = W_X + 1320;
+const FL_BYTE = W_X + 1328;
+const FL_N = W_X + 1336;
+
+# a macro that is put where it is used
+const EM_TEXT = W_X + 1344;
+const EM_LEN = W_X + 1352;
+const EM_E = W_X + 1360;
+const EM_SAVED = W_X + 1368;
+const EM_ABASE = W_X + 1376;
+const EM_ANCOUNT = W_X + 1384;
+
+# the assignment and the ways back
+const AS_TARGET = W_X + 1392;
+const WB_TRAP = W_X + 1400;
+const WB_I = W_X + 1408;
+const WB_E = W_X + 1416;
+const WB_IDX = W_X + 1424;
+const WB_BASE = W_X + 1432;
+const WB_COUNT = W_X + 1440;
+const WB_J = W_X + 1448;
+const WB_V = W_X + 1456;
+const PE_BACK = W_X + 1456;
+
+# the files an `include` brings in
+const FL_I = W_X + 1464;
+const FL_FOUND = W_X + 1472;
+const FL_TEXT = W_X + 1480;
+const FL_TLEN = W_X + 1488;
+const FL_TOK0 = W_X + 1496;
+
+# the header and the numbers the source may use
+const WH_I = W_X + 1504;
+const SC_I = W_X + 1512;
+const SC_TEXT = W_X + 1520;
+const SC_LEN = W_X + 1528;
+const SC_VALUE = W_X + 1536;
+const FI_OUT = W_X + 1544;
+const LAST_BEFORE = W_X + 1552;
+const SWB_FIRST = W_X + 1560;
+const SWB_I = W_X + 1568;
+const G_FI_MAX = W_X + 1576;  # how many slots a table of names has (find_in)
+const EX_SCAN = W_X + 1584;  # what of the operator stack a `)` would close
+const EL_AK = W_X + 1592;    # the address a `load` reads; SO_* is the store being built
+const EL_AV = W_X + 1600;
+const AE_I = W_X + 1608;     # where in its table an entry is written (add_entry)
+
+# the value that a leaf gives back, and the operand that is free again
+const G_EV_KIND = W_G + 104;
+const G_EV_VALUE = W_G + 112;

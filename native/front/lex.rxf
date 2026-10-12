@@ -1,0 +1,140 @@
+# The reader of the tokens of one file. It is the pattern the host reads with: spaces, a comment
+# that starts with `#` and ends with the line, a number, a name, a string in quotes, an operator.
+# What is none of these the source is refused with RXF_REFUSE_TYPE_MISMATCH at its line.
+#
+# The tokens are written to `work + W_TOKENS + (ntoks * TOKEN)`; `ntoks` is the end of the tokens
+# that exist. A body that is set aside is not copied: it is the tokens that are already there.
+
+# the byte `g0` is a hex digit or an underscore
+fn hex_of(c_) = (((48 <= (c_)) & ((c_) <= 57)) | ((97 <= (c_)) & ((c_) <= 102))
+                 | ((65 <= (c_)) & ((c_) <= 70)) | ((c_) == 95));
+# a decimal digit or an underscore
+fn digit_of(c_) = (((48 <= (c_)) & ((c_) <= 57)) | ((c_) == 95));
+fn name_start(c_) = (((97 <= (c_)) & ((c_) <= 122)) | ((65 <= (c_)) & ((c_) <= 90)) | ((c_) == 95));
+fn name_char(c_) = ((name_start(c_)) | ((48 <= (c_)) & ((c_) <= 57)));
+fn is_op_char(c_) = (((c_) == 45) | ((c_) == 43) | ((c_) == 38) | ((c_) == 124) | ((c_) == 60)
+                     | ((c_) == 62) | ((c_) == 61) | ((c_) == 33) | ((c_) == 126) | ((c_) == 42)
+                     | ((c_) == 40) | ((c_) == 41) | ((c_) == 123) | ((c_) == 125) | ((c_) == 44)
+                     | ((c_) == 59) | ((c_) == 58));
+
+# one token: its kind is G_LX_KIND, its bytes are G_LX_START .. G_LX_AT in the file at g0, its line
+# G_LX_LINE
+proc lex_put {
+    if ntoks >= NTOK {
+        st = OUT_OF_MEMORY;
+        at = load64(work + G_LX_LINE);
+        ret;
+    }
+    g2 = work + W_TOKENS + (ntoks * TOKEN);
+    store64(g2, load64(work + G_LX_KIND));
+    store64(g2 + 8, g0 + load64(work + G_LX_START));
+    store64(g2 + 16, load64(work + G_LX_AT) - load64(work + G_LX_START));
+    store64(g2 + 24, load64(work + G_LX_LINE));
+    ntoks = ntoks + 1;
+}
+
+# The tokens of the `g1` bytes at `g0`. st is 0, or BAD_SOURCE and at the line where it stopped.
+proc lex {
+    st = 0;
+    at = 0;
+    store64(work + G_LX_AT, 0);
+    store64(work + G_LX_LINE, 1);
+    while load64(work + G_LX_AT) < g1 {
+        store64(work + G_LX_C, load8(g0 + load64(work + G_LX_AT)));
+        if (load64(work + G_LX_C) == 32) | (load64(work + G_LX_C) == 9)
+           | (load64(work + G_LX_C) == 10) | (load64(work + G_LX_C) == 13) {
+            if load64(work + G_LX_C) == 10 {
+                store64(work + G_LX_LINE, load64(work + G_LX_LINE) + 1);
+            }
+            store64(work + G_LX_AT, load64(work + G_LX_AT) + 1);
+            continue;
+        }
+        if load64(work + G_LX_C) == 35 {
+            while (load64(work + G_LX_AT) < g1) & (load8(g0 + load64(work + G_LX_AT)) != 10) {
+                store64(work + G_LX_AT, load64(work + G_LX_AT) + 1);
+            }
+            continue;
+        }
+        store64(work + G_LX_START, load64(work + G_LX_AT));
+        store64(work + G_LX_KIND, 0);
+        if (48 <= load64(work + G_LX_C)) & (load64(work + G_LX_C) <= 57) {
+            store64(work + G_LX_KIND, K_NUMBER);
+            if (load64(work + G_LX_C) == 48) & ((load64(work + G_LX_AT) + 3) <= g1) {
+                store64(work + G_LX_P, load8(g0 + load64(work + G_LX_AT) + 1));
+                if ((load64(work + G_LX_P) == 120) | (load64(work + G_LX_P) == 88))
+                   & (hex_of(load8(g0 + load64(work + G_LX_AT) + 2)) == 1) {
+                    store64(work + G_LX_I, load64(work + G_LX_AT) + 2);
+                    while (load64(work + G_LX_I) < g1)
+                          & (hex_of(load8(g0 + load64(work + G_LX_I))) == 1) {
+                        store64(work + G_LX_I, load64(work + G_LX_I) + 1);
+                    }
+                    store64(work + G_LX_AT, load64(work + G_LX_I));
+                    call lex_put;
+                    continue;
+                }
+            }
+            store64(work + G_LX_I, load64(work + G_LX_AT) + 1);
+            while (load64(work + G_LX_I) < g1)
+                  & (digit_of(load8(g0 + load64(work + G_LX_I))) == 1) {
+                store64(work + G_LX_I, load64(work + G_LX_I) + 1);
+            }
+            store64(work + G_LX_AT, load64(work + G_LX_I));
+            call lex_put;
+            continue;
+        }
+        if (name_start(load64(work + G_LX_C)) == 1) {
+            store64(work + G_LX_KIND, K_NAME);
+            store64(work + G_LX_I, load64(work + G_LX_AT) + 1);
+            while (load64(work + G_LX_I) < g1)
+                  & (name_char(load8(g0 + load64(work + G_LX_I))) == 1) {
+                store64(work + G_LX_I, load64(work + G_LX_I) + 1);
+            }
+            store64(work + G_LX_AT, load64(work + G_LX_I));
+            call lex_put;
+            continue;
+        }
+        if load64(work + G_LX_C) == 34 {
+            store64(work + G_LX_I, load64(work + G_LX_AT) + 1);
+            store64(work + G_LX_P, 0);
+            while load64(work + G_LX_I) < g1 {
+                if load8(g0 + load64(work + G_LX_I)) == 34 {
+                    store64(work + G_LX_P, 1);
+                    break;
+                }
+                if load8(g0 + load64(work + G_LX_I)) == 10 {
+                    break;
+                }
+                store64(work + G_LX_I, load64(work + G_LX_I) + 1);
+            }
+            if load64(work + G_LX_P) != 1 {
+                st = BAD_SOURCE;
+                at = load64(work + G_LX_LINE);
+                ret;
+            }
+            store64(work + G_LX_KIND, K_STRING);
+            store64(work + G_LX_AT, load64(work + G_LX_I) + 1);
+            call lex_put;
+            continue;
+        }
+        store64(work + G_LX_KIND, K_OP);
+        store64(work + G_LX_I, 1);
+        if (load64(work + G_LX_AT) + 1) < g1 {
+            store64(work + G_LX_P, load8(g0 + load64(work + G_LX_AT) + 1));
+            if ((load64(work + G_LX_C) == 60) & (load64(work + G_LX_P) == 60))
+               | ((load64(work + G_LX_C) == 62) & (load64(work + G_LX_P) == 62))
+               | ((load64(work + G_LX_C) == 61) & (load64(work + G_LX_P) == 61))
+               | ((load64(work + G_LX_C) == 33) & (load64(work + G_LX_P) == 61))
+               | ((load64(work + G_LX_C) == 60) & (load64(work + G_LX_P) == 61))
+               | ((load64(work + G_LX_C) == 62) & (load64(work + G_LX_P) == 61)) {
+                store64(work + G_LX_I, 2);
+            }
+        }
+        if is_op_char(load64(work + G_LX_C)) != 1 {
+            st = BAD_SOURCE;
+            at = load64(work + G_LX_LINE);
+            ret;
+        }
+        store64(work + G_LX_AT, load64(work + G_LX_AT) + load64(work + G_LX_I));
+        call lex_put;
+    }
+}

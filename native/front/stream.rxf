@@ -1,0 +1,317 @@
+# The streams: a name that is looked up in a table, the token that comes next, and the tokens of
+# a macro or an `fn` put where it is used.
+#
+# Every stream is a frame: the tokens of a file, of the body of a macro or of a switch case, or of
+# the body of an `fn`. A frame of a file ends where the one of the file that included it goes on; a
+# frame of a body ends the statement or the expression that is being read from it.
+#
+# The stride of a table is a power of two, so it is kept as the number of bits to shift by.
+
+# the hash of the `g1` bytes at `g0`
+proc name_hash {
+    R = 5381;
+    store64(work + NH_I, 0);
+    while load64(work + NH_I) < g1 {
+        R = ((R << 5) + R) + load8(g0 + load64(work + NH_I));
+        store64(work + NH_I, load64(work + NH_I) + 1);
+    }
+}
+
+# the `g2` bytes at `g0` and at `g1` are the same: R is 1 or 0
+proc name_same {
+    R = 1;
+    store64(work + NS_I, 0);
+    while load64(work + NS_I) < g2 {
+        if load8(g0 + load64(work + NS_I)) != load8(g1 + load64(work + NS_I)) {
+            R = 0;
+            ret;
+        }
+        store64(work + NS_I, load64(work + NS_I) + 1);
+    }
+}
+
+# The name (G_NI_TEXT, G_NI_LEN) is the word (G_NI_WORD) of G_NI_WLEN bytes, lowest byte first:
+# R is 1 or 0. Only the bytes of the name are read, so a name at the end of the source is safe.
+proc name_is {
+    R = 0;
+    if load64(work + G_NI_LEN) != load64(work + G_NI_WLEN) { ret; }
+    R = 1;
+    store64(work + NI_I, 0);
+    store64(work + NI_W, load64(work + G_NI_WORD));
+    while load64(work + NI_I) < load64(work + G_NI_LEN) {
+        if load8(load64(work + G_NI_TEXT) + load64(work + NI_I)) != (load64(work + NI_W) & 255) {
+            R = 0;
+            ret;
+        }
+        store64(work + NI_W, load64(work + NI_W) >> 8);
+        store64(work + NI_I, load64(work + NI_I) + 1);
+    }
+}
+
+# The entry of the name (G_FI_TEXT, G_FI_LEN) among the entries of G_FI_STRIDE bits at G_FI_BASE,
+# hashed over the G_FI_MAX slots of the table (a power of two; an entry whose name has no bytes is
+# an empty slot): R is it, or 0. Every probe runs into an empty slot: the table is never full.
+proc find_in {
+    g0 = load64(work + G_FI_TEXT);
+    g1 = load64(work + G_FI_LEN);
+    call name_hash;
+    store64(work + G_FI_H, R);
+    store64(work + G_FI_I, R & (load64(work + G_FI_MAX) - 1));
+    while 1 {
+        store64(work + G_FI_E, load64(work + G_FI_BASE)
+                + (load64(work + G_FI_I) << load64(work + G_FI_STRIDE)));
+        if load64(load64(work + G_FI_E) + 16) == 0 {
+            R = 0;
+            ret;
+        }
+        if load64(load64(work + G_FI_E)) == load64(work + G_FI_H) {
+            if load64(load64(work + G_FI_E) + 16) == load64(work + G_FI_LEN) {
+                g0 = load64(load64(work + G_FI_E) + 8);
+                g1 = load64(work + G_FI_TEXT);
+                g2 = load64(work + G_FI_LEN);
+                call name_same;
+                if R == 1 {
+                    R = load64(work + G_FI_E);
+                    ret;
+                }
+            }
+        }
+        store64(work + G_FI_I, (load64(work + G_FI_I) + 1) & (load64(work + G_FI_MAX) - 1));
+    }
+}
+
+# The same for a table that keeps the order its entries were added in (the procs, whose number is
+# what identifies them): the G_FI_COUNT entries are looked over one by one.
+proc find_in_seq {
+    g0 = load64(work + G_FI_TEXT);
+    g1 = load64(work + G_FI_LEN);
+    call name_hash;
+    store64(work + G_FI_H, R);
+    R = 0;
+    store64(work + G_FI_I, 0);
+    while load64(work + G_FI_I) < load64(work + G_FI_COUNT) {
+        store64(work + G_FI_E, load64(work + G_FI_BASE)
+                + (load64(work + G_FI_I) << load64(work + G_FI_STRIDE)));
+        if load64(load64(work + G_FI_E)) == load64(work + G_FI_H) {
+            if load64(load64(work + G_FI_E) + 16) == load64(work + G_FI_LEN) {
+                g0 = load64(load64(work + G_FI_E) + 8);
+                g1 = load64(work + G_FI_TEXT);
+                g2 = load64(work + G_FI_LEN);
+                call name_same;
+                if R == 1 {
+                    R = load64(work + G_FI_E);
+                    ret;
+                }
+            }
+        }
+        store64(work + G_FI_I, load64(work + G_FI_I) + 1);
+    }
+    R = 0;
+}
+
+# the frame that is on top
+fn frame_top() = (work + W_FRAMES + ((nframes - 1) * FRAME_ENTRY));
+
+# The token that comes next without taking it, or 0 when the stream that is being read has ended.
+# A frame of a file that is used up is left behind; a frame of a body that is used up ends what is
+# being read from it. G_LASTLINE is the line of the last token that was seen.
+proc peek_tok {
+    R = 0;
+    while nframes > 0 {
+        fr = frame_top();
+        if load64(fr + 16) < load64(fr + 8) {
+            R = load64(fr) + (load64(fr + 16) * TOKEN);
+            ret;
+        }
+        if load64(fr + 8) > 0 {
+            store64(work + G_LASTLINE,
+                    load64(load64(fr) + ((load64(fr + 8) - 1) * TOKEN) + 24));
+        }
+        if load64(fr + 24) != F_FILE {
+            ret;
+        }
+        nframes = nframes - 1;
+    }
+}
+
+# The token that comes next. R is its address; 0 and the source is refused when there is none.
+proc next_tok {
+    call peek_tok;
+    tk = R;
+    if tk == 0 {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    fr = frame_top();
+    store64(fr + 16, load64(fr + 16) + 1);
+    store64(work + G_LASTLINE, load64(tk + 24));
+    R = tk;
+}
+
+# g0 the base of the tokens, g1 how many, g2 what kind of frame it is
+proc frame_push {
+    if nframes >= NFRAME {
+        st = OUT_OF_MEMORY;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    fr = work + W_FRAMES + (nframes * FRAME_ENTRY);
+    store64(fr, g0);
+    store64(fr + 8, g1);
+    store64(fr + 16, 0);
+    store64(fr + 24, g2);
+    store64(fr + 32, 0);
+    store64(fr + 40, nval);
+    store64(fr + 48, nop);
+    nframes = nframes + 1;
+}
+
+proc frame_pop {
+    nframes = nframes - 1;
+}
+
+# ---- the tokens of an expansion ---------------------------------------------------------------
+
+# one token at SB_T copied to where the expansion is being written
+proc sb_copy {
+    d = work + W_ARENA + load64(work + G_ARENATOP) + (load64(work + SB_N) * TOKEN);
+    store64(d, load64(load64(work + SB_T)));
+    store64(d + 8, load64(load64(work + SB_T) + 8));
+    store64(d + 16, load64(load64(work + SB_T) + 16));
+    store64(d + 24, load64(load64(work + SB_T) + 24));
+    store64(work + SB_N, load64(work + SB_N) + 1);
+}
+
+# a `(` or a `)` of an argument of more than one token, at the line of the body
+proc sb_bracket {
+    d = work + W_ARENA + load64(work + G_ARENATOP) + (load64(work + SB_N) * TOKEN);
+    store64(d, K_OP);
+    store64(d + 8, work + W_SYNTH + load64(work + SB_WHICH));
+    store64(d + 16, 1);
+    store64(d + 24, load64(work + SB_TLINE));
+    store64(work + SB_N, load64(work + SB_N) + 1);
+}
+
+# The SB_COUNT tokens at SB_BODY, with every name that is a parameter of the SB_NPARAM entries at
+# SB_PARAMS replaced by the argument of the same number at work + W_ARGS. R is where they are
+# written (in the arena), R0 how many. The arena is not taken: the caller does that.
+proc substitute {
+    store64(work + SB_N, 0);
+    store64(work + SB_I, 0);
+    while load64(work + SB_I) < load64(work + SB_COUNT) {
+        store64(work + SB_T, load64(work + SB_BODY) + (load64(work + SB_I) * TOKEN));
+        store64(work + SB_TLINE, load64(load64(work + SB_T) + 24));
+        store64(work + SB_HIT, 0);
+        if load64(load64(work + SB_T)) == K_NAME {
+            store64(work + SB_J, 0);
+            while load64(work + SB_J) < load64(work + SB_NPARAM) {
+                if load64(load64(work + SB_PARAMS) + (load64(work + SB_J) * 16) + 8)
+                   == load64(load64(work + SB_T) + 16) {
+                    g0 = load64(load64(work + SB_PARAMS) + (load64(work + SB_J) * 16));
+                    g1 = load64(load64(work + SB_T) + 8);
+                    g2 = load64(load64(work + SB_T) + 16);
+                    call name_same;
+                    if R == 1 {
+                        store64(work + SB_HIT, load64(work + SB_J) + 1);
+                        break;
+                    }
+                }
+                store64(work + SB_J, load64(work + SB_J) + 1);
+            }
+        }
+        if load64(work + SB_HIT) == 0 {
+            call sb_copy;
+            store64(work + SB_I, load64(work + SB_I) + 1);
+            continue;
+        }
+        store64(work + SB_HIT, load64(work + SB_HIT) - 1);
+        store64(work + SB_AC, load64(work + W_ARGS + (load64(work + SB_HIT) * 32) + 16));
+        if load64(work + SB_AC) == 1 {
+            store64(work + SB_T, load64(work + W_ARGS + (load64(work + SB_HIT) * 32)));
+            call sb_copy;
+        } else {
+            store64(work + SB_WHICH, 0);
+            call sb_bracket;
+            store64(work + SB_AB, load64(work + W_ARGS + (load64(work + SB_HIT) * 32)));
+            store64(work + SB_K, 0);
+            while load64(work + SB_K) < load64(work + SB_AC) {
+                store64(work + SB_T, load64(work + SB_AB) + (load64(work + SB_K) * TOKEN));
+                call sb_copy;
+                store64(work + SB_K, load64(work + SB_K) + 1);
+            }
+            store64(work + SB_WHICH, 1);
+            call sb_bracket;
+        }
+        store64(work + SB_I, load64(work + SB_I) + 1);
+    }
+    R = work + W_ARENA + load64(work + G_ARENATOP);
+    R0 = load64(work + SB_N);
+}
+
+# ---- the arguments of a use -------------------------------------------------------------------
+
+# The arguments of a use, up to the closing parenthesis, which is not taken. The opening one is.
+# Each of them is (base, first, how many) of contiguous tokens, in work + W_ARGS.
+proc arguments {
+    store64(work + AR_N, 0);
+    store64(work + AR_DEPTH, 0);
+    store64(work + AR_STARTED, 0);
+    store64(work + AR_COUNT, 0);
+    store64(work + AR_PREV, 0);
+    store64(work + AR_BASE, 0);
+    while 1 {
+        call next_tok;
+        if st != 0 { ret; }
+        store64(work + AR_T, R);
+        if load64(work + AR_STARTED) == 0 {
+            store64(work + AR_BASE, load64(work + AR_T));
+            store64(work + AR_STARTED, 1);
+        } else {
+            if load64(work + AR_T) != load64(work + AR_PREV) + TOKEN {
+                st = BAD_SOURCE;
+                at = load64(load64(work + AR_T) + 24);
+                ret;
+            }
+        }
+        store64(work + AR_PREV, load64(work + AR_T));
+        store64(work + AR_C, 0);
+        if load64(load64(work + AR_T)) == K_OP {
+            if load64(load64(work + AR_T) + 16) == 1 {
+                store64(work + AR_C, load8(load64(load64(work + AR_T) + 8)));
+            }
+        }
+        if load64(work + AR_C) == 40 {
+            store64(work + AR_DEPTH, load64(work + AR_DEPTH) + 1);
+        }
+        if load64(work + AR_C) == 41 {
+            if load64(work + AR_DEPTH) == 0 {
+                break;
+            }
+            store64(work + AR_DEPTH, load64(work + AR_DEPTH) - 1);
+        }
+        if (load64(work + AR_C) == 44) & (load64(work + AR_DEPTH) == 0) {
+            call ar_push;
+            store64(work + AR_STARTED, 0);
+            store64(work + AR_COUNT, 0);
+            continue;
+        }
+        store64(work + AR_COUNT, load64(work + AR_COUNT) + 1);
+    }
+    if (load64(work + AR_COUNT) > 0) | (load64(work + AR_N) > 0) {
+        call ar_push;
+    }
+}
+
+# the argument that was read becomes one of the arguments of the use
+proc ar_push {
+    if load64(work + AR_N) >= NARGS {
+        st = OUT_OF_MEMORY;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + W_ARGS + (load64(work + AR_N) * 32), load64(work + AR_BASE));
+    store64(work + W_ARGS + (load64(work + AR_N) * 32) + 8, 0);
+    store64(work + W_ARGS + (load64(work + AR_N) * 32) + 16, load64(work + AR_COUNT));
+    store64(work + AR_N, load64(work + AR_N) + 1);
+}
