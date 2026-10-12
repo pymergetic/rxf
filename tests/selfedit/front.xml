@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="selfedit" rxf:parent="pymergetic.rxf" category="ModuleCategory.Application">
+    <Function name="front" implementation="pymergetic.rxf.kinds.FunctionImplementation.Semantic" layer="pymergetic.rxf.kinds.FunctionLayer.Application" semantic_version="1" signature="pymergetic.rxf.selfedit.front.signature">
+      <Signature name="signature" return_type="void" parameter_count="2" result_count="1" refusal_set="pymergetic.rxf.foundation.StdlibRefusals">
+        <Parameter name="argument[0]" value_type="pymergetic.rxf.model.Ref" />
+        <Parameter name="argument[1]" value_type="pymergetic.rxf.foundation.NativeTransaction" index="1" />
+        <Result name="value" value_type="void" />
+      </Signature>
+    </Function>
+  </Module>
+</delta>
