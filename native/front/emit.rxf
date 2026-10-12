@@ -1,0 +1,418 @@
+# Writing the words of a program: the instructions of native/graph.h, in the order the host writes
+# them, byte for byte. `out` is where they go, `ow` the number of the word that is written next. A
+# label is the number of a word that is not known yet; a patch is the word that will hold it.
+#
+# The words are counted from the first word of the output, which is the header, so a label is
+# already where it is in the finished program. There is no recursion here and no allocator: slots
+# come from the frame of the program and the answers are the globals R, R0.
+
+# the instruction that is written begins at the word that comes next
+proc emit_begin {
+    store64(work + G_LAST_START, ow);
+    store64(work + G_NINST, load64(work + G_NINST) + 1);
+}
+
+# One word at `ow`.
+proc putw {
+    if ow >= load64(work + G_OUT_CAP) {
+        st = OUT_OF_MEMORY;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(load64(work + G_OUT) + (ow << 3), w);
+    ow = ow + 1;
+}
+
+# One label: a word that says where the label is when the program is known. The patch is the word
+# and the label it waits for.
+proc putl {
+    if ow >= load64(work + G_OUT_CAP) {
+        st = OUT_OF_MEMORY;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    if npatch >= NPATCH {
+        st = OUT_OF_MEMORY;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(load64(work + G_OUT) + (ow << 3), 0);
+    store64(work + W_PATCHES + (npatch << 4), ow);
+    store64(work + W_PATCHES + (npatch << 4) + 8, load64(work + G_PL_LABEL));
+    npatch = npatch + 1;
+    ow = ow + 1;
+}
+
+# A new label: its number. It stands for the word that is written where it is placed.
+proc new_label {
+    if nlabel >= NLABEL {
+        st = OUT_OF_MEMORY;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    R = nlabel;
+    nlabel = nlabel + 1;
+}
+
+# The label G_PL_LABEL stands for the word that is written next.
+proc place_label {
+    store64(work + W_LABELS + (load64(work + G_PL_LABEL) << 3), ow);
+}
+
+# Every patch is what its label stands for.
+proc resolve_labels {
+    store64(work + RP_I, 0);
+    while load64(work + RP_I) < npatch {
+        store64(work + RP_AT, load64(work + W_PATCHES + (load64(work + RP_I) << 4)));
+        store64(work + RP_LABEL, load64(work + W_PATCHES + (load64(work + RP_I) << 4) + 8));
+        store64(work + RP_W, load64(work + W_LABELS + (load64(work + RP_LABEL) << 3)));
+        store64(load64(work + G_OUT) + (load64(work + RP_AT) << 3), load64(work + RP_W));
+        store64(work + RP_I, load64(work + RP_I) + 1);
+    }
+}
+
+# ---- the slots of the frame ------------------------------------------------------------------
+
+# A slot of G_SA_WIDTH bytes in the frame: its byte offset. What does not fit is refused.
+proc slot_alloc {
+    slot_end = (slot_end + 7) & ~7;
+    R = slot_end;
+    slot_end = slot_end + ((load64(work + G_SA_WIDTH) + 7) & ~7);
+    if slot_end > SLOTS_MAX {
+        st = OUT_OF_MEMORY;
+        at = load64(work + G_LASTLINE);
+    }
+}
+
+# A temporary of eight bytes: one that is free again, or a new one. The free ones are given back
+# last in, first out, and `release_temps` hands back the live ones in the order they were taken --
+# the order tools/native/rxfc.py takes them in.
+proc temp_alloc {
+    R = 0;
+    if ntemps > 0 {
+        ntemps = ntemps - 1;
+        R = load64(work + W_TEMPS + (ntemps << 3));
+    } else {
+        store64(work + G_SA_WIDTH, 8);
+        call slot_alloc;
+        if st != 0 { ret; }
+    }
+    store8(work + W_LIVE + R, 1);
+    store64(work + W_TLIVE + (ntlive << 3), R);
+    ntlive = ntlive + 1;
+}
+
+# The value G_EV_KIND/G_EV_VALUE is a temporary that was read: it is free for the next answer.
+proc free_value {
+    if load64(work + G_EV_KIND) != V_SLOT { ret; }
+    if load8(work + W_LIVE + load64(work + G_EV_VALUE)) != 1 { ret; }
+    store8(work + W_LIVE + load64(work + G_EV_VALUE), 0);
+    store64(work + FV_I, 0);
+    while load64(work + FV_I) < ntlive {
+        if load64(work + W_TLIVE + (load64(work + FV_I) << 3)) == load64(work + G_EV_VALUE) {
+            store64(work + FV_J, load64(work + FV_I));
+            while (load64(work + FV_J) + 1) < ntlive {
+                store64(work + W_TLIVE + (load64(work + FV_J) << 3),
+                        load64(work + W_TLIVE + ((load64(work + FV_J) + 1) << 3)));
+                store64(work + FV_J, load64(work + FV_J) + 1);
+            }
+            ntlive = ntlive - 1;
+            break;
+        }
+        store64(work + FV_I, load64(work + FV_I) + 1);
+    }
+    store64(work + W_TEMPS + (ntemps << 3), load64(work + G_EV_VALUE));
+    ntemps = ntemps + 1;
+}
+
+# Every temporary that is live now is free again (after a statement).
+proc release_temps {
+    store64(work + RT_I, 0);
+    while load64(work + RT_I) < ntlive {
+        store8(work + W_LIVE + load64(work + W_TLIVE + (load64(work + RT_I) << 3)), 0);
+        store64(work + W_TEMPS + (ntemps << 3),
+                load64(work + W_TLIVE + (load64(work + RT_I) << 3)));
+        ntemps = ntemps + 1;
+        store64(work + RT_I, load64(work + RT_I) + 1);
+    }
+    ntlive = 0;
+}
+
+# The one slot of sixteen bytes a `store` and a `load` pass a value through.
+proc wide_slot {
+    if load64(work + G_WIDE) == NONE {
+        store64(work + G_SA_WIDTH, 16);
+        call slot_alloc;
+        if st != 0 { ret; }
+        store64(work + G_WIDE, R);
+    }
+    R = load64(work + G_WIDE);
+}
+
+# The one slot the way back of a `call` is read into.
+proc back_slot {
+    if load64(work + G_BACK) == NONE {
+        store64(work + G_SA_WIDTH, 8);
+        call slot_alloc;
+        if st != 0 { ret; }
+        store64(work + G_BACK, R);
+    }
+    R = load64(work + G_BACK);
+}
+
+# ---- one operand, three words ----------------------------------------------------------------
+
+# The operand (G_OT_KIND, G_OT_VALUE) as the three words of the format: kind, its value, its width.
+# A number is a literal of eight bytes; a slot is eight, and a wide slot sixteen.
+proc operand_to {
+    if load64(work + G_OT_KIND) == V_LIT {
+        w = LITERAL;
+        call putw;
+        w = load64(work + G_OT_VALUE);
+        call putw;
+        w = 8;
+        call putw;
+        ret;
+    }
+    w = SLOT;
+    call putw;
+    w = load64(work + G_OT_VALUE);
+    call putw;
+    w = 8;
+    if load64(work + G_OT_KIND) == V_WIDE {
+        w = 16;
+    }
+    call putw;
+}
+
+# ---- the instructions ------------------------------------------------------------------------
+
+# `G_EM_DST = (G_EM_KIND, G_EM_VALUE)`: MOVE dst, width, src.
+proc emit_move {
+    call emit_begin;
+    w = MOVE;
+    call putw;
+    w = load64(work + G_EM_DST);
+    call putw;
+    w = 8;
+    call putw;
+    store64(work + G_OT_KIND, load64(work + G_EM_KIND));
+    store64(work + G_OT_VALUE, load64(work + G_EM_VALUE));
+    call operand_to;
+}
+
+# A call of a leaf: CALL leaf, n, out, 8, status, then n operands. The words of the operands are
+# set aside in work + W_EOPS by `eo_push`, and written here.
+proc emit_call {
+    call emit_begin;
+    w = CALL;
+    call putw;
+    w = load64(work + G_EO_LEAF);
+    call putw;
+    w = load64(work + G_EO_N);
+    call putw;
+    w = load64(work + G_EO_OUT);
+    call putw;
+    w = 8;
+    call putw;
+    w = NONE;
+    call putw;
+    store64(work + G_ECI, 0);
+    while load64(work + G_ECI) < load64(work + G_EO_N) {
+        store64(work + EC_E, work + W_EOPS + (load64(work + G_ECI) << 4));
+        store64(work + G_OT_KIND, load8(load64(work + EC_E)));
+        store64(work + G_OT_VALUE, load64(load64(work + EC_E) + 8));
+        call operand_to;
+        store64(work + G_ECI, load64(work + G_ECI) + 1);
+    }
+}
+
+# The operand (G_EO_KIND, G_EO_VALUE) of the call that is being set aside.
+proc eo_push {
+    if load64(work + G_EO_N) >= NEOPS {
+        st = OUT_OF_MEMORY;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + EC_E, work + W_EOPS + (load64(work + G_EO_N) << 4));
+    store8(load64(work + EC_E), load64(work + G_EO_KIND));
+    store64(load64(work + EC_E) + 8, load64(work + G_EO_VALUE));
+    store64(work + G_EO_N, load64(work + G_EO_N) + 1);
+}
+
+# GOTO edge, where the edge copies nothing: GOTO label, 0.
+proc emit_goto {
+    call emit_begin;
+    w = GOTO;
+    call putw;
+    store64(work + G_PL_LABEL, load64(work + G_EG_LABEL));
+    call putl;
+    w = 0;
+    call putw;
+}
+
+# BRANCH condition, mode, edge taken, edge not. Each edge copies nothing: label, 0.
+proc emit_branch {
+    call emit_begin;
+    w = BRANCH;
+    call putw;
+    store64(work + G_OT_KIND, load64(work + G_EB_KIND));
+    store64(work + G_OT_VALUE, load64(work + G_EB_VALUE));
+    call operand_to;
+    w = load64(work + G_EB_MODE);
+    call putw;
+    store64(work + G_PL_LABEL, load64(work + G_EB_TAKEN));
+    call putl;
+    w = 0;
+    call putw;
+    store64(work + G_PL_LABEL, load64(work + G_EB_OTHER));
+    call putl;
+    w = 0;
+    call putw;
+}
+
+# SWITCH condition, n, n tags, n + 1 edges. The tags and the labels of the edges are in
+# work + W_CASES; the last edge is the default.
+proc emit_switch {
+    call emit_begin;
+    w = SWITCH;
+    call putw;
+    store64(work + G_OT_KIND, load64(work + G_ES_KIND));
+    store64(work + G_OT_VALUE, load64(work + G_ES_VALUE));
+    call operand_to;
+    w = load64(work + G_ES_N);
+    call putw;
+    store64(work + G_ESI, 0);
+    while load64(work + G_ESI) < load64(work + G_ES_N) {
+        w = load64(work + W_CASES + (load64(work + G_ESI) * 16));
+        call putw;
+        store64(work + G_ESI, load64(work + G_ESI) + 1);
+    }
+    store64(work + G_ESI, 0);
+    while load64(work + G_ESI) < load64(work + G_ES_N) {
+        store64(work + G_PL_LABEL,
+                load64(work + W_CASES + (load64(work + G_ESI) * 16) + 8));
+        call putl;
+        w = 0;
+        call putw;
+        store64(work + G_ESI, load64(work + G_ESI) + 1);
+    }
+    store64(work + G_PL_LABEL, load64(work + G_ES_DEFAULT));
+    call putl;
+    w = 0;
+    call putw;
+}
+
+# RETURN src, width: the value is what the run answers.
+proc emit_return {
+    call emit_begin;
+    w = RETURN;
+    call putw;
+    store64(work + G_OT_KIND, load64(work + G_ER_KIND));
+    store64(work + G_OT_VALUE, load64(work + G_ER_VALUE));
+    call operand_to;
+    w = 8;
+    call putw;
+}
+
+# REFUSE src: the status the run returns.
+proc emit_refuse {
+    call emit_begin;
+    w = REFUSE;
+    call putw;
+    store64(work + G_OT_KIND, load64(work + G_EJ_KIND));
+    store64(work + G_OT_VALUE, load64(work + G_EJ_VALUE));
+    call operand_to;
+}
+
+# `storeN(address, value)`: the value goes through the wide slot and is copied to the address.
+proc emit_store {
+    call wide_slot;
+    if st != 0 { ret; }
+    store64(work + ESW_WIDE, R);
+    store64(work + G_EM_DST, load64(work + ESW_WIDE));
+    store64(work + G_EM_KIND, load64(work + SV_KIND));
+    store64(work + G_EM_VALUE, load64(work + SV_VALUE));
+    call emit_move;
+    call emit_begin;
+    w = CALL;
+    call putw;
+    w = LEAF_COPY;
+    call putw;
+    w = 5;
+    call putw;
+    w = NONE;
+    call putw;
+    w = 8;
+    call putw;
+    w = NONE;
+    call putw;
+    store64(work + G_OT_KIND, load64(work + SO_AK));
+    store64(work + G_OT_VALUE, load64(work + SO_AV));
+    call operand_to;
+    store64(work + G_OT_KIND, V_LIT);
+    store64(work + G_OT_VALUE, BIG);
+    call operand_to;
+    store64(work + G_OT_KIND, V_WIDE);
+    store64(work + G_OT_VALUE, load64(work + ESW_WIDE));
+    call operand_to;
+    store64(work + G_OT_KIND, V_LIT);
+    store64(work + G_OT_VALUE, BIG);
+    call operand_to;
+    store64(work + G_OT_KIND, V_LIT);
+    store64(work + G_OT_VALUE, load64(work + ES_SIZE));
+    call operand_to;
+}
+
+# `loadN(address)`: `LO_SIZE` bytes at the address (EL_AK, EL_AV), into a temporary. R is the
+# temporary. The address of a `load` is its own word: SO_* is the store or the copy being built.
+proc emit_load {
+    call wide_slot;
+    if st != 0 { ret; }
+    store64(work + EL_WIDE, R);
+    if load64(work + LO_SIZE) < 8 {
+        store64(work + G_EM_DST, load64(work + EL_WIDE));
+        store64(work + G_EM_KIND, V_LIT);
+        store64(work + G_EM_VALUE, 0);
+        call emit_move;
+    }
+    call emit_begin;
+    w = CALL;
+    call putw;
+    w = LEAF_COPY;
+    call putw;
+    w = 5;
+    call putw;
+    w = NONE;
+    call putw;
+    w = 8;
+    call putw;
+    w = NONE;
+    call putw;
+    store64(work + G_OT_KIND, V_WIDE);
+    store64(work + G_OT_VALUE, load64(work + EL_WIDE));
+    call operand_to;
+    store64(work + G_OT_KIND, V_LIT);
+    store64(work + G_OT_VALUE, BIG);
+    call operand_to;
+    store64(work + G_OT_KIND, load64(work + EL_AK));
+    store64(work + G_OT_VALUE, load64(work + EL_AV));
+    call operand_to;
+    store64(work + G_OT_KIND, V_LIT);
+    store64(work + G_OT_VALUE, BIG);
+    call operand_to;
+    store64(work + G_OT_KIND, V_LIT);
+    store64(work + G_OT_VALUE, load64(work + LO_SIZE));
+    call operand_to;
+    store64(work + G_EV_KIND, load64(work + EL_AK));
+    store64(work + G_EV_VALUE, load64(work + EL_AV));
+    call free_value;
+    call temp_alloc;
+    if st != 0 { ret; }
+    store64(work + EL_OUT, R);
+    store64(work + G_EM_DST, load64(work + EL_OUT));
+    store64(work + G_EM_KIND, V_SLOT);
+    store64(work + G_EM_VALUE, load64(work + EL_WIDE));
+    call emit_move;
+    R = load64(work + EL_OUT);
+}

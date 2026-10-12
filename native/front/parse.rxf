@@ -1,0 +1,1755 @@
+# The statements and the items: what the source says to make, and the words that make it. The
+# bodies of `if`, `while` and `switch` are set aside and run after, so that nothing recurses; the
+# labels they need are placed where the host places them.
+
+# ---- names, keywords, symbols -----------------------------------------------------------------
+
+proc expect_op {
+    call next_tok;
+    if st != 0 { ret; }
+    store64(work + EX_TOK, R);
+    if (load64(load64(work + EX_TOK)) == K_OP)
+       & (load64(load64(work + EX_TOK) + 16) == 1) {
+        if load8(load64(load64(work + EX_TOK) + 8)) == load64(work + EX_C) {
+            ret;
+        }
+    }
+    st = BAD_SOURCE;
+    at = load64(load64(work + EX_TOK) + 24);
+}
+
+proc accept_op {
+    call peek_tok;
+    store64(work + EX_TOK, R);
+    R = 0;
+    if load64(work + EX_TOK) == 0 { ret; }
+    if load64(load64(work + EX_TOK)) != K_OP { ret; }
+    if load64(load64(work + EX_TOK) + 16) != 1 { ret; }
+    if load8(load64(load64(work + EX_TOK) + 8)) != load64(work + EX_C) { ret; }
+    call next_tok;
+    R = 1;
+}
+
+# the name at tk is the keyword (G_NI_WORD, G_NI_WLEN): R is 1 or 0
+proc kw_is {
+    R = 0;
+    if load64(tk) != K_NAME { ret; }
+    store64(work + G_NI_TEXT, load64(tk + 8));
+    store64(work + G_NI_LEN, load64(tk + 16));
+    call name_is;
+}
+
+proc accept_kw {
+    R = 0;
+    call peek_tok;
+    tk = R;
+    if tk == 0 { ret; }
+    call kw_is;
+    if R == 0 { ret; }
+    call next_tok;
+    R = 1;
+}
+
+proc expect_kw {
+    call peek_tok;
+    tk = R;
+    if tk == 0 {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    call kw_is;
+    if R == 0 {
+        st = BAD_SOURCE;
+        at = load64(tk + 24);
+        ret;
+    }
+    call next_tok;
+}
+
+# The name at the front of the stream: R is its text and R0 its length.
+proc take_name {
+    call next_tok;
+    if st != 0 { ret; }
+    store64(work + TN_T, R);
+    if load64(load64(work + TN_T)) != K_NAME {
+        st = BAD_SOURCE;
+        at = load64(load64(work + TN_T) + 24);
+        ret;
+    }
+    R = load64(load64(work + TN_T) + 8);
+    R0 = load64(load64(work + TN_T) + 16);
+}
+
+# ---- the tables of names ----------------------------------------------------------------------
+
+# The entry (G_AE_H, G_AE_TEXT, G_AE_LEN) is written where its hash puts it in the table of
+# G_AE_STRIDE bits at G_AE_BASE; R is where. The table has G_AE_MAX slots (a power of two) and
+# G_AE_COUNT entries, kept under G_AE_MAX, so a probe always meets an empty slot. The length of a
+# name is never zero: a name of no bytes is what marks a slot as empty (find_in).
+proc add_entry {
+    if load64(work + G_AE_COUNT) >= load64(work + G_AE_MAX) {
+        st = OUT_OF_MEMORY;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + AE_I, load64(work + G_AE_H) & (load64(work + G_AE_MAX) - 1));
+    while 1 {
+        store64(work + AE_E, load64(work + G_AE_BASE)
+                + (load64(work + AE_I) << load64(work + G_AE_STRIDE)));
+        if load64(load64(work + AE_E) + 16) == 0 { break; }
+        store64(work + AE_I, (load64(work + AE_I) + 1) & (load64(work + G_AE_MAX) - 1));
+    }
+    store64(load64(work + AE_E), load64(work + G_AE_H));
+    store64(load64(work + AE_E) + 8, load64(work + G_AE_TEXT));
+    store64(load64(work + AE_E) + 16, load64(work + G_AE_LEN));
+    store64(load64(work + AE_E) + 24, load64(work + G_AE_VALUE));
+    store64(load64(work + AE_E) + 32, load64(work + G_AE_X1));
+    store64(load64(work + AE_E) + 40, load64(work + G_AE_X2));
+    store64(load64(work + AE_E) + 48, load64(work + G_AE_X3));
+    store64(load64(work + AE_E) + 56, load64(work + G_AE_X4));
+    R = load64(work + AE_E);
+    store64(work + G_AE_COUNT, load64(work + G_AE_COUNT) + 1);
+}
+
+# The same for a table that keeps the order its entries were added in (the procs): the entry goes
+# at the end of the table base/count/stride. The stride is the bits an entry is shifted by.
+proc add_entry_seq {
+    if load64(work + G_AE_COUNT) >= load64(work + G_AE_MAX) {
+        st = OUT_OF_MEMORY;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + AE_E, load64(work + G_AE_BASE)
+            + (load64(work + G_AE_COUNT) << load64(work + G_AE_STRIDE)));
+    store64(load64(work + AE_E), load64(work + G_AE_H));
+    store64(load64(work + AE_E) + 8, load64(work + G_AE_TEXT));
+    store64(load64(work + AE_E) + 16, load64(work + G_AE_LEN));
+    store64(load64(work + AE_E) + 24, load64(work + G_AE_VALUE));
+    store64(load64(work + AE_E) + 32, load64(work + G_AE_X1));
+    store64(load64(work + AE_E) + 40, load64(work + G_AE_X2));
+    store64(load64(work + AE_E) + 48, load64(work + G_AE_X3));
+    store64(load64(work + AE_E) + 56, load64(work + G_AE_X4));
+    R = load64(work + AE_E);
+    store64(work + G_AE_COUNT, load64(work + G_AE_COUNT) + 1);
+}
+
+# A `const NAME = expr;` is added to the numbers the source may use. One that is already there is
+# written over, the way the host writes over it.
+proc add_const {
+    store64(work + G_FI_BASE, work + W_CONSTS);
+    store64(work + G_FI_COUNT, load64(work + G_NCONST));
+    store64(work + G_FI_STRIDE, 6);
+    store64(work + G_FI_MAX, NCONST);
+    store64(work + G_FI_TEXT, load64(work + AC_TEXT));
+    store64(work + G_FI_LEN, load64(work + AC_LEN));
+    call find_in;
+    if R != 0 {
+        store64(R + 24, load64(work + AC_VALUE));
+        ret;
+    }
+    g0 = load64(work + AC_TEXT);
+    g1 = load64(work + AC_LEN);
+    call name_hash;
+    store64(work + G_AE_H, R);
+    store64(work + G_AE_TEXT, load64(work + AC_TEXT));
+    store64(work + G_AE_LEN, load64(work + AC_LEN));
+    store64(work + G_AE_VALUE, load64(work + AC_VALUE));
+    store64(work + G_AE_X1, 0);
+    store64(work + G_AE_X2, 0);
+    store64(work + G_AE_X3, 0);
+    store64(work + G_AE_X4, 0);
+    store64(work + G_AE_BASE, work + W_CONSTS);
+    store64(work + G_AE_STRIDE, 6);
+    store64(work + G_AE_COUNT, load64(work + G_NCONST));
+    store64(work + G_AE_MAX, NCONST);
+    call add_entry;
+    if st != 0 { ret; }
+    store64(work + G_NCONST, load64(work + G_AE_COUNT));
+}
+
+# A variable is a slot of eight bytes in the frame. R is the slot.
+proc add_var {
+    store64(work + G_SA_WIDTH, 8);
+    call slot_alloc;
+    if st != 0 { ret; }
+    store64(work + AV_SLOT, R);
+    g0 = load64(work + AV_TEXT);
+    g1 = load64(work + AV_LEN);
+    call name_hash;
+    store64(work + G_AE_H, R);
+    store64(work + G_AE_TEXT, load64(work + AV_TEXT));
+    store64(work + G_AE_LEN, load64(work + AV_LEN));
+    store64(work + G_AE_VALUE, load64(work + AV_SLOT));
+    store64(work + G_AE_X1, 0);
+    store64(work + G_AE_X2, 0);
+    store64(work + G_AE_X3, 0);
+    store64(work + G_AE_X4, 0);
+    store64(work + G_AE_BASE, work + W_VARS);
+    store64(work + G_AE_STRIDE, 6);
+    store64(work + G_AE_COUNT, load64(work + G_NVAR));
+    store64(work + G_AE_MAX, NVAR);
+    call add_entry;
+    if st != 0 { ret; }
+    store64(work + G_NVAR, load64(work + G_AE_COUNT));
+    R = load64(work + AV_SLOT);
+}
+
+# The entry of a proc: its name, and the labels of its start, its end and its way back. Its call
+# sites begin where the ones that exist end.
+proc add_proc {
+    g0 = load64(work + AP2_TEXT);
+    g1 = load64(work + AP2_LEN);
+    call name_hash;
+    store64(work + G_AE_H, R);
+    store64(work + G_AE_TEXT, load64(work + AP2_TEXT));
+    store64(work + G_AE_LEN, load64(work + AP2_LEN));
+    store64(work + G_AE_VALUE, load64(work + AP2_PL));
+    store64(work + G_AE_X1, load64(work + AP2_EL));
+    store64(work + G_AE_X2, load64(work + AP2_BL));
+    store64(work + G_AE_X3, 0);
+    store64(work + G_AE_X4, 0);   # not defined yet
+    store64(work + G_AE_BASE, work + W_PROCS);
+    store64(work + G_AE_STRIDE, 6);
+    store64(work + G_AE_COUNT, load64(work + G_NPROC));
+    store64(work + G_AE_MAX, NPROC);
+    call add_entry_seq;
+    if st != 0 { ret; }
+    store64(work + G_NPROC, load64(work + G_AE_COUNT));
+    store64(work + AE_E, R);
+    store64(work + W_PINFO + ((load64(work + G_NPROC) - 1) << 4), load64(work + G_NSITE));
+    store64(work + W_PINFO + ((load64(work + G_NPROC) - 1) << 4) + 8, 0);
+    R = load64(work + AE_E);
+}
+
+# ---- setting aside and running a body ---------------------------------------------------------
+
+# The tokens of a body up to its `}`: R is the first of them, R0 their bytes. The `}` that closes
+# the body is read but is not part of it; a nested `{` `}` is.
+proc take_block {
+    store64(work + TB_I, 1);
+    store64(work + TB_N, 0);
+    store64(work + TB_BASE, 0);
+    while 1 {
+        call next_tok;
+        if st != 0 { ret; }
+        store64(work + TB_T, R);
+        if load64(work + TB_N) == 0 {
+            store64(work + TB_BASE, load64(work + TB_T));
+        }
+        store64(work + TB_N, load64(work + TB_N) + 1);
+        if load64(load64(work + TB_T)) == K_OP {
+            if load64(load64(work + TB_T) + 16) == 1 {
+                store64(work + TB_C, load8(load64(load64(work + TB_T) + 8)));
+                if load64(work + TB_C) == 123 {
+                    store64(work + TB_I, load64(work + TB_I) + 1);
+                }
+                if load64(work + TB_C) == 125 {
+                    store64(work + TB_I, load64(work + TB_I) - 1);
+                    if load64(work + TB_I) == 0 {
+                        R = load64(work + TB_BASE);
+                        R0 = (load64(work + TB_N) - 1) * TOKEN;
+                        ret;
+                    }
+                }
+            }
+        }
+    }
+}
+
+# The body (G_STB_BASE, G_STB_COUNT) is a stream of its own: it runs and is over.
+proc run_tokens {
+    g0 = load64(work + G_STB_BASE);
+    g1 = load64(work + G_STB_COUNT) >> TOKEN_SHIFT;
+    g2 = F_BLOCK;
+    g3 = 0;
+    call frame_push;
+    if st != 0 { ret; }
+    call stmts;
+    call frame_pop;
+}
+
+# Statements up to the closing brace of the block that is open, or to the end of a body.
+proc stmts {
+    while 1 {
+        call peek_tok;
+        tk = R;
+        if tk == 0 {
+            if nframes > 0 {
+                fr = frame_top();
+                if load64(fr + 24) == F_BLOCK { ret; }
+            }
+            st = BAD_SOURCE;
+            at = load64(work + G_LASTLINE);
+            ret;
+        }
+        if (load64(tk) == K_OP) & (load64(tk + 16) == 1) {
+            if load8(load64(tk + 8)) == 125 {
+                call next_tok;
+                ret;
+            }
+        }
+        call statement;
+        if st != 0 { ret; }
+    }
+}
+
+# ---- statements --------------------------------------------------------------------------------
+
+# try the keyword (w, l): 1 and the name is it
+macro try_kw(w, l) {
+    store64(work + G_NI_WORD, (w));
+    store64(work + G_NI_WLEN, (l));
+    call kw_is;
+}
+
+proc statement {
+    call peek_tok;
+    tk = R;
+    if tk == 0 {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    if load64(tk) != K_NAME {
+        st = BAD_SOURCE;
+        at = load64(tk + 24);
+        ret;
+    }
+    try_kw(KW_VAR, KW_LEN_VAR);
+    if R == 1 {
+        call next_tok;
+        call stmt_var;
+        if st == 0 { call release_temps; }
+        ret;
+    }
+    try_kw(KW_IF, KW_LEN_IF);
+    if R == 1 {
+        call next_tok;
+        call stmt_if;
+        ret;
+    }
+    try_kw(KW_WHILE, KW_LEN_WHILE);
+    if R == 1 {
+        call next_tok;
+        call stmt_while;
+        ret;
+    }
+    try_kw(KW_SWITCH, KW_LEN_SWITCH);
+    if R == 1 {
+        call next_tok;
+        call stmt_switch;
+        ret;
+    }
+    try_kw(KW_BREAK, KW_LEN_BREAK);
+    if R == 1 {
+        call next_tok;
+        call stmt_break;
+        if st == 0 { call release_temps; }
+        ret;
+    }
+    try_kw(KW_CONTINUE, KW_LEN_CONTINUE);
+    if R == 1 {
+        call next_tok;
+        call stmt_continue;
+        if st == 0 { call release_temps; }
+        ret;
+    }
+    try_kw(KW_CALL, KW_LEN_CALL);
+    if R == 1 {
+        call next_tok;
+        call stmt_call;
+        if st == 0 { call release_temps; }
+        ret;
+    }
+    try_kw(KW_RET, KW_LEN_RET);
+    if R == 1 {
+        call next_tok;
+        call stmt_ret;
+        if st == 0 { call release_temps; }
+        ret;
+    }
+    try_kw(KW_RETURN, KW_LEN_RETURN);
+    if R == 1 {
+        call next_tok;
+        call stmt_return;
+        if st == 0 { call release_temps; }
+        ret;
+    }
+    try_kw(KW_REFUSE, KW_LEN_REFUSE);
+    if R == 1 {
+        call next_tok;
+        call stmt_refuse;
+        if st == 0 { call release_temps; }
+        ret;
+    }
+    try_kw(KW_PUT, KW_LEN_PUT);
+    if R == 1 {
+        call next_tok;
+        call stmt_put;
+        if st == 0 { call release_temps; }
+        ret;
+    }
+    try_kw(KW_COPY, KW_LEN_COPY);
+    if R == 1 {
+        call next_tok;
+        call stmt_copy;
+        if st == 0 { call release_temps; }
+        ret;
+    }
+    try_kw(KW_FILL, KW_LEN_FILL);
+    if R == 1 {
+        call next_tok;
+        call stmt_fill;
+        if st == 0 { call release_temps; }
+        ret;
+    }
+    call stmt_store_or_assign;
+    if st == 0 { call release_temps; }
+}
+
+# `var a, b;`
+proc stmt_var {
+    while 1 {
+        call take_name;
+        if st != 0 { ret; }
+        store64(work + AV_TEXT, R);
+        store64(work + AV_LEN, R0);
+        store64(work + G_FI_BASE, work + W_VARS);
+        store64(work + G_FI_COUNT, load64(work + G_NVAR));
+        store64(work + G_FI_STRIDE, 6);
+        store64(work + G_FI_MAX, NVAR);
+        store64(work + G_FI_TEXT, load64(work + AV_TEXT));
+        store64(work + G_FI_LEN, load64(work + AV_LEN));
+        call find_in;
+        if R != 0 {
+            st = BAD_SOURCE;
+            at = load64(work + G_LASTLINE);
+            ret;
+        }
+        call add_var;
+        if st != 0 { ret; }
+        store64(work + EX_C, 44);
+        call accept_op;
+        if R == 0 { break; }
+    }
+    store64(work + EX_C, 59);
+    call expect_op;
+}
+
+# The statement that starts with a name that is a `storeN`, a macro, or a variable to assign.
+proc stmt_store_or_assign {
+    try_kw(KW_STORE8, KW_LEN_STORE);
+    if R == 1 {
+        call next_tok;
+        store64(work + ES_SIZE, 1);
+        call stmt_store_common;
+        ret;
+    }
+    try_kw(KW_STORE16, KW_LEN_STORE16);
+    if R == 1 {
+        call next_tok;
+        store64(work + ES_SIZE, 2);
+        call stmt_store_common;
+        ret;
+    }
+    try_kw(KW_STORE32, KW_LEN_STORE16);
+    if R == 1 {
+        call next_tok;
+        store64(work + ES_SIZE, 4);
+        call stmt_store_common;
+        ret;
+    }
+    try_kw(KW_STORE64, KW_LEN_STORE16);
+    if R == 1 {
+        call next_tok;
+        store64(work + ES_SIZE, 8);
+        call stmt_store_common;
+        ret;
+    }
+    store64(work + G_FI_BASE, work + W_MACROS);
+    store64(work + G_FI_COUNT, load64(work + G_NMACRO));
+    store64(work + G_FI_STRIDE, 6);
+    store64(work + G_FI_MAX, NMACRO);
+    store64(work + G_FI_TEXT, load64(tk + 8));
+    store64(work + G_FI_LEN, load64(tk + 16));
+    call find_in;
+    if R != 0 {
+        call next_tok;
+        call expand_macro;
+        ret;
+    }
+    store64(work + G_FI_BASE, work + W_VARS);
+    store64(work + G_FI_COUNT, load64(work + G_NVAR));
+    store64(work + G_FI_STRIDE, 6);
+    store64(work + G_FI_MAX, NVAR);
+    store64(work + G_FI_TEXT, load64(tk + 8));
+    store64(work + G_FI_LEN, load64(tk + 16));
+    call find_in;
+    if R != 0 {
+        store64(work + AS_TARGET, load64(R + 24));
+        call next_tok;
+        store64(work + EX_C, 61);
+        call expect_op;
+        if st != 0 { ret; }
+        call assign_statement;
+        ret;
+    }
+    st = BAD_SOURCE;
+    at = load64(tk + 24);
+}
+
+# `storeN(address, value);` with ES_SIZE already set.
+proc stmt_store_common {
+    store64(work + EX_C, 40);
+    call expect_op;
+    if st != 0 { ret; }
+    call ex_run;
+    if st != 0 { ret; }
+    store64(work + SO_AK, ev_kind);
+    store64(work + SO_AV, ev_value);
+    store64(work + EX_C, 44);
+    call expect_op;
+    if st != 0 { ret; }
+    call ex_run;
+    if st != 0 { ret; }
+    store64(work + SV_KIND, ev_kind);
+    store64(work + SV_VALUE, ev_value);
+    store64(work + EX_C, 41);
+    call expect_op;
+    if st != 0 { ret; }
+    store64(work + EX_C, 59);
+    call expect_op;
+    if st != 0 { ret; }
+    call emit_store;
+}
+
+# `target = expression ;`. When the value is what the last call wrote, that call writes the target.
+proc assign_statement {
+    store64(work + LAST_BEFORE, load64(work + G_NINST));
+    call ex_run;
+    if st != 0 { ret; }
+    store64(work + EX_C, 59);
+    call expect_op;
+    if st != 0 { ret; }
+    if (ev_kind == V_SLOT) & (load8(work + W_LIVE + ev_value) == 1) {
+        if load64(work + G_NINST) > load64(work + LAST_BEFORE) {
+            if load64(load64(work + G_OUT) + (load64(work + G_LAST_START) << 3)) == CALL {
+                if load64(load64(work + G_OUT)
+                          + ((load64(work + G_LAST_START) + 3) << 3)) == ev_value {
+                    store64(load64(work + G_OUT)
+                            + ((load64(work + G_LAST_START) + 3) << 3),
+                            load64(work + AS_TARGET));
+                    ret;
+                }
+            }
+        }
+    }
+    store64(work + G_EM_DST, load64(work + AS_TARGET));
+    store64(work + G_EM_KIND, ev_kind);
+    store64(work + G_EM_VALUE, ev_value);
+    call emit_move;
+}
+
+# `if cond { } else { }`, and a chain of `else if`. The labels of each `if` of the chain are made
+# where the host makes them: after the `{` of its body, and in the order then, other, end. The ends
+# of the whole chain are all at the one place where the chain is over. Each level of the chain is an
+# entry of work + W_CONSTRUCT, over the marker that begins the chain, so that a chain that is inside
+# a body does not reach the chain that is around it.
+proc stmt_if {
+    if load64(work + G_NCONSTRUCT) >= NCONSTRUCT {
+        st = OUT_OF_MEMORY;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + W_CONSTRUCT + (load64(work + G_NCONSTRUCT) * CONSTRUCT_ENTRY),
+             C_CHAIN);
+    store64(work + W_CONSTRUCT + (load64(work + G_NCONSTRUCT) * CONSTRUCT_ENTRY) + 8, 0);
+    store64(work + W_CONSTRUCT + (load64(work + G_NCONSTRUCT) * CONSTRUCT_ENTRY) + 16, 0);
+    store64(work + W_CONSTRUCT + (load64(work + G_NCONSTRUCT) * CONSTRUCT_ENTRY) + 24, 0);
+    store64(work + G_NCONSTRUCT, load64(work + G_NCONSTRUCT) + 1);
+    while 1 {
+        call ex_run;
+        if st != 0 { ret; }
+        store64(work + IFC_CK, ev_kind);
+        store64(work + IFC_CV, ev_value);
+        store64(work + EX_C, 123);
+        call expect_op;
+        if st != 0 { ret; }
+        call new_label;
+        store64(work + IFE_THEN, R);
+        call new_label;
+        store64(work + IFE_OTHER, R);
+        call new_label;
+        store64(work + IFE_END, R);
+        if load64(work + G_NCONSTRUCT) >= NCONSTRUCT {
+            st = OUT_OF_MEMORY;
+            at = load64(work + G_LASTLINE);
+            ret;
+        }
+        store64(work + IFE_AT,
+                work + W_CONSTRUCT + (load64(work + G_NCONSTRUCT) * CONSTRUCT_ENTRY));
+        store64(load64(work + IFE_AT), C_IF);
+        store64(load64(work + IFE_AT) + 8, load64(work + IFE_THEN));
+        store64(load64(work + IFE_AT) + 16, load64(work + IFE_END));
+        store64(load64(work + IFE_AT) + 24, load64(work + IFE_OTHER));
+        store64(work + G_NCONSTRUCT, load64(work + G_NCONSTRUCT) + 1);
+        store64(work + G_EB_KIND, load64(work + IFC_CK));
+        store64(work + G_EB_VALUE, load64(work + IFC_CV));
+        store64(work + G_EB_MODE, NONZERO);
+        store64(work + G_EB_TAKEN, load64(work + IFE_THEN));
+        store64(work + G_EB_OTHER, load64(work + IFE_OTHER));
+        call emit_branch;
+        call release_temps;
+        store64(work + G_PL_LABEL, load64(work + IFE_THEN));
+        call place_label;
+        call take_block;
+        if st != 0 { ret; }
+        store64(work + G_STB_BASE, R);
+        store64(work + G_STB_COUNT, R0);
+        call run_tokens;
+        if st != 0 { ret; }
+        # what the body needed is on the stack again: what its own entry says
+        store64(work + IFE_AT,
+                work + W_CONSTRUCT + ((load64(work + G_NCONSTRUCT) - 1) * CONSTRUCT_ENTRY));
+        store64(work + IFE_OTHER, load64(load64(work + IFE_AT) + 24));
+        store64(work + IFE_END, load64(load64(work + IFE_AT) + 16));
+        store64(work + G_NI_WORD, KW_ELSE);
+        store64(work + G_NI_WLEN, KW_LEN_ELSE);
+        call accept_kw;
+        if R == 0 {
+            store64(work + G_PL_LABEL, load64(work + IFE_OTHER));
+            call place_label;
+            call place_if_ends;
+            ret;
+        }
+        store64(work + G_EG_LABEL, load64(work + IFE_END));
+        call emit_goto;
+        if st != 0 { ret; }
+        store64(work + G_PL_LABEL, load64(work + IFE_OTHER));
+        call place_label;
+        store64(work + G_NI_WORD, KW_IF);
+        store64(work + G_NI_WLEN, KW_LEN_IF);
+        call accept_kw;
+        if R != 0 {
+            continue;
+        }
+        store64(work + EX_C, 123);
+        call expect_op;
+        if st != 0 { ret; }
+        call take_block;
+        if st != 0 { ret; }
+        store64(work + G_STB_BASE, R);
+        store64(work + G_STB_COUNT, R0);
+        call run_tokens;
+        if st != 0 { ret; }
+        call place_if_ends;
+        ret;
+    }
+}
+
+# The chain of `if` `else if` that is on top of work + W_CONSTRUCT is over: every end of it is at
+# this place, and the levels of the chain and its marker come off the stack.
+proc place_if_ends {
+    while 1 {
+        if load64(work + G_NCONSTRUCT) == 0 { ret; }
+        store64(work + PIE_E,
+                work + W_CONSTRUCT + ((load64(work + G_NCONSTRUCT) - 1) * CONSTRUCT_ENTRY));
+        if load64(load64(work + PIE_E)) != C_IF {
+            store64(work + G_NCONSTRUCT, load64(work + G_NCONSTRUCT) - 1);
+            ret;
+        }
+        store64(work + G_PL_LABEL, load64(load64(work + PIE_E) + 16));
+        call place_label;
+        store64(work + G_NCONSTRUCT, load64(work + G_NCONSTRUCT) - 1);
+    }
+}
+
+# `while cond { }`: the body is a loop that `break` and `continue` know.
+proc stmt_while {
+    call new_label;
+    store64(work + WH_TOP, R);
+    call new_label;
+    store64(work + WH_BODY, R);
+    call new_label;
+    store64(work + WH_END, R);
+    store64(work + G_PL_LABEL, load64(work + WH_TOP));
+    call place_label;
+    call ex_run;
+    if st != 0 { ret; }
+    store64(work + WH_CK, ev_kind);
+    store64(work + WH_CV, ev_value);
+    store64(work + EX_C, 123);
+    call expect_op;
+    if st != 0 { ret; }
+    store64(work + G_EB_KIND, load64(work + WH_CK));
+    store64(work + G_EB_VALUE, load64(work + WH_CV));
+    store64(work + G_EB_MODE, NONZERO);
+    store64(work + G_EB_TAKEN, load64(work + WH_BODY));
+    store64(work + G_EB_OTHER, load64(work + WH_END));
+    call emit_branch;
+    call release_temps;
+    store64(work + G_PL_LABEL, load64(work + WH_BODY));
+    call place_label;
+    store64(work + W_CONSTRUCT + (load64(work + G_NCONSTRUCT) * CONSTRUCT_ENTRY),
+             C_WHILE);
+    store64(work + W_CONSTRUCT + (load64(work + G_NCONSTRUCT) * CONSTRUCT_ENTRY) + 8,
+             load64(work + WH_TOP));
+    store64(work + W_CONSTRUCT + (load64(work + G_NCONSTRUCT) * CONSTRUCT_ENTRY) + 16,
+             load64(work + WH_END));
+    store64(work + G_NCONSTRUCT, load64(work + G_NCONSTRUCT) + 1);
+    call take_block;
+    if st != 0 { ret; }
+    store64(work + G_STB_BASE, R);
+    store64(work + G_STB_COUNT, R0);
+    call run_tokens;
+    if st != 0 { ret; }
+    store64(work + G_NCONSTRUCT, load64(work + G_NCONSTRUCT) - 1);
+    # what the body needed is on the stack again: what its own entry says
+    store64(work + WH_TOP,
+            load64(work + W_CONSTRUCT
+                   + (load64(work + G_NCONSTRUCT) * CONSTRUCT_ENTRY) + 8));
+    store64(work + WH_END,
+            load64(work + W_CONSTRUCT
+                   + (load64(work + G_NCONSTRUCT) * CONSTRUCT_ENTRY) + 16));
+    store64(work + G_EG_LABEL, load64(work + WH_TOP));
+    call emit_goto;
+    store64(work + G_PL_LABEL, load64(work + WH_END));
+    call place_label;
+}
+
+# The top construct is a `while`: R is its entry, or 0.
+proc find_loop {
+    R = 0;
+    store64(work + FL_I, load64(work + G_NCONSTRUCT));
+    while load64(work + FL_I) > 0 {
+        store64(work + FL_I, load64(work + FL_I) - 1);
+        store64(work + FL_FOUND,
+                work + W_CONSTRUCT + (load64(work + FL_I) * CONSTRUCT_ENTRY));
+        if load64(load64(work + FL_FOUND)) == C_WHILE {
+            R = load64(work + FL_FOUND);
+            ret;
+        }
+    }
+}
+
+proc stmt_break {
+    call find_loop;
+    if R == 0 {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + BL_E, R);
+    store64(work + G_EG_LABEL, load64(load64(work + BL_E) + 16));
+    call emit_goto;
+    store64(work + EX_C, 59);
+    call expect_op;
+}
+
+proc stmt_continue {
+    call find_loop;
+    if R == 0 {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + CN_E, R);
+    store64(work + G_EG_LABEL, load64(load64(work + CN_E) + 8));
+    call emit_goto;
+    store64(work + EX_C, 59);
+    call expect_op;
+}
+
+# `switch value { case a, b: { } default: { } }`. What it needs while its bodies run is kept in
+# work + W_SW, one entry for each switch that is open.
+proc stmt_switch {
+    call ex_run;
+    if st != 0 { ret; }
+    store64(work + SW_CK, ev_kind);
+    store64(work + SW_CV, ev_value);
+    store64(work + EX_C, 123);
+    call expect_op;
+    if st != 0 { ret; }
+    if load64(work + G_NSW) >= NSW {
+        st = OUT_OF_MEMORY;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + SW_AT, work + W_SW + (load64(work + G_NSW) * SW_ENTRY));
+    store64(work + G_NSW, load64(work + G_NSW) + 1);
+    call new_label;
+    store64(work + SW_DEFAULT, R);
+    call new_label;
+    store64(work + SW_END, R);
+    store64(work + SW_NTAG, 0);
+    store64(work + SW_NBODY, 0);
+    store64(work + SW_HASDEF, 0);
+    while 1 {
+        store64(work + EX_C, 125);
+        call accept_op;
+        if R != 0 { break; }
+        store64(work + G_NI_WORD, KW_DEFAULT);
+        store64(work + G_NI_WLEN, KW_LEN_DEFAULT);
+        call accept_kw;
+        if R != 0 {
+            store64(work + EX_C, 58);
+            call expect_op;
+            if st != 0 { ret; }
+            store64(work + EX_C, 123);
+            call expect_op;
+            if st != 0 { ret; }
+            call take_block;
+            if st != 0 { ret; }
+            store64(work + G_STB_BASE, R);
+            store64(work + G_STB_COUNT, R0);
+            store64(work + SWB_LABEL, load64(work + SW_DEFAULT));
+            call record_body;
+            if st != 0 { ret; }
+            store64(work + SW_HASDEF, 1);
+            continue;
+        }
+        store64(work + G_NI_WORD, KW_CASE);
+        store64(work + G_NI_WLEN, KW_LEN_CASE);
+        call expect_kw;
+        if st != 0 { ret; }
+        store64(work + SWB_FIRST, load64(work + SW_NTAG));
+        while 1 {
+            call ex_run;
+            if st != 0 { ret; }
+            if ev_kind != V_LIT {
+                st = BAD_SOURCE;
+                at = load64(work + G_LASTLINE);
+                ret;
+            }
+            call record_tag;
+            if st != 0 { ret; }
+            store64(work + EX_C, 44);
+            call accept_op;
+            if R == 0 { break; }
+        }
+        store64(work + EX_C, 58);
+        call expect_op;
+        if st != 0 { ret; }
+        store64(work + EX_C, 123);
+        call expect_op;
+        if st != 0 { ret; }
+        # the label of this body is made after its `{`, as the host makes it
+        call new_label;
+        store64(work + SWB_LABEL, R);
+        store64(work + SWB_I, load64(work + SWB_FIRST));
+        while load64(work + SWB_I) < load64(work + SW_NTAG) {
+            store64(work + W_CASES + (load64(work + SWB_I) * 16) + 8,
+                    load64(work + SWB_LABEL));
+            store64(work + SWB_I, load64(work + SWB_I) + 1);
+        }
+        call take_block;
+        if st != 0 { ret; }
+        store64(work + G_STB_BASE, R);
+        store64(work + G_STB_COUNT, R0);
+        call record_body;
+        if st != 0 { ret; }
+    }
+    store64(work + G_ES_KIND, load64(work + SW_CK));
+    store64(work + G_ES_VALUE, load64(work + SW_CV));
+    store64(work + G_ES_N, load64(work + SW_NTAG));
+    store64(work + G_ES_DEFAULT, load64(work + SW_DEFAULT));
+    call emit_switch;
+    call release_temps;
+    store64(load64(work + SW_AT), load64(work + SW_END));
+    store64(load64(work + SW_AT) + 8, load64(work + SW_DEFAULT));
+    store64(load64(work + SW_AT) + 16,
+            load64(work + G_NBODYREC) - load64(work + SW_NBODY));
+    store64(load64(work + SW_AT) + 24, load64(work + SW_NBODY));
+    store64(load64(work + SW_AT) + 32, load64(work + SW_HASDEF));
+    store64(load64(work + SW_AT) + 40, 0);
+    call run_bodies;
+    if st != 0 { ret; }
+    store64(work + SW_AT, work + W_SW + ((load64(work + G_NSW) - 1) * SW_ENTRY));
+    if load64(load64(work + SW_AT) + 32) == 0 {
+        store64(work + G_PL_LABEL, load64(load64(work + SW_AT) + 8));
+        call place_label;
+    }
+    store64(work + G_PL_LABEL, load64(load64(work + SW_AT)));
+    call place_label;
+    store64(work + G_NSW, load64(work + G_NSW) - 1);
+}
+
+# The tag of the case that is being read: its (tag, label) goes to work + W_CASES in the order the
+# host writes them. The label is filled in when the body that follows has its label.
+proc record_tag {
+    if load64(work + SW_NTAG) >= NCASE {
+        st = OUT_OF_MEMORY;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + W_CASES + (load64(work + SW_NTAG) * 16), ev_value);
+    store64(work + W_CASES + (load64(work + SW_NTAG) * 16) + 8, 0);
+    store64(work + SW_NTAG, load64(work + SW_NTAG) + 1);
+}
+
+# The body of the case at SWB_LABEL is set aside, at the end of work + W_BODYREC.
+proc record_body {
+    if load64(work + G_NBODYREC) >= NBODYREC {
+        st = OUT_OF_MEMORY;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + RB_E, work + W_BODYREC + (load64(work + G_NBODYREC) * BODYREC_ENTRY));
+    store64(load64(work + RB_E), load64(work + SWB_LABEL));
+    store64(load64(work + RB_E) + 8, load64(work + G_STB_BASE));
+    store64(load64(work + RB_E) + 16, load64(work + G_STB_COUNT));
+    store64(work + G_NBODYREC, load64(work + G_NBODYREC) + 1);
+    store64(work + SW_NBODY, load64(work + SW_NBODY) + 1);
+}
+
+# The bodies of the switch that is on top run after its words: each at its label, then a jump to
+# the end. What one body needs while it runs is in its own entry of work + W_SW.
+proc run_bodies {
+    store64(work + W_SW + ((load64(work + G_NSW) - 1) * SW_ENTRY) + 40, 0);
+    while 1 {
+        store64(work + SW_AT, work + W_SW + ((load64(work + G_NSW) - 1) * SW_ENTRY));
+        if load64(load64(work + SW_AT) + 40) >= load64(load64(work + SW_AT) + 24) {
+            ret;
+        }
+        store64(work + RB_E, work + W_BODYREC
+                + ((load64(load64(work + SW_AT) + 16) + load64(load64(work + SW_AT) + 40))
+                   * BODYREC_ENTRY));
+        store64(work + G_PL_LABEL, load64(load64(work + RB_E)));
+        call place_label;
+        store64(work + G_STB_BASE, load64(load64(work + RB_E) + 8));
+        store64(work + G_STB_COUNT, load64(load64(work + RB_E) + 16));
+        call run_tokens;
+        if st != 0 { ret; }
+        store64(work + G_EG_LABEL,
+                load64(work + W_SW + ((load64(work + G_NSW) - 1) * SW_ENTRY)));
+        call emit_goto;
+        store64(work + W_SW + ((load64(work + G_NSW) - 1) * SW_ENTRY) + 40,
+                load64(work + W_SW + ((load64(work + G_NSW) - 1) * SW_ENTRY) + 40) + 1);
+    }
+}
+
+# `call name;`: the tag of this call goes on the stack of the ways back, and the proc runs.
+proc stmt_call {
+    call take_name;
+    if st != 0 { ret; }
+    store64(work + CL_TEXT, R);
+    store64(work + CL_LEN, R0);
+    store64(work + EX_C, 59);
+    call expect_op;
+    if st != 0 { ret; }
+    store64(work + G_FI_BASE, work + W_VARS);
+    store64(work + G_FI_COUNT, load64(work + G_NVAR));
+    store64(work + G_FI_STRIDE, 6);
+    store64(work + G_FI_MAX, NVAR);
+    store64(work + G_FI_TEXT, load64(work + G_SP_TEXT));
+    store64(work + G_FI_LEN, 2);
+    call find_in;
+    if R == 0 {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + SP_SLOT, load64(R + 24));
+    store64(work + G_FI_BASE, work + W_PROCS);
+    store64(work + G_FI_COUNT, load64(work + G_NPROC));
+    store64(work + G_FI_STRIDE, 6);
+    store64(work + G_FI_TEXT, load64(work + CL_TEXT));
+    store64(work + G_FI_LEN, load64(work + CL_LEN));
+    call find_in_seq;
+    if R != 0 {
+        store64(work + CL_E, R);
+    } else {
+        call new_label;
+        store64(work + AP2_PL, R);
+        call new_label;
+        store64(work + AP2_EL, R);
+        call new_label;
+        store64(work + AP2_BL, R);
+        store64(work + AP2_TEXT, load64(work + CL_TEXT));
+        store64(work + AP2_LEN, load64(work + CL_LEN));
+        call add_proc;
+        if st != 0 { ret; }
+        store64(work + CL_E, R);
+    }
+    store64(work + CL_IDX, (load64(work + CL_E) - (work + W_PROCS)) >> 6);
+    store64(work + CL_SITES,
+            load64(work + W_PINFO + (load64(work + CL_IDX) << 4) + 8));
+    store64(work + CL_TAG, load64(work + CL_SITES) + 1);
+    call new_label;
+    store64(work + CL_BACK, R);
+    store64(work + SO_AK, V_SLOT);
+    store64(work + SO_AV, load64(work + SP_SLOT));
+    store64(work + SV_KIND, V_LIT);
+    store64(work + SV_VALUE, load64(work + CL_TAG));
+    store64(work + ES_SIZE, 8);
+    call emit_store;
+    if st != 0 { ret; }
+    call_begin(LEAF_ADD, load64(work + SP_SLOT));
+    store64(work + G_EO_KIND, V_SLOT);
+    store64(work + G_EO_VALUE, load64(work + SP_SLOT));
+    call eo_push;
+    store64(work + G_EO_KIND, V_LIT);
+    store64(work + G_EO_VALUE, 8);
+    call eo_push;
+    call emit_call;
+    if st != 0 { ret; }
+    store64(work + G_EG_LABEL, load64(load64(work + CL_E) + 24));
+    call emit_goto;
+    if st != 0 { ret; }
+    store64(work + G_PL_LABEL, load64(work + CL_BACK));
+    call place_label;
+    store64(work + W_CALLS + (load64(work + G_NSITE) << 4), load64(work + CL_BACK));
+    store64(work + W_CALLS + (load64(work + G_NSITE) << 4) + 8, load64(work + CL_IDX));
+    store64(work + W_PINFO + (load64(work + CL_IDX) << 4) + 8,
+             load64(work + CL_SITES) + 1);
+    store64(work + G_NSITE, load64(work + G_NSITE) + 1);
+}
+
+proc stmt_ret {
+    if load64(work + G_CUR_PROC) == 0 {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + G_FI_BASE, work + W_PROCS);
+    store64(work + G_FI_COUNT, load64(work + G_NPROC));
+    store64(work + G_FI_STRIDE, 6);
+    store64(work + G_FI_TEXT, load64(work + G_CUR_PROC));
+    store64(work + G_FI_LEN, load64(work + G_CUR_LEN));
+    call find_in_seq;
+    if R == 0 {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + G_EG_LABEL, load64(R + 32));
+    call emit_goto;
+    store64(work + EX_C, 59);
+    call expect_op;
+}
+
+proc stmt_return {
+    call ex_run;
+    if st != 0 { ret; }
+    store64(work + G_ER_KIND, ev_kind);
+    store64(work + G_ER_VALUE, ev_value);
+    call emit_return;
+    store64(work + EX_C, 59);
+    call expect_op;
+}
+
+proc stmt_refuse {
+    call ex_run;
+    if st != 0 { ret; }
+    store64(work + G_EJ_KIND, ev_kind);
+    store64(work + G_EJ_VALUE, ev_value);
+    call emit_refuse;
+    store64(work + EX_C, 59);
+    call expect_op;
+}
+
+# `put(pointer, value, n)`: n bytes at *pointer, and the pointer moves on by n.
+proc stmt_put {
+    store64(work + EX_C, 40);
+    call expect_op;
+    if st != 0 { ret; }
+    call take_name;
+    if st != 0 { ret; }
+    store64(work + G_FI_BASE, work + W_VARS);
+    store64(work + G_FI_COUNT, load64(work + G_NVAR));
+    store64(work + G_FI_STRIDE, 6);
+    store64(work + G_FI_MAX, NVAR);
+    store64(work + G_FI_TEXT, R);
+    store64(work + G_FI_LEN, R0);
+    call find_in;
+    if R == 0 {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + PUT_PTR, load64(R + 24));
+    store64(work + EX_C, 44);
+    call expect_op;
+    if st != 0 { ret; }
+    call ex_run;
+    if st != 0 { ret; }
+    store64(work + SV_KIND, ev_kind);
+    store64(work + SV_VALUE, ev_value);
+    store64(work + EX_C, 44);
+    call expect_op;
+    if st != 0 { ret; }
+    call ex_run;
+    if st != 0 { ret; }
+    if ev_kind != V_LIT {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + PUT_SIZE, ev_value);
+    store64(work + EX_C, 41);
+    call expect_op;
+    if st != 0 { ret; }
+    store64(work + EX_C, 59);
+    call expect_op;
+    if st != 0 { ret; }
+    store64(work + SO_AK, V_SLOT);
+    store64(work + SO_AV, load64(work + PUT_PTR));
+    store64(work + ES_SIZE, load64(work + PUT_SIZE));
+    call emit_store;
+    if st != 0 { ret; }
+    call_begin(LEAF_ADD, load64(work + PUT_PTR));
+    store64(work + G_EO_KIND, V_SLOT);
+    store64(work + G_EO_VALUE, load64(work + PUT_PTR));
+    call eo_push;
+    store64(work + G_EO_KIND, V_LIT);
+    store64(work + G_EO_VALUE, load64(work + PUT_SIZE));
+    call eo_push;
+    call emit_call;
+}
+
+proc stmt_copy {
+    store64(work + EX_C, 40);
+    call expect_op;
+    if st != 0 { ret; }
+    call ex_run;
+    if st != 0 { ret; }
+    store64(work + SO_AK, ev_kind);
+    store64(work + SO_AV, ev_value);
+    store64(work + EX_C, 44);
+    call expect_op;
+    if st != 0 { ret; }
+    call ex_run;
+    if st != 0 { ret; }
+    store64(work + SV_KIND, ev_kind);
+    store64(work + SV_VALUE, ev_value);
+    store64(work + EX_C, 44);
+    call expect_op;
+    if st != 0 { ret; }
+    call ex_run;
+    if st != 0 { ret; }
+    store64(work + LO_SIZE, ev_kind);
+    store64(work + CO_N, ev_value);
+    store64(work + EX_C, 41);
+    call expect_op;
+    if st != 0 { ret; }
+    store64(work + EX_C, 59);
+    call expect_op;
+    if st != 0 { ret; }
+    call_begin(LEAF_COPY, NONE);
+    store64(work + G_EO_KIND, load64(work + SO_AK));
+    store64(work + G_EO_VALUE, load64(work + SO_AV));
+    call eo_push;
+    store64(work + G_EO_KIND, load64(work + LO_SIZE));
+    store64(work + G_EO_VALUE, load64(work + CO_N));
+    call eo_push;
+    store64(work + G_EO_KIND, load64(work + SV_KIND));
+    store64(work + G_EO_VALUE, load64(work + SV_VALUE));
+    call eo_push;
+    store64(work + G_EO_KIND, load64(work + LO_SIZE));
+    store64(work + G_EO_VALUE, load64(work + CO_N));
+    call eo_push;
+    store64(work + G_EO_KIND, load64(work + LO_SIZE));
+    store64(work + G_EO_VALUE, load64(work + CO_N));
+    call eo_push;
+    call emit_call;
+}
+
+proc stmt_fill {
+    store64(work + EX_C, 40);
+    call expect_op;
+    if st != 0 { ret; }
+    call ex_run;
+    if st != 0 { ret; }
+    store64(work + SO_AK, ev_kind);
+    store64(work + SO_AV, ev_value);
+    store64(work + EX_C, 44);
+    call expect_op;
+    if st != 0 { ret; }
+    call ex_run;
+    if st != 0 { ret; }
+    if ev_kind != V_LIT {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + FL_BYTE, ev_value);
+    store64(work + EX_C, 44);
+    call expect_op;
+    if st != 0 { ret; }
+    call ex_run;
+    if st != 0 { ret; }
+    store64(work + LO_SIZE, ev_kind);
+    store64(work + CO_N, ev_value);
+    store64(work + EX_C, 41);
+    call expect_op;
+    if st != 0 { ret; }
+    store64(work + EX_C, 59);
+    call expect_op;
+    if st != 0 { ret; }
+    call_begin(LEAF_FILL, NONE);
+    store64(work + G_EO_KIND, load64(work + SO_AK));
+    store64(work + G_EO_VALUE, load64(work + SO_AV));
+    call eo_push;
+    store64(work + G_EO_KIND, load64(work + LO_SIZE));
+    store64(work + G_EO_VALUE, load64(work + CO_N));
+    call eo_push;
+    store64(work + G_EO_KIND, V_LIT);
+    store64(work + G_EO_VALUE, load64(work + FL_BYTE));
+    call eo_push;
+    store64(work + G_EO_KIND, load64(work + LO_SIZE));
+    store64(work + G_EO_VALUE, load64(work + CO_N));
+    call eo_push;
+    call emit_call;
+}
+
+# The macro at the front is put where it is used: its body becomes a stream of statements.
+proc expand_macro {
+    store64(work + EM_TEXT, load64(tk + 8));
+    store64(work + EM_LEN, load64(tk + 16));
+    store64(work + G_FI_BASE, work + W_MACROS);
+    store64(work + G_FI_COUNT, load64(work + G_NMACRO));
+    store64(work + G_FI_STRIDE, 6);
+    store64(work + G_FI_MAX, NMACRO);
+    store64(work + G_FI_TEXT, load64(work + EM_TEXT));
+    store64(work + G_FI_LEN, load64(work + EM_LEN));
+    call find_in;
+    if R == 0 {
+        st = BAD_SOURCE;
+        at = load64(tk + 24);
+        ret;
+    }
+    store64(work + EM_E, R);
+    store64(work + EX_C, 40);
+    call expect_op;
+    if st != 0 { ret; }
+    call arguments;
+    if st != 0 { ret; }
+    store64(work + EX_C, 59);
+    call expect_op;
+    if st != 0 { ret; }
+    store64(work + SB_NPARAM, load64(load64(work + EM_E) + 24));
+    store64(work + SB_PARAMS, load64(load64(work + EM_E) + 32));
+    store64(work + SB_BODY, load64(load64(work + EM_E) + 40));
+    store64(work + SB_COUNT, load64(load64(work + EM_E) + 48));
+    store64(work + EM_SAVED, load64(work + G_ARENATOP));
+    call substitute;
+    if st != 0 { ret; }
+    store64(work + EM_ABASE, R);
+    store64(work + EM_ANCOUNT, R0);
+    store64(work + G_ARENATOP,
+            load64(work + EM_SAVED) + (load64(work + EM_ANCOUNT) * TOKEN));
+    store64(work + G_STB_BASE, load64(work + EM_ABASE));
+    store64(work + G_STB_COUNT, load64(work + EM_ANCOUNT) * TOKEN);
+    call run_tokens;
+}
+
+# ---- the items -------------------------------------------------------------------------------
+
+proc item {
+    call peek_tok;
+    tk = R;
+    if tk == 0 {
+        R = 0;
+        ret;
+    }
+    R = 1;
+    try_kw(KW_INCLUDE, KW_LEN_INCLUDE);
+    if R == 1 {
+        call next_tok;
+        call item_include;
+        ret;
+    }
+    try_kw(KW_CONST, KW_LEN_CONST);
+    if R == 1 {
+        call next_tok;
+        call item_const;
+        ret;
+    }
+    try_kw(KW_MACRO, KW_LEN_MACRO);
+    if R == 1 {
+        call next_tok;
+        call item_macro;
+        ret;
+    }
+    try_kw(KW_FN, KW_LEN_FN);
+    if R == 1 {
+        call next_tok;
+        call item_fn;
+        ret;
+    }
+    try_kw(KW_PROGRAM, KW_LEN_PROGRAM);
+    if R == 1 {
+        call next_tok;
+        call item_program;
+        ret;
+    }
+    try_kw(KW_PROC, KW_LEN_PROC);
+    if R == 1 {
+        call next_tok;
+        call item_proc;
+        ret;
+    }
+    st = BAD_SOURCE;
+    at = load64(tk + 24);
+}
+
+proc item_include {
+    call next_tok;
+    if st != 0 { ret; }
+    store64(work + IC_T, R);
+    if load64(load64(work + IC_T)) != K_STRING {
+        st = BAD_SOURCE;
+        at = load64(load64(work + IC_T) + 24);
+        ret;
+    }
+    store64(work + EX_C, 59);
+    call expect_op;
+    if st != 0 { ret; }
+    store64(work + IC_TEXT, load64(load64(work + IC_T) + 8) + 1);
+    store64(work + IC_LEN, load64(load64(work + IC_T) + 16) - 2);
+    call include_file;
+}
+
+proc item_const {
+    call take_name;
+    if st != 0 { ret; }
+    store64(work + AC_TEXT, R);
+    store64(work + AC_LEN, R0);
+    store64(work + EX_C, 61);
+    call expect_op;
+    if st != 0 { ret; }
+    call ex_run;
+    if st != 0 { ret; }
+    if ev_kind != V_LIT {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + AC_VALUE, ev_value);
+    store64(work + EX_C, 59);
+    call expect_op;
+    if st != 0 { ret; }
+    call add_const;
+}
+
+# `macro name(a, b) { body }`: the body is set aside with its parameters.
+proc item_macro {
+    call take_name;
+    if st != 0 { ret; }
+    store64(work + MC_TEXT, R);
+    store64(work + MC_LEN, R0);
+    store64(work + EX_C, 40);
+    call expect_op;
+    if st != 0 { ret; }
+    store64(work + MC_PBASE, load64(work + G_NMPARM));
+    store64(work + MC_NPARAM, 0);
+    store64(work + EX_C, 41);
+    call accept_op;
+    if R == 0 {
+        while 1 {
+            call take_name;
+            if st != 0 { ret; }
+            store64(work + W_MPARAM + (load64(work + G_NMPARM) * 16), R);
+            store64(work + W_MPARAM + (load64(work + G_NMPARM) * 16) + 8, R0);
+            store64(work + G_NMPARM, load64(work + G_NMPARM) + 1);
+            store64(work + MC_NPARAM, load64(work + MC_NPARAM) + 1);
+            store64(work + EX_C, 44);
+            call accept_op;
+            if R == 0 { break; }
+        }
+        store64(work + EX_C, 41);
+        call expect_op;
+        if st != 0 { ret; }
+    }
+    store64(work + MC_PARAMS, work + W_MPARAM + (load64(work + MC_PBASE) * 16));
+    store64(work + EX_C, 123);
+    call expect_op;
+    if st != 0 { ret; }
+    call take_block;
+    if st != 0 { ret; }
+    store64(work + MC_BODY, R);
+    store64(work + MC_COUNT, R0 >> TOKEN_SHIFT);
+    g0 = load64(work + MC_TEXT);
+    g1 = load64(work + MC_LEN);
+    call name_hash;
+    store64(work + G_AE_H, R);
+    store64(work + G_AE_TEXT, load64(work + MC_TEXT));
+    store64(work + G_AE_LEN, load64(work + MC_LEN));
+    store64(work + G_AE_VALUE, load64(work + MC_NPARAM));
+    store64(work + G_AE_X1, load64(work + MC_PARAMS));
+    store64(work + G_AE_X2, load64(work + MC_BODY));
+    store64(work + G_AE_X3, load64(work + MC_COUNT));
+    store64(work + G_AE_X4, 0);
+    store64(work + G_AE_BASE, work + W_MACROS);
+    store64(work + G_AE_STRIDE, 6);
+    store64(work + G_AE_COUNT, load64(work + G_NMACRO));
+    store64(work + G_AE_MAX, NMACRO);
+    call add_entry;
+    if st != 0 { ret; }
+    store64(work + G_NMACRO, load64(work + G_AE_COUNT));
+}
+
+# `fn name(a) = expression;`
+proc item_fn {
+    call take_name;
+    if st != 0 { ret; }
+    store64(work + FN_TEXT, R);
+    store64(work + FN_LEN, R0);
+    store64(work + EX_C, 40);
+    call expect_op;
+    if st != 0 { ret; }
+    store64(work + FN_PBASE, load64(work + G_NFPARM));
+    store64(work + FN_NPARAM, 0);
+    store64(work + EX_C, 41);
+    call accept_op;
+    if R == 0 {
+        while 1 {
+            call take_name;
+            if st != 0 { ret; }
+            store64(work + W_FPARAM + (load64(work + G_NFPARM) * 16), R);
+            store64(work + W_FPARAM + (load64(work + G_NFPARM) * 16) + 8, R0);
+            store64(work + G_NFPARM, load64(work + G_NFPARM) + 1);
+            store64(work + FN_NPARAM, load64(work + FN_NPARAM) + 1);
+            store64(work + EX_C, 44);
+            call accept_op;
+            if R == 0 { break; }
+        }
+        store64(work + EX_C, 41);
+        call expect_op;
+        if st != 0 { ret; }
+    }
+    store64(work + FN_PARAMS, work + W_FPARAM + (load64(work + FN_PBASE) * 16));
+    store64(work + EX_C, 61);
+    call expect_op;
+    if st != 0 { ret; }
+    call peek_tok;
+    if R == 0 {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + FN_BODY, R);
+    store64(work + FN_COUNT, 0);
+    while 1 {
+        call peek_tok;
+        tk = R;
+        if tk == 0 {
+            st = BAD_SOURCE;
+            at = load64(work + G_LASTLINE);
+            ret;
+        }
+        if (load64(tk) == K_OP) & (load64(tk + 16) == 1) {
+            if load8(load64(tk + 8)) == 59 {
+                call next_tok;
+                break;
+            }
+        }
+        call next_tok;
+        store64(work + FN_COUNT, load64(work + FN_COUNT) + 1);
+    }
+    g0 = load64(work + FN_TEXT);
+    g1 = load64(work + FN_LEN);
+    call name_hash;
+    store64(work + G_AE_H, R);
+    store64(work + G_AE_TEXT, load64(work + FN_TEXT));
+    store64(work + G_AE_LEN, load64(work + FN_LEN));
+    store64(work + G_AE_VALUE, load64(work + FN_NPARAM));
+    store64(work + G_AE_X1, load64(work + FN_PARAMS));
+    store64(work + G_AE_X2, load64(work + FN_BODY));
+    store64(work + G_AE_X3, load64(work + FN_COUNT));
+    store64(work + G_AE_X4, 0);
+    store64(work + G_AE_BASE, work + W_FNS);
+    store64(work + G_AE_STRIDE, 6);
+    store64(work + G_AE_COUNT, load64(work + G_NFN));
+    store64(work + G_AE_MAX, NFN);
+    call add_entry;
+    if st != 0 { ret; }
+    store64(work + G_NFN, load64(work + G_AE_COUNT));
+}
+
+# `program name(a, b) { body }`: the one program; its parameters are slots of the frame.
+proc item_program {
+    if load64(work + G_HAS_PROGRAM) != 0 {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + G_HAS_PROGRAM, 1);
+    call take_name;
+    if st != 0 { ret; }
+    store64(work + EX_C, 40);
+    call expect_op;
+    if st != 0 { ret; }
+    store64(work + EX_C, 41);
+    call accept_op;
+    if R == 0 {
+        while 1 {
+            call take_name;
+            if st != 0 { ret; }
+            store64(work + AV_TEXT, R);
+            store64(work + AV_LEN, R0);
+            call add_var;
+            if st != 0 { ret; }
+            store64(work + W_PARGS + (load64(work + G_NPARAMS) << 4), R);
+            store64(work + W_PARGS + (load64(work + G_NPARAMS) << 4) + 8, 8);
+            store64(work + G_NPARAMS, load64(work + G_NPARAMS) + 1);
+            store64(work + EX_C, 44);
+            call accept_op;
+            if R == 0 { break; }
+        }
+        store64(work + EX_C, 41);
+        call expect_op;
+        if st != 0 { ret; }
+    }
+    call write_header;
+    if st != 0 { ret; }
+    store64(work + EX_C, 123);
+    call expect_op;
+    if st != 0 { ret; }
+    call stmts;
+    if st != 0 { ret; }
+    store64(work + G_ER_KIND, V_LIT);
+    store64(work + G_ER_VALUE, 0);
+    call emit_return;
+}
+
+# `proc name { body }`: after the program; `call name;` runs it and `ret;` comes back.
+proc item_proc {
+    if load64(work + G_HAS_PROGRAM) == 0 {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    call take_name;
+    if st != 0 { ret; }
+    store64(work + PR_TEXT, R);
+    store64(work + PR_LEN, R0);
+    store64(work + G_FI_BASE, work + W_PROCS);
+    store64(work + G_FI_COUNT, load64(work + G_NPROC));
+    store64(work + G_FI_STRIDE, 6);
+    store64(work + G_FI_TEXT, load64(work + PR_TEXT));
+    store64(work + G_FI_LEN, load64(work + PR_LEN));
+    call find_in_seq;
+    if R != 0 {
+        if load64(R + 56) != 0 {
+            st = BAD_SOURCE;
+            at = load64(work + G_LASTLINE);
+            ret;
+        }
+        store64(work + PR_E, R);
+    } else {
+        call new_label;
+        store64(work + AP2_PL, R);
+        call new_label;
+        store64(work + AP2_EL, R);
+        call new_label;
+        store64(work + AP2_BL, R);
+        store64(work + AP2_TEXT, load64(work + PR_TEXT));
+        store64(work + AP2_LEN, load64(work + PR_LEN));
+        call add_proc;
+        if st != 0 { ret; }
+        store64(work + PR_E, R);
+    }
+    store64(load64(work + PR_E) + 56, 1);   # defined
+    store64(work + G_PL_LABEL, load64(load64(work + PR_E) + 24));
+    call place_label;
+    store64(work + G_CUR_PROC, load64(work + PR_TEXT));
+    store64(work + G_CUR_LEN, load64(work + PR_LEN));
+    store64(work + EX_C, 123);
+    call expect_op;
+    if st != 0 { ret; }
+    call stmts;
+    if st != 0 { ret; }
+    store64(work + G_CUR_PROC, 0);
+    store64(work + G_CUR_LEN, 0);
+    store64(work + G_PL_LABEL, load64(load64(work + PR_E) + 32));
+    call place_label;
+    store64(work + G_FI_BASE, work + W_VARS);
+    store64(work + G_FI_COUNT, load64(work + G_NVAR));
+    store64(work + G_FI_STRIDE, 6);
+    store64(work + G_FI_MAX, NVAR);
+    store64(work + G_FI_TEXT, load64(work + G_SP_TEXT));
+    store64(work + G_FI_LEN, 2);
+    call find_in;
+    if R == 0 {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    store64(work + SP_SLOT, load64(R + 24));
+    call_begin(LEAF_SUB, load64(work + SP_SLOT));
+    store64(work + G_EO_KIND, V_SLOT);
+    store64(work + G_EO_VALUE, load64(work + SP_SLOT));
+    call eo_push;
+    store64(work + G_EO_KIND, V_LIT);
+    store64(work + G_EO_VALUE, 8);
+    call eo_push;
+    call emit_call;
+    if st != 0 { ret; }
+    store64(work + EL_AK, V_SLOT);
+    store64(work + EL_AV, load64(work + SP_SLOT));
+    store64(work + LO_SIZE, 8);
+    call emit_load;
+    if st != 0 { ret; }
+    store64(work + PR_V, R);
+    call back_slot;
+    store64(work + PR_B, R);
+    store64(work + G_EM_DST, load64(work + PR_B));
+    store64(work + G_EM_KIND, V_SLOT);
+    store64(work + G_EM_VALUE, load64(work + PR_V));
+    call emit_move;
+    call release_temps;
+    store64(work + G_EG_LABEL, load64(load64(work + PR_E) + 40));
+    call emit_goto;
+}
+
+# `include "file";`: the tokens of the file, once.
+proc include_file {
+    store64(work + G_FI_BASE, work + W_FILES);
+    store64(work + G_FI_COUNT, load64(work + G_NFILES));
+    store64(work + G_FI_STRIDE, 6);
+    store64(work + G_FI_MAX, NFILE);
+    store64(work + G_FI_TEXT, load64(work + IC_TEXT));
+    store64(work + G_FI_LEN, load64(work + IC_LEN));
+    call find_in;
+    if R != 0 {
+        ret;
+    }
+    call file_load;
+}
+
+# The file of the request with this name: its tokens, and a frame to read them from.
+proc file_load {
+    store64(work + FL_FOUND, 0);
+    store64(work + FL_I, 0);
+    while load64(work + FL_I) < rq(R_FILE_COUNT) {
+        store64(work + AE_E, rq(R_FILES) + (load64(work + FL_I) * FILE_ENTRY));
+        if load64(load64(work + AE_E) + 8) == load64(work + IC_LEN) {
+            g0 = load64(load64(work + AE_E));
+            g1 = load64(work + IC_TEXT);
+            g2 = load64(work + IC_LEN);
+            call name_same;
+            if R == 1 {
+                store64(work + FL_TEXT, load64(load64(work + AE_E) + 16));
+                store64(work + FL_TLEN, load64(load64(work + AE_E) + 24));
+                store64(work + FL_FOUND, 1);
+                break;
+            }
+        }
+        store64(work + FL_I, load64(work + FL_I) + 1);
+    }
+    if load64(work + FL_FOUND) == 0 {
+        st = BAD_SOURCE;
+        at = load64(work + G_LASTLINE);
+        ret;
+    }
+    g0 = load64(work + IC_TEXT);
+    g1 = load64(work + IC_LEN);
+    call name_hash;
+    store64(work + G_AE_H, R);
+    store64(work + G_AE_TEXT, load64(work + IC_TEXT));
+    store64(work + G_AE_LEN, load64(work + IC_LEN));
+    store64(work + G_AE_VALUE, load64(work + FL_TEXT));
+    store64(work + G_AE_X1, load64(work + FL_TLEN));
+    store64(work + G_AE_X2, 0);
+    store64(work + G_AE_X3, 0);
+    store64(work + G_AE_X4, 1);
+    store64(work + G_AE_BASE, work + W_FILES);
+    store64(work + G_AE_STRIDE, 6);
+    store64(work + G_AE_COUNT, load64(work + G_NFILES));
+    store64(work + G_AE_MAX, NFILE);
+    call add_entry;
+    if st != 0 { ret; }
+    store64(work + G_NFILES, load64(work + G_AE_COUNT));
+    store64(work + FL_TOK0, ntoks);
+    g0 = load64(work + FL_TEXT);
+    g1 = load64(work + FL_TLEN);
+    call lex;
+    if st != 0 { ret; }
+    g0 = work + W_TOKENS + (load64(work + FL_TOK0) * TOKEN);
+    g1 = ntoks - load64(work + FL_TOK0);
+    g2 = F_FILE;
+    g3 = 0;
+    call frame_push;
+}
+
+# ---- the header and the ways back -----------------------------------------------------------
+
+# The header of the output: MAGIC, the frame size (filled in at the end), the parameters, and
+# where the entry is. ow is where the words of the program begin.
+proc write_header {
+    w = RXF_GRAPH_MAGIC;
+    call putw;
+    w = 0;
+    call putw;
+    w = load64(work + G_NPARAMS);
+    call putw;
+    w = load64(work + G_NPARAMS);
+    call putw;
+    w = 5 + 2 * load64(work + G_NPARAMS);
+    call putw;
+    store64(work + WH_I, 0);
+    while load64(work + WH_I) < load64(work + G_NPARAMS) {
+        w = load64(work + W_PARGS + (load64(work + WH_I) << 4));
+        call putw;
+        w = load64(work + W_PARGS + (load64(work + WH_I) << 4) + 8);
+        call putw;
+        store64(work + WH_I, load64(work + WH_I) + 1);
+    }
+}
+
+# After everything: what each proc does with the tag it finds on the stack of the ways back.
+# Each call site has a tag (1, 2, 3 ... in the order of the calls) and a label to come back to.
+proc ways_back {
+    if load64(work + G_NPROC) == 0 { ret; }
+    # every proc that is called is defined
+    store64(work + WB_I, 0);
+    while load64(work + WB_I) < load64(work + G_NPROC) {
+        if load64(work + W_PROCS + (load64(work + WB_I) * PROC_ENTRY) + 56) == 0 {
+            st = BAD_SOURCE;
+            at = load64(work + G_LASTLINE);
+            ret;
+        }
+        store64(work + WB_I, load64(work + WB_I) + 1);
+    }
+    call back_slot;
+    if st != 0 { ret; }
+    store64(work + WB_V, R);
+    call new_label;
+    store64(work + WB_TRAP, R);
+    store64(work + WB_I, 0);
+    while load64(work + WB_I) < load64(work + G_NPROC) {
+        store64(work + WB_E, work + W_PROCS + (load64(work + WB_I) * PROC_ENTRY));
+        store64(work + G_PL_LABEL, load64(load64(work + WB_E) + 40));
+        call place_label;
+        store64(work + WB_BASE,
+                load64(work + W_PINFO + (load64(work + WB_I) << 4)));
+        store64(work + WB_COUNT,
+                load64(work + W_PINFO + (load64(work + WB_I) << 4) + 8));
+        store64(work + WB_J, 0);
+        store64(work + WB_IDX, load64(work + WB_BASE));
+        while load64(work + WB_IDX) < load64(work + G_NSITE) {
+            if load64(work + W_CALLS + (load64(work + WB_IDX) << 4) + 8)
+               == load64(work + WB_I) {
+                store64(work + W_CASES + (load64(work + WB_J) << 4),
+                        load64(work + WB_J) + 1);
+                store64(work + W_CASES + (load64(work + WB_J) << 4) + 8,
+                        load64(work + W_CALLS + (load64(work + WB_IDX) << 4)));
+                store64(work + WB_J, load64(work + WB_J) + 1);
+            }
+            store64(work + WB_IDX, load64(work + WB_IDX) + 1);
+        }
+        store64(work + G_ES_KIND, V_SLOT);
+        store64(work + G_ES_VALUE, load64(work + WB_V));
+        store64(work + G_ES_N, load64(work + WB_COUNT));
+        store64(work + G_ES_DEFAULT, load64(work + WB_TRAP));
+        call emit_switch;
+        store64(work + WB_I, load64(work + WB_I) + 1);
+    }
+    store64(work + G_PL_LABEL, load64(work + WB_TRAP));
+    call place_label;
+    store64(work + G_EJ_KIND, V_LIT);
+    store64(work + G_EJ_VALUE, 255);
+    call emit_refuse;
+}
