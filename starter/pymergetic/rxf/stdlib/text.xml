@@ -1,0 +1,880 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="text" category="ModuleCategory.Library">
+    <Alias name="call" target="pymergetic.rxf.roles.call" />
+    <Alias name="foundation" target="pymergetic.rxf.foundation" />
+    <Alias name="kinds" target="pymergetic.rxf.kinds" />
+    <Alias name="model" target="pymergetic.rxf.model" />
+    <Alias name="runtime" target="pymergetic.rxf.foundation.runtime" />
+    <Alias name="semantic" target="pymergetic.rxf.roles.semantic" />
+    <Alias name="stdlib" target="pymergetic.rxf.roles.stdlib" />
+    <Alias name="targets" target="pymergetic.rxf.targets" />
+    <Alias name="text" target="pymergetic.rxf.stdlib.text" />
+    <Function name="bytes_slice" implementation="@kinds.FunctionImplementation.Semantic" layer="@kinds.FunctionLayer.Library" semantic_version="1" signature="@text.bytes_slice.signature" body="@text.bytes_slice.semantic_graph_compatibility_entry" semantic_digest="942134ea02886dd6ca01c3a9f101a68ddae1383e2b87f5f1f4827b46d2090b9d">
+      <Code name="bytecode" owner_function="@text.bytes_slice" signature="@text.bytes_slice.signature" format="@kinds.CodeFormat.Bytecode" semantic_version="1" byte_count="472" semantic_digest="942134ea02886dd6ca01c3a9f101a68ddae1383e2b87f5f1f4827b46d2090b9d" rxf:data="525847310000000030000000000000000100000000000000010000000000000007000000000000000000000000000000080000000000000001000000000000001000000000000000040000000000000008000000000000000800000000000000100000000000000002000000000000001bf411f400000000180000000000000002000000000000001af411f4000000001800000000000000010000000000000001000000000000000800000000000000010000000000000001000000000000000800000000000000090000000000000000000000000000001000000000000000040000000000000000000000000000002c0000000000000001000000000000000000000000000000100000000000000004000000000000001800000000000000040000000000000037000000000000000100000000000000000000000000000010000000000000000400000000000000280000000000000004000000000000000200000000000000200000000000000008000000000000000000000000000000000000000000000008000000000000000b0000000000000000000000000000002000000000000000080000000000000008000000000000000c00000000000000000000000000000028000000000000000400000000000000">
+        <rxf:ref role="@call.Interpreter" kind="RefKind.Data" target="@foundation.graph.run" />
+      </Code>
+      <SemanticGraph name="bytes_slice_graph" function="@text.bytes_slice" entry_block="@text.bytes_slice.bytes_slice_graph.status[0]" refusal_set="@foundation.StdlibRefusals" output_type="uint64_t" block_count="3" parameter_count="1" result_count="1">
+        <rxf:ref role="@semantic.ParameterValue" kind="RefKind.Data" target="@text.bytes_slice.bytes_slice_graph.parameter[0]" />
+        <rxf:ref role="@semantic.GraphResultValue" kind="RefKind.Data" target="@text.bytes_slice.bytes_slice_graph.block[0].return_value.return_value_result" />
+        <SemanticBlock name="block[0]" index="1" terminator="@kinds.Terminator.Return" operation_count="1" predecessor_count="1" parameter_type_count="1" terminator_value="@text.bytes_slice.bytes_slice_graph.block[0].return_value.return_value_result" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.bytes_slice.bytes_slice_graph.block[0].successful_call_status" />
+          <SemanticOperation name="return_value" opcode="@kinds.Opcode.ReturnValue" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.bytes_slice.bytes_slice_graph.parameter[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.bytes_slice.bytes_slice_graph.block[0].return_value.return_value_result" />
+            <SemanticValue name="return_value_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.bytes_slice" owner_block="@text.bytes_slice.bytes_slice_graph.status[0]" owner_operation="@text.bytes_slice.bytes_slice_graph.block[0].return_value" source="@text.bytes_slice.signature.value" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.bytes_slice" owner_block="@text.bytes_slice.bytes_slice_graph.block[0]" />
+        </SemanticBlock>
+        <SemanticValue name="parameter[0]" value_type="uint64_t" kind="@kinds.ValueKind.Parameter" owner_function="@text.bytes_slice" owner_block="@text.bytes_slice.bytes_slice_graph.status[0]" source="@text.bytes_slice.signature.argument[0]" />
+        <SemanticBlock name="primary_refusal" index="2" terminator="@kinds.Terminator.Refuse" predecessor_count="1" parameter_type_count="1" terminator_value="@text.bytes_slice.bytes_slice_graph.primary_refusal.primary_refusal_status" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <SemanticValue name="primary_refusal_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.bytes_slice" owner_block="@text.bytes_slice.bytes_slice_graph.primary_refusal" />
+        </SemanticBlock>
+        <SemanticBlock name="status[0]" terminator="@kinds.Terminator.Branch" operation_count="1" successor_count="2" successor_map_count="2" condition_value="@text.bytes_slice.bytes_slice_graph.status[0].read.read_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.bytes_slice.bytes_slice_graph.block[0]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.bytes_slice.bytes_slice_graph.primary_refusal" />
+          <SemanticOperation name="read" opcode="@kinds.Opcode.Read" input_type_count="4" result_type_count="2" input_value_count="4" result_value_count="2" refusal_set="@foundation.StdlibRefusals" callee="@runtime.read" status_value="@text.bytes_slice.bytes_slice_graph.status[0].read.read_status" target_object="@text.bytes_slice.bytes_slice_graph.status[0].read_argument[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="2" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.InputType" index="3" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" index="1" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@text.bytes_slice.bytes_slice_graph.status[0].read_argument[1]" />
+            <rxf:ref role="@semantic.InputValue" index="2" kind="RefKind.Data" target="@text.bytes_slice.bytes_slice_graph.status[0].read_argument[2]" />
+            <rxf:ref role="@semantic.InputValue" index="3" kind="RefKind.Data" target="@text.bytes_slice.bytes_slice_graph.status[0].read_argument[3]" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.bytes_slice.bytes_slice_graph.status[0].read.read_result" />
+            <SemanticValue name="read_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.bytes_slice" owner_block="@text.bytes_slice.bytes_slice_graph.status[0]" owner_operation="@text.bytes_slice.bytes_slice_graph.status[0].read" />
+            <SemanticValue name="read_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" result_index="1" owner_function="@text.bytes_slice" owner_block="@text.bytes_slice.bytes_slice_graph.status[0]" owner_operation="@text.bytes_slice.bytes_slice_graph.status[0].read" />
+          </SemanticOperation>
+          <SemanticObject name="read_argument[0]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" literal_size="24" owner_function="@text.bytes_slice" owner_block="@text.bytes_slice.bytes_slice_graph.status[0]" object_id="4094817307" rxf:data="1bf411f40000000001000000000000000000000000000000" />
+          <SemanticObject name="read_argument[1]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" result_index="1" literal_size="24" owner_function="@text.bytes_slice" owner_block="@text.bytes_slice.bytes_slice_graph.status[0]" object_id="4094817306" rxf:data="1af411f40000000001000000000000000000000000000000" />
+          <SemanticValue name="read_argument[2]" value_type="uint64_t" kind="@kinds.ValueKind.Literal" result_index="2" literal_size="8" owner_function="@text.bytes_slice" owner_block="@text.bytes_slice.bytes_slice_graph.status[0]" rxf:data="0100000000000000" />
+          <SemanticValue name="read_argument[3]" value_type="uint64_t" kind="@kinds.ValueKind.Literal" result_index="3" literal_size="8" owner_function="@text.bytes_slice" owner_block="@text.bytes_slice.bytes_slice_graph.status[0]" rxf:data="0100000000000000" />
+        </SemanticBlock>
+      </SemanticGraph>
+      <ValueReference name="compatibility_argument[0]" value_type="uint64_t" kind="@kinds.ValueKind.Parameter" size="8" target="@text.bytes_slice.signature.argument[0]" />
+      <Call name="semantic_graph_compatibility_entry" callee="@text.bytes_slice" argument_count="1" result_type="uint64_t">
+        <Argument name="compatibility_argument[0]" parameter="@text.bytes_slice.signature.argument[0]" value="@text.bytes_slice.compatibility_argument[0]" />
+      </Call>
+      <Signature name="signature" return_type="uint64_t" parameter_count="1" result_count="1" refusal_set="@foundation.StdlibRefusals">
+        <Parameter name="argument[0]" value_type="uint64_t" />
+        <Result name="value" value_type="uint64_t" />
+      </Signature>
+    </Function>
+    <StdlibRecord name="bytes_slice_contract" kind="@kinds.StdlibKind.Text" flags="@kinds.StdlibFlags.Standard|Semantic" related_count="1" value_type="uint64_t">
+      <rxf:ref role="@stdlib.Function" kind="RefKind.Data" target="@text.bytes_slice" />
+    </StdlibRecord>
+    <Function name="format_append" implementation="@kinds.FunctionImplementation.Semantic" layer="@kinds.FunctionLayer.Library" semantic_version="1" signature="@text.format_append.signature" body="@text.format_append.semantic_graph_compatibility_entry" semantic_digest="a7432b5e8d44535be891525d4e547284ea8ed4aaa33d8ac2a932952f55de9fc3">
+      <Code name="bytecode" owner_function="@text.format_append" signature="@text.format_append.signature" format="@kinds.CodeFormat.Bytecode" semantic_version="1" byte_count="496" semantic_digest="a7432b5e8d44535be891525d4e547284ea8ed4aaa33d8ac2a932952f55de9fc3" rxf:data="5258473100000000400000000000000001000000000000000100000000000000070000000000000000000000000000000800000000000000010000000000000013000000000000000300000000000000ffffffffffffffff000000000000000008000000000000000200000000000000d5f5cbf50000000018000000000000000200000000000000d4f5cbf50000000018000000000000000100000000000000010000000000000008000000000000000900000000000000000000000000000008000000000000000400000000000000000000000000000029000000000000000100000000000000000000000000000008000000000000000400000000000000100000000000000004000000000000003a000000000000000100000000000000000000000000000008000000000000000400000000000000380000000000000004000000000000000200000000000000180000000000000018000000000000000200000000000000daf5cbf50000000018000000000000000200000000000000300000000000000008000000000000000000000000000000000000000000000008000000000000000b0000000000000000000000000000003000000000000000080000000000000008000000000000000c00000000000000000000000000000038000000000000000400000000000000">
+        <rxf:ref role="@call.Interpreter" kind="RefKind.Data" target="@foundation.graph.run" />
+      </Code>
+      <ValueReference name="compatibility_argument[0]" value_type="uint64_t" kind="@kinds.ValueKind.Parameter" size="8" target="@text.format_append.signature.argument[0]" />
+      <SemanticGraph name="format_append_graph" function="@text.format_append" entry_block="@text.format_append.format_append_graph.status[0]" refusal_set="@foundation.StdlibRefusals" output_type="uint64_t" block_count="3" parameter_count="1" result_count="1">
+        <rxf:ref role="@semantic.ParameterValue" kind="RefKind.Data" target="@text.format_append.format_append_graph.parameter[0]" />
+        <rxf:ref role="@semantic.GraphResultValue" kind="RefKind.Data" target="@text.format_append.format_append_graph.block[0].return_value.return_value_result" />
+        <SemanticBlock name="block[0]" index="1" terminator="@kinds.Terminator.Return" operation_count="2" predecessor_count="1" parameter_type_count="1" terminator_value="@text.format_append.format_append_graph.block[0].return_value.return_value_result" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.format_append.format_append_graph.block[0].successful_call_status" />
+          <SemanticOperation name="return_value" opcode="@kinds.Opcode.ReturnValue" index="1" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.format_append.format_append_graph.parameter[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.format_append.format_append_graph.block[0].return_value.return_value_result" />
+            <SemanticValue name="return_value_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.format_append" owner_block="@text.format_append.format_append_graph.status[0]" owner_operation="@text.format_append.format_append_graph.block[0].return_value" source="@text.format_append.signature.value" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.format_append" owner_block="@text.format_append.format_append_graph.block[0]" />
+          <SemanticOperation name="utf8_boundary" opcode="@kinds.Opcode.Utf8Boundary" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.format_append.format_append_graph.status[0].utf8_boundary_argument[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.format_append.format_append_graph.block[0].utf8_boundary.utf8_boundary_result" />
+            <SemanticValue name="utf8_boundary_result" value_type="@model.Ref" kind="@kinds.ValueKind.OperationResult" owner_function="@text.format_append" owner_block="@text.format_append.format_append_graph.status[0]" owner_operation="@text.format_append.format_append_graph.block[0].utf8_boundary" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticValue name="parameter[0]" value_type="uint64_t" kind="@kinds.ValueKind.Parameter" owner_function="@text.format_append" owner_block="@text.format_append.format_append_graph.status[0]" source="@text.format_append.signature.argument[0]" />
+        <SemanticBlock name="primary_refusal" index="2" terminator="@kinds.Terminator.Refuse" predecessor_count="1" parameter_type_count="1" terminator_value="@text.format_append.format_append_graph.primary_refusal.primary_refusal_status" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <SemanticValue name="primary_refusal_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.format_append" owner_block="@text.format_append.format_append_graph.primary_refusal" />
+        </SemanticBlock>
+        <SemanticBlock name="status[0]" terminator="@kinds.Terminator.Branch" operation_count="1" successor_count="2" successor_map_count="2" condition_value="@text.format_append.format_append_graph.status[0].format_integer.format_integer_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.format_append.format_append_graph.block[0]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.format_append.format_append_graph.primary_refusal" />
+          <SemanticOperation name="format_integer" opcode="@kinds.Opcode.FormatInteger" input_type_count="3" result_type_count="1" input_value_count="3" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.format_u32" status_value="@text.format_append.format_append_graph.status[0].format_integer.format_integer_status" target_object="@text.format_append.format_append_graph.status[0].format_integer_argument[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="2" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@text.format_append.format_append_graph.status[0].format_integer_argument[1]" />
+            <rxf:ref role="@semantic.InputValue" index="2" kind="RefKind.Data" target="@text.format_append.format_append_graph.status[0].format_integer_argument[2]" />
+            <SemanticValue name="format_integer_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.format_append" owner_block="@text.format_append.format_append_graph.status[0]" owner_operation="@text.format_append.format_append_graph.status[0].format_integer" />
+          </SemanticOperation>
+          <SemanticObject name="format_integer_argument[0]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" literal_size="24" owner_function="@text.format_append" owner_block="@text.format_append.format_append_graph.status[0]" object_id="4123784661" rxf:data="d5f5cbf50000000001000000000000000000000000000000" />
+          <SemanticObject name="format_integer_argument[1]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" result_index="1" literal_size="24" owner_function="@text.format_append" owner_block="@text.format_append.format_append_graph.status[0]" object_id="4123784660" rxf:data="d4f5cbf50000000001000000000000000000000000000000" />
+          <SemanticValue name="format_integer_argument[2]" value_type="uint32_t" kind="@kinds.ValueKind.Literal" result_index="2" literal_size="8" owner_function="@text.format_append" owner_block="@text.format_append.format_append_graph.status[0]" rxf:data="0100000000000000" />
+          <SemanticObject name="utf8_boundary_argument[0]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" literal_size="24" owner_function="@text.format_append" owner_block="@text.format_append.format_append_graph.status[0]" object_id="4123784666" rxf:data="daf5cbf50000000001000000000000000000000000000000" />
+        </SemanticBlock>
+      </SemanticGraph>
+      <Call name="semantic_graph_compatibility_entry" callee="@text.format_append" argument_count="1" result_type="uint64_t">
+        <Argument name="compatibility_argument[0]" parameter="@text.format_append.signature.argument[0]" value="@text.format_append.compatibility_argument[0]" />
+      </Call>
+      <Signature name="signature" return_type="uint64_t" parameter_count="1" result_count="1" refusal_set="@foundation.StdlibRefusals">
+        <Parameter name="argument[0]" value_type="uint64_t" />
+        <Result name="value" value_type="uint64_t" />
+      </Signature>
+    </Function>
+    <StdlibRecord name="format_append_contract" kind="@kinds.StdlibKind.Text" flags="@kinds.StdlibFlags.Standard|Semantic" related_count="1" value_type="uint64_t">
+      <rxf:ref role="@stdlib.Function" kind="RefKind.Data" target="@text.format_append" />
+    </StdlibRecord>
+    <Function name="string_compare" implementation="@kinds.FunctionImplementation.Semantic" layer="@kinds.FunctionLayer.Library" semantic_version="1" signature="@text.string_compare.signature" body="@text.string_compare.semantic_graph_compatibility_entry" semantic_digest="bf3facea29a7b49e5402406f64eb297f02f4916226ca800ad3af9b28014a5740">
+      <Code name="bytecode" owner_function="@text.string_compare" signature="@text.string_compare.signature" format="@kinds.CodeFormat.Bytecode" semantic_version="1" byte_count="520" semantic_digest="bf3facea29a7b49e5402406f64eb297f02f4916226ca800ad3af9b28014a5740" rxf:data="5258473100000000380000000000000001000000000000000100000000000000070000000000000000000000000000000800000000000000010000000000000010000000000000000400000000000000080000000000000008000000000000001000000000000000020000000000000036f52cf5000000001800000000000000020000000000000037f52cf5000000001800000000000000010000000000000001000000000000000800000000000000010000000000000001000000000000000800000000000000090000000000000000000000000000001000000000000000040000000000000000000000000000002c000000000000000100000000000000000000000000000010000000000000000400000000000000180000000000000004000000000000003d000000000000000100000000000000000000000000000010000000000000000400000000000000300000000000000004000000000000000200000000000000200000000000000008000000000000000000000000000000080000000000000008000000000000000200000000000000280000000000000008000000000000000000000000000000000000000000000008000000000000000b0000000000000000000000000000002800000000000000080000000000000008000000000000000c00000000000000000000000000000030000000000000000400000000000000">
+        <rxf:ref role="@call.Interpreter" kind="RefKind.Data" target="@foundation.graph.run" />
+      </Code>
+      <ValueReference name="compatibility_argument[0]" value_type="uint64_t" kind="@kinds.ValueKind.Parameter" size="8" target="@text.string_compare.signature.argument[0]" />
+      <Call name="semantic_graph_compatibility_entry" callee="@text.string_compare" argument_count="1" result_type="uint64_t">
+        <Argument name="compatibility_argument[0]" parameter="@text.string_compare.signature.argument[0]" value="@text.string_compare.compatibility_argument[0]" />
+      </Call>
+      <Signature name="signature" return_type="uint64_t" parameter_count="1" result_count="1" refusal_set="@foundation.StdlibRefusals">
+        <Parameter name="argument[0]" value_type="uint64_t" />
+        <Result name="value" value_type="uint64_t" />
+      </Signature>
+      <SemanticGraph name="string_compare_graph" function="@text.string_compare" entry_block="@text.string_compare.string_compare_graph.status[0]" refusal_set="@foundation.StdlibRefusals" output_type="uint64_t" block_count="3" parameter_count="1" result_count="1">
+        <rxf:ref role="@semantic.ParameterValue" kind="RefKind.Data" target="@text.string_compare.string_compare_graph.parameter[0]" />
+        <rxf:ref role="@semantic.GraphResultValue" kind="RefKind.Data" target="@text.string_compare.string_compare_graph.block[0].return_value.return_value_result" />
+        <SemanticBlock name="block[0]" index="1" terminator="@kinds.Terminator.Return" operation_count="2" predecessor_count="1" parameter_type_count="1" terminator_value="@text.string_compare.string_compare_graph.block[0].return_value.return_value_result" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_compare.string_compare_graph.block[0].successful_call_status" />
+          <SemanticOperation name="return_value" opcode="@kinds.Opcode.ReturnValue" index="1" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_compare.string_compare_graph.parameter[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_compare.string_compare_graph.block[0].return_value.return_value_result" />
+            <SemanticValue name="return_value_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_compare" owner_block="@text.string_compare.string_compare_graph.status[0]" owner_operation="@text.string_compare.string_compare_graph.block[0].return_value" source="@text.string_compare.signature.value" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_compare" owner_block="@text.string_compare.string_compare_graph.block[0]" />
+          <SemanticOperation name="utf8_boundary" opcode="@kinds.Opcode.Utf8Boundary" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_compare.string_compare_graph.status[0].compare.compare_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_compare.string_compare_graph.block[0].utf8_boundary.utf8_boundary_result" />
+            <SemanticValue name="utf8_boundary_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_compare" owner_block="@text.string_compare.string_compare_graph.status[0]" owner_operation="@text.string_compare.string_compare_graph.block[0].utf8_boundary" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticValue name="parameter[0]" value_type="uint64_t" kind="@kinds.ValueKind.Parameter" owner_function="@text.string_compare" owner_block="@text.string_compare.string_compare_graph.status[0]" source="@text.string_compare.signature.argument[0]" />
+        <SemanticBlock name="primary_refusal" index="2" terminator="@kinds.Terminator.Refuse" predecessor_count="1" parameter_type_count="1" terminator_value="@text.string_compare.string_compare_graph.primary_refusal.primary_refusal_status" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <SemanticValue name="primary_refusal_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_compare" owner_block="@text.string_compare.string_compare_graph.primary_refusal" />
+        </SemanticBlock>
+        <SemanticBlock name="status[0]" terminator="@kinds.Terminator.Branch" operation_count="1" successor_count="2" successor_map_count="2" condition_value="@text.string_compare.string_compare_graph.status[0].compare.compare_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_compare.string_compare_graph.block[0]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_compare.string_compare_graph.primary_refusal" />
+          <SemanticOperation name="compare" opcode="@kinds.Opcode.Compare" input_type_count="4" result_type_count="2" input_value_count="4" result_value_count="2" refusal_set="@foundation.StdlibRefusals" callee="@runtime.read" status_value="@text.string_compare.string_compare_graph.status[0].compare.compare_status" target_object="@text.string_compare.string_compare_graph.status[0].compare_argument[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="2" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.InputType" index="3" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" index="1" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@text.string_compare.string_compare_graph.status[0].compare_argument[1]" />
+            <rxf:ref role="@semantic.InputValue" index="2" kind="RefKind.Data" target="@text.string_compare.string_compare_graph.status[0].compare_argument[2]" />
+            <rxf:ref role="@semantic.InputValue" index="3" kind="RefKind.Data" target="@text.string_compare.string_compare_graph.status[0].compare_argument[3]" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_compare.string_compare_graph.status[0].compare.compare_result" />
+            <SemanticValue name="compare_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_compare" owner_block="@text.string_compare.string_compare_graph.status[0]" owner_operation="@text.string_compare.string_compare_graph.status[0].compare" />
+            <SemanticValue name="compare_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" result_index="1" owner_function="@text.string_compare" owner_block="@text.string_compare.string_compare_graph.status[0]" owner_operation="@text.string_compare.string_compare_graph.status[0].compare" />
+          </SemanticOperation>
+          <SemanticObject name="compare_argument[0]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" literal_size="24" owner_function="@text.string_compare" owner_block="@text.string_compare.string_compare_graph.status[0]" object_id="4113364278" rxf:data="36f52cf50000000001000000000000000000000000000000" />
+          <SemanticObject name="compare_argument[1]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" result_index="1" literal_size="24" owner_function="@text.string_compare" owner_block="@text.string_compare.string_compare_graph.status[0]" object_id="4113364279" rxf:data="37f52cf50000000001000000000000000000000000000000" />
+          <SemanticValue name="compare_argument[2]" value_type="uint64_t" kind="@kinds.ValueKind.Literal" result_index="2" literal_size="8" owner_function="@text.string_compare" owner_block="@text.string_compare.string_compare_graph.status[0]" rxf:data="0100000000000000" />
+          <SemanticValue name="compare_argument[3]" value_type="uint64_t" kind="@kinds.ValueKind.Literal" result_index="3" literal_size="8" owner_function="@text.string_compare" owner_block="@text.string_compare.string_compare_graph.status[0]" rxf:data="0100000000000000" />
+        </SemanticBlock>
+      </SemanticGraph>
+    </Function>
+    <StdlibRecord name="string_compare_contract" kind="@kinds.StdlibKind.Text" flags="@kinds.StdlibFlags.Standard|Semantic" related_count="1" value_type="uint64_t">
+      <rxf:ref role="@stdlib.Function" kind="RefKind.Data" target="@text.string_compare" />
+    </StdlibRecord>
+    <Function name="string_concat" implementation="@kinds.FunctionImplementation.Semantic" layer="@kinds.FunctionLayer.Library" semantic_version="1" signature="@text.string_concat.signature" body="@text.string_concat.semantic_graph_compatibility_entry" semantic_digest="8cbbb3ae45dee0311a906897a6dfb2679245929f4039f64425b2329b01b1c3c9">
+      <Code name="bytecode" owner_function="@text.string_concat" signature="@text.string_concat.signature" format="@kinds.CodeFormat.Bytecode" semantic_version="1" byte_count="1968" semantic_digest="8cbbb3ae45dee0311a906897a6dfb2679245929f4039f64425b2329b01b1c3c9" rxf:data="52584731000000000801000000000000010000000000000001000000000000000700000000000000000000000000000008000000000000000100000000000000070000000000000002000000000000000800000000000000300000000000000038000000000000000200000000000000f4f4e4f40000000018000000000000000100000000000000e4f40000000000000800000000000000090000000000000000000000000000003800000000000000040000000000000000000000000000002600000000000000010000000000000000000000000000003800000000000000040000000000000040000000000000000400000000000000f200000000000000010000000000000000000000000000003800000000000000040000000000000000010000000000000400000000000000010000000000000012000000000000000400000000000000ffffffffffffffff000000000000000048000000000000000200000000000000f9f4e4f40000000018000000000000000200000000000000f8f4e4f40000000018000000000000000200000000000000fbf4e4f4000000001800000000000000010000000000000001000000000000000800000000000000090000000000000000000000000000004800000000000000040000000000000000000000000000004b00000000000000010000000000000000000000000000004800000000000000040000000000000050000000000000000400000000000000a7000000000000000100000000000000000000000000000048000000000000000400000000000000a00000000000000004000000000000000200000000000000580000000000000018000000000000000200000000000000fff4e4f4000000001800000000000000090000000000000001000000000000000100000000000000010000000000000001000000000000006400000000000000010000000000000001000000000000000000000000000000080000000000000070000000000000000800000000000000a7000000000000000100000000000000000000000000000050000000000000000400000000000000a0000000000000000400000000000000010000000000000008000000000000000200000000000000780000000000000008000000000000008000000000000000020000000000000002f5e4f4000000001800000000000000010000000000000001000000000000000800000000000000090000000000000000000000000000008000000000000000040000000000000000000000000000008300000000000000010000000000000000000000000000008000000000000000040000000000000088000000000000000400000000000000a7000000000000000100000000000000000000000000000080000000000000000400000000000000a000000000000000040000000000000001000000000000000a000000000000000100000000000000ffffffffffffffff00000000000000009000000000000000000000000000000008000000000000003000000000000000090000000000000000000000000000009000000000000000040000000000000000000000000000009f00000000000000010000000000000000000000000000009000000000000000040000000000000098000000000000000400000000000000a7000000000000000100000000000000000000000000000090000000000000000400000000000000a00000000000000004000000000000000800000000000000cb000000000000000100000000000000000000000000000098000000000000000400000000000000b800000000000000040000000000000001000000000000000b000000000000000100000000000000ffffffffffffffff0000000000000000a80000000000000000000000000000000800000000000000300000000000000009000000000000000000000000000000a80000000000000004000000000000000000000000000000c30000000000000001000000000000000000000000000000a8000000000000000400000000000000b0000000000000000400000000000000cb0000000000000001000000000000000000000000000000a0000000000000000400000000000000b80000000000000004000000000000000800000000000000cb0000000000000001000000000000000000000000000000b0000000000000000400000000000000b8000000000000000400000000000000010000000000000015000000000000000100000000000000ffffffffffffffff0000000000000000c00000000000000000000000000000000800000000000000300000000000000009000000000000000000000000000000c00000000000000004000000000000000000000000000000e70000000000000001000000000000000000000000000000c0000000000000000400000000000000c8000000000000000400000000000000f20000000000000001000000000000000000000000000000b8000000000000000400000000000000000100000000000004000000000000000200000000000000d00000000000000030000000000000000000000000000000080000000000000030000000000000000b000000000000000000000000000000d000000000000000300000000000000030000000000000000c00000000000000000000000000000000010000000000000400000000000000">
+        <rxf:ref role="@call.Interpreter" kind="RefKind.Data" target="@foundation.graph.run" />
+      </Code>
+      <ValueReference name="compatibility_argument[0]" value_type="uint64_t" kind="@kinds.ValueKind.Parameter" size="8" target="@text.string_concat.signature.argument[0]" />
+      <Call name="semantic_graph_compatibility_entry" callee="@text.string_concat" argument_count="1" result_type="uint64_t">
+        <Argument name="compatibility_argument[0]" parameter="@text.string_concat.signature.argument[0]" value="@text.string_concat.compatibility_argument[0]" />
+      </Call>
+      <Signature name="signature" return_type="uint64_t" parameter_count="1" result_count="1" refusal_set="@foundation.StdlibRefusals">
+        <Parameter name="argument[0]" value_type="uint64_t" />
+        <Result name="value" value_type="uint64_t" />
+      </Signature>
+      <SemanticGraph name="string_concat_graph" function="@text.string_concat" entry_block="@text.string_concat.string_concat_graph.status[0]" refusal_set="@foundation.StdlibRefusals" output_type="uint64_t" block_count="11" parameter_count="1" result_count="1">
+        <rxf:ref role="@semantic.ParameterValue" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.parameter[0]" />
+        <rxf:ref role="@semantic.GraphResultValue" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.block[3].return_value.return_value_result" />
+        <SemanticBlock name="block[0]" index="2" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="1" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@text.string_concat.string_concat_graph.status[0].explicit_branch_predicate" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[3]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[6]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.block[0].successful_call_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[0].branch_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="64" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.block[0].successful_call_status" />
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.block[0]" />
+          <SemanticOperation name="utf8_boundary" opcode="@kinds.Opcode.Utf8Boundary" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_concat.string_concat_graph.status[0].utf8_boundary_argument[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.block[0].utf8_boundary.utf8_boundary_result" />
+            <SemanticValue name="utf8_boundary_result" value_type="@model.Ref" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[0]" owner_operation="@text.string_concat.string_concat_graph.block[0].utf8_boundary" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticBlock name="block[1]" index="5" terminator="@kinds.Terminator.Goto" predecessor_count="1" successor_count="1" parameter_type_count="1" successor_map_count="1" rxf:data="00000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[8]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.block[1].successful_call_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.block[1].successful_call_status" />
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.block[1]" />
+        </SemanticBlock>
+        <SemanticBlock name="block[2]" index="7" terminator="@kinds.Terminator.Goto" predecessor_count="1" successor_count="1" parameter_type_count="1" successor_map_count="1" rxf:data="00000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[8]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.block[2].successful_call_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.block[2].successful_call_status" />
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.block[2]" />
+        </SemanticBlock>
+        <SemanticBlock name="block[3]" index="9" terminator="@kinds.Terminator.Return" operation_count="1" predecessor_count="1" parameter_type_count="1" terminator_value="@text.string_concat.string_concat_graph.block[3].return_value.return_value_result" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.block[3].successful_call_status" />
+          <SemanticOperation name="return_value" opcode="@kinds.Opcode.ReturnValue" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_concat.string_concat_graph.status[0].begin_private.begin_private_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.block[3].return_value.return_value_result" />
+            <SemanticValue name="return_value_result" value_type="@foundation.NativeTransaction" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[8]" owner_operation="@text.string_concat.string_concat_graph.block[3].return_value" source="@text.string_concat.signature.value" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.block[3]" />
+        </SemanticBlock>
+        <SemanticValue name="parameter[0]" value_type="uint64_t" kind="@kinds.ValueKind.Parameter" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[0]" source="@text.string_concat.signature.argument[0]" />
+        <SemanticBlock name="primary_refusal" index="10" terminator="@kinds.Terminator.Refuse" predecessor_count="2" parameter_type_count="1" terminator_value="@text.string_concat.string_concat_graph.primary_refusal.primary_refusal_status" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <SemanticValue name="primary_refusal_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.primary_refusal" />
+        </SemanticBlock>
+        <SemanticBlock name="status[0]" terminator="@kinds.Terminator.Branch" operation_count="1" successor_count="2" successor_map_count="2" condition_value="@text.string_concat.string_concat_graph.status[0].begin_private.begin_private_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[1]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.primary_refusal" />
+          <SemanticObject name="append_bytes_argument[0]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" literal_size="24" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[0]" object_id="4108645625" rxf:data="f9f4e4f40000000001000000000000000000000000000000" />
+          <SemanticObject name="append_bytes_argument[1]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" result_index="1" literal_size="24" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[0]" object_id="4108645624" rxf:data="f8f4e4f40000000001000000000000000000000000000000" />
+          <SemanticObject name="append_bytes_argument[2]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" result_index="2" literal_size="24" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[0]" object_id="4108645627" rxf:data="fbf4e4f40000000001000000000000000000000000000000" />
+          <SemanticValue name="append_bytes_argument[3]" value_type="uint64_t" kind="@kinds.ValueKind.Literal" result_index="3" literal_size="8" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[0]" rxf:data="0100000000000000" />
+          <SemanticOperation name="begin_private" opcode="@kinds.Opcode.BeginPrivate" input_type_count="2" result_type_count="2" input_value_count="2" result_value_count="2" refusal_set="@foundation.StdlibRefusals" callee="@runtime.begin_private" status_value="@text.string_concat.string_concat_graph.status[0].begin_private.begin_private_status" target_object="@text.string_concat.string_concat_graph.status[0].begin_private_argument[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultType" index="1" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[0].begin_private_argument[1]" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[0].begin_private.begin_private_result" />
+            <SemanticValue name="begin_private_result" value_type="@foundation.NativeTransaction" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[0]" owner_operation="@text.string_concat.string_concat_graph.status[0].begin_private" />
+            <SemanticValue name="begin_private_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" result_index="1" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[0]" owner_operation="@text.string_concat.string_concat_graph.status[0].begin_private" />
+          </SemanticOperation>
+          <SemanticObject name="begin_private_argument[0]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" literal_size="24" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[0]" object_id="4108645620" rxf:data="f4f4e4f40000000001000000000000000000000000000000" />
+          <SemanticValue name="begin_private_argument[1]" value_type="uint64_t" kind="@kinds.ValueKind.Literal" result_index="1" literal_size="8" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[0]" rxf:data="e4f4000000000000" />
+          <SemanticValue name="branch_status" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[0]" rxf:data="0000000000000000" />
+          <SemanticValue name="explicit_branch_predicate" value_type="bool" kind="@kinds.ValueKind.Literal" literal_size="1" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[0]" rxf:data="01" />
+          <SemanticObject name="utf8_boundary_argument[0]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" literal_size="24" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[0]" object_id="4108645631" rxf:data="fff4e4f40000000001000000000000000000000000000000" />
+        </SemanticBlock>
+        <SemanticBlock name="status[1]" index="1" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="1" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@text.string_concat.string_concat_graph.status[1].append_bytes.append_bytes_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.block[0]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[6]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[1].successful_call_status" />
+          <SemanticOperation name="append_bytes" opcode="@kinds.Opcode.AppendBytes" input_type_count="4" result_type_count="1" input_value_count="4" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.append" status_value="@text.string_concat.string_concat_graph.status[1].append_bytes.append_bytes_status" target_object="@text.string_concat.string_concat_graph.status[0].append_bytes_argument[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="2" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="3" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[0].append_bytes_argument[1]" />
+            <rxf:ref role="@semantic.InputValue" index="2" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[0].append_bytes_argument[2]" />
+            <rxf:ref role="@semantic.InputValue" index="3" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[0].append_bytes_argument[3]" />
+            <SemanticValue name="append_bytes_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[0]" owner_operation="@text.string_concat.string_concat_graph.status[1].append_bytes" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[1]" />
+        </SemanticBlock>
+        <SemanticBlock name="status[3]" index="3" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="1" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@text.string_concat.string_concat_graph.status[3].validate.validate_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[4]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[6]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[3].block_1_value" />
+          <SemanticValue name="block_1_value" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[3]" />
+          <SemanticValue name="branch_status" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[3]" rxf:data="0000000000000000" />
+          <SemanticOperation name="validate" opcode="@kinds.Opcode.Validate" input_type_count="2" result_type_count="2" input_value_count="2" result_value_count="2" refusal_set="@foundation.StdlibRefusals" callee="@runtime.resolve" status_value="@text.string_concat.string_concat_graph.status[3].validate.validate_status" target_object="@text.string_concat.string_concat_graph.status[3].validate_argument[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" index="1" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[3].validate_argument[1]" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[3].validate.validate_result" />
+            <SemanticValue name="validate_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[3]" owner_operation="@text.string_concat.string_concat_graph.status[3].validate" />
+            <SemanticValue name="validate_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" result_index="1" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[3]" owner_operation="@text.string_concat.string_concat_graph.status[3].validate" />
+          </SemanticOperation>
+          <SemanticObject name="validate_argument[0]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" literal_size="24" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[3]" object_id="4108645634" rxf:data="02f5e4f40000000001000000000000000000000000000000" />
+          <SemanticValue name="validate_argument[1]" value_type="uint64_t" kind="@kinds.ValueKind.Literal" result_index="1" literal_size="8" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[3]" rxf:data="0100000000000000" />
+        </SemanticBlock>
+        <SemanticBlock name="status[4]" index="4" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="1" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@text.string_concat.string_concat_graph.status[4].publish.publish_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.block[1]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[6]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[4].successful_call_status" />
+          <SemanticOperation name="publish" opcode="@kinds.Opcode.Publish" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.publish" status_value="@text.string_concat.string_concat_graph.status[4].publish.publish_status" target_object="@text.string_concat.string_concat_graph.status[0].begin_private.begin_private_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <SemanticValue name="publish_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[3]" owner_operation="@text.string_concat.string_concat_graph.status[4].publish" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[4]" />
+        </SemanticBlock>
+        <SemanticBlock name="status[6]" index="6" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="4" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@text.string_concat.string_concat_graph.status[6].rollback.rollback_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.block[2]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[8]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[6].block_2_value" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="64" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[6].block_2_value" />
+          <SemanticValue name="block_2_value" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[6]" />
+          <SemanticValue name="branch_status" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[6]" rxf:data="0000000000000000" />
+          <SemanticOperation name="rollback" opcode="@kinds.Opcode.Rollback" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.rollback" status_value="@text.string_concat.string_concat_graph.status[6].rollback.rollback_status" target_object="@text.string_concat.string_concat_graph.status[0].begin_private.begin_private_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <SemanticValue name="rollback_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[6]" owner_operation="@text.string_concat.string_concat_graph.status[6].rollback" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticBlock name="status[8]" index="8" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="3" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@text.string_concat.string_concat_graph.status[8].cleanup.cleanup_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.block[3]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.primary_refusal" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[8].block_3_value" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="64" kind="RefKind.Data" target="@text.string_concat.string_concat_graph.status[8].block_3_value" />
+          <SemanticValue name="block_3_value" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[8]" />
+          <SemanticOperation name="cleanup" opcode="@kinds.Opcode.Cleanup" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.cleanup" status_value="@text.string_concat.string_concat_graph.status[8].cleanup.cleanup_status" target_object="@text.string_concat.string_concat_graph.status[0].begin_private.begin_private_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <SemanticValue name="cleanup_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_concat" owner_block="@text.string_concat.string_concat_graph.status[8]" owner_operation="@text.string_concat.string_concat_graph.status[8].cleanup" />
+          </SemanticOperation>
+        </SemanticBlock>
+      </SemanticGraph>
+    </Function>
+    <StdlibRecord name="string_concat_contract" kind="@kinds.StdlibKind.Text" flags="@kinds.StdlibFlags.Standard|Semantic" related_count="1" value_type="uint64_t">
+      <rxf:ref role="@stdlib.Function" kind="RefKind.Data" target="@text.string_concat" />
+    </StdlibRecord>
+    <Function name="string_find" implementation="@kinds.FunctionImplementation.Semantic" layer="@kinds.FunctionLayer.Library" semantic_version="1" signature="@text.string_find.signature" body="@text.string_find.semantic_graph_compatibility_entry" semantic_digest="95afe7f14f7b2f898fd2f316c75b3362cefaf33bb69a68b18e61f714ab58431c">
+      <Code name="bytecode" owner_function="@text.string_find" signature="@text.string_find.signature" format="@kinds.CodeFormat.Bytecode" semantic_version="1" byte_count="1200" semantic_digest="95afe7f14f7b2f898fd2f316c75b3362cefaf33bb69a68b18e61f714ab58431c" rxf:data="5258473100000000b800000000000000040000000000000008000000000000000d000000000000000000000000000000180000000000000018000000000000000800000000000000200000000000000018000000000000003800000000000000080000000000000001000000000000001400000000000000050000000000000040000000000000000800000000000000480000000000000000000000000000000000000000000000180000000000000000000000000000001800000000000000080000000000000000000000000000002000000000000000180000000000000000000000000000003800000000000000080000000000000002000000000000006bf550f500000000180000000000000009000000000000000000000000000000480000000000000004000000000000000000000000000000350000000000000001000000000000000000000000000000480000000000000004000000000000005000000000000000040000000000000092000000000000000100000000000000000000000000000048000000000000000400000000000000b000000000000000040000000000000002000000000000005800000000000000080000000000000000000000000000004000000000000000080000000000000002000000000000006000000000000000080000000000000000000000000000005800000000000000080000000000000008000000000000004e000000000000000200000000000000000000000000000060000000000000000800000000000000680000000000000008000000000000000100000000000000010000000000000008000000000000007000000000000000080000000000000006000000000000007800000000000000000000000000000068000000000000000800000000000000000000000000000070000000000000000800000000000000090000000000000000000000000000007800000000000000010000000000000001000000000000006e000000000000000200000000000000000000000000000068000000000000000800000000000000800000000000000008000000000000000000000000000000700000000000000008000000000000008800000000000000080000000000000087000000000000000100000000000000000000000000000070000000000000000800000000000000a000000000000000080000000000000002000000000000009000000000000000080000000000000000000000000000008000000000000000080000000000000007000000000000009800000000000000080000000000000000000000000000008000000000000000080000000000000008000000000000004e00000000000000020000000000000000000000000000009800000000000000080000000000000068000000000000000800000000000000000000000000000088000000000000000800000000000000700000000000000008000000000000000200000000000000a80000000000000008000000000000000000000000000000a00000000000000008000000000000000b000000000000000000000000000000a800000000000000080000000000000008000000000000000c000000000000000000000000000000b0000000000000000400000000000000">
+        <rxf:ref role="@call.Interpreter" kind="RefKind.Data" target="@foundation.graph.run" />
+      </Code>
+      <ValueReference name="compatibility_argument[0]" value_type="@model.Ref" kind="@kinds.ValueKind.Parameter" size="8" target="@text.string_find.signature.argument[0]" />
+      <ValueReference name="compatibility_argument[1]" value_type="uint64_t" kind="@kinds.ValueKind.Parameter" size="8" target="@text.string_find.signature.argument[1]" />
+      <ValueReference name="compatibility_argument[2]" value_type="@model.Ref" kind="@kinds.ValueKind.Parameter" size="8" target="@text.string_find.signature.argument[2]" />
+      <ValueReference name="compatibility_argument[3]" value_type="uint64_t" kind="@kinds.ValueKind.Parameter" size="8" target="@text.string_find.signature.argument[3]" />
+      <Call name="semantic_graph_compatibility_entry" callee="@text.string_find" argument_count="4" result_type="uint64_t">
+        <Argument name="compatibility_argument[0]" parameter="@text.string_find.signature.argument[0]" value="@text.string_find.compatibility_argument[0]" />
+        <Argument name="compatibility_argument[1]" parameter="@text.string_find.signature.argument[1]" value="@text.string_find.compatibility_argument[1]" />
+        <Argument name="compatibility_argument[2]" parameter="@text.string_find.signature.argument[2]" value="@text.string_find.compatibility_argument[2]" />
+        <Argument name="compatibility_argument[3]" parameter="@text.string_find.signature.argument[3]" value="@text.string_find.compatibility_argument[3]" />
+      </Call>
+      <Signature name="signature" return_type="uint64_t" parameter_count="4" result_count="1" refusal_set="@foundation.StdlibRefusals">
+        <Parameter name="argument[0]" value_type="@model.Ref" />
+        <Parameter name="argument[1]" value_type="uint64_t" index="1" />
+        <Parameter name="argument[2]" value_type="@model.Ref" index="2" />
+        <Parameter name="argument[3]" value_type="uint64_t" index="3" />
+        <Result name="value" value_type="uint64_t" />
+      </Signature>
+      <SemanticGraph name="string_find_graph" function="@text.string_find" entry_block="@text.string_find.string_find_graph.status[0]" refusal_set="@foundation.StdlibRefusals" output_type="uint64_t" block_count="6" parameter_count="4" result_count="1">
+        <rxf:ref role="@semantic.ParameterValue" kind="RefKind.Data" target="@text.string_find.string_find_graph.parameter[0]" />
+        <rxf:ref role="@semantic.ParameterValue" index="1" kind="RefKind.Data" target="@text.string_find.string_find_graph.parameter[1]" />
+        <rxf:ref role="@semantic.ParameterValue" index="2" kind="RefKind.Data" target="@text.string_find.string_find_graph.parameter[2]" />
+        <rxf:ref role="@semantic.ParameterValue" index="3" kind="RefKind.Data" target="@text.string_find.string_find_graph.parameter[3]" />
+        <rxf:ref role="@semantic.GraphResultValue" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[3].return_value.return_value_result" />
+        <SemanticBlock name="block[0]" index="1" terminator="@kinds.Terminator.Goto" operation_count="2" predecessor_count="1" successor_count="1" parameter_type_count="1" successor_map_count="1" rxf:data="00000000000000000200000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[1]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[0].successful_call_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[0].iter_init.iter_init_result" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="1" kind="RefKind.Data" target="@text.string_find.string_find_graph.iterator_initial_end" />
+          <SemanticOperation name="iter_init" opcode="@kinds.Opcode.IterInit" index="1" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_find.string_find_graph.block[0].utf8_boundary.utf8_boundary_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[0].iter_init.iter_init_result" />
+            <SemanticValue name="iter_init_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.status[0]" owner_operation="@text.string_find.string_find_graph.block[0].iter_init" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.block[0]" />
+          <SemanticOperation name="utf8_boundary" opcode="@kinds.Opcode.Utf8Boundary" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_find.string_find_graph.status[0].search.search_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[0].utf8_boundary.utf8_boundary_result" />
+            <SemanticValue name="utf8_boundary_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.status[0]" owner_operation="@text.string_find.string_find_graph.block[0].utf8_boundary" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticBlock name="block[1]" index="2" terminator="@kinds.Terminator.Loop" operation_count="1" predecessor_count="2" successor_count="2" parameter_type_count="2" successor_map_count="2" condition_value="@text.string_find.string_find_graph.block[1].iter_condition.iter_condition_result" rxf:data="000000000000000002000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[2]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[3]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[1].iterator_state" />
+          <rxf:ref role="@semantic.BlockParameterValue" index="1" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[1].iterator_end" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[1].iterator_state" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="1" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[1].iterator_end" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="64" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[1].iterator_end" />
+          <SemanticValue name="branch_status" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.block[1]" rxf:data="0000000000000000" />
+          <SemanticOperation name="iter_condition" opcode="@kinds.Opcode.IterCondition" input_type_count="2" result_type_count="1" input_value_count="2" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_find.string_find_graph.block[1].iterator_state">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="bool" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[1].iterator_end" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[1].iter_condition.iter_condition_result" />
+            <SemanticValue name="iter_condition_result" value_type="bool" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.block[1]" owner_operation="@text.string_find.string_find_graph.block[1].iter_condition" />
+          </SemanticOperation>
+          <SemanticValue name="iterator_end" value_type="uint64_t" kind="@kinds.ValueKind.Bound" result_index="1" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.block[1]" />
+          <SemanticValue name="iterator_state" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.block[1]" />
+        </SemanticBlock>
+        <SemanticBlock name="block[2]" index="3" terminator="@kinds.Terminator.Goto" operation_count="2" predecessor_count="1" successor_count="1" parameter_type_count="2" successor_map_count="1" rxf:data="00000000000000000200000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[1]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[2].iterator_state" />
+          <rxf:ref role="@semantic.BlockParameterValue" index="1" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[2].iterator_end" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[2].iter_advance.iter_advance_result" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="1" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[2].iterator_end" />
+          <SemanticOperation name="iter_advance" opcode="@kinds.Opcode.IterAdvance" index="1" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_find.string_find_graph.block[2].iterator_state">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[2].iter_advance.iter_advance_result" />
+            <SemanticValue name="iter_advance_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.block[2]" owner_operation="@text.string_find.string_find_graph.block[2].iter_advance" />
+          </SemanticOperation>
+          <SemanticOperation name="iter_project" opcode="@kinds.Opcode.IterProject" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_find.string_find_graph.block[2].iterator_state">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[2].iter_project.iter_project_result" />
+            <SemanticValue name="iter_project_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.block[2]" owner_operation="@text.string_find.string_find_graph.block[2].iter_project" />
+          </SemanticOperation>
+          <SemanticValue name="iterator_end" value_type="uint64_t" kind="@kinds.ValueKind.Bound" result_index="1" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.block[2]" />
+          <SemanticValue name="iterator_state" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.block[2]" />
+        </SemanticBlock>
+        <SemanticBlock name="block[3]" index="4" terminator="@kinds.Terminator.Return" operation_count="1" predecessor_count="1" parameter_type_count="1" terminator_value="@text.string_find.string_find_graph.block[3].return_value.return_value_result" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[3].block_3_value" />
+          <SemanticValue name="block_3_value" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.block[3]" />
+          <SemanticOperation name="return_value" opcode="@kinds.Opcode.ReturnValue" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_find.string_find_graph.block[3].block_3_value">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[3].return_value.return_value_result" />
+            <SemanticValue name="return_value_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.block[3]" owner_operation="@text.string_find.string_find_graph.block[3].return_value" source="@text.string_find.signature.value" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticValue name="iterator_initial_end" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.status[0]" rxf:data="0100000000000000" />
+        <SemanticValue name="parameter[0]" value_type="@model.Ref" kind="@kinds.ValueKind.Parameter" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.status[0]" source="@text.string_find.signature.argument[0]" />
+        <SemanticValue name="parameter[1]" value_type="uint64_t" kind="@kinds.ValueKind.Parameter" result_index="1" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.status[0]" source="@text.string_find.signature.argument[1]" />
+        <SemanticValue name="parameter[2]" value_type="@model.Ref" kind="@kinds.ValueKind.Parameter" result_index="2" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.status[0]" source="@text.string_find.signature.argument[2]" />
+        <SemanticValue name="parameter[3]" value_type="uint64_t" kind="@kinds.ValueKind.Parameter" result_index="3" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.status[0]" source="@text.string_find.signature.argument[3]" />
+        <SemanticBlock name="primary_refusal" index="5" terminator="@kinds.Terminator.Refuse" predecessor_count="1" parameter_type_count="1" terminator_value="@text.string_find.string_find_graph.primary_refusal.primary_refusal_status" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <SemanticValue name="primary_refusal_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.primary_refusal" />
+        </SemanticBlock>
+        <SemanticBlock name="status[0]" terminator="@kinds.Terminator.Branch" operation_count="1" successor_count="2" successor_map_count="2" condition_value="@text.string_find.string_find_graph.status[0].search.search_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_find.string_find_graph.block[0]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_find.string_find_graph.primary_refusal" />
+          <SemanticOperation name="search" opcode="@kinds.Opcode.Search" input_type_count="5" result_type_count="2" input_value_count="5" result_value_count="2" refusal_set="@foundation.StdlibRefusals" callee="@runtime.search" status_value="@text.string_find.string_find_graph.status[0].search.search_status" target_object="@text.string_find.string_find_graph.parameter[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.InputType" index="2" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="3" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.InputType" index="4" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" index="1" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@text.string_find.string_find_graph.parameter[1]" />
+            <rxf:ref role="@semantic.InputValue" index="2" kind="RefKind.Data" target="@text.string_find.string_find_graph.parameter[2]" />
+            <rxf:ref role="@semantic.InputValue" index="3" kind="RefKind.Data" target="@text.string_find.string_find_graph.parameter[3]" />
+            <rxf:ref role="@semantic.InputValue" index="4" kind="RefKind.Data" target="@text.string_find.string_find_graph.status[0].search_argument[4]" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_find.string_find_graph.status[0].search.search_result" />
+            <SemanticValue name="search_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.status[0]" owner_operation="@text.string_find.string_find_graph.status[0].search" />
+            <SemanticValue name="search_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" result_index="1" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.status[0]" owner_operation="@text.string_find.string_find_graph.status[0].search" />
+          </SemanticOperation>
+          <SemanticObject name="search_argument[4]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" result_index="4" literal_size="24" owner_function="@text.string_find" owner_block="@text.string_find.string_find_graph.status[0]" object_id="4115723627" rxf:data="6bf550f50000000001000000000000000000000000000000" />
+        </SemanticBlock>
+      </SemanticGraph>
+    </Function>
+    <StdlibRecord name="string_find_contract" kind="@kinds.StdlibKind.Text" flags="@kinds.StdlibFlags.Standard|Semantic" related_count="1" value_type="uint64_t">
+      <rxf:ref role="@stdlib.Function" kind="RefKind.Data" target="@text.string_find" />
+    </StdlibRecord>
+    <Function name="string_from_bytes" implementation="@kinds.FunctionImplementation.Semantic" layer="@kinds.FunctionLayer.Library" semantic_version="1" signature="@text.string_from_bytes.signature" body="@text.string_from_bytes.semantic_graph_compatibility_entry" semantic_digest="4aa7d7bd51edc6d0b36755906da0dd93f00f4f4b6dbede8357325d50d23e9ae9">
+      <Code name="bytecode" owner_function="@text.string_from_bytes" signature="@text.string_from_bytes.signature" format="@kinds.CodeFormat.Bytecode" semantic_version="1" byte_count="520" semantic_digest="4aa7d7bd51edc6d0b36755906da0dd93f00f4f4b6dbede8357325d50d23e9ae9" rxf:data="5258473100000000380000000000000001000000000000000100000000000000070000000000000000000000000000000800000000000000010000000000000010000000000000000400000000000000080000000000000008000000000000001000000000000000020000000000000094f48af4000000001800000000000000020000000000000095f48af4000000001800000000000000010000000000000001000000000000000800000000000000010000000000000001000000000000000800000000000000090000000000000000000000000000001000000000000000040000000000000000000000000000002c000000000000000100000000000000000000000000000010000000000000000400000000000000180000000000000004000000000000003d000000000000000100000000000000000000000000000010000000000000000400000000000000300000000000000004000000000000000200000000000000200000000000000008000000000000000000000000000000080000000000000008000000000000000200000000000000280000000000000008000000000000000000000000000000000000000000000008000000000000000b0000000000000000000000000000002800000000000000080000000000000008000000000000000c00000000000000000000000000000030000000000000000400000000000000">
+        <rxf:ref role="@call.Interpreter" kind="RefKind.Data" target="@foundation.graph.run" />
+      </Code>
+      <ValueReference name="compatibility_argument[0]" value_type="uint64_t" kind="@kinds.ValueKind.Parameter" size="8" target="@text.string_from_bytes.signature.argument[0]" />
+      <Call name="semantic_graph_compatibility_entry" callee="@text.string_from_bytes" argument_count="1" result_type="uint64_t">
+        <Argument name="compatibility_argument[0]" parameter="@text.string_from_bytes.signature.argument[0]" value="@text.string_from_bytes.compatibility_argument[0]" />
+      </Call>
+      <Signature name="signature" return_type="uint64_t" parameter_count="1" result_count="1" refusal_set="@foundation.StdlibRefusals">
+        <Parameter name="argument[0]" value_type="uint64_t" />
+        <Result name="value" value_type="uint64_t" />
+      </Signature>
+      <SemanticGraph name="string_from_bytes_graph" function="@text.string_from_bytes" entry_block="@text.string_from_bytes.string_from_bytes_graph.status[0]" refusal_set="@foundation.StdlibRefusals" output_type="uint64_t" block_count="3" parameter_count="1" result_count="1">
+        <rxf:ref role="@semantic.ParameterValue" kind="RefKind.Data" target="@text.string_from_bytes.string_from_bytes_graph.parameter[0]" />
+        <rxf:ref role="@semantic.GraphResultValue" kind="RefKind.Data" target="@text.string_from_bytes.string_from_bytes_graph.block[0].return_value.return_value_result" />
+        <SemanticBlock name="block[0]" index="1" terminator="@kinds.Terminator.Return" operation_count="2" predecessor_count="1" parameter_type_count="1" terminator_value="@text.string_from_bytes.string_from_bytes_graph.block[0].return_value.return_value_result" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_from_bytes.string_from_bytes_graph.block[0].successful_call_status" />
+          <SemanticOperation name="return_value" opcode="@kinds.Opcode.ReturnValue" index="1" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_from_bytes.string_from_bytes_graph.parameter[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_from_bytes.string_from_bytes_graph.block[0].return_value.return_value_result" />
+            <SemanticValue name="return_value_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_from_bytes" owner_block="@text.string_from_bytes.string_from_bytes_graph.status[0]" owner_operation="@text.string_from_bytes.string_from_bytes_graph.block[0].return_value" source="@text.string_from_bytes.signature.value" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_from_bytes" owner_block="@text.string_from_bytes.string_from_bytes_graph.block[0]" />
+          <SemanticOperation name="utf8_boundary" opcode="@kinds.Opcode.Utf8Boundary" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_from_bytes.string_from_bytes_graph.status[0].utf8_validate.utf8_validate_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_from_bytes.string_from_bytes_graph.block[0].utf8_boundary.utf8_boundary_result" />
+            <SemanticValue name="utf8_boundary_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_from_bytes" owner_block="@text.string_from_bytes.string_from_bytes_graph.status[0]" owner_operation="@text.string_from_bytes.string_from_bytes_graph.block[0].utf8_boundary" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticValue name="parameter[0]" value_type="uint64_t" kind="@kinds.ValueKind.Parameter" owner_function="@text.string_from_bytes" owner_block="@text.string_from_bytes.string_from_bytes_graph.status[0]" source="@text.string_from_bytes.signature.argument[0]" />
+        <SemanticBlock name="primary_refusal" index="2" terminator="@kinds.Terminator.Refuse" predecessor_count="1" parameter_type_count="1" terminator_value="@text.string_from_bytes.string_from_bytes_graph.primary_refusal.primary_refusal_status" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <SemanticValue name="primary_refusal_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_from_bytes" owner_block="@text.string_from_bytes.string_from_bytes_graph.primary_refusal" />
+        </SemanticBlock>
+        <SemanticBlock name="status[0]" terminator="@kinds.Terminator.Branch" operation_count="1" successor_count="2" successor_map_count="2" condition_value="@text.string_from_bytes.string_from_bytes_graph.status[0].utf8_validate.utf8_validate_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_from_bytes.string_from_bytes_graph.block[0]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_from_bytes.string_from_bytes_graph.primary_refusal" />
+          <SemanticOperation name="utf8_validate" opcode="@kinds.Opcode.Utf8Validate" input_type_count="4" result_type_count="2" input_value_count="4" result_value_count="2" refusal_set="@foundation.StdlibRefusals" callee="@runtime.read" status_value="@text.string_from_bytes.string_from_bytes_graph.status[0].utf8_validate.utf8_validate_status" target_object="@text.string_from_bytes.string_from_bytes_graph.status[0].utf8_validate_argument[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="2" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.InputType" index="3" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" index="1" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@text.string_from_bytes.string_from_bytes_graph.status[0].utf8_validate_argument[1]" />
+            <rxf:ref role="@semantic.InputValue" index="2" kind="RefKind.Data" target="@text.string_from_bytes.string_from_bytes_graph.status[0].utf8_validate_argument[2]" />
+            <rxf:ref role="@semantic.InputValue" index="3" kind="RefKind.Data" target="@text.string_from_bytes.string_from_bytes_graph.status[0].utf8_validate_argument[3]" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_from_bytes.string_from_bytes_graph.status[0].utf8_validate.utf8_validate_result" />
+            <SemanticValue name="utf8_validate_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_from_bytes" owner_block="@text.string_from_bytes.string_from_bytes_graph.status[0]" owner_operation="@text.string_from_bytes.string_from_bytes_graph.status[0].utf8_validate" />
+            <SemanticValue name="utf8_validate_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" result_index="1" owner_function="@text.string_from_bytes" owner_block="@text.string_from_bytes.string_from_bytes_graph.status[0]" owner_operation="@text.string_from_bytes.string_from_bytes_graph.status[0].utf8_validate" />
+          </SemanticOperation>
+          <SemanticObject name="utf8_validate_argument[0]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" literal_size="24" owner_function="@text.string_from_bytes" owner_block="@text.string_from_bytes.string_from_bytes_graph.status[0]" object_id="4102747284" rxf:data="94f48af40000000001000000000000000000000000000000" />
+          <SemanticObject name="utf8_validate_argument[1]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" result_index="1" literal_size="24" owner_function="@text.string_from_bytes" owner_block="@text.string_from_bytes.string_from_bytes_graph.status[0]" object_id="4102747285" rxf:data="95f48af40000000001000000000000000000000000000000" />
+          <SemanticValue name="utf8_validate_argument[2]" value_type="uint64_t" kind="@kinds.ValueKind.Literal" result_index="2" literal_size="8" owner_function="@text.string_from_bytes" owner_block="@text.string_from_bytes.string_from_bytes_graph.status[0]" rxf:data="0100000000000000" />
+          <SemanticValue name="utf8_validate_argument[3]" value_type="uint64_t" kind="@kinds.ValueKind.Literal" result_index="3" literal_size="8" owner_function="@text.string_from_bytes" owner_block="@text.string_from_bytes.string_from_bytes_graph.status[0]" rxf:data="0100000000000000" />
+        </SemanticBlock>
+      </SemanticGraph>
+    </Function>
+    <StdlibRecord name="string_from_bytes_contract" kind="@kinds.StdlibKind.Text" flags="@kinds.StdlibFlags.Standard|Semantic" related_count="1" value_type="uint64_t">
+      <rxf:ref role="@stdlib.Function" kind="RefKind.Data" target="@text.string_from_bytes" />
+    </StdlibRecord>
+    <Function name="string_scalars" implementation="@kinds.FunctionImplementation.Semantic" layer="@kinds.FunctionLayer.Library" semantic_version="1" signature="@text.string_scalars.signature" body="@text.string_scalars.semantic_graph_compatibility_entry" semantic_digest="23743210dcfe9439ef8d0a6ea2a225a27cd17f2c81c2903c0586657a91df3d4a">
+      <Code name="bytecode" owner_function="@text.string_scalars" signature="@text.string_scalars.signature" format="@kinds.CodeFormat.Bytecode" semantic_version="1" byte_count="1128" semantic_digest="23743210dcfe9439ef8d0a6ea2a225a27cd17f2c81c2903c0586657a91df3d4a" rxf:data="52584731000000008000000000000000010000000000000001000000000000000700000000000000000000000000000008000000000000000100000000000000100000000000000004000000000000000800000000000000080000000000000010000000000000000200000000000000c1f4aef40000000018000000000000000200000000000000c0f4aef4000000001800000000000000010000000000000001000000000000000800000000000000010000000000000001000000000000000800000000000000090000000000000000000000000000001000000000000000040000000000000000000000000000002c000000000000000100000000000000000000000000000010000000000000000400000000000000180000000000000004000000000000008900000000000000010000000000000000000000000000001000000000000000040000000000000078000000000000000400000000000000020000000000000020000000000000000800000000000000000000000000000008000000000000000800000000000000020000000000000028000000000000000800000000000000000000000000000020000000000000000800000000000000080000000000000045000000000000000200000000000000000000000000000028000000000000000800000000000000300000000000000008000000000000000100000000000000010000000000000008000000000000003800000000000000080000000000000006000000000000004000000000000000000000000000000030000000000000000800000000000000000000000000000038000000000000000800000000000000090000000000000000000000000000004000000000000000010000000000000001000000000000006500000000000000020000000000000000000000000000003000000000000000080000000000000048000000000000000800000000000000000000000000000038000000000000000800000000000000500000000000000008000000000000007e0000000000000001000000000000000000000000000000380000000000000008000000000000006800000000000000080000000000000002000000000000005800000000000000080000000000000000000000000000004800000000000000080000000000000007000000000000006000000000000000080000000000000000000000000000004800000000000000080000000000000008000000000000004500000000000000020000000000000000000000000000006000000000000000080000000000000030000000000000000800000000000000000000000000000050000000000000000800000000000000380000000000000008000000000000000200000000000000700000000000000008000000000000000000000000000000000000000000000008000000000000000b0000000000000000000000000000007000000000000000080000000000000008000000000000000c00000000000000000000000000000078000000000000000400000000000000">
+        <rxf:ref role="@call.Interpreter" kind="RefKind.Data" target="@foundation.graph.run" />
+      </Code>
+      <ValueReference name="compatibility_argument[0]" value_type="uint64_t" kind="@kinds.ValueKind.Parameter" size="8" target="@text.string_scalars.signature.argument[0]" />
+      <Call name="semantic_graph_compatibility_entry" callee="@text.string_scalars" argument_count="1" result_type="uint64_t">
+        <Argument name="compatibility_argument[0]" parameter="@text.string_scalars.signature.argument[0]" value="@text.string_scalars.compatibility_argument[0]" />
+      </Call>
+      <Signature name="signature" return_type="uint64_t" parameter_count="1" result_count="1" refusal_set="@foundation.StdlibRefusals">
+        <Parameter name="argument[0]" value_type="uint64_t" />
+        <Result name="value" value_type="uint64_t" />
+      </Signature>
+      <SemanticGraph name="string_scalars_graph" function="@text.string_scalars" entry_block="@text.string_scalars.string_scalars_graph.status[0]" refusal_set="@foundation.StdlibRefusals" output_type="uint64_t" block_count="6" parameter_count="1" result_count="1">
+        <rxf:ref role="@semantic.ParameterValue" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.parameter[0]" />
+        <rxf:ref role="@semantic.GraphResultValue" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[3].return_value.return_value_result" />
+        <SemanticBlock name="block[0]" index="1" terminator="@kinds.Terminator.Goto" operation_count="2" predecessor_count="1" successor_count="1" parameter_type_count="1" successor_map_count="1" rxf:data="00000000000000000200000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[1]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[0].successful_call_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[0].iter_init.iter_init_result" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="1" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.iterator_initial_end" />
+          <SemanticOperation name="iter_init" opcode="@kinds.Opcode.IterInit" index="1" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_scalars.string_scalars_graph.block[0].utf8_boundary.utf8_boundary_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[0].iter_init.iter_init_result" />
+            <SemanticValue name="iter_init_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.status[0]" owner_operation="@text.string_scalars.string_scalars_graph.block[0].iter_init" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.block[0]" />
+          <SemanticOperation name="utf8_boundary" opcode="@kinds.Opcode.Utf8Boundary" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_scalars.string_scalars_graph.status[0].read.read_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[0].utf8_boundary.utf8_boundary_result" />
+            <SemanticValue name="utf8_boundary_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.status[0]" owner_operation="@text.string_scalars.string_scalars_graph.block[0].utf8_boundary" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticBlock name="block[1]" index="2" terminator="@kinds.Terminator.Loop" operation_count="1" predecessor_count="2" successor_count="2" parameter_type_count="2" successor_map_count="2" condition_value="@text.string_scalars.string_scalars_graph.block[1].iter_condition.iter_condition_result" rxf:data="000000000000000002000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[2]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[3]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[1].iterator_state" />
+          <rxf:ref role="@semantic.BlockParameterValue" index="1" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[1].iterator_end" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[1].iterator_state" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="1" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[1].iterator_end" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="64" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[1].iterator_end" />
+          <SemanticValue name="branch_status" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.block[1]" rxf:data="0000000000000000" />
+          <SemanticOperation name="iter_condition" opcode="@kinds.Opcode.IterCondition" input_type_count="2" result_type_count="1" input_value_count="2" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_scalars.string_scalars_graph.block[1].iterator_state">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="bool" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[1].iterator_end" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[1].iter_condition.iter_condition_result" />
+            <SemanticValue name="iter_condition_result" value_type="bool" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.block[1]" owner_operation="@text.string_scalars.string_scalars_graph.block[1].iter_condition" />
+          </SemanticOperation>
+          <SemanticValue name="iterator_end" value_type="uint64_t" kind="@kinds.ValueKind.Bound" result_index="1" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.block[1]" />
+          <SemanticValue name="iterator_state" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.block[1]" />
+        </SemanticBlock>
+        <SemanticBlock name="block[2]" index="3" terminator="@kinds.Terminator.Goto" operation_count="2" predecessor_count="1" successor_count="1" parameter_type_count="2" successor_map_count="1" rxf:data="00000000000000000200000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[1]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[2].iterator_state" />
+          <rxf:ref role="@semantic.BlockParameterValue" index="1" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[2].iterator_end" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[2].iter_advance.iter_advance_result" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="1" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[2].iterator_end" />
+          <SemanticOperation name="iter_advance" opcode="@kinds.Opcode.IterAdvance" index="1" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_scalars.string_scalars_graph.block[2].iterator_state">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[2].iter_advance.iter_advance_result" />
+            <SemanticValue name="iter_advance_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.block[2]" owner_operation="@text.string_scalars.string_scalars_graph.block[2].iter_advance" />
+          </SemanticOperation>
+          <SemanticOperation name="iter_project" opcode="@kinds.Opcode.IterProject" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_scalars.string_scalars_graph.block[2].iterator_state">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[2].iter_project.iter_project_result" />
+            <SemanticValue name="iter_project_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.block[2]" owner_operation="@text.string_scalars.string_scalars_graph.block[2].iter_project" />
+          </SemanticOperation>
+          <SemanticValue name="iterator_end" value_type="uint64_t" kind="@kinds.ValueKind.Bound" result_index="1" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.block[2]" />
+          <SemanticValue name="iterator_state" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.block[2]" />
+        </SemanticBlock>
+        <SemanticBlock name="block[3]" index="4" terminator="@kinds.Terminator.Return" operation_count="1" predecessor_count="1" parameter_type_count="1" terminator_value="@text.string_scalars.string_scalars_graph.block[3].return_value.return_value_result" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[3].block_3_value" />
+          <SemanticValue name="block_3_value" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.block[3]" />
+          <SemanticOperation name="return_value" opcode="@kinds.Opcode.ReturnValue" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_scalars.string_scalars_graph.parameter[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[3].return_value.return_value_result" />
+            <SemanticValue name="return_value_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.block[3]" owner_operation="@text.string_scalars.string_scalars_graph.block[3].return_value" source="@text.string_scalars.signature.value" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticValue name="iterator_initial_end" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.status[0]" rxf:data="0100000000000000" />
+        <SemanticValue name="parameter[0]" value_type="uint64_t" kind="@kinds.ValueKind.Parameter" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.status[0]" source="@text.string_scalars.signature.argument[0]" />
+        <SemanticBlock name="primary_refusal" index="5" terminator="@kinds.Terminator.Refuse" predecessor_count="1" parameter_type_count="1" terminator_value="@text.string_scalars.string_scalars_graph.primary_refusal.primary_refusal_status" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <SemanticValue name="primary_refusal_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.primary_refusal" />
+        </SemanticBlock>
+        <SemanticBlock name="status[0]" terminator="@kinds.Terminator.Branch" operation_count="1" successor_count="2" successor_map_count="2" condition_value="@text.string_scalars.string_scalars_graph.status[0].read.read_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.block[0]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.primary_refusal" />
+          <SemanticOperation name="read" opcode="@kinds.Opcode.Read" input_type_count="4" result_type_count="2" input_value_count="4" result_value_count="2" refusal_set="@foundation.StdlibRefusals" callee="@runtime.read" status_value="@text.string_scalars.string_scalars_graph.status[0].read.read_status" target_object="@text.string_scalars.string_scalars_graph.status[0].read_argument[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="2" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.InputType" index="3" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" index="1" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.status[0].read_argument[1]" />
+            <rxf:ref role="@semantic.InputValue" index="2" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.status[0].read_argument[2]" />
+            <rxf:ref role="@semantic.InputValue" index="3" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.status[0].read_argument[3]" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_scalars.string_scalars_graph.status[0].read.read_result" />
+            <SemanticValue name="read_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.status[0]" owner_operation="@text.string_scalars.string_scalars_graph.status[0].read" />
+            <SemanticValue name="read_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" result_index="1" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.status[0]" owner_operation="@text.string_scalars.string_scalars_graph.status[0].read" />
+          </SemanticOperation>
+          <SemanticObject name="read_argument[0]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" literal_size="24" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.status[0]" object_id="4105106625" rxf:data="c1f4aef40000000001000000000000000000000000000000" />
+          <SemanticObject name="read_argument[1]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" result_index="1" literal_size="24" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.status[0]" object_id="4105106624" rxf:data="c0f4aef40000000001000000000000000000000000000000" />
+          <SemanticValue name="read_argument[2]" value_type="uint64_t" kind="@kinds.ValueKind.Literal" result_index="2" literal_size="8" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.status[0]" rxf:data="0100000000000000" />
+          <SemanticValue name="read_argument[3]" value_type="uint64_t" kind="@kinds.ValueKind.Literal" result_index="3" literal_size="8" owner_function="@text.string_scalars" owner_block="@text.string_scalars.string_scalars_graph.status[0]" rxf:data="0100000000000000" />
+        </SemanticBlock>
+      </SemanticGraph>
+    </Function>
+    <StdlibRecord name="string_scalars_contract" kind="@kinds.StdlibKind.Text" flags="@kinds.StdlibFlags.Standard|Semantic" related_count="1" value_type="uint64_t">
+      <rxf:ref role="@stdlib.Function" kind="RefKind.Data" target="@text.string_scalars" />
+    </StdlibRecord>
+    <Function name="string_split" implementation="@kinds.FunctionImplementation.Semantic" layer="@kinds.FunctionLayer.Library" semantic_version="1" signature="@text.string_split.signature" body="@text.string_split.semantic_graph_compatibility_entry" semantic_digest="02ed231638cdbe44b4fdf9f16831cc82a2efe19c71681200fa787db8043ea0e1">
+      <Code name="bytecode" owner_function="@text.string_split" signature="@text.string_split.signature" format="@kinds.CodeFormat.Bytecode" semantic_version="1" byte_count="1128" semantic_digest="02ed231638cdbe44b4fdf9f16831cc82a2efe19c71681200fa787db8043ea0e1" rxf:data="52584731000000008000000000000000010000000000000001000000000000000700000000000000000000000000000008000000000000000100000000000000100000000000000004000000000000000800000000000000080000000000000010000000000000000200000000000000a8f595f50000000018000000000000000200000000000000a9f595f5000000001800000000000000010000000000000001000000000000000800000000000000010000000000000001000000000000000800000000000000090000000000000000000000000000001000000000000000040000000000000000000000000000002c000000000000000100000000000000000000000000000010000000000000000400000000000000180000000000000004000000000000008900000000000000010000000000000000000000000000001000000000000000040000000000000078000000000000000400000000000000020000000000000020000000000000000800000000000000000000000000000008000000000000000800000000000000020000000000000028000000000000000800000000000000000000000000000020000000000000000800000000000000080000000000000045000000000000000200000000000000000000000000000028000000000000000800000000000000300000000000000008000000000000000100000000000000010000000000000008000000000000003800000000000000080000000000000006000000000000004000000000000000000000000000000030000000000000000800000000000000000000000000000038000000000000000800000000000000090000000000000000000000000000004000000000000000010000000000000001000000000000006500000000000000020000000000000000000000000000003000000000000000080000000000000048000000000000000800000000000000000000000000000038000000000000000800000000000000500000000000000008000000000000007e0000000000000001000000000000000000000000000000380000000000000008000000000000006800000000000000080000000000000002000000000000005800000000000000080000000000000000000000000000004800000000000000080000000000000007000000000000006000000000000000080000000000000000000000000000004800000000000000080000000000000008000000000000004500000000000000020000000000000000000000000000006000000000000000080000000000000030000000000000000800000000000000000000000000000050000000000000000800000000000000380000000000000008000000000000000200000000000000700000000000000008000000000000000000000000000000000000000000000008000000000000000b0000000000000000000000000000007000000000000000080000000000000008000000000000000c00000000000000000000000000000078000000000000000400000000000000">
+        <rxf:ref role="@call.Interpreter" kind="RefKind.Data" target="@foundation.graph.run" />
+      </Code>
+      <ValueReference name="compatibility_argument[0]" value_type="uint64_t" kind="@kinds.ValueKind.Parameter" size="8" target="@text.string_split.signature.argument[0]" />
+      <Call name="semantic_graph_compatibility_entry" callee="@text.string_split" argument_count="1" result_type="uint64_t">
+        <Argument name="compatibility_argument[0]" parameter="@text.string_split.signature.argument[0]" value="@text.string_split.compatibility_argument[0]" />
+      </Call>
+      <Signature name="signature" return_type="uint64_t" parameter_count="1" result_count="1" refusal_set="@foundation.StdlibRefusals">
+        <Parameter name="argument[0]" value_type="uint64_t" />
+        <Result name="value" value_type="uint64_t" />
+      </Signature>
+      <SemanticGraph name="string_split_graph" function="@text.string_split" entry_block="@text.string_split.string_split_graph.status[0]" refusal_set="@foundation.StdlibRefusals" output_type="uint64_t" block_count="6" parameter_count="1" result_count="1">
+        <rxf:ref role="@semantic.ParameterValue" kind="RefKind.Data" target="@text.string_split.string_split_graph.parameter[0]" />
+        <rxf:ref role="@semantic.GraphResultValue" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[3].return_value.return_value_result" />
+        <SemanticBlock name="block[0]" index="1" terminator="@kinds.Terminator.Goto" operation_count="2" predecessor_count="1" successor_count="1" parameter_type_count="1" successor_map_count="1" rxf:data="00000000000000000200000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[1]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[0].successful_call_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[0].iter_init.iter_init_result" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="1" kind="RefKind.Data" target="@text.string_split.string_split_graph.iterator_initial_end" />
+          <SemanticOperation name="iter_init" opcode="@kinds.Opcode.IterInit" index="1" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_split.string_split_graph.block[0].utf8_boundary.utf8_boundary_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[0].iter_init.iter_init_result" />
+            <SemanticValue name="iter_init_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.status[0]" owner_operation="@text.string_split.string_split_graph.block[0].iter_init" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.block[0]" />
+          <SemanticOperation name="utf8_boundary" opcode="@kinds.Opcode.Utf8Boundary" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_split.string_split_graph.status[0].read.read_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[0].utf8_boundary.utf8_boundary_result" />
+            <SemanticValue name="utf8_boundary_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.status[0]" owner_operation="@text.string_split.string_split_graph.block[0].utf8_boundary" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticBlock name="block[1]" index="2" terminator="@kinds.Terminator.Loop" operation_count="1" predecessor_count="2" successor_count="2" parameter_type_count="2" successor_map_count="2" condition_value="@text.string_split.string_split_graph.block[1].iter_condition.iter_condition_result" rxf:data="000000000000000002000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[2]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[3]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[1].iterator_state" />
+          <rxf:ref role="@semantic.BlockParameterValue" index="1" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[1].iterator_end" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[1].iterator_state" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="1" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[1].iterator_end" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="64" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[1].iterator_end" />
+          <SemanticValue name="branch_status" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.block[1]" rxf:data="0000000000000000" />
+          <SemanticOperation name="iter_condition" opcode="@kinds.Opcode.IterCondition" input_type_count="2" result_type_count="1" input_value_count="2" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_split.string_split_graph.block[1].iterator_state">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="bool" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[1].iterator_end" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[1].iter_condition.iter_condition_result" />
+            <SemanticValue name="iter_condition_result" value_type="bool" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.block[1]" owner_operation="@text.string_split.string_split_graph.block[1].iter_condition" />
+          </SemanticOperation>
+          <SemanticValue name="iterator_end" value_type="uint64_t" kind="@kinds.ValueKind.Bound" result_index="1" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.block[1]" />
+          <SemanticValue name="iterator_state" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.block[1]" />
+        </SemanticBlock>
+        <SemanticBlock name="block[2]" index="3" terminator="@kinds.Terminator.Goto" operation_count="2" predecessor_count="1" successor_count="1" parameter_type_count="2" successor_map_count="1" rxf:data="00000000000000000200000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[1]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[2].iterator_state" />
+          <rxf:ref role="@semantic.BlockParameterValue" index="1" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[2].iterator_end" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[2].iter_advance.iter_advance_result" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="1" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[2].iterator_end" />
+          <SemanticOperation name="iter_advance" opcode="@kinds.Opcode.IterAdvance" index="1" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_split.string_split_graph.block[2].iterator_state">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[2].iter_advance.iter_advance_result" />
+            <SemanticValue name="iter_advance_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.block[2]" owner_operation="@text.string_split.string_split_graph.block[2].iter_advance" />
+          </SemanticOperation>
+          <SemanticOperation name="iter_project" opcode="@kinds.Opcode.IterProject" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_split.string_split_graph.block[2].iterator_state">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[2].iter_project.iter_project_result" />
+            <SemanticValue name="iter_project_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.block[2]" owner_operation="@text.string_split.string_split_graph.block[2].iter_project" />
+          </SemanticOperation>
+          <SemanticValue name="iterator_end" value_type="uint64_t" kind="@kinds.ValueKind.Bound" result_index="1" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.block[2]" />
+          <SemanticValue name="iterator_state" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.block[2]" />
+        </SemanticBlock>
+        <SemanticBlock name="block[3]" index="4" terminator="@kinds.Terminator.Return" operation_count="1" predecessor_count="1" parameter_type_count="1" terminator_value="@text.string_split.string_split_graph.block[3].return_value.return_value_result" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[3].block_3_value" />
+          <SemanticValue name="block_3_value" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.block[3]" />
+          <SemanticOperation name="return_value" opcode="@kinds.Opcode.ReturnValue" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@text.string_split.string_split_graph.parameter[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[3].return_value.return_value_result" />
+            <SemanticValue name="return_value_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.block[3]" owner_operation="@text.string_split.string_split_graph.block[3].return_value" source="@text.string_split.signature.value" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticValue name="iterator_initial_end" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.status[0]" rxf:data="0100000000000000" />
+        <SemanticValue name="parameter[0]" value_type="uint64_t" kind="@kinds.ValueKind.Parameter" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.status[0]" source="@text.string_split.signature.argument[0]" />
+        <SemanticBlock name="primary_refusal" index="5" terminator="@kinds.Terminator.Refuse" predecessor_count="1" parameter_type_count="1" terminator_value="@text.string_split.string_split_graph.primary_refusal.primary_refusal_status" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <SemanticValue name="primary_refusal_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.primary_refusal" />
+        </SemanticBlock>
+        <SemanticBlock name="status[0]" terminator="@kinds.Terminator.Branch" operation_count="1" successor_count="2" successor_map_count="2" condition_value="@text.string_split.string_split_graph.status[0].read.read_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_split.string_split_graph.block[0]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@text.string_split.string_split_graph.primary_refusal" />
+          <SemanticOperation name="read" opcode="@kinds.Opcode.Read" input_type_count="4" result_type_count="2" input_value_count="4" result_value_count="2" refusal_set="@foundation.StdlibRefusals" callee="@runtime.read" status_value="@text.string_split.string_split_graph.status[0].read.read_status" target_object="@text.string_split.string_split_graph.status[0].read_argument[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="2" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.InputType" index="3" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" index="1" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@text.string_split.string_split_graph.status[0].read_argument[1]" />
+            <rxf:ref role="@semantic.InputValue" index="2" kind="RefKind.Data" target="@text.string_split.string_split_graph.status[0].read_argument[2]" />
+            <rxf:ref role="@semantic.InputValue" index="3" kind="RefKind.Data" target="@text.string_split.string_split_graph.status[0].read_argument[3]" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@text.string_split.string_split_graph.status[0].read.read_result" />
+            <SemanticValue name="read_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.status[0]" owner_operation="@text.string_split.string_split_graph.status[0].read" />
+            <SemanticValue name="read_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" result_index="1" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.status[0]" owner_operation="@text.string_split.string_split_graph.status[0].read" />
+          </SemanticOperation>
+          <SemanticObject name="read_argument[0]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" literal_size="24" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.status[0]" object_id="4120245672" rxf:data="a8f595f50000000001000000000000000000000000000000" />
+          <SemanticObject name="read_argument[1]" value_type="@model.Ref" kind="@kinds.ValueKind.Object" result_index="1" literal_size="24" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.status[0]" object_id="4120245673" rxf:data="a9f595f50000000001000000000000000000000000000000" />
+          <SemanticValue name="read_argument[2]" value_type="uint64_t" kind="@kinds.ValueKind.Literal" result_index="2" literal_size="8" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.status[0]" rxf:data="0100000000000000" />
+          <SemanticValue name="read_argument[3]" value_type="uint64_t" kind="@kinds.ValueKind.Literal" result_index="3" literal_size="8" owner_function="@text.string_split" owner_block="@text.string_split.string_split_graph.status[0]" rxf:data="0100000000000000" />
+        </SemanticBlock>
+      </SemanticGraph>
+    </Function>
+    <StdlibRecord name="string_split_contract" kind="@kinds.StdlibKind.Text" flags="@kinds.StdlibFlags.Standard|Semantic" related_count="1" value_type="uint64_t">
+      <rxf:ref role="@stdlib.Function" kind="RefKind.Data" target="@text.string_split" />
+    </StdlibRecord>
+    <Function name="utf8_validate" implementation="@kinds.FunctionImplementation.Native" layer="@kinds.FunctionLayer.Library" semantic_version="1" signature="@text.utf8_validate.signature" semantic_digest="7bb0679a1a347cb6a3ca2c94d77aa1d794f40c1e812956fb988e07f64cc39387">
+      <ABISignature name="aapcs64_linux_status_out" target="@targets.aarch64_linux_aapcs64" kind="@kinds.AbiKind.Aapcs64" class_count="2" output_class="3" location_count="4" rxf:data="0301">
+        <ABIValueLocation name="argument[0]" association="@text.utf8_validate.signature.argument[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Borrowed" value_class="@kinds.AbiValueClass.Pointer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" pointee_type="@model.Ref" rxf:data="000000000000000000000000" />
+        <ABIValueLocation name="argument[1]" association="@text.utf8_validate.signature.argument[1]" semantic_index="1" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" rxf:data="000000000000000001000000" />
+        <ABIValueLocation name="output" association="@text.utf8_validate.signature.value" value_role="@kinds.AbiValueRole.Output" passing="@kinds.AbiPassing.Pointer" value_class="@kinds.AbiValueClass.Pointer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" flags="@kinds.AbiValueFlags.Synthetic|WritesMemory|CallerOwned" pointee_type="uint64_t" rxf:data="000000000000000002000000" />
+        <ABIValueLocation name="status" value_role="@kinds.AbiValueRole.Status" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Return" register_count="1" flags="@kinds.AbiValueFlags.Synthetic" pointee_type="uint32_t" rxf:data="000000000000000000000000" />
+      </ABISignature>
+      <ABISignature name="aapcs64_status_out" target="@targets.aarch64_uefi_aapcs64" kind="@kinds.AbiKind.Aapcs64" class_count="2" output_class="3" location_count="4" rxf:data="0301">
+        <ABIValueLocation name="argument[0]" association="@text.utf8_validate.signature.argument[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Borrowed" value_class="@kinds.AbiValueClass.Pointer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" pointee_type="@model.Ref" rxf:data="000000000000000000000000" />
+        <ABIValueLocation name="argument[1]" association="@text.utf8_validate.signature.argument[1]" semantic_index="1" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" rxf:data="000000000000000001000000" />
+        <ABIValueLocation name="output" association="@text.utf8_validate.signature.value" value_role="@kinds.AbiValueRole.Output" passing="@kinds.AbiPassing.Pointer" value_class="@kinds.AbiValueClass.Pointer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" flags="@kinds.AbiValueFlags.Synthetic|WritesMemory|CallerOwned" pointee_type="uint64_t" rxf:data="000000000000000002000000" />
+        <ABIValueLocation name="status" value_role="@kinds.AbiValueRole.Status" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Return" register_count="1" flags="@kinds.AbiValueFlags.Synthetic" pointee_type="uint32_t" rxf:data="000000000000000000000000" />
+      </ABISignature>
+      <Code name="aarch64_linux" owner_function="@text.utf8_validate" runtime_target="@targets.aarch64_linux_aapcs64" signature="@text.utf8_validate.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="348" semantic_digest="7bb0679a1a347cb6a3ca2c94d77aa1d794f40c1e812956fb988e07f64cc39387" rxf:data="e9031faa010a00b4ec031faa0a0800910b0c009108000014a80500518801088b0e090091df0101eb29050091ec030eaaa20800540868ec388e05009148ffff36101d00120f0a1b12ff010371c1000054f1031f2a081080522d008052f203805210000014080e1c121f810371c1000054080081524d00805231008052f20180520800001408121d121fc1037141060054f1031f2a2800a0526d008052f200805223000ecb7f402deb6305005403686e386e041a12df010271e10400544e02100a70140012ff010371101a0e2a61000054ef03102a110000144e696c38cf051a12ff01027181030054ce150012ce19102a91000036ef030e2aee03102a070000146f696c38f0051a121f02027141020054ef150012ef190e2aff01086b08018052e3000054ef7d1053ff41007188000054ce2d1b12df810d7101f7ff54e003082ac0035fd6e8031f2a490000f9e003082ac0035fd600018052c0035fd6">
+        <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@text.utf8_validate.aapcs64_linux_status_out" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+      </Code>
+      <Code name="aarch64_uefi" owner_function="@text.utf8_validate" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@text.utf8_validate.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="348" semantic_digest="7bb0679a1a347cb6a3ca2c94d77aa1d794f40c1e812956fb988e07f64cc39387" rxf:data="e9031faa010a00b4ec031faa0a0800910b0c009108000014a80500518801088b0e090091df0101eb29050091ec030eaaa20800540868ec388e05009148ffff36101d00120f0a1b12ff010371c1000054f1031f2a081080522d008052f203805210000014080e1c121f810371c1000054080081524d00805231008052f20180520800001408121d121fc1037141060054f1031f2a2800a0526d008052f200805223000ecb7f402deb6305005403686e386e041a12df010271e10400544e02100a70140012ff010371101a0e2a61000054ef03102a110000144e696c38cf051a12ff01027181030054ce150012ce19102a91000036ef030e2aee03102a070000146f696c38f0051a121f02027141020054ef150012ef190e2aff01086b08018052e3000054ef7d1053ff41007188000054ce2d1b12df810d7101f7ff54e003082ac0035fd6e8031f2a490000f9e003082ac0035fd600018052c0035fd6">
+        <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@text.utf8_validate.aapcs64_status_out" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+      </Code>
+      <Signature name="signature" return_type="uint64_t" parameter_count="2" result_count="1" refusal_set="@foundation.StdlibRefusals">
+        <Parameter name="argument[0]" value_type="@model.Ref" />
+        <Parameter name="argument[1]" value_type="uint64_t" index="1" />
+        <Result name="value" value_type="uint64_t" />
+      </Signature>
+      <ABISignature name="sysv_bios_status_out" target="@targets.x86_64_bios_sysv" kind="@kinds.AbiKind.Sysv" class_count="2" output_class="3" location_count="4" rxf:data="0301">
+        <ABIValueLocation name="argument[0]" association="@text.utf8_validate.signature.argument[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Borrowed" value_class="@kinds.AbiValueClass.Pointer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" pointee_type="@model.Ref" rxf:data="000000000000000000000000" />
+        <ABIValueLocation name="argument[1]" association="@text.utf8_validate.signature.argument[1]" semantic_index="1" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" rxf:data="000000000000000001000000" />
+        <ABIValueLocation name="output" association="@text.utf8_validate.signature.value" value_role="@kinds.AbiValueRole.Output" passing="@kinds.AbiPassing.Pointer" value_class="@kinds.AbiValueClass.Pointer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" flags="@kinds.AbiValueFlags.Synthetic|WritesMemory|CallerOwned" pointee_type="uint64_t" rxf:data="000000000000000002000000" />
+        <ABIValueLocation name="status" value_role="@kinds.AbiValueRole.Status" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Return" register_count="1" flags="@kinds.AbiValueFlags.Synthetic" pointee_type="uint32_t" rxf:data="000000000000000000000000" />
+      </ABISignature>
+      <ABISignature name="sysv_status_out" target="@targets.x86_64_linux_sysv" kind="@kinds.AbiKind.Sysv" class_count="2" output_class="3" location_count="4" rxf:data="0301">
+        <ABIValueLocation name="argument[0]" association="@text.utf8_validate.signature.argument[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Borrowed" value_class="@kinds.AbiValueClass.Pointer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" pointee_type="@model.Ref" rxf:data="000000000000000000000000" />
+        <ABIValueLocation name="argument[1]" association="@text.utf8_validate.signature.argument[1]" semantic_index="1" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" rxf:data="000000000000000001000000" />
+        <ABIValueLocation name="output" association="@text.utf8_validate.signature.value" value_role="@kinds.AbiValueRole.Output" passing="@kinds.AbiPassing.Pointer" value_class="@kinds.AbiValueClass.Pointer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" flags="@kinds.AbiValueFlags.Synthetic|WritesMemory|CallerOwned" pointee_type="uint64_t" rxf:data="000000000000000002000000" />
+        <ABIValueLocation name="status" value_role="@kinds.AbiValueRole.Status" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Return" register_count="1" flags="@kinds.AbiValueFlags.Synthetic" pointee_type="uint32_t" rxf:data="000000000000000000000000" />
+      </ABISignature>
+      <ABISignature name="sysv_uefi_status_out" target="@targets.x86_64_uefi_sysv" kind="@kinds.AbiKind.Sysv" class_count="2" output_class="3" location_count="4" rxf:data="0301">
+        <ABIValueLocation name="argument[0]" association="@text.utf8_validate.signature.argument[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Borrowed" value_class="@kinds.AbiValueClass.Pointer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" pointee_type="@model.Ref" rxf:data="000000000000000000000000" />
+        <ABIValueLocation name="argument[1]" association="@text.utf8_validate.signature.argument[1]" semantic_index="1" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" rxf:data="000000000000000001000000" />
+        <ABIValueLocation name="output" association="@text.utf8_validate.signature.value" value_role="@kinds.AbiValueRole.Output" passing="@kinds.AbiPassing.Pointer" value_class="@kinds.AbiValueClass.Pointer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" flags="@kinds.AbiValueFlags.Synthetic|WritesMemory|CallerOwned" pointee_type="uint64_t" rxf:data="000000000000000002000000" />
+        <ABIValueLocation name="status" value_role="@kinds.AbiValueRole.Status" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Return" register_count="1" flags="@kinds.AbiValueFlags.Synthetic" pointee_type="uint32_t" rxf:data="000000000000000000000000" />
+      </ABISignature>
+      <Code name="wasm32" owner_function="@text.utf8_validate" runtime_target="@targets.wasm32_wasm_c" signature="@text.utf8_validate.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="431" semantic_digest="7bb0679a1a347cb6a3ca2c94d77aa1d794f40c1e812956fb988e07f64cc39387" rxf:data="04017e027f027e097f024002400240200150450d00420021030c010b200041036a2104200041026a210542002103420021060340200642017c21070240024020002006a722086a2c00002209417f4c0d00200721060c010b4100210a02400240200941ff0171220941e0017141c00146220b450d00418001210c4101210d411f210e0c010b0240200941f0017141e001470d00418010210c4102210d4101210a410f210e0c010b0240200941f8017141f001460d0041080f0b41808004210c4103210d4107210e0b4108210f200120077d200dad540d0320002007a76a2d0000221041c00171418001470d032010413f71200e200971220941067472210e02400240200b450d00200e21080c010b200520086a2d0000220941c00171418001470d042009413f71200e4106747221090240200a450d0020092108200e21090c010b200420086a2d0000220841c00171418001470d042008413f7120094106747221080b2008200c490d03200841ffffc3004b0d03200941e0ff077141e006460d032006200d417f6aad7c42027c21060b200342017c210320062001540d000b0b200220033703004100210f0b200f0b">
+        <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@text.utf8_validate.wasm_c_status_out" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+      </Code>
+      <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0301">
+        <ABIValueLocation name="argument[0]" association="@text.utf8_validate.signature.argument[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Borrowed" value_class="@kinds.AbiValueClass.Pointer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" pointee_type="@model.Ref" rxf:data="000000000000000000000000" />
+        <ABIValueLocation name="argument[1]" association="@text.utf8_validate.signature.argument[1]" semantic_index="1" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000001000000" />
+        <ABIValueLocation name="output" association="@text.utf8_validate.signature.value" value_role="@kinds.AbiValueRole.Output" passing="@kinds.AbiPassing.Pointer" value_class="@kinds.AbiValueClass.Pointer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" flags="@kinds.AbiValueFlags.Synthetic|WritesMemory|CallerOwned" pointee_type="uint64_t" rxf:data="000000000000000002000000" />
+        <ABIValueLocation name="status" value_role="@kinds.AbiValueRole.Status" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Return" register_count="1" flags="@kinds.AbiValueFlags.Synthetic" pointee_type="uint32_t" rxf:data="000000000000000000000000" />
+      </ABISignature>
+      <Code name="x86_64_bios" owner_function="@text.utf8_validate" runtime_target="@targets.x86_64_bios_sysv" signature="@text.utf8_validate.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="402" semantic_digest="7bb0679a1a347cb6a3ca2c94d77aa1d794f40c1e812956fb988e07f64cc39387" rxf:data="554157415641545331c94885f60f846a01000031c94531c0eb20660f1f44000041ffc94b8d04084883c00248ffc14989c04839f00f8343010000498d4001420fb62c074084ed79e389eb83e3e081fbc0000000751441ba8000000041b90100000041bb1f000000eb4d4189e94183e1f04181f9e0000000751741ba0008000041b90200000041b60141bb0f000000eb294189e94183e1f84181f9f00000000f85e700000041ba0000010041b90300000041bb070000004531f64589cf4989f44929c4b8080000004d39fc0f82b2000000460fb67c07014589fc4183e4c04181fc800000000f85980000004121eb4489ddc1e5064183e73f4109ef81fbc0000000750a4489fb4439d37358eb76460fb65c07024489db83e3c081fb8000000075624489fbc1e3064183e33f4109db4584f6740d4489db4589fb4439d37325eb43420fb65c070389dd83e5c081fd8000000075304489ddc1e50683e33f09eb4439d3722081fbffff100077184183e3e04181fb600300000f85a5feffffeb0548890a31c05b415c415e415f5dc3b808000000ebf0">
+        <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@text.utf8_validate.sysv_bios_status_out" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+      </Code>
+      <Code name="x86_64_linux" owner_function="@text.utf8_validate" runtime_target="@targets.x86_64_linux_sysv" signature="@text.utf8_validate.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="402" semantic_digest="7bb0679a1a347cb6a3ca2c94d77aa1d794f40c1e812956fb988e07f64cc39387" rxf:data="554157415641545331c94885f60f846a01000031c94531c0eb20660f1f44000041ffc94b8d04084883c00248ffc14989c04839f00f8343010000498d4001420fb62c074084ed79e389eb83e3e081fbc0000000751441ba8000000041b90100000041bb1f000000eb4d4189e94183e1f04181f9e0000000751741ba0008000041b90200000041b60141bb0f000000eb294189e94183e1f84181f9f00000000f85e700000041ba0000010041b90300000041bb070000004531f64589cf4989f44929c4b8080000004d39fc0f82b2000000460fb67c07014589fc4183e4c04181fc800000000f85980000004121eb4489ddc1e5064183e73f4109ef81fbc0000000750a4489fb4439d37358eb76460fb65c07024489db83e3c081fb8000000075624489fbc1e3064183e33f4109db4584f6740d4489db4589fb4439d37325eb43420fb65c070389dd83e5c081fd8000000075304489ddc1e50683e33f09eb4439d3722081fbffff100077184183e3e04181fb600300000f85a5feffffeb0548890a31c05b415c415e415f5dc3b808000000ebf0">
+        <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@text.utf8_validate.sysv_status_out" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+      </Code>
+      <Code name="x86_64_uefi" owner_function="@text.utf8_validate" runtime_target="@targets.x86_64_uefi_sysv" signature="@text.utf8_validate.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="402" semantic_digest="7bb0679a1a347cb6a3ca2c94d77aa1d794f40c1e812956fb988e07f64cc39387" rxf:data="554157415641545331c94885f60f846a01000031c94531c0eb20660f1f44000041ffc94b8d04084883c00248ffc14989c04839f00f8343010000498d4001420fb62c074084ed79e389eb83e3e081fbc0000000751441ba8000000041b90100000041bb1f000000eb4d4189e94183e1f04181f9e0000000751741ba0008000041b90200000041b60141bb0f000000eb294189e94183e1f84181f9f00000000f85e700000041ba0000010041b90300000041bb070000004531f64589cf4989f44929c4b8080000004d39fc0f82b2000000460fb67c07014589fc4183e4c04181fc800000000f85980000004121eb4489ddc1e5064183e73f4109ef81fbc0000000750a4489fb4439d37358eb76460fb65c07024489db83e3c081fb8000000075624489fbc1e3064183e33f4109db4584f6740d4489db4589fb4439d37325eb43420fb65c070389dd83e5c081fd8000000075304489ddc1e50683e33f09eb4439d3722081fbffff100077184183e3e04181fb600300000f85a5feffffeb0548890a31c05b415c415e415f5dc3b808000000ebf0">
+        <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@text.utf8_validate.sysv_uefi_status_out" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+      </Code>
+    </Function>
+    <StdlibRecord name="utf8_validate_contract" kind="@kinds.StdlibKind.Text" flags="@kinds.StdlibFlags.Standard|Native" related_count="1" value_type="uint64_t">
+      <rxf:ref role="@stdlib.Function" kind="RefKind.Data" target="@text.utf8_validate" />
+    </StdlibRecord>
+  </Module>
+</delta>

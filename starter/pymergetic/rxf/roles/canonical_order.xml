@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="canonical_order" flags="ModuleFlags.Namespace">
+    <Role name="InputType" />
+    <Role name="OutputType" />
+  </Module>
+</delta>

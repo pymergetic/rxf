@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="types" category="ModuleCategory.Library">
+    <Alias name="kinds" target="pymergetic.rxf.kinds" />
+    <Alias name="model" target="pymergetic.rxf.model" />
+    <Alias name="tagged_variant" target="pymergetic.rxf.roles.tagged_variant" />
+    <Alias name="types" target="pymergetic.rxf.stdlib.types" />
+    <Type name="ByteBuffer" form="Form.Struct" size="32" align="8" flags="TypeFlags.Variable" />
+    <Type name="Callable" form="Form.Function" size="24" align="8" />
+    <Type name="CanonicalOrderAuthority" form="Form.Struct" size="16" align="4">
+      <Field name="policy" value_type="@kinds.CanonicalOrderPolicy" />
+      <Field name="representation_preserving" value_type="uint32_t" offset="4" />
+    </Type>
+    <Type name="Deque" form="Form.Struct" size="40" align="8" flags="TypeFlags.Variable" />
+    <Type name="FixedArray" form="Form.Array" align="1" flags="TypeFlags.Variable" />
+    <Type name="FixedArrayU8Of16" form="Form.Array" size="16" align="1" />
+    <Type name="FixedArrayU8Of32" form="Form.Array" size="32" align="1" />
+    <Type name="HashAuthority" form="Form.Struct" size="24" align="8">
+      <Field name="algorithm" value_type="@kinds.HashAlgorithm" />
+      <Field name="representation" value_type="@kinds.HashRepresentation" offset="4" />
+      <Field name="seed" value_type="uint64_t" offset="16" />
+      <Field name="seed_policy" value_type="@kinds.SeedPolicy" offset="8" />
+      <Field name="version" value_type="uint32_t" offset="12" />
+    </Type>
+    <Type name="HashBucketState" form="Form.Enum" size="4" align="4" />
+    <Type name="HashMap" form="Form.Struct" size="56" align="8" flags="TypeFlags.Variable">
+      <Field name="bucket_storage" value_type="@model.Ref" />
+      <Field name="capacity" value_type="uint64_t" offset="24" />
+      <Field name="count" value_type="uint64_t" offset="32" />
+      <Field name="generation" value_type="uint64_t" offset="48" />
+      <Field name="tombstone_count" value_type="uint64_t" offset="40" />
+    </Type>
+    <Type name="HashMapBucket" form="Form.Struct" size="48" align="8">
+      <Field name="key" value_type="uint64_t" offset="16" />
+      <Field name="state" value_type="@types.HashBucketState" />
+      <Field name="stored_hash" value_type="uint64_t" offset="8" />
+      <Field name="value" value_type="@model.Ref" offset="24" />
+    </Type>
+    <Type name="HashSet" form="Form.Struct" size="56" align="8" flags="TypeFlags.Variable">
+      <Field name="bucket_storage" value_type="@model.Ref" />
+      <Field name="capacity" value_type="uint64_t" offset="24" />
+      <Field name="count" value_type="uint64_t" offset="32" />
+      <Field name="generation" value_type="uint64_t" offset="48" />
+      <Field name="tombstone_count" value_type="uint64_t" offset="40" />
+    </Type>
+    <Type name="HashSetBucket" form="Form.Struct" size="24" align="8">
+      <Field name="key" value_type="uint64_t" offset="16" />
+      <Field name="state" value_type="@types.HashBucketState" />
+      <Field name="stored_hash" value_type="uint64_t" offset="8" />
+    </Type>
+    <Type name="HashStorageAuthority" form="Form.Struct" size="40" align="4">
+      <Field name="capacity_rule" value_type="@kinds.CapacityRule" offset="20" />
+      <Field name="generation_policy" value_type="@kinds.GenerationPolicy" offset="32" />
+      <Field name="load_denominator" value_type="uint32_t" offset="8" />
+      <Field name="load_numerator" value_type="uint32_t" offset="4" />
+      <Field name="minimum_capacity" value_type="uint32_t" />
+      <Field name="probe_policy" value_type="@kinds.ProbePolicy" offset="24" />
+      <Field name="termination_rule" value_type="@kinds.TerminationRule" offset="28" />
+      <Field name="tombstone_denominator" value_type="uint32_t" offset="16" />
+      <Field name="tombstone_numerator" value_type="uint32_t" offset="12" />
+      <Field name="visibility_policy" value_type="@kinds.VisibilityPolicy" offset="36" />
+    </Type>
+    <Type name="IntoIterator" form="Form.Struct" size="16" align="8" />
+    <Type name="Iterator" form="Form.Struct" size="16" align="8" />
+    <Type name="MutRef" form="Form.Ref" size="24" align="8">
+      <Field name="generation" value_type="uint64_t" offset="8" />
+      <Field name="object_id" value_type="uint64_t" />
+      <Field name="offset" value_type="uint64_t" offset="16" />
+    </Type>
+    <Type name="MutSlice" form="Form.Struct" size="40" align="8">
+      <Field name="generation" value_type="uint64_t" offset="8" />
+      <Field name="length" value_type="uint64_t" offset="32" />
+      <Field name="object_id" value_type="uint64_t" />
+      <Field name="offset" value_type="uint64_t" offset="16" />
+      <Field name="start" value_type="uint64_t" offset="24" />
+    </Type>
+    <Type name="Option" form="Form.Union" size="16" align="8">
+      <Field name="tag" value_type="uint32_t" />
+    </Type>
+    <Type name="OptionRef" form="Form.Union" size="32" align="8" flags="TypeFlags.SelfDescribing">
+      <Field name="none_payload" flags="FieldFlags.Optional" value_type="@model.Ref" offset="8" />
+      <Field name="some_payload" flags="FieldFlags.Optional" value_type="@model.Ref" offset="8" />
+      <Field name="tag" value_type="uint32_t" />
+    </Type>
+    <Type name="OptionU32" form="Form.Union" size="8" align="4" flags="TypeFlags.SelfDescribing">
+      <Field name="none_payload" flags="FieldFlags.Optional" value_type="uint32_t" offset="4" />
+      <Field name="some_payload" flags="FieldFlags.Optional" value_type="uint32_t" offset="4" />
+      <Field name="tag" value_type="uint32_t" />
+    </Type>
+    <Type name="OptionU64" form="Form.Union" size="16" align="8" flags="TypeFlags.SelfDescribing">
+      <Field name="none_payload" flags="FieldFlags.Optional" value_type="uint64_t" offset="8" />
+      <Field name="some_payload" flags="FieldFlags.Optional" value_type="uint64_t" offset="8" />
+      <Field name="tag" value_type="uint32_t" />
+    </Type>
+    <TaggedVariant name="Option_ref_none">
+      <rxf:ref role="@tagged_variant.PayloadType" kind="RefKind.Type" target="@model.Ref" />
+      <rxf:ref role="@tagged_variant.PayloadField" kind="RefKind.Data" target="@types.OptionRef.none_payload" />
+    </TaggedVariant>
+    <TaggedVariant name="Option_ref_some" tag_value="1">
+      <rxf:ref role="@tagged_variant.PayloadType" kind="RefKind.Type" target="@model.Ref" />
+      <rxf:ref role="@tagged_variant.PayloadField" kind="RefKind.Data" target="@types.OptionRef.some_payload" />
+    </TaggedVariant>
+    <TaggedVariant name="Option_u32_none">
+      <rxf:ref role="@tagged_variant.PayloadType" kind="RefKind.Type" target="uint32_t" />
+      <rxf:ref role="@tagged_variant.PayloadField" kind="RefKind.Data" target="@types.OptionU32.none_payload" />
+    </TaggedVariant>
+    <TaggedVariant name="Option_u32_some" tag_value="1">
+      <rxf:ref role="@tagged_variant.PayloadType" kind="RefKind.Type" target="uint32_t" />
+      <rxf:ref role="@tagged_variant.PayloadField" kind="RefKind.Data" target="@types.OptionU32.some_payload" />
+    </TaggedVariant>
+    <TaggedVariant name="Option_u64_none">
+      <rxf:ref role="@tagged_variant.PayloadType" kind="RefKind.Type" target="uint64_t" />
+      <rxf:ref role="@tagged_variant.PayloadField" kind="RefKind.Data" target="@types.OptionU64.none_payload" />
+    </TaggedVariant>
+    <TaggedVariant name="Option_u64_some" tag_value="1">
+      <rxf:ref role="@tagged_variant.PayloadType" kind="RefKind.Type" target="uint64_t" />
+      <rxf:ref role="@tagged_variant.PayloadField" kind="RefKind.Data" target="@types.OptionU64.some_payload" />
+    </TaggedVariant>
+    <Type name="Range" form="Form.Struct" size="24" align="8" />
+    <Type name="RefusalEnrichment" form="Form.Struct" size="16" align="4">
+      <Field name="context_value_count" value_type="uint32_t" offset="8" />
+      <Field name="payload_field_count" value_type="uint32_t" offset="4" />
+      <Field name="preserve_identity" value_type="uint32_t" />
+    </Type>
+    <Type name="RefusalMapping" form="Form.Struct" size="16" align="4">
+      <Field name="default_policy" value_type="@kinds.RefusalPolicy" />
+      <Field name="entries" flags="FieldFlags.Children" value_type="@types.RefusalMappingEntry" />
+      <Field name="entry_count" value_type="uint32_t" offset="4" />
+    </Type>
+    <Type name="RefusalMappingEntry" form="Form.Struct" size="16" align="4">
+      <Field name="destination_status" value_type="@kinds.RefusalCode" offset="4" />
+      <Field name="source_status" value_type="@kinds.RefusalCode" />
+    </Type>
+    <Type name="SemanticBlock" form="Form.Struct" size="56" align="8" flags="TypeFlags.Variable">
+      <Field name="case_count" value_type="uint32_t" offset="24" />
+      <Field name="condition_value" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="32" />
+      <Field name="index" value_type="uint32_t" />
+      <Field name="operation_count" value_type="uint32_t" offset="8" />
+      <Field name="operations" flags="FieldFlags.Children" value_type="@types.SemanticOperation" />
+      <Field name="parameter_type_count" value_type="uint32_t" offset="20" />
+      <Field name="predecessor_count" value_type="uint32_t" offset="12" />
+      <Field name="predecessors" flags="FieldFlags.Inverse" value_type="@types.SemanticBlock" via="pymergetic.rxf.roles.semantic.Successor" />
+      <Field name="successor_count" value_type="uint32_t" offset="16" />
+      <Field name="successor_map_count" value_type="uint32_t" offset="28" />
+      <Field name="terminator" value_type="@kinds.Terminator" offset="4" />
+      <Field name="terminator_value" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="40" />
+    </Type>
+    <Type name="SemanticGraph" form="Form.Struct" size="48" align="8">
+      <Field name="block_count" value_type="uint32_t" offset="32" />
+      <Field name="blocks" flags="FieldFlags.Children" value_type="@types.SemanticBlock" />
+      <Field name="effects" value_type="@kinds.Effects" offset="36" />
+      <Field name="entry_block" flags="FieldFlags.Ref" value_type="uint64_t" offset="8" />
+      <Field name="function" flags="FieldFlags.Ref" value_type="uint64_t" />
+      <Field name="output_type" flags="FieldFlags.Ref" value_type="uint64_t" offset="24" />
+      <Field name="parameter_count" value_type="uint32_t" offset="40" />
+      <Field name="refusal_set" flags="FieldFlags.Ref" value_type="uint64_t" offset="16" />
+      <Field name="result_count" value_type="uint32_t" offset="44" />
+    </Type>
+    <Type name="SemanticObject" form="Form.Struct" size="56" align="8" flags="TypeFlags.Variable">
+      <Field name="kind" value_type="@kinds.ValueKind" offset="8" />
+      <Field name="literal_size" value_type="uint32_t" offset="16" />
+      <Field name="object_id" value_type="uint64_t" offset="48" />
+      <Field name="owner_block" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="32" />
+      <Field name="owner_function" flags="FieldFlags.Ref" value_type="uint64_t" offset="24" />
+      <Field name="owner_operation" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="40" />
+      <Field name="result_index" value_type="uint32_t" offset="12" />
+      <Field name="value_type" flags="FieldFlags.Ref" value_type="uint64_t" />
+    </Type>
+    <Type name="SemanticOperation" form="Form.Struct" size="80" align="8">
+      <Field name="callee" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="40" />
+      <Field name="effects" value_type="@kinds.Effects" offset="16" />
+      <Field name="index" value_type="uint32_t" offset="4" />
+      <Field name="input_type_count" value_type="uint32_t" offset="8" />
+      <Field name="input_value_count" value_type="uint32_t" offset="20" />
+      <Field name="opcode" value_type="@kinds.Opcode" />
+      <Field name="refusal_set" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="32" />
+      <Field name="result_type_count" value_type="uint32_t" offset="12" />
+      <Field name="result_value_count" value_type="uint32_t" offset="24" />
+      <Field name="status_value" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="48" />
+      <Field name="target_field" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="64" />
+      <Field name="target_object" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="56" />
+      <Field name="transform_authority" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="72" />
+    </Type>
+    <Type name="SemanticValue" form="Form.Struct" size="56" align="8" flags="TypeFlags.Variable">
+      <Field name="kind" value_type="@kinds.ValueKind" offset="8" />
+      <Field name="literal_size" value_type="uint32_t" offset="16" />
+      <Field name="owner_block" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="32" />
+      <Field name="owner_function" flags="FieldFlags.Ref" value_type="uint64_t" offset="24" />
+      <Field name="owner_operation" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="40" />
+      <Field name="result_index" value_type="uint32_t" offset="12" />
+      <Field name="source" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="48" />
+      <Field name="value_type" flags="FieldFlags.Ref" value_type="uint64_t" />
+    </Type>
+    <Type name="Slice" form="Form.Struct" size="40" align="8">
+      <Field name="generation" value_type="uint64_t" offset="8" />
+      <Field name="length" value_type="uint64_t" offset="32" />
+      <Field name="object_id" value_type="uint64_t" />
+      <Field name="offset" value_type="uint64_t" offset="16" />
+      <Field name="start" value_type="uint64_t" offset="24" />
+    </Type>
+    <Type name="StdlibRecord" form="Form.Struct" size="40" align="8">
+      <Field name="auxiliary_type" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="24" />
+      <Field name="extent" value_type="uint64_t" offset="32" />
+      <Field name="flags" value_type="@kinds.StdlibFlags" offset="4" />
+      <Field name="kind" value_type="@kinds.StdlibKind" />
+      <Field name="related_count" value_type="uint32_t" offset="8" />
+      <Field name="value_type" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="16" />
+    </Type>
+    <Type name="String" form="Form.Struct" size="24" align="8" flags="TypeFlags.Variable" />
+    <Type name="StringView" form="Form.Struct" size="40" align="8">
+      <Field name="generation" value_type="uint64_t" offset="8" />
+      <Field name="length" value_type="uint64_t" offset="32" />
+      <Field name="object_id" value_type="uint64_t" />
+      <Field name="offset" value_type="uint64_t" offset="16" />
+      <Field name="start" value_type="uint64_t" offset="24" />
+    </Type>
+    <Type name="TaggedVariant" form="Form.Struct" size="16" align="8">
+      <Field name="tag_value" value_type="uint64_t" />
+    </Type>
+    <Type name="Tuple0" form="Form.Struct" align="1" />
+    <Type name="Tuple1" form="Form.Struct" size="8" align="8" />
+    <Type name="Tuple2" form="Form.Struct" size="16" align="8" />
+    <Type name="Tuple3" form="Form.Struct" size="24" align="8" />
+    <Type name="Tuple4" form="Form.Struct" size="32" align="8" />
+    <Type name="TupleU32U32" form="Form.Struct" size="8" align="4" />
+    <Type name="TypedResult" form="Form.Union" size="24" align="8">
+      <Field name="tag" value_type="uint32_t" />
+    </Type>
+    <Type name="TypedResultU64U32" form="Form.Union" size="16" align="8" flags="TypeFlags.SelfDescribing">
+      <Field name="err_payload" flags="FieldFlags.Optional" value_type="uint32_t" offset="8" />
+      <Field name="ok_payload" flags="FieldFlags.Optional" value_type="uint64_t" offset="8" />
+      <Field name="tag" value_type="uint32_t" />
+    </Type>
+    <TaggedVariant name="TypedResult_u64_u32_err" tag_value="1">
+      <rxf:ref role="@tagged_variant.PayloadType" kind="RefKind.Type" target="uint32_t" />
+      <rxf:ref role="@tagged_variant.PayloadField" kind="RefKind.Data" target="@types.TypedResultU64U32.err_payload" />
+    </TaggedVariant>
+    <TaggedVariant name="TypedResult_u64_u32_ok">
+      <rxf:ref role="@tagged_variant.PayloadType" kind="RefKind.Type" target="uint64_t" />
+      <rxf:ref role="@tagged_variant.PayloadField" kind="RefKind.Data" target="@types.TypedResultU64U32.ok_payload" />
+    </TaggedVariant>
+    <Type name="Vector" form="Form.Struct" size="32" align="8" flags="TypeFlags.Variable" />
+    <Type name="VectorString" form="Form.Struct" size="24" align="8" />
+    <Type name="VectorU32" form="Form.Struct" size="24" align="8" />
+    <Type name="VectorU8" form="Form.Struct" size="24" align="8" />
+  </Module>
+</delta>

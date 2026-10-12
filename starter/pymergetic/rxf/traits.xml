@@ -1,0 +1,874 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="traits" category="ModuleCategory.Schema">
+    <Alias name="bitwise" target="pymergetic.rxf.numeric.bitwise" />
+    <Alias name="checked" target="pymergetic.rxf.numeric.checked" />
+    <Alias name="compare" target="pymergetic.rxf.numeric.compare" />
+    <Alias name="division" target="pymergetic.rxf.numeric.division" />
+    <Alias name="kinds" target="pymergetic.rxf.kinds" />
+    <Alias name="numeric" target="pymergetic.rxf.numeric" />
+    <Alias name="saturating" target="pymergetic.rxf.numeric.saturating" />
+    <Alias name="traits" target="pymergetic.rxf.traits" />
+    <Alias name="wrapping" target="pymergetic.rxf.numeric.wrapping" />
+    <Trait name="Bitwise" requirement_count="4" associated_type_count="1">
+      <AssociatedType name="Self" />
+      <Function name="bit_and" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.Bitwise.bit_and.signature" semantic_digest="74dda618dfeb268adbb3486661118b7b95986c0ca28a217e4e677fa50d2885dc">
+        <Signature name="signature" return_type="@traits.Bitwise.Self" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.Bitwise.Self" />
+          <Parameter name="operand[1]" value_type="@traits.Bitwise.Self" index="1" />
+          <Result name="value" value_type="@traits.Bitwise.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="bit_and_requirement" function="@traits.Bitwise.bit_and" index="1" kind="@kinds.TraitRequirementKind.Function" />
+      <Function name="bit_not" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.Bitwise.bit_not.signature" semantic_digest="3f0933bf801c52193424d4b696dee1af2948266d7939a37f9eb9e061b8cd72e9">
+        <Signature name="signature" return_type="@traits.Bitwise.Self" parameter_count="1" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.Bitwise.Self" />
+          <Result name="value" value_type="@traits.Bitwise.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="bit_not_requirement" function="@traits.Bitwise.bit_not" kind="@kinds.TraitRequirementKind.Function" />
+      <Function name="bit_or" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.Bitwise.bit_or.signature" semantic_digest="a7e3d1580af32b055ea88c496059c336879e01004de60adb3ff869ed75f8b0d9">
+        <Signature name="signature" return_type="@traits.Bitwise.Self" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.Bitwise.Self" />
+          <Parameter name="operand[1]" value_type="@traits.Bitwise.Self" index="1" />
+          <Result name="value" value_type="@traits.Bitwise.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="bit_or_requirement" function="@traits.Bitwise.bit_or" index="2" kind="@kinds.TraitRequirementKind.Function" />
+      <Function name="bit_xor" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.Bitwise.bit_xor.signature" semantic_digest="fb43818d6d9d7461e509dd47540dcab025cd7d01b70ed52b39bd1f6eb583eb94">
+        <Signature name="signature" return_type="@traits.Bitwise.Self" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.Bitwise.Self" />
+          <Parameter name="operand[1]" value_type="@traits.Bitwise.Self" index="1" />
+          <Result name="value" value_type="@traits.Bitwise.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="bit_xor_requirement" function="@traits.Bitwise.bit_xor" index="3" kind="@kinds.TraitRequirementKind.Function" />
+    </Trait>
+    <Conformance name="Bitwise_int16_t" trait="@traits.Bitwise" conforming_type="int16_t" binding_count="5">
+      <ImplementationBinding name="Self" rxf:index="4" requirement="@traits.Bitwise.Self" implementation="int16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="bit_and" rxf:index="1" requirement="@traits.Bitwise.bit_and_requirement" implementation="@bitwise.bit_and_int16_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_not" requirement="@traits.Bitwise.bit_not_requirement" implementation="@bitwise.bit_not_int16_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_or" rxf:index="2" requirement="@traits.Bitwise.bit_or_requirement" implementation="@bitwise.bit_or_int16_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_xor" rxf:index="3" requirement="@traits.Bitwise.bit_xor_requirement" implementation="@bitwise.bit_xor_int16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Bitwise_int32_t" trait="@traits.Bitwise" conforming_type="int32_t" binding_count="5">
+      <ImplementationBinding name="Self" rxf:index="4" requirement="@traits.Bitwise.Self" implementation="int32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="bit_and" rxf:index="1" requirement="@traits.Bitwise.bit_and_requirement" implementation="@bitwise.bit_and_int32_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_not" requirement="@traits.Bitwise.bit_not_requirement" implementation="@bitwise.bit_not_int32_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_or" rxf:index="2" requirement="@traits.Bitwise.bit_or_requirement" implementation="@bitwise.bit_or_int32_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_xor" rxf:index="3" requirement="@traits.Bitwise.bit_xor_requirement" implementation="@bitwise.bit_xor_int32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Bitwise_int64_t" trait="@traits.Bitwise" conforming_type="int64_t" binding_count="5">
+      <ImplementationBinding name="Self" rxf:index="4" requirement="@traits.Bitwise.Self" implementation="int64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="bit_and" rxf:index="1" requirement="@traits.Bitwise.bit_and_requirement" implementation="@bitwise.bit_and_int64_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_not" requirement="@traits.Bitwise.bit_not_requirement" implementation="@bitwise.bit_not_int64_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_or" rxf:index="2" requirement="@traits.Bitwise.bit_or_requirement" implementation="@bitwise.bit_or_int64_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_xor" rxf:index="3" requirement="@traits.Bitwise.bit_xor_requirement" implementation="@bitwise.bit_xor_int64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Bitwise_int8_t" trait="@traits.Bitwise" conforming_type="int8_t" binding_count="5">
+      <ImplementationBinding name="Self" rxf:index="4" requirement="@traits.Bitwise.Self" implementation="int8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="bit_and" rxf:index="1" requirement="@traits.Bitwise.bit_and_requirement" implementation="@bitwise.bit_and_int8_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_not" requirement="@traits.Bitwise.bit_not_requirement" implementation="@bitwise.bit_not_int8_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_or" rxf:index="2" requirement="@traits.Bitwise.bit_or_requirement" implementation="@bitwise.bit_or_int8_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_xor" rxf:index="3" requirement="@traits.Bitwise.bit_xor_requirement" implementation="@bitwise.bit_xor_int8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Bitwise_uint16_t" trait="@traits.Bitwise" conforming_type="uint16_t" binding_count="5">
+      <ImplementationBinding name="Self" rxf:index="4" requirement="@traits.Bitwise.Self" implementation="uint16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="bit_and" rxf:index="1" requirement="@traits.Bitwise.bit_and_requirement" implementation="@bitwise.bit_and_uint16_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_not" requirement="@traits.Bitwise.bit_not_requirement" implementation="@bitwise.bit_not_uint16_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_or" rxf:index="2" requirement="@traits.Bitwise.bit_or_requirement" implementation="@bitwise.bit_or_uint16_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_xor" rxf:index="3" requirement="@traits.Bitwise.bit_xor_requirement" implementation="@bitwise.bit_xor_uint16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Bitwise_uint32_t" trait="@traits.Bitwise" conforming_type="uint32_t" binding_count="5">
+      <ImplementationBinding name="Self" rxf:index="4" requirement="@traits.Bitwise.Self" implementation="uint32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="bit_and" rxf:index="1" requirement="@traits.Bitwise.bit_and_requirement" implementation="@bitwise.bit_and_uint32_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_not" requirement="@traits.Bitwise.bit_not_requirement" implementation="@bitwise.bit_not_uint32_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_or" rxf:index="2" requirement="@traits.Bitwise.bit_or_requirement" implementation="@bitwise.bit_or_uint32_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_xor" rxf:index="3" requirement="@traits.Bitwise.bit_xor_requirement" implementation="@bitwise.bit_xor_uint32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Bitwise_uint64_t" trait="@traits.Bitwise" conforming_type="uint64_t" binding_count="5">
+      <ImplementationBinding name="Self" rxf:index="4" requirement="@traits.Bitwise.Self" implementation="uint64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="bit_and" rxf:index="1" requirement="@traits.Bitwise.bit_and_requirement" implementation="@bitwise.bit_and_uint64_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_not" requirement="@traits.Bitwise.bit_not_requirement" implementation="@bitwise.bit_not_uint64_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_or" rxf:index="2" requirement="@traits.Bitwise.bit_or_requirement" implementation="@bitwise.bit_or_uint64_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_xor" rxf:index="3" requirement="@traits.Bitwise.bit_xor_requirement" implementation="@bitwise.bit_xor_uint64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Bitwise_uint8_t" trait="@traits.Bitwise" conforming_type="uint8_t" binding_count="5">
+      <ImplementationBinding name="Self" rxf:index="4" requirement="@traits.Bitwise.Self" implementation="uint8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="bit_and" rxf:index="1" requirement="@traits.Bitwise.bit_and_requirement" implementation="@bitwise.bit_and_uint8_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_not" requirement="@traits.Bitwise.bit_not_requirement" implementation="@bitwise.bit_not_uint8_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_or" rxf:index="2" requirement="@traits.Bitwise.bit_or_requirement" implementation="@bitwise.bit_or_uint8_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="bit_xor" rxf:index="3" requirement="@traits.Bitwise.bit_xor_requirement" implementation="@bitwise.bit_xor_uint8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Trait name="CheckedAdd" requirement_count="1" associated_type_count="1">
+      <AssociatedType name="Self" />
+      <Function name="checked_add" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.CheckedAdd.checked_add.signature" semantic_digest="f3e903f800c06c5f32a233798bdb2bdfb1ae885ed4cc2c3f75a72d47a16a47bd">
+        <Signature name="signature" return_type="@traits.CheckedAdd.Self" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.CheckedAdd.Self" />
+          <Parameter name="operand[1]" value_type="@traits.CheckedAdd.Self" index="1" />
+          <Result name="value" value_type="@traits.CheckedAdd.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="checked_add_requirement" function="@traits.CheckedAdd.checked_add" kind="@kinds.TraitRequirementKind.Function" />
+    </Trait>
+    <Conformance name="CheckedAdd_double" trait="@traits.CheckedAdd" conforming_type="double" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedAdd.Self" implementation="double" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_add" requirement="@traits.CheckedAdd.checked_add_requirement" implementation="@checked.add_double" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedAdd_float" trait="@traits.CheckedAdd" conforming_type="float" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedAdd.Self" implementation="float" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_add" requirement="@traits.CheckedAdd.checked_add_requirement" implementation="@checked.add_float" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedAdd_int16_t" trait="@traits.CheckedAdd" conforming_type="int16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedAdd.Self" implementation="int16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_add" requirement="@traits.CheckedAdd.checked_add_requirement" implementation="@checked.add_int16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedAdd_int32_t" trait="@traits.CheckedAdd" conforming_type="int32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedAdd.Self" implementation="int32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_add" requirement="@traits.CheckedAdd.checked_add_requirement" implementation="@checked.add_int32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedAdd_int64_t" trait="@traits.CheckedAdd" conforming_type="int64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedAdd.Self" implementation="int64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_add" requirement="@traits.CheckedAdd.checked_add_requirement" implementation="@checked.add_int64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedAdd_int8_t" trait="@traits.CheckedAdd" conforming_type="int8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedAdd.Self" implementation="int8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_add" requirement="@traits.CheckedAdd.checked_add_requirement" implementation="@checked.add_int8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedAdd_uint16_t" trait="@traits.CheckedAdd" conforming_type="uint16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedAdd.Self" implementation="uint16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_add" requirement="@traits.CheckedAdd.checked_add_requirement" implementation="@checked.add_uint16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedAdd_uint32_t" trait="@traits.CheckedAdd" conforming_type="uint32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedAdd.Self" implementation="uint32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_add" requirement="@traits.CheckedAdd.checked_add_requirement" implementation="@checked.add_uint32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedAdd_uint64_t" trait="@traits.CheckedAdd" conforming_type="uint64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedAdd.Self" implementation="uint64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_add" requirement="@traits.CheckedAdd.checked_add_requirement" implementation="@checked.add_uint64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedAdd_uint8_t" trait="@traits.CheckedAdd" conforming_type="uint8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedAdd.Self" implementation="uint8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_add" requirement="@traits.CheckedAdd.checked_add_requirement" implementation="@checked.add_uint8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Trait name="CheckedMultiply" requirement_count="1" associated_type_count="1">
+      <AssociatedType name="Self" />
+      <Function name="checked_multiply" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.CheckedMultiply.checked_multiply.signature" semantic_digest="d8ce20d17006a1af4b916473b235d588c5e5e3df2c9e7fce963f3a3428ea50ae">
+        <Signature name="signature" return_type="@traits.CheckedMultiply.Self" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.CheckedMultiply.Self" />
+          <Parameter name="operand[1]" value_type="@traits.CheckedMultiply.Self" index="1" />
+          <Result name="value" value_type="@traits.CheckedMultiply.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="checked_multiply_requirement" function="@traits.CheckedMultiply.checked_multiply" kind="@kinds.TraitRequirementKind.Function" />
+    </Trait>
+    <Conformance name="CheckedMultiply_double" trait="@traits.CheckedMultiply" conforming_type="double" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedMultiply.Self" implementation="double" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_multiply" requirement="@traits.CheckedMultiply.checked_multiply_requirement" implementation="@checked.multiply_double" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedMultiply_float" trait="@traits.CheckedMultiply" conforming_type="float" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedMultiply.Self" implementation="float" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_multiply" requirement="@traits.CheckedMultiply.checked_multiply_requirement" implementation="@checked.multiply_float" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedMultiply_int16_t" trait="@traits.CheckedMultiply" conforming_type="int16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedMultiply.Self" implementation="int16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_multiply" requirement="@traits.CheckedMultiply.checked_multiply_requirement" implementation="@checked.multiply_int16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedMultiply_int32_t" trait="@traits.CheckedMultiply" conforming_type="int32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedMultiply.Self" implementation="int32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_multiply" requirement="@traits.CheckedMultiply.checked_multiply_requirement" implementation="@checked.multiply_int32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedMultiply_int64_t" trait="@traits.CheckedMultiply" conforming_type="int64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedMultiply.Self" implementation="int64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_multiply" requirement="@traits.CheckedMultiply.checked_multiply_requirement" implementation="@checked.multiply_int64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedMultiply_int8_t" trait="@traits.CheckedMultiply" conforming_type="int8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedMultiply.Self" implementation="int8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_multiply" requirement="@traits.CheckedMultiply.checked_multiply_requirement" implementation="@checked.multiply_int8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedMultiply_uint16_t" trait="@traits.CheckedMultiply" conforming_type="uint16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedMultiply.Self" implementation="uint16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_multiply" requirement="@traits.CheckedMultiply.checked_multiply_requirement" implementation="@checked.multiply_uint16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedMultiply_uint32_t" trait="@traits.CheckedMultiply" conforming_type="uint32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedMultiply.Self" implementation="uint32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_multiply" requirement="@traits.CheckedMultiply.checked_multiply_requirement" implementation="@checked.multiply_uint32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedMultiply_uint64_t" trait="@traits.CheckedMultiply" conforming_type="uint64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedMultiply.Self" implementation="uint64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_multiply" requirement="@traits.CheckedMultiply.checked_multiply_requirement" implementation="@checked.multiply_uint64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedMultiply_uint8_t" trait="@traits.CheckedMultiply" conforming_type="uint8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedMultiply.Self" implementation="uint8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_multiply" requirement="@traits.CheckedMultiply.checked_multiply_requirement" implementation="@checked.multiply_uint8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Trait name="CheckedSubtract" requirement_count="1" associated_type_count="1">
+      <AssociatedType name="Self" />
+      <Function name="checked_subtract" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.CheckedSubtract.checked_subtract.signature" semantic_digest="6ce09de41b0ba21567e5dd51152a93a1119b69d32a61d161454b5eab93ca5411">
+        <Signature name="signature" return_type="@traits.CheckedSubtract.Self" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.CheckedSubtract.Self" />
+          <Parameter name="operand[1]" value_type="@traits.CheckedSubtract.Self" index="1" />
+          <Result name="value" value_type="@traits.CheckedSubtract.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="checked_subtract_requirement" function="@traits.CheckedSubtract.checked_subtract" kind="@kinds.TraitRequirementKind.Function" />
+    </Trait>
+    <Conformance name="CheckedSubtract_double" trait="@traits.CheckedSubtract" conforming_type="double" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedSubtract.Self" implementation="double" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_subtract" requirement="@traits.CheckedSubtract.checked_subtract_requirement" implementation="@checked.subtract_double" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedSubtract_float" trait="@traits.CheckedSubtract" conforming_type="float" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedSubtract.Self" implementation="float" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_subtract" requirement="@traits.CheckedSubtract.checked_subtract_requirement" implementation="@checked.subtract_float" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedSubtract_int16_t" trait="@traits.CheckedSubtract" conforming_type="int16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedSubtract.Self" implementation="int16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_subtract" requirement="@traits.CheckedSubtract.checked_subtract_requirement" implementation="@checked.subtract_int16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedSubtract_int32_t" trait="@traits.CheckedSubtract" conforming_type="int32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedSubtract.Self" implementation="int32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_subtract" requirement="@traits.CheckedSubtract.checked_subtract_requirement" implementation="@checked.subtract_int32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedSubtract_int64_t" trait="@traits.CheckedSubtract" conforming_type="int64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedSubtract.Self" implementation="int64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_subtract" requirement="@traits.CheckedSubtract.checked_subtract_requirement" implementation="@checked.subtract_int64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedSubtract_int8_t" trait="@traits.CheckedSubtract" conforming_type="int8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedSubtract.Self" implementation="int8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_subtract" requirement="@traits.CheckedSubtract.checked_subtract_requirement" implementation="@checked.subtract_int8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedSubtract_uint16_t" trait="@traits.CheckedSubtract" conforming_type="uint16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedSubtract.Self" implementation="uint16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_subtract" requirement="@traits.CheckedSubtract.checked_subtract_requirement" implementation="@checked.subtract_uint16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedSubtract_uint32_t" trait="@traits.CheckedSubtract" conforming_type="uint32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedSubtract.Self" implementation="uint32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_subtract" requirement="@traits.CheckedSubtract.checked_subtract_requirement" implementation="@checked.subtract_uint32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedSubtract_uint64_t" trait="@traits.CheckedSubtract" conforming_type="uint64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedSubtract.Self" implementation="uint64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_subtract" requirement="@traits.CheckedSubtract.checked_subtract_requirement" implementation="@checked.subtract_uint64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="CheckedSubtract_uint8_t" trait="@traits.CheckedSubtract" conforming_type="uint8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.CheckedSubtract.Self" implementation="uint8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_subtract" requirement="@traits.CheckedSubtract.checked_subtract_requirement" implementation="@checked.subtract_uint8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Trait name="Divide" requirement_count="1" associated_type_count="1">
+      <AssociatedType name="Self" />
+      <Function name="divide" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.Divide.divide.signature" semantic_digest="3437d22841ff02fae93c59ca68a8aa6f865d08a8a3ca2bdbf92e8980264bcc9d">
+        <Signature name="signature" return_type="@traits.Divide.Self" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.Divide.Self" />
+          <Parameter name="operand[1]" value_type="@traits.Divide.Self" index="1" />
+          <Result name="value" value_type="@traits.Divide.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="divide_requirement" function="@traits.Divide.divide" kind="@kinds.TraitRequirementKind.Function" />
+    </Trait>
+    <Conformance name="Divide_double" trait="@traits.Divide" conforming_type="double" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Divide.Self" implementation="double" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="divide" requirement="@traits.Divide.divide_requirement" implementation="@division.divide_double" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Divide_float" trait="@traits.Divide" conforming_type="float" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Divide.Self" implementation="float" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="divide" requirement="@traits.Divide.divide_requirement" implementation="@division.divide_float" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Divide_int16_t" trait="@traits.Divide" conforming_type="int16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Divide.Self" implementation="int16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="divide" requirement="@traits.Divide.divide_requirement" implementation="@division.divide_int16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Divide_int32_t" trait="@traits.Divide" conforming_type="int32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Divide.Self" implementation="int32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="divide" requirement="@traits.Divide.divide_requirement" implementation="@division.divide_int32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Divide_int64_t" trait="@traits.Divide" conforming_type="int64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Divide.Self" implementation="int64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="divide" requirement="@traits.Divide.divide_requirement" implementation="@division.divide_int64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Divide_int8_t" trait="@traits.Divide" conforming_type="int8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Divide.Self" implementation="int8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="divide" requirement="@traits.Divide.divide_requirement" implementation="@division.divide_int8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Divide_uint16_t" trait="@traits.Divide" conforming_type="uint16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Divide.Self" implementation="uint16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="divide" requirement="@traits.Divide.divide_requirement" implementation="@division.divide_uint16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Divide_uint32_t" trait="@traits.Divide" conforming_type="uint32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Divide.Self" implementation="uint32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="divide" requirement="@traits.Divide.divide_requirement" implementation="@division.divide_uint32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Divide_uint64_t" trait="@traits.Divide" conforming_type="uint64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Divide.Self" implementation="uint64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="divide" requirement="@traits.Divide.divide_requirement" implementation="@division.divide_uint64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Divide_uint8_t" trait="@traits.Divide" conforming_type="uint8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Divide.Self" implementation="uint8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="divide" requirement="@traits.Divide.divide_requirement" implementation="@division.divide_uint8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Trait name="Equal" requirement_count="1" associated_type_count="1">
+      <AssociatedType name="Self" />
+      <Function name="equal" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.Equal.equal.signature" semantic_digest="cee6e8e32cce10abce98568d550a61ee606edd94f9fe8cff39b80d4623501cb6">
+        <Signature name="signature" return_type="bool" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.Equal.Self" />
+          <Parameter name="operand[1]" value_type="@traits.Equal.Self" index="1" />
+          <Result name="value" value_type="bool" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="equal_requirement" function="@traits.Equal.equal" kind="@kinds.TraitRequirementKind.Function" />
+    </Trait>
+    <Conformance name="Equal_double" trait="@traits.Equal" conforming_type="double" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Equal.Self" implementation="double" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_double" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Equal_float" trait="@traits.Equal" conforming_type="float" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Equal.Self" implementation="float" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_float" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Equal_int16_t" trait="@traits.Equal" conforming_type="int16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Equal.Self" implementation="int16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_int16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Equal_int32_t" trait="@traits.Equal" conforming_type="int32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Equal.Self" implementation="int32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_int32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Equal_int64_t" trait="@traits.Equal" conforming_type="int64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Equal.Self" implementation="int64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_int64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Equal_int8_t" trait="@traits.Equal" conforming_type="int8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Equal.Self" implementation="int8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_int8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Equal_uint16_t" trait="@traits.Equal" conforming_type="uint16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Equal.Self" implementation="uint16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_uint16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Equal_uint32_t" trait="@traits.Equal" conforming_type="uint32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Equal.Self" implementation="uint32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_uint32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Equal_uint64_t" trait="@traits.Equal" conforming_type="uint64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Equal.Self" implementation="uint64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_uint64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Equal_uint8_t" trait="@traits.Equal" conforming_type="uint8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Equal.Self" implementation="uint8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_uint8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Trait name="Negate" requirement_count="2" associated_type_count="1">
+      <AssociatedType name="Self" />
+      <Function name="checked_absolute" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.Negate.checked_absolute.signature" semantic_digest="e25c2797933ec98e51b47a697a2e39c6f5882faeab5af8ee85c40869a7a56eca">
+        <Signature name="signature" return_type="@traits.Negate.Self" parameter_count="1" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.Negate.Self" />
+          <Result name="value" value_type="@traits.Negate.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="checked_absolute_requirement" function="@traits.Negate.checked_absolute" index="1" kind="@kinds.TraitRequirementKind.Function" />
+      <Function name="checked_negate" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.Negate.checked_negate.signature" semantic_digest="3a16177f387027c9d9e2f3abe24aae7fcf4c3d6758c8c8cff48d347c49e3fff0">
+        <Signature name="signature" return_type="@traits.Negate.Self" parameter_count="1" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.Negate.Self" />
+          <Result name="value" value_type="@traits.Negate.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="checked_negate_requirement" function="@traits.Negate.checked_negate" kind="@kinds.TraitRequirementKind.Function" />
+    </Trait>
+    <Conformance name="Negate_double" trait="@traits.Negate" conforming_type="double" binding_count="3">
+      <ImplementationBinding name="Self" rxf:index="2" requirement="@traits.Negate.Self" implementation="double" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_absolute" rxf:index="1" requirement="@traits.Negate.checked_absolute_requirement" implementation="@checked.absolute_double" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="checked_negate" requirement="@traits.Negate.checked_negate_requirement" implementation="@checked.negate_double" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Negate_float" trait="@traits.Negate" conforming_type="float" binding_count="3">
+      <ImplementationBinding name="Self" rxf:index="2" requirement="@traits.Negate.Self" implementation="float" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_absolute" rxf:index="1" requirement="@traits.Negate.checked_absolute_requirement" implementation="@checked.absolute_float" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="checked_negate" requirement="@traits.Negate.checked_negate_requirement" implementation="@checked.negate_float" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Negate_int16_t" trait="@traits.Negate" conforming_type="int16_t" binding_count="3">
+      <ImplementationBinding name="Self" rxf:index="2" requirement="@traits.Negate.Self" implementation="int16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_absolute" rxf:index="1" requirement="@traits.Negate.checked_absolute_requirement" implementation="@checked.absolute_int16_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="checked_negate" requirement="@traits.Negate.checked_negate_requirement" implementation="@checked.negate_int16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Negate_int32_t" trait="@traits.Negate" conforming_type="int32_t" binding_count="3">
+      <ImplementationBinding name="Self" rxf:index="2" requirement="@traits.Negate.Self" implementation="int32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_absolute" rxf:index="1" requirement="@traits.Negate.checked_absolute_requirement" implementation="@checked.absolute_int32_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="checked_negate" requirement="@traits.Negate.checked_negate_requirement" implementation="@checked.negate_int32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Negate_int64_t" trait="@traits.Negate" conforming_type="int64_t" binding_count="3">
+      <ImplementationBinding name="Self" rxf:index="2" requirement="@traits.Negate.Self" implementation="int64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_absolute" rxf:index="1" requirement="@traits.Negate.checked_absolute_requirement" implementation="@checked.absolute_int64_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="checked_negate" requirement="@traits.Negate.checked_negate_requirement" implementation="@checked.negate_int64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Negate_int8_t" trait="@traits.Negate" conforming_type="int8_t" binding_count="3">
+      <ImplementationBinding name="Self" rxf:index="2" requirement="@traits.Negate.Self" implementation="int8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="checked_absolute" rxf:index="1" requirement="@traits.Negate.checked_absolute_requirement" implementation="@checked.absolute_int8_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="checked_negate" requirement="@traits.Negate.checked_negate_requirement" implementation="@checked.negate_int8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Trait name="Ordered" requirement_count="3" associated_type_count="1" supertrait_count="1">
+      <rxf:ref role="pymergetic.rxf.roles.trait.Supertrait" kind="RefKind.Data" target="@traits.Equal" />
+      <AssociatedType name="Self" />
+      <Function name="less" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.Ordered.less.signature" semantic_digest="098d9cbc5c8952e1cd7d28c309dbe906ac8786a55109276f499205f2612ffbf5">
+        <Signature name="signature" return_type="bool" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.Ordered.Self" />
+          <Parameter name="operand[1]" value_type="@traits.Ordered.Self" index="1" />
+          <Result name="value" value_type="bool" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="less_requirement" function="@traits.Ordered.less" kind="@kinds.TraitRequirementKind.Function" />
+      <Function name="maximum" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.Ordered.maximum.signature" semantic_digest="1f84e4a418a9331df495311bc8f279e7111a74f5248d0c2968f5febc6774f91b">
+        <Signature name="signature" return_type="@traits.Ordered.Self" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.Ordered.Self" />
+          <Parameter name="operand[1]" value_type="@traits.Ordered.Self" index="1" />
+          <Result name="value" value_type="@traits.Ordered.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="maximum_requirement" function="@traits.Ordered.maximum" index="2" kind="@kinds.TraitRequirementKind.Function" />
+      <Function name="minimum" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.Ordered.minimum.signature" semantic_digest="790876a60234db8613f7776cd9a025959ff9dd66c06b775380c025f6a2edcf9f">
+        <Signature name="signature" return_type="@traits.Ordered.Self" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.Ordered.Self" />
+          <Parameter name="operand[1]" value_type="@traits.Ordered.Self" index="1" />
+          <Result name="value" value_type="@traits.Ordered.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="minimum_requirement" function="@traits.Ordered.minimum" index="1" kind="@kinds.TraitRequirementKind.Function" />
+    </Trait>
+    <Conformance name="Ordered_double" trait="@traits.Ordered" conforming_type="double" binding_count="6">
+      <ImplementationBinding name="Equal_Self" rxf:index="5" requirement="@traits.Equal.Self" implementation="double" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="Self" rxf:index="4" requirement="@traits.Ordered.Self" implementation="double" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" rxf:index="3" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_double" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="less" requirement="@traits.Ordered.less_requirement" implementation="@compare.less_double" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="maximum" rxf:index="2" requirement="@traits.Ordered.maximum_requirement" implementation="@compare.maximum_double" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="minimum" rxf:index="1" requirement="@traits.Ordered.minimum_requirement" implementation="@compare.minimum_double" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Ordered_float" trait="@traits.Ordered" conforming_type="float" binding_count="6">
+      <ImplementationBinding name="Equal_Self" rxf:index="5" requirement="@traits.Equal.Self" implementation="float" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="Self" rxf:index="4" requirement="@traits.Ordered.Self" implementation="float" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" rxf:index="3" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_float" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="less" requirement="@traits.Ordered.less_requirement" implementation="@compare.less_float" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="maximum" rxf:index="2" requirement="@traits.Ordered.maximum_requirement" implementation="@compare.maximum_float" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="minimum" rxf:index="1" requirement="@traits.Ordered.minimum_requirement" implementation="@compare.minimum_float" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Ordered_int16_t" trait="@traits.Ordered" conforming_type="int16_t" binding_count="6">
+      <ImplementationBinding name="Equal_Self" rxf:index="5" requirement="@traits.Equal.Self" implementation="int16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="Self" rxf:index="4" requirement="@traits.Ordered.Self" implementation="int16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" rxf:index="3" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_int16_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="less" requirement="@traits.Ordered.less_requirement" implementation="@compare.less_int16_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="maximum" rxf:index="2" requirement="@traits.Ordered.maximum_requirement" implementation="@compare.maximum_int16_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="minimum" rxf:index="1" requirement="@traits.Ordered.minimum_requirement" implementation="@compare.minimum_int16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Ordered_int32_t" trait="@traits.Ordered" conforming_type="int32_t" binding_count="6">
+      <ImplementationBinding name="Equal_Self" rxf:index="5" requirement="@traits.Equal.Self" implementation="int32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="Self" rxf:index="4" requirement="@traits.Ordered.Self" implementation="int32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" rxf:index="3" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_int32_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="less" requirement="@traits.Ordered.less_requirement" implementation="@compare.less_int32_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="maximum" rxf:index="2" requirement="@traits.Ordered.maximum_requirement" implementation="@compare.maximum_int32_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="minimum" rxf:index="1" requirement="@traits.Ordered.minimum_requirement" implementation="@compare.minimum_int32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Ordered_int64_t" trait="@traits.Ordered" conforming_type="int64_t" binding_count="6">
+      <ImplementationBinding name="Equal_Self" rxf:index="5" requirement="@traits.Equal.Self" implementation="int64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="Self" rxf:index="4" requirement="@traits.Ordered.Self" implementation="int64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" rxf:index="3" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_int64_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="less" requirement="@traits.Ordered.less_requirement" implementation="@compare.less_int64_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="maximum" rxf:index="2" requirement="@traits.Ordered.maximum_requirement" implementation="@compare.maximum_int64_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="minimum" rxf:index="1" requirement="@traits.Ordered.minimum_requirement" implementation="@compare.minimum_int64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Ordered_int8_t" trait="@traits.Ordered" conforming_type="int8_t" binding_count="6">
+      <ImplementationBinding name="Equal_Self" rxf:index="5" requirement="@traits.Equal.Self" implementation="int8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="Self" rxf:index="4" requirement="@traits.Ordered.Self" implementation="int8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" rxf:index="3" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_int8_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="less" requirement="@traits.Ordered.less_requirement" implementation="@compare.less_int8_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="maximum" rxf:index="2" requirement="@traits.Ordered.maximum_requirement" implementation="@compare.maximum_int8_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="minimum" rxf:index="1" requirement="@traits.Ordered.minimum_requirement" implementation="@compare.minimum_int8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Ordered_uint16_t" trait="@traits.Ordered" conforming_type="uint16_t" binding_count="6">
+      <ImplementationBinding name="Equal_Self" rxf:index="5" requirement="@traits.Equal.Self" implementation="uint16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="Self" rxf:index="4" requirement="@traits.Ordered.Self" implementation="uint16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" rxf:index="3" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_uint16_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="less" requirement="@traits.Ordered.less_requirement" implementation="@compare.less_uint16_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="maximum" rxf:index="2" requirement="@traits.Ordered.maximum_requirement" implementation="@compare.maximum_uint16_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="minimum" rxf:index="1" requirement="@traits.Ordered.minimum_requirement" implementation="@compare.minimum_uint16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Ordered_uint32_t" trait="@traits.Ordered" conforming_type="uint32_t" binding_count="6">
+      <ImplementationBinding name="Equal_Self" rxf:index="5" requirement="@traits.Equal.Self" implementation="uint32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="Self" rxf:index="4" requirement="@traits.Ordered.Self" implementation="uint32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" rxf:index="3" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_uint32_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="less" requirement="@traits.Ordered.less_requirement" implementation="@compare.less_uint32_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="maximum" rxf:index="2" requirement="@traits.Ordered.maximum_requirement" implementation="@compare.maximum_uint32_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="minimum" rxf:index="1" requirement="@traits.Ordered.minimum_requirement" implementation="@compare.minimum_uint32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Ordered_uint64_t" trait="@traits.Ordered" conforming_type="uint64_t" binding_count="6">
+      <ImplementationBinding name="Equal_Self" rxf:index="5" requirement="@traits.Equal.Self" implementation="uint64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="Self" rxf:index="4" requirement="@traits.Ordered.Self" implementation="uint64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" rxf:index="3" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_uint64_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="less" requirement="@traits.Ordered.less_requirement" implementation="@compare.less_uint64_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="maximum" rxf:index="2" requirement="@traits.Ordered.maximum_requirement" implementation="@compare.maximum_uint64_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="minimum" rxf:index="1" requirement="@traits.Ordered.minimum_requirement" implementation="@compare.minimum_uint64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Ordered_uint8_t" trait="@traits.Ordered" conforming_type="uint8_t" binding_count="6">
+      <ImplementationBinding name="Equal_Self" rxf:index="5" requirement="@traits.Equal.Self" implementation="uint8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="Self" rxf:index="4" requirement="@traits.Ordered.Self" implementation="uint8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="equal" rxf:index="3" requirement="@traits.Equal.equal_requirement" implementation="@compare.equal_uint8_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="less" requirement="@traits.Ordered.less_requirement" implementation="@compare.less_uint8_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="maximum" rxf:index="2" requirement="@traits.Ordered.maximum_requirement" implementation="@compare.maximum_uint8_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="minimum" rxf:index="1" requirement="@traits.Ordered.minimum_requirement" implementation="@compare.minimum_uint8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Trait name="Remainder" requirement_count="1" associated_type_count="1">
+      <AssociatedType name="Self" />
+      <Function name="remainder" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.Remainder.remainder.signature" semantic_digest="869d467498748d020e08d194a9d075587c4d483cf4d57619fb5bed482d230c23">
+        <Signature name="signature" return_type="@traits.Remainder.Self" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.Remainder.Self" />
+          <Parameter name="operand[1]" value_type="@traits.Remainder.Self" index="1" />
+          <Result name="value" value_type="@traits.Remainder.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="remainder_requirement" function="@traits.Remainder.remainder" kind="@kinds.TraitRequirementKind.Function" />
+    </Trait>
+    <Conformance name="Remainder_int16_t" trait="@traits.Remainder" conforming_type="int16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Remainder.Self" implementation="int16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="remainder" requirement="@traits.Remainder.remainder_requirement" implementation="@division.remainder_int16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Remainder_int32_t" trait="@traits.Remainder" conforming_type="int32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Remainder.Self" implementation="int32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="remainder" requirement="@traits.Remainder.remainder_requirement" implementation="@division.remainder_int32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Remainder_int64_t" trait="@traits.Remainder" conforming_type="int64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Remainder.Self" implementation="int64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="remainder" requirement="@traits.Remainder.remainder_requirement" implementation="@division.remainder_int64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Remainder_int8_t" trait="@traits.Remainder" conforming_type="int8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Remainder.Self" implementation="int8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="remainder" requirement="@traits.Remainder.remainder_requirement" implementation="@division.remainder_int8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Remainder_uint16_t" trait="@traits.Remainder" conforming_type="uint16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Remainder.Self" implementation="uint16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="remainder" requirement="@traits.Remainder.remainder_requirement" implementation="@division.remainder_uint16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Remainder_uint32_t" trait="@traits.Remainder" conforming_type="uint32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Remainder.Self" implementation="uint32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="remainder" requirement="@traits.Remainder.remainder_requirement" implementation="@division.remainder_uint32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Remainder_uint64_t" trait="@traits.Remainder" conforming_type="uint64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Remainder.Self" implementation="uint64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="remainder" requirement="@traits.Remainder.remainder_requirement" implementation="@division.remainder_uint64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Remainder_uint8_t" trait="@traits.Remainder" conforming_type="uint8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.Remainder.Self" implementation="uint8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="remainder" requirement="@traits.Remainder.remainder_requirement" implementation="@division.remainder_uint8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Trait name="SaturatingAdd" requirement_count="1" associated_type_count="1">
+      <AssociatedType name="Self" />
+      <Function name="saturating_add" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.SaturatingAdd.saturating_add.signature" semantic_digest="ce01cbef630462d3a64a18fe1f123102fdcfb42f4d696a384184f0e19de3e046">
+        <Signature name="signature" return_type="@traits.SaturatingAdd.Self" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.SaturatingAdd.Self" />
+          <Parameter name="operand[1]" value_type="@traits.SaturatingAdd.Self" index="1" />
+          <Result name="value" value_type="@traits.SaturatingAdd.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="saturating_add_requirement" function="@traits.SaturatingAdd.saturating_add" kind="@kinds.TraitRequirementKind.Function" />
+    </Trait>
+    <Conformance name="SaturatingAdd_int16_t" trait="@traits.SaturatingAdd" conforming_type="int16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingAdd.Self" implementation="int16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_add" requirement="@traits.SaturatingAdd.saturating_add_requirement" implementation="@saturating.add_int16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingAdd_int32_t" trait="@traits.SaturatingAdd" conforming_type="int32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingAdd.Self" implementation="int32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_add" requirement="@traits.SaturatingAdd.saturating_add_requirement" implementation="@saturating.add_int32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingAdd_int64_t" trait="@traits.SaturatingAdd" conforming_type="int64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingAdd.Self" implementation="int64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_add" requirement="@traits.SaturatingAdd.saturating_add_requirement" implementation="@saturating.add_int64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingAdd_int8_t" trait="@traits.SaturatingAdd" conforming_type="int8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingAdd.Self" implementation="int8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_add" requirement="@traits.SaturatingAdd.saturating_add_requirement" implementation="@saturating.add_int8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingAdd_uint16_t" trait="@traits.SaturatingAdd" conforming_type="uint16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingAdd.Self" implementation="uint16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_add" requirement="@traits.SaturatingAdd.saturating_add_requirement" implementation="@saturating.add_uint16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingAdd_uint32_t" trait="@traits.SaturatingAdd" conforming_type="uint32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingAdd.Self" implementation="uint32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_add" requirement="@traits.SaturatingAdd.saturating_add_requirement" implementation="@saturating.add_uint32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingAdd_uint64_t" trait="@traits.SaturatingAdd" conforming_type="uint64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingAdd.Self" implementation="uint64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_add" requirement="@traits.SaturatingAdd.saturating_add_requirement" implementation="@saturating.add_uint64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingAdd_uint8_t" trait="@traits.SaturatingAdd" conforming_type="uint8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingAdd.Self" implementation="uint8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_add" requirement="@traits.SaturatingAdd.saturating_add_requirement" implementation="@saturating.add_uint8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Trait name="SaturatingMultiply" requirement_count="1" associated_type_count="1">
+      <AssociatedType name="Self" />
+      <Function name="saturating_multiply" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.SaturatingMultiply.saturating_multiply.signature" semantic_digest="076cff19354998547d6c8d592445ce1c30ab0073a166a2fd175f0c29c341c882">
+        <Signature name="signature" return_type="@traits.SaturatingMultiply.Self" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.SaturatingMultiply.Self" />
+          <Parameter name="operand[1]" value_type="@traits.SaturatingMultiply.Self" index="1" />
+          <Result name="value" value_type="@traits.SaturatingMultiply.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="saturating_multiply_requirement" function="@traits.SaturatingMultiply.saturating_multiply" kind="@kinds.TraitRequirementKind.Function" />
+    </Trait>
+    <Conformance name="SaturatingMultiply_int16_t" trait="@traits.SaturatingMultiply" conforming_type="int16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingMultiply.Self" implementation="int16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_multiply" requirement="@traits.SaturatingMultiply.saturating_multiply_requirement" implementation="@saturating.multiply_int16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingMultiply_int32_t" trait="@traits.SaturatingMultiply" conforming_type="int32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingMultiply.Self" implementation="int32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_multiply" requirement="@traits.SaturatingMultiply.saturating_multiply_requirement" implementation="@saturating.multiply_int32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingMultiply_int64_t" trait="@traits.SaturatingMultiply" conforming_type="int64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingMultiply.Self" implementation="int64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_multiply" requirement="@traits.SaturatingMultiply.saturating_multiply_requirement" implementation="@saturating.multiply_int64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingMultiply_int8_t" trait="@traits.SaturatingMultiply" conforming_type="int8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingMultiply.Self" implementation="int8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_multiply" requirement="@traits.SaturatingMultiply.saturating_multiply_requirement" implementation="@saturating.multiply_int8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingMultiply_uint16_t" trait="@traits.SaturatingMultiply" conforming_type="uint16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingMultiply.Self" implementation="uint16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_multiply" requirement="@traits.SaturatingMultiply.saturating_multiply_requirement" implementation="@saturating.multiply_uint16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingMultiply_uint32_t" trait="@traits.SaturatingMultiply" conforming_type="uint32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingMultiply.Self" implementation="uint32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_multiply" requirement="@traits.SaturatingMultiply.saturating_multiply_requirement" implementation="@saturating.multiply_uint32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingMultiply_uint64_t" trait="@traits.SaturatingMultiply" conforming_type="uint64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingMultiply.Self" implementation="uint64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_multiply" requirement="@traits.SaturatingMultiply.saturating_multiply_requirement" implementation="@saturating.multiply_uint64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingMultiply_uint8_t" trait="@traits.SaturatingMultiply" conforming_type="uint8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingMultiply.Self" implementation="uint8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_multiply" requirement="@traits.SaturatingMultiply.saturating_multiply_requirement" implementation="@saturating.multiply_uint8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Trait name="SaturatingSubtract" requirement_count="1" associated_type_count="1">
+      <AssociatedType name="Self" />
+      <Function name="saturating_subtract" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.SaturatingSubtract.saturating_subtract.signature" semantic_digest="142b7812b1fdccc2099fccf90158c5b4b594f54ce3e01665b9b2f719a1676742">
+        <Signature name="signature" return_type="@traits.SaturatingSubtract.Self" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.SaturatingSubtract.Self" />
+          <Parameter name="operand[1]" value_type="@traits.SaturatingSubtract.Self" index="1" />
+          <Result name="value" value_type="@traits.SaturatingSubtract.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="saturating_subtract_requirement" function="@traits.SaturatingSubtract.saturating_subtract" kind="@kinds.TraitRequirementKind.Function" />
+    </Trait>
+    <Conformance name="SaturatingSubtract_int16_t" trait="@traits.SaturatingSubtract" conforming_type="int16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingSubtract.Self" implementation="int16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_subtract" requirement="@traits.SaturatingSubtract.saturating_subtract_requirement" implementation="@saturating.subtract_int16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingSubtract_int32_t" trait="@traits.SaturatingSubtract" conforming_type="int32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingSubtract.Self" implementation="int32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_subtract" requirement="@traits.SaturatingSubtract.saturating_subtract_requirement" implementation="@saturating.subtract_int32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingSubtract_int64_t" trait="@traits.SaturatingSubtract" conforming_type="int64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingSubtract.Self" implementation="int64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_subtract" requirement="@traits.SaturatingSubtract.saturating_subtract_requirement" implementation="@saturating.subtract_int64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingSubtract_int8_t" trait="@traits.SaturatingSubtract" conforming_type="int8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingSubtract.Self" implementation="int8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_subtract" requirement="@traits.SaturatingSubtract.saturating_subtract_requirement" implementation="@saturating.subtract_int8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingSubtract_uint16_t" trait="@traits.SaturatingSubtract" conforming_type="uint16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingSubtract.Self" implementation="uint16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_subtract" requirement="@traits.SaturatingSubtract.saturating_subtract_requirement" implementation="@saturating.subtract_uint16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingSubtract_uint32_t" trait="@traits.SaturatingSubtract" conforming_type="uint32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingSubtract.Self" implementation="uint32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_subtract" requirement="@traits.SaturatingSubtract.saturating_subtract_requirement" implementation="@saturating.subtract_uint32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingSubtract_uint64_t" trait="@traits.SaturatingSubtract" conforming_type="uint64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingSubtract.Self" implementation="uint64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_subtract" requirement="@traits.SaturatingSubtract.saturating_subtract_requirement" implementation="@saturating.subtract_uint64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="SaturatingSubtract_uint8_t" trait="@traits.SaturatingSubtract" conforming_type="uint8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.SaturatingSubtract.Self" implementation="uint8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="saturating_subtract" requirement="@traits.SaturatingSubtract.saturating_subtract_requirement" implementation="@saturating.subtract_uint8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Trait name="Shift" requirement_count="2" associated_type_count="1">
+      <AssociatedType name="Self" />
+      <Function name="shift_left" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.Shift.shift_left.signature" semantic_digest="81bd22604af9bb01d2941dca3f7c4721e9e1239273ccf5368b4a0ade5dfa9927">
+        <Signature name="signature" return_type="@traits.Shift.Self" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.Shift.Self" />
+          <Parameter name="operand[1]" value_type="uint32_t" index="1" />
+          <Result name="value" value_type="@traits.Shift.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="shift_left_requirement" function="@traits.Shift.shift_left" kind="@kinds.TraitRequirementKind.Function" />
+      <Function name="shift_right" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.Shift.shift_right.signature" semantic_digest="3c679c0180dc3f23468dc59166cd576ea14107e54ff137e3af2494827591e703">
+        <Signature name="signature" return_type="@traits.Shift.Self" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.Shift.Self" />
+          <Parameter name="operand[1]" value_type="uint32_t" index="1" />
+          <Result name="value" value_type="@traits.Shift.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="shift_right_requirement" function="@traits.Shift.shift_right" index="1" kind="@kinds.TraitRequirementKind.Function" />
+    </Trait>
+    <Conformance name="Shift_int16_t" trait="@traits.Shift" conforming_type="int16_t" binding_count="3">
+      <ImplementationBinding name="Self" rxf:index="2" requirement="@traits.Shift.Self" implementation="int16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="shift_left" requirement="@traits.Shift.shift_left_requirement" implementation="@bitwise.shift_left_int16_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="shift_right" rxf:index="1" requirement="@traits.Shift.shift_right_requirement" implementation="@bitwise.shift_right_int16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Shift_int32_t" trait="@traits.Shift" conforming_type="int32_t" binding_count="3">
+      <ImplementationBinding name="Self" rxf:index="2" requirement="@traits.Shift.Self" implementation="int32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="shift_left" requirement="@traits.Shift.shift_left_requirement" implementation="@bitwise.shift_left_int32_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="shift_right" rxf:index="1" requirement="@traits.Shift.shift_right_requirement" implementation="@bitwise.shift_right_int32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Shift_int64_t" trait="@traits.Shift" conforming_type="int64_t" binding_count="3">
+      <ImplementationBinding name="Self" rxf:index="2" requirement="@traits.Shift.Self" implementation="int64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="shift_left" requirement="@traits.Shift.shift_left_requirement" implementation="@bitwise.shift_left_int64_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="shift_right" rxf:index="1" requirement="@traits.Shift.shift_right_requirement" implementation="@bitwise.shift_right_int64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Shift_int8_t" trait="@traits.Shift" conforming_type="int8_t" binding_count="3">
+      <ImplementationBinding name="Self" rxf:index="2" requirement="@traits.Shift.Self" implementation="int8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="shift_left" requirement="@traits.Shift.shift_left_requirement" implementation="@bitwise.shift_left_int8_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="shift_right" rxf:index="1" requirement="@traits.Shift.shift_right_requirement" implementation="@bitwise.shift_right_int8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Shift_uint16_t" trait="@traits.Shift" conforming_type="uint16_t" binding_count="3">
+      <ImplementationBinding name="Self" rxf:index="2" requirement="@traits.Shift.Self" implementation="uint16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="shift_left" requirement="@traits.Shift.shift_left_requirement" implementation="@bitwise.shift_left_uint16_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="shift_right" rxf:index="1" requirement="@traits.Shift.shift_right_requirement" implementation="@bitwise.shift_right_uint16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Shift_uint32_t" trait="@traits.Shift" conforming_type="uint32_t" binding_count="3">
+      <ImplementationBinding name="Self" rxf:index="2" requirement="@traits.Shift.Self" implementation="uint32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="shift_left" requirement="@traits.Shift.shift_left_requirement" implementation="@bitwise.shift_left_uint32_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="shift_right" rxf:index="1" requirement="@traits.Shift.shift_right_requirement" implementation="@bitwise.shift_right_uint32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Shift_uint64_t" trait="@traits.Shift" conforming_type="uint64_t" binding_count="3">
+      <ImplementationBinding name="Self" rxf:index="2" requirement="@traits.Shift.Self" implementation="uint64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="shift_left" requirement="@traits.Shift.shift_left_requirement" implementation="@bitwise.shift_left_uint64_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="shift_right" rxf:index="1" requirement="@traits.Shift.shift_right_requirement" implementation="@bitwise.shift_right_uint64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="Shift_uint8_t" trait="@traits.Shift" conforming_type="uint8_t" binding_count="3">
+      <ImplementationBinding name="Self" rxf:index="2" requirement="@traits.Shift.Self" implementation="uint8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="shift_left" requirement="@traits.Shift.shift_left_requirement" implementation="@bitwise.shift_left_uint8_t" kind="@kinds.BindingKind.Function" />
+      <ImplementationBinding name="shift_right" rxf:index="1" requirement="@traits.Shift.shift_right_requirement" implementation="@bitwise.shift_right_uint8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Trait name="WrappingAdd" requirement_count="1" associated_type_count="1">
+      <AssociatedType name="Self" />
+      <Function name="wrapping_add" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.WrappingAdd.wrapping_add.signature" semantic_digest="ee885555c03de13ab9b9ce5a163b2f6e90e2626fc5a37c3598e963e6b0bf5004">
+        <Signature name="signature" return_type="@traits.WrappingAdd.Self" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.WrappingAdd.Self" />
+          <Parameter name="operand[1]" value_type="@traits.WrappingAdd.Self" index="1" />
+          <Result name="value" value_type="@traits.WrappingAdd.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="wrapping_add_requirement" function="@traits.WrappingAdd.wrapping_add" kind="@kinds.TraitRequirementKind.Function" />
+    </Trait>
+    <Conformance name="WrappingAdd_int16_t" trait="@traits.WrappingAdd" conforming_type="int16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingAdd.Self" implementation="int16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_add" requirement="@traits.WrappingAdd.wrapping_add_requirement" implementation="@wrapping.add_int16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingAdd_int32_t" trait="@traits.WrappingAdd" conforming_type="int32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingAdd.Self" implementation="int32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_add" requirement="@traits.WrappingAdd.wrapping_add_requirement" implementation="@wrapping.add_int32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingAdd_int64_t" trait="@traits.WrappingAdd" conforming_type="int64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingAdd.Self" implementation="int64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_add" requirement="@traits.WrappingAdd.wrapping_add_requirement" implementation="@wrapping.add_int64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingAdd_int8_t" trait="@traits.WrappingAdd" conforming_type="int8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingAdd.Self" implementation="int8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_add" requirement="@traits.WrappingAdd.wrapping_add_requirement" implementation="@wrapping.add_int8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingAdd_uint16_t" trait="@traits.WrappingAdd" conforming_type="uint16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingAdd.Self" implementation="uint16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_add" requirement="@traits.WrappingAdd.wrapping_add_requirement" implementation="@wrapping.add_uint16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingAdd_uint32_t" trait="@traits.WrappingAdd" conforming_type="uint32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingAdd.Self" implementation="uint32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_add" requirement="@traits.WrappingAdd.wrapping_add_requirement" implementation="@wrapping.add_uint32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingAdd_uint64_t" trait="@traits.WrappingAdd" conforming_type="uint64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingAdd.Self" implementation="uint64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_add" requirement="@traits.WrappingAdd.wrapping_add_requirement" implementation="@wrapping.add_uint64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingAdd_uint8_t" trait="@traits.WrappingAdd" conforming_type="uint8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingAdd.Self" implementation="uint8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_add" requirement="@traits.WrappingAdd.wrapping_add_requirement" implementation="@wrapping.add_uint8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Trait name="WrappingMultiply" requirement_count="1" associated_type_count="1">
+      <AssociatedType name="Self" />
+      <Function name="wrapping_multiply" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.WrappingMultiply.wrapping_multiply.signature" semantic_digest="e8c7aab6056580bfb6ad54fb7535c9c67eb94894a2e5e92d8883ea096a3f16e4">
+        <Signature name="signature" return_type="@traits.WrappingMultiply.Self" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.WrappingMultiply.Self" />
+          <Parameter name="operand[1]" value_type="@traits.WrappingMultiply.Self" index="1" />
+          <Result name="value" value_type="@traits.WrappingMultiply.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="wrapping_multiply_requirement" function="@traits.WrappingMultiply.wrapping_multiply" kind="@kinds.TraitRequirementKind.Function" />
+    </Trait>
+    <Conformance name="WrappingMultiply_int16_t" trait="@traits.WrappingMultiply" conforming_type="int16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingMultiply.Self" implementation="int16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_multiply" requirement="@traits.WrappingMultiply.wrapping_multiply_requirement" implementation="@wrapping.multiply_int16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingMultiply_int32_t" trait="@traits.WrappingMultiply" conforming_type="int32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingMultiply.Self" implementation="int32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_multiply" requirement="@traits.WrappingMultiply.wrapping_multiply_requirement" implementation="@wrapping.multiply_int32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingMultiply_int64_t" trait="@traits.WrappingMultiply" conforming_type="int64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingMultiply.Self" implementation="int64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_multiply" requirement="@traits.WrappingMultiply.wrapping_multiply_requirement" implementation="@wrapping.multiply_int64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingMultiply_int8_t" trait="@traits.WrappingMultiply" conforming_type="int8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingMultiply.Self" implementation="int8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_multiply" requirement="@traits.WrappingMultiply.wrapping_multiply_requirement" implementation="@wrapping.multiply_int8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingMultiply_uint16_t" trait="@traits.WrappingMultiply" conforming_type="uint16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingMultiply.Self" implementation="uint16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_multiply" requirement="@traits.WrappingMultiply.wrapping_multiply_requirement" implementation="@wrapping.multiply_uint16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingMultiply_uint32_t" trait="@traits.WrappingMultiply" conforming_type="uint32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingMultiply.Self" implementation="uint32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_multiply" requirement="@traits.WrappingMultiply.wrapping_multiply_requirement" implementation="@wrapping.multiply_uint32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingMultiply_uint64_t" trait="@traits.WrappingMultiply" conforming_type="uint64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingMultiply.Self" implementation="uint64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_multiply" requirement="@traits.WrappingMultiply.wrapping_multiply_requirement" implementation="@wrapping.multiply_uint64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingMultiply_uint8_t" trait="@traits.WrappingMultiply" conforming_type="uint8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingMultiply.Self" implementation="uint8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_multiply" requirement="@traits.WrappingMultiply.wrapping_multiply_requirement" implementation="@wrapping.multiply_uint8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Trait name="WrappingSubtract" requirement_count="1" associated_type_count="1">
+      <AssociatedType name="Self" />
+      <Function name="wrapping_subtract" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@traits.WrappingSubtract.wrapping_subtract.signature" semantic_digest="6d04e927f2aec8a804be64b1ba97e694b1edf9a098f05bb43f51507ec0993aa6">
+        <Signature name="signature" return_type="@traits.WrappingSubtract.Self" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
+          <Parameter name="operand[0]" value_type="@traits.WrappingSubtract.Self" />
+          <Parameter name="operand[1]" value_type="@traits.WrappingSubtract.Self" index="1" />
+          <Result name="value" value_type="@traits.WrappingSubtract.Self" />
+        </Signature>
+      </Function>
+      <TraitRequirement name="wrapping_subtract_requirement" function="@traits.WrappingSubtract.wrapping_subtract" kind="@kinds.TraitRequirementKind.Function" />
+    </Trait>
+    <Conformance name="WrappingSubtract_int16_t" trait="@traits.WrappingSubtract" conforming_type="int16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingSubtract.Self" implementation="int16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_subtract" requirement="@traits.WrappingSubtract.wrapping_subtract_requirement" implementation="@wrapping.subtract_int16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingSubtract_int32_t" trait="@traits.WrappingSubtract" conforming_type="int32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingSubtract.Self" implementation="int32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_subtract" requirement="@traits.WrappingSubtract.wrapping_subtract_requirement" implementation="@wrapping.subtract_int32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingSubtract_int64_t" trait="@traits.WrappingSubtract" conforming_type="int64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingSubtract.Self" implementation="int64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_subtract" requirement="@traits.WrappingSubtract.wrapping_subtract_requirement" implementation="@wrapping.subtract_int64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingSubtract_int8_t" trait="@traits.WrappingSubtract" conforming_type="int8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingSubtract.Self" implementation="int8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_subtract" requirement="@traits.WrappingSubtract.wrapping_subtract_requirement" implementation="@wrapping.subtract_int8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingSubtract_uint16_t" trait="@traits.WrappingSubtract" conforming_type="uint16_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingSubtract.Self" implementation="uint16_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_subtract" requirement="@traits.WrappingSubtract.wrapping_subtract_requirement" implementation="@wrapping.subtract_uint16_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingSubtract_uint32_t" trait="@traits.WrappingSubtract" conforming_type="uint32_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingSubtract.Self" implementation="uint32_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_subtract" requirement="@traits.WrappingSubtract.wrapping_subtract_requirement" implementation="@wrapping.subtract_uint32_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingSubtract_uint64_t" trait="@traits.WrappingSubtract" conforming_type="uint64_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingSubtract.Self" implementation="uint64_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_subtract" requirement="@traits.WrappingSubtract.wrapping_subtract_requirement" implementation="@wrapping.subtract_uint64_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+    <Conformance name="WrappingSubtract_uint8_t" trait="@traits.WrappingSubtract" conforming_type="uint8_t" binding_count="2">
+      <ImplementationBinding name="Self" rxf:index="1" requirement="@traits.WrappingSubtract.Self" implementation="uint8_t" kind="@kinds.BindingKind.Type" />
+      <ImplementationBinding name="wrapping_subtract" requirement="@traits.WrappingSubtract.wrapping_subtract_requirement" implementation="@wrapping.subtract_uint8_t" kind="@kinds.BindingKind.Function" />
+    </Conformance>
+  </Module>
+</delta>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="model" category="ModuleCategory.Schema">
+    <Alias name="kinds" target="pymergetic.rxf.kinds" />
+    <Type name="ABIValueLocation" form="Form.Struct" size="72" align="8" flags="TypeFlags.Variable">
+      <Field name="alignment" value_type="uint32_t" offset="28" />
+      <Field name="association" flags="FieldFlags.Optional|Ref" value_type="uint64_t" />
+      <Field name="chunk_count" value_type="uint32_t" offset="32" />
+      <Field name="flags" value_type="@kinds.AbiValueFlags" offset="44" />
+      <Field name="passing" value_type="@kinds.AbiPassing" offset="16" />
+      <Field name="pointee_type" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="56" />
+      <Field name="register_bank" value_type="@kinds.RegisterBank" offset="36" />
+      <Field name="register_count" value_type="uint32_t" offset="40" />
+      <Field name="semantic_index" value_type="uint32_t" offset="8" />
+      <Field name="stack_offset" value_type="uint64_t" offset="48" />
+      <Field name="value_class" value_type="@kinds.AbiValueClass" offset="20" />
+      <Field name="value_role" value_type="@kinds.AbiValueRole" offset="12" />
+      <Field name="width" value_type="uint32_t" offset="24" />
+    </Type>
+    <Type name="Array" form="Form.Array" align="1" flags="TypeFlags.Variable" />
+    <Type name="Bytes" form="Form.Bytes" align="1" flags="TypeFlags.Variable" />
+    <Type name="Owner" form="Form.Struct" size="16" align="8" />
+    <Type name="Ref" form="Form.Ref" size="24" align="8" />
+  </Module>
+</delta>

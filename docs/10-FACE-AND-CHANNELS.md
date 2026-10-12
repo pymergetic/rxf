@@ -1,26 +1,28 @@
 # Operations and adapters
 
+> Status: this describes RXFB 6 (C++ core; see [the operating-system path](17-OPERATING-SYSTEM-PATH.md)).
+
 RXF defines semantic operations; implementations expose them through adapters. No transport is the authoritative program interface.
 
 ## Core operations
 
 A minimal implementation supports operations equivalent to:
 
-- `get(id)` — return the typed object and generation;
-- `children(id)` — enumerate semantic children in canonical order;
-- `references(id)` — enumerate typed outgoing and incoming edges;
-- `resolve(path)` — derive an object ID by walking parent/name relationships;
-- `view(id, kind)` — produce a non-authoritative projection;
-- `stage(base_generation, mutations)` — construct a candidate successor;
+- `get(path)` — return the typed object and generation;
+- `children(path)` — enumerate semantic children in canonical order;
+- `references(path)` — enumerate typed outgoing and incoming edges;
+- `resolve(path)` — derive the local handle by walking parent/name relationships;
+- `view(path, kind)` — produce a non-authoritative projection;
+- `stage(base, delta)` — construct a candidate successor;
 - `check(candidate)` — return success or typed refusals;
 - `emit(candidate, target)` — produce canonical RXF or a supported envelope; and
 - `extract(envelope)` — recover and validate the authoritative RXF image.
 
-Concrete APIs may combine or rename operations, but they must preserve identity, generation checks, validation, and atomic refusal behavior.
+Concrete APIs may combine or rename operations, but they must preserve path identity, base checks, validation, and atomic refusal behavior.
 
 ## Mutation discipline
 
-A mutation identifies existing objects by ID and expected generation. Creation uses new durable IDs. Deletion is represented through lifecycle state and successor construction. The implementation validates reference closure, types, layouts, capabilities, and target bindings before accepting output.
+A mutation is a delta. It identifies existing objects by path and names the digest of the base it was made against; a runtime handle additionally carries the generation of its target. Creation names the new path and needs no ID. Deletion is represented through lifecycle state and successor construction. The implementation validates reference closure, types, layouts, capabilities, and target bindings before accepting output.
 
 Partial semantic writes are never authoritative. A failed stage, check, compile, link, or emit operation leaves the source image unchanged.
 

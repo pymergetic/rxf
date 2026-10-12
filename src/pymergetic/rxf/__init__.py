@@ -1,6 +1,8 @@
-"""RXF — Reversible eXecutable Format.
+"""RXF: an object image with a C++ core, described by deltas in XML.
 
-One file that boots directly, carries its whole program state as an object graph.
+`pymergetic.rxf.core` is the compiled core: one submodule per C++ module (arena,
+object, hash, meta, delta, tree). `rxf` on the command line has one command group
+per module. Python is orchestration only.
 """
 
 from importlib.metadata import PackageNotFoundError

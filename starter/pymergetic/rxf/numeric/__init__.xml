@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="numeric" category="ModuleCategory.Library">
+    <Alias name="contract" target="pymergetic.rxf.roles.contract" />
+    <Alias name="kinds" target="pymergetic.rxf.kinds" />
+    <Alias name="numeric" target="pymergetic.rxf.numeric" />
+    <RefusalVariant name="division_by_zero" code="@kinds.RefusalCode.DivisionByZero" />
+    <RefusalVariant name="inexact" code="@kinds.RefusalCode.Inexact" />
+    <RefusalVariant name="non_finite" code="@kinds.RefusalCode.NonFinite" />
+    <RefusalSet name="numeric_refusals" variant_count="6">
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@numeric.overflow" />
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@numeric.division_by_zero" />
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@numeric.bitwise.shift_count" />
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@numeric.non_finite" />
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@numeric.inexact" />
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@numeric.out_of_range" />
+    </RefusalSet>
+    <RefusalVariant name="out_of_range" code="@kinds.RefusalCode.OutOfRange" />
+    <RefusalVariant name="overflow" code="@kinds.RefusalCode.Overflow" />
+  </Module>
+</delta>

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Type name="Alias" form="Form.Struct" size="16" align="8" flags="TypeFlags.SelfDescribing" node_kind="NodeKind.Alias">
+    <Field name="flags" value_type="AliasFlags" offset="8" />
+    <Field name="target" flags="FieldFlags.Ref" value_type="uint64_t" />
+  </Type>
+  <Type name="AliasFlags" form="Form.Enum" size="4" align="4" flags="TypeFlags.Bitset">
+    <Enumerator name="Reexport" value="1" />
+  </Type>
+  <Type name="Module" form="Form.Struct" size="8" align="4" flags="TypeFlags.SelfDescribing" node_kind="NodeKind.Module">
+    <Field name="category" value_type="ModuleCategory" />
+    <Field name="flags" value_type="ModuleFlags" offset="4" />
+  </Type>
+  <Type name="ModuleCategory" form="Form.Enum" size="4" align="4">
+    <Enumerator name="Application" value="3" />
+    <Enumerator name="Library" value="2" />
+    <Enumerator name="Schema" value="1" />
+  </Type>
+  <Type name="ModuleFlags" form="Form.Enum" size="4" align="4" flags="TypeFlags.Bitset">
+    <Enumerator name="Namespace" value="1" />
+  </Type>
+  <Type name="Role" form="Form.Struct" align="1" />
+  <Type name="bool" form="Form.Bool" size="1" align="1" />
+  <Type name="double" form="Form.Float" size="8" align="8" />
+  <Type name="float" form="Form.Float" size="4" align="4" />
+  <Type name="int16_t" form="Form.Sint" size="2" align="2" flags="TypeFlags.Signed" />
+  <Type name="int32_t" form="Form.Sint" size="4" align="4" flags="TypeFlags.Signed" />
+  <Type name="int64_t" form="Form.Sint" size="8" align="8" flags="TypeFlags.Signed" />
+  <Type name="int8_t" form="Form.Sint" size="1" align="1" flags="TypeFlags.Signed" />
+  <Type name="uint16_t" form="Form.Uint" size="2" align="2" />
+  <Type name="uint8_t" form="Form.Uint" size="1" align="1" />
+  <Type name="void" form="Form.Void" align="1" />
+  <rxf:entry path="pymergetic.rxf.application.main" />
+</delta>

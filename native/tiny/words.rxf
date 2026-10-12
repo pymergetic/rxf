@@ -1,0 +1,90 @@
+# The words of the compiler: numbers, and the few expressions and statements it repeats.
+#
+# The numbers of native/graph.h (RXF_OP_CALL, RXF_LEAF_MEMORY_COPY, RXF_GRAPH_NONE ...) and the
+# refusals of native/basics.h are known to the language already. What follows is what only this
+# program needs.
+
+# the request (words of 8 bytes, those of native/compile.c, and three for a compiler that is a program)
+const R_PROGRAM = 0;
+const R_PROGRAM_SIZE = 8;
+const R_OUT = 16;
+const R_CAPACITY = 24;
+const R_WORK = 32;
+const R_WORK_CAPACITY = 40;
+const R_OUT_SIZE = 48;
+const R_AT = 56;
+const R_MACHINE = 64;        # 1 x86_64, 2 aarch64, 3 wasm32
+const R_FUNCTIONS = 72;      # the table of the leaves of the machine the code is for, or 0:
+const R_FUNCTION_COUNT = 80; # the one of the context (word 3 of it, and its count in word 2)
+
+# the context of every leaf (native/stdlib_runtime.h): the leaves and the objects, as tables
+const CONTEXT_FUNCTION_COUNT = 16;
+const CONTEXT_FUNCTIONS = 24;
+const CONTEXT_OBJECT_COUNT = 32;
+const CONTEXT_OBJECTS = 40;
+const CONTEXT_CAPABILITY_COUNT = 48;
+const CONTEXT_CAPABILITIES = 56;
+const CAPABILITY_BYTES = 24;  # id, generation, address
+const ENTRY_PAYLOAD = 24;    # of an entry of the table of objects (80 bytes)
+const ENTRY_SIZE = 32;
+
+const X86_64 = 1;
+const AARCH64 = 2;
+const WASM32 = 3;
+
+const SLOT = RXF_OPERAND_SLOT;
+const LITERAL = RXF_OPERAND_LITERAL;
+const OBJECT = RXF_OPERAND_OBJECT;
+const NONE = RXF_GRAPH_NONE;
+const NO_INSTRUCTION = 0xFFFFFFFF;
+const OUT_OF_RANGE = RXF_REFUSE_OUT_OF_RANGE;
+const OUT_OF_MEMORY = RXF_REFUSE_OUT_OF_MEMORY;
+const UNBOUND = RXF_REFUSE_UNBOUND;
+const TYPE_MISMATCH = RXF_REFUSE_TYPE_MISMATCH;
+const UNSUPPORTED = RXF_REFUSE_UNSUPPORTED;
+
+# beyond the frame of the program, the code keeps what an edge stages and the copies of handles
+const STAGE_AT = RXF_GRAPH_FRAME;
+const HANDLES_AT = RXF_GRAPH_FRAME + RXF_GRAPH_COPY;
+const FRAME_ALLOC = HANDLES_AT + 144;
+
+# what the compiler keeps next to the tables of the work memory: its stack of ways back, and the
+# plan of the call that is being compiled
+const STACK_BYTES = 1024;
+const PLAN_BYTES = 128;
+const ROOM = 2048;           # STACK_BYTES + PLAN_BYTES, and what is left
+
+# the letters of an argument of a call (graph.c)
+const T_QUAD = 113;          # q: 64 bits
+const T_POINTER = 112;       # p
+const T_BYTE = 98;           # b
+const T_HANDLE = 104;        # h: 24 bytes, by address of a copy (by value on x86_64)
+const HANDLE_BYTES = 24;
+const T_WORD = 119;          # w: 32 bits
+const T_OUT = 111;           # o
+const T_CONTEXT = 99;        # c
+const ARG_CONTEXT = 6;
+const ARG_OUT = 7;
+
+# the word of the program at index i
+fn word(i) = load64(code + ((i) << 3));
+# `words` words from `at` are in the program
+fn have(at_, words_) = (((at_) <= count) & ((words_) <= (count - (at_))));
+# a slot of `w` bytes at `off` is in the frame
+fn in_frame(off, w) = (((w) <= frame) & ((off) <= (frame - (w))));
+# 3 * n
+fn triple(n) = (((n) << 1) + (n));
+# 5 * n
+fn quintuple(n) = (((n) << 2) + (n));
+
+# the operand at word index `at_` is the one that the operand procs look at
+macro operand(at_) {
+    ok = word(at_);
+    oa = word((at_) + 1);
+    ob = word((at_) + 2);
+    ooff = 0;
+}
+
+# one byte, and `n` bytes of a value, little endian, at the end of the code
+macro byte(x) { A = x; call put; }
+macro bytes(x, n) { V = x; N = n; call put_n; }

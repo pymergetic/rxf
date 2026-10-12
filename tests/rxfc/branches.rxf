@@ -1,0 +1,17 @@
+# switch with several tags per case and a default, else-if chains, macros, refuse
+const HIGH = 100;
+
+macro bump(x, by) { x = x + by; }
+
+program branches(kind, value) {
+    var r;
+    r = 0;
+    switch kind {
+        case 0: { r = 1; }
+        case 1, 2, 3: { bump(r, 10); bump(r, value); }
+        case 9: { refuse(77); }
+        default: { r = 5; }
+    }
+    if r > HIGH { r = HIGH; } else if r == 5 { r = 6; } else { bump(r, 1); }
+    return r;
+}

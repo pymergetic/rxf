@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="tagged_variant" flags="ModuleFlags.Namespace">
+    <Role name="PayloadField" />
+    <Role name="PayloadType" />
+  </Module>
+</delta>

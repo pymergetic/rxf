@@ -1,0 +1,969 @@
+# The front end: what the interpreter checks, once, here. The words of compile.c in the same order,
+# so that a program is refused with the same status at the same word.
+
+# The words of an edge at `eat`: its header and five for each copy. ew is the number, st 0 or why not.
+proc edge_size {
+    st = 0;
+    ew = 0;
+    if !have(eat, 2) {
+        st = OUT_OF_RANGE;
+        ret;
+    }
+    ecn = word(eat + 1);
+    if (ecn > RXF_GRAPH_COPY) | !have(eat + 2, quintuple(ecn)) {
+        st = OUT_OF_RANGE;
+        ret;
+    }
+    ew = 2 + quintuple(ecn);
+}
+
+# The words of the instruction at `pc`, and that all of it is in the program: wd and st.
+proc isz {
+    st = 0;
+    wd = 0;
+    ik = word(pc);
+    switch ik {
+        case RXF_OP_CALL: {
+            if (!have(pc, 6)) | (word(pc + 2) > 6) | !have(pc, 6 + triple(word(pc + 2))) {
+                st = OUT_OF_RANGE;
+                ret;
+            }
+            wd = 6 + triple(word(pc + 2));
+        }
+        case RXF_OP_MOVE, RXF_OP_INCREMENT: {
+            wd = 6;
+            if !have(pc, 6) { st = OUT_OF_RANGE; }
+        }
+        case RXF_OP_MAP: {
+            if (!have(pc, 8)) | (word(pc + 7) > count) | !have(pc, 8 + (word(pc + 7) << 1)) {
+                st = OUT_OF_RANGE;
+                ret;
+            }
+            wd = 8 + (word(pc + 7) << 1);
+        }
+        case RXF_OP_FIELD, RXF_OP_LESS: {
+            wd = 8;
+            if !have(pc, 8) { st = OUT_OF_RANGE; }
+        }
+        case RXF_OP_CONSTRUCT: {
+            wd = 10;
+            if !have(pc, 10) { st = OUT_OF_RANGE; }
+        }
+        case RXF_OP_GOTO: {
+            eat = pc + 1;
+            call edge_size;
+            wd = 1 + ew;
+        }
+        case RXF_OP_BRANCH: {
+            if !have(pc, 5) {
+                st = OUT_OF_RANGE;
+                ret;
+            }
+            eat = pc + 5;
+            call edge_size;
+            if st != 0 { ret; }
+            iwords = ew;
+            eat = pc + 5 + iwords;
+            call edge_size;
+            wd = 5 + iwords + ew;
+        }
+        case RXF_OP_SWITCH: {
+            if (!have(pc, 5)) | (word(pc + 4) > count) | !have(pc, 5 + word(pc + 4)) {
+                st = OUT_OF_RANGE;
+                ret;
+            }
+            inn = word(pc + 4);
+            iat = pc + 5 + inn;
+            ii = 0;
+            while ii <= inn {
+                eat = iat;
+                call edge_size;
+                if st != 0 { ret; }
+                iat = iat + ew;
+                ii = ii + 1;
+            }
+            wd = iat - pc;
+        }
+        case RXF_OP_RETURN: {
+            wd = 5;
+            if !have(pc, 5) { st = OUT_OF_RANGE; }
+        }
+        case RXF_OP_REFUSE: {
+            wd = 4;
+            if !have(pc, 4) { st = OUT_OF_RANGE; }
+        }
+        default: {
+            st = OUT_OF_RANGE;
+        }
+    }
+}
+
+# The entry of the object `oa` among those of the context, found by halving (sorted by id, 80 bytes
+# each): R is it, or 0. u0, u1 and V are scratch.
+proc find_object {
+    u0 = 0;
+    u1 = load64(context + CONTEXT_OBJECT_COUNT);
+    while u0 < u1 {
+        V = u0 + ((u1 - u0) >> 1);
+        if load64(load64(context + CONTEXT_OBJECTS) + (V << 6) + (V << 4)) < oa {
+            u0 = V + 1;
+        } else {
+            u1 = V;
+        }
+    }
+    R = 0;
+    if u0 < load64(context + CONTEXT_OBJECT_COUNT) {
+        V = load64(context + CONTEXT_OBJECTS) + (u0 << 6) + (u0 << 4);
+        if load64(V) == oa { R = V; }
+    }
+}
+
+# Where the payload of the object operand is (the part from `ooff` on): R.
+proc object_address {
+    call find_object;
+    R = load64(R + ENTRY_PAYLOAD) + ooff;
+}
+
+# The operand in ok, oa, ob has `nd` bytes (an object is found, as locate() of graph.c does).
+proc check {
+    st = OUT_OF_RANGE;
+    if ok == SLOT {
+        if in_frame(oa, nd) { st = 0; }
+    } else if ok == LITERAL {
+        if nd <= 8 { st = 0; }
+    } else if ok == OBJECT {
+        call find_object;
+        if R == 0 {
+            st = UNBOUND;
+        } else if nd <= load64(R + ENTRY_SIZE) {
+            st = 0;
+        }
+    }
+}
+
+# The operand becomes a value: a slot is read whole when it is 1, 2, 4 or 8 bytes wide, by address
+# when it is wider and `vw` is 1.
+proc value_check {
+    if ok == LITERAL {
+        st = 0;
+        if ob > 8 { st = OUT_OF_RANGE; }
+        ret;
+    }
+    if ok == OBJECT {
+        nd = 0;
+        call check;
+        ret;
+    }
+    if ok != SLOT {
+        st = OUT_OF_RANGE;
+        ret;
+    }
+    if (vw != 0) & (ob > 8) {
+        nd = ob;
+        call check;
+        ret;
+    }
+    nd = ob;
+    if ob > 8 { nd = 8; }
+    call check;
+    if st != 0 { ret; }
+    vsz = ob;
+    if ob >= 8 { vsz = 8; }
+    if (vsz != 1) & (vsz != 2) & (vsz != 4) & (vsz != 8) {
+        st = UNSUPPORTED;
+        ret;
+    }
+    st = 0;
+    if (oa & (vsz - 1)) != 0 { st = UNSUPPORTED; }
+}
+
+# How a leaf is called (the shapes of graph.h without a handle): the arguments in the order of its
+# C function, each an operand of the call, the context or the out, and its letter. pn is how many,
+# pcount how many operands the call has, hasout whether it writes one. pn 0: no such shape.
+macro setarg(pi_, pa_, pt_) {
+    store64(planarg + ((pi_) << 3), pa_);
+    store8(plantype + (pi_), pt_);
+}
+
+macro shape_qo() {
+    pn = 2; pcount = 1; hasout = 1;
+    setarg(0, 0, T_QUAD);
+    setarg(1, ARG_OUT, T_OUT);
+}
+
+macro shape_qqo() {
+    pn = 3; pcount = 2; hasout = 1;
+    setarg(0, 0, T_QUAD);
+    setarg(1, 1, T_QUAD);
+    setarg(2, ARG_OUT, T_OUT);
+}
+
+macro shape_qwo() {
+    pn = 3; pcount = 2; hasout = 1;
+    setarg(0, 0, T_QUAD);
+    setarg(1, 1, T_WORD);
+    setarg(2, ARG_OUT, T_OUT);
+}
+
+macro shape_wwo() {
+    pn = 3; pcount = 2; hasout = 1;
+    setarg(0, 0, T_WORD);
+    setarg(1, 1, T_WORD);
+    setarg(2, ARG_OUT, T_OUT);
+}
+
+macro shape_p() {
+    pn = 2; pcount = 1; hasout = 0;
+    setarg(0, ARG_CONTEXT, T_CONTEXT);
+    setarg(1, 0, T_POINTER);
+}
+
+macro shape_pqpqq() {
+    pn = 5; pcount = 5; hasout = 0;
+    setarg(0, 0, T_POINTER);
+    setarg(1, 1, T_QUAD);
+    setarg(2, 2, T_POINTER);
+    setarg(3, 3, T_QUAD);
+    setarg(4, 4, T_QUAD);
+}
+
+macro shape_pqpqqo() {
+    pn = 6; pcount = 5; hasout = 1;
+    setarg(0, 0, T_POINTER);
+    setarg(1, 1, T_QUAD);
+    setarg(2, 2, T_POINTER);
+    setarg(3, 3, T_QUAD);
+    setarg(4, 4, T_QUAD);
+    setarg(5, ARG_OUT, T_OUT);
+}
+
+macro shape_pqbq() {
+    pn = 4; pcount = 4; hasout = 0;
+    setarg(0, 0, T_POINTER);
+    setarg(1, 1, T_QUAD);
+    setarg(2, 2, T_BYTE);
+    setarg(3, 3, T_QUAD);
+}
+
+# the shapes with a handle (a 24-byte operand): the context first, then the operands of the call
+macro shape_hpqqo() {
+    pn = 6; pcount = 4; hasout = 1;
+    setarg(0, ARG_CONTEXT, T_CONTEXT);
+    setarg(1, 0, T_HANDLE);
+    setarg(2, 1, T_POINTER);
+    setarg(3, 2, T_QUAD);
+    setarg(4, 3, T_QUAD);
+    setarg(5, ARG_OUT, T_OUT);
+}
+
+macro shape_hqo() {
+    pn = 4; pcount = 2; hasout = 1;
+    setarg(0, ARG_CONTEXT, T_CONTEXT);
+    setarg(1, 0, T_HANDLE);
+    setarg(2, 1, T_QUAD);
+    setarg(3, ARG_OUT, T_OUT);
+}
+
+macro shape_qqqqqpo() {
+    pn = 8; pcount = 6; hasout = 1;
+    setarg(0, ARG_CONTEXT, T_CONTEXT);
+    setarg(1, 0, T_QUAD);
+    setarg(2, 1, T_QUAD);
+    setarg(3, 2, T_QUAD);
+    setarg(4, 3, T_QUAD);
+    setarg(5, 4, T_QUAD);
+    setarg(6, 5, T_POINTER);
+    setarg(7, ARG_OUT, T_OUT);
+}
+
+macro shape_hq() {
+    pn = 3; pcount = 2; hasout = 0;
+    setarg(0, ARG_CONTEXT, T_CONTEXT);
+    setarg(1, 0, T_HANDLE);
+    setarg(2, 1, T_QUAD);
+}
+
+macro shape_h() {
+    pn = 2; pcount = 1; hasout = 0;
+    setarg(0, ARG_CONTEXT, T_CONTEXT);
+    setarg(1, 0, T_HANDLE);
+}
+
+macro shape_hpqq() {
+    pn = 5; pcount = 4; hasout = 0;
+    setarg(0, ARG_CONTEXT, T_CONTEXT);
+    setarg(1, 0, T_HANDLE);
+    setarg(2, 1, T_POINTER);
+    setarg(3, 2, T_QUAD);
+    setarg(4, 3, T_QUAD);
+}
+
+macro shape_hpqqq() {
+    pn = 6; pcount = 5; hasout = 0;
+    setarg(0, ARG_CONTEXT, T_CONTEXT);
+    setarg(1, 0, T_HANDLE);
+    setarg(2, 1, T_POINTER);
+    setarg(3, 2, T_QUAD);
+    setarg(4, 3, T_QUAD);
+    setarg(5, 4, T_QUAD);
+}
+
+macro shape_hpw() {
+    pn = 4; pcount = 3; hasout = 0;
+    setarg(0, ARG_CONTEXT, T_CONTEXT);
+    setarg(1, 0, T_HANDLE);
+    setarg(2, 1, T_POINTER);
+    setarg(3, 2, T_WORD);
+}
+
+macro shape_hqhqpo() {
+    pn = 7; pcount = 5; hasout = 1;
+    setarg(0, ARG_CONTEXT, T_CONTEXT);
+    setarg(1, 0, T_HANDLE);
+    setarg(2, 1, T_QUAD);
+    setarg(3, 2, T_HANDLE);
+    setarg(4, 3, T_QUAD);
+    setarg(5, 4, T_POINTER);
+    setarg(6, ARG_OUT, T_OUT);
+}
+
+proc plan {
+    pn = 0;
+    pcount = 0;
+    hasout = 0;
+    switch leafid {
+        case RXF_LEAF_BIT_NOT_UINT64_T: { shape_qo(); }
+        case RXF_LEAF_WRAPPING_ADD_UINT64_T, RXF_LEAF_LESS_UINT64_T, RXF_LEAF_HASH_U64,
+             RXF_LEAF_WRAPPING_SUBTRACT_UINT64_T, RXF_LEAF_BIT_AND_UINT64_T,
+             RXF_LEAF_BIT_OR_UINT64_T, RXF_LEAF_EQUAL_UINT64_T: { shape_qqo(); }
+        case RXF_LEAF_SHIFT_LEFT_UINT64_T, RXF_LEAF_SHIFT_RIGHT_UINT64_T: { shape_qwo(); }
+        case RXF_LEAF_CHECKED_ADD_UINT32_T, RXF_LEAF_CHECKED_SUBTRACT_UINT32_T,
+             RXF_LEAF_CHECKED_MULTIPLY_UINT32_T, RXF_LEAF_DIVIDE_UINT32_T: { shape_wwo(); }
+        case RXF_LEAF_RUNTIME_PUBLISH, RXF_LEAF_RUNTIME_ROLLBACK, RXF_LEAF_RUNTIME_CLEANUP,
+             RXF_LEAF_LIVE_PUMP, RXF_LEAF_UART_PUMP, RXF_LEAF_SAFE_POINT: { shape_p(); }
+        case RXF_LEAF_MEMORY_COPY: { shape_pqpqq(); }
+        case RXF_LEAF_MEMORY_COMPARE: { shape_pqpqqo(); }
+        case RXF_LEAF_MEMORY_FILL: { shape_pqbq(); }
+        case RXF_LEAF_RUNTIME_HASH_MAP_LOOKUP, RXF_LEAF_RUNTIME_HASH_SET_LOOKUP,
+             RXF_LEAF_RUNTIME_READ: { shape_hpqqo(); }
+        case RXF_LEAF_RUNTIME_BEGIN_PRIVATE, RXF_LEAF_RUNTIME_RESOLVE: { shape_hqo(); }
+        case RXF_LEAF_RUNTIME_ALLOCATE_PREPARE: { shape_qqqqqpo(); }
+        case RXF_LEAF_RUNTIME_BORROW, RXF_LEAF_RUNTIME_RELEASE_BORROW: { shape_hq(); }
+        case RXF_LEAF_RUNTIME_PIN, RXF_LEAF_RUNTIME_UNPIN: { shape_h(); }
+        case RXF_LEAF_RUNTIME_APPEND: { shape_hpqq(); }
+        case RXF_LEAF_RUNTIME_WRITE: { shape_hpqqq(); }
+        case RXF_LEAF_RUNTIME_FORMAT_U32: { shape_hpw(); }
+        case RXF_LEAF_RUNTIME_SEARCH: { shape_hqhqpo(); }
+        default: { pn = 0; }
+    }
+}
+
+# A CALL at `pc`.
+proc compile_call {
+    cl = word(pc + 1);
+    cos = word(pc + 3);
+    cow = word(pc + 4);
+    css = word(pc + 5);
+    leafid = cl;
+    call plan;
+    if pn == 0 {
+        st = UNSUPPORTED;
+        ret;
+    }
+    if pcount != word(pc + 2) {
+        st = OUT_OF_RANGE;
+        ret;
+    }
+    function = 0;
+    cli = 0;
+    while cli < tcount {
+        if load64(table + (triple(cli) << 3)) == cl {
+            function = load64(table + (triple(cli) << 3) + 16);
+            break;
+        }
+        cli = cli + 1;
+    }
+    if function == 0 {
+        st = UNBOUND;
+        ret;
+    }
+    cli = 0;
+    while cli < pn {
+        cla = load64(planarg + (cli << 3));
+        clt = load8(plantype + cli);
+        if cla < ARG_CONTEXT {
+            operand(pc + 6 + triple(cla));
+            if clt == T_HANDLE {
+                nd = HANDLE_BYTES;
+                call check;
+            } else {
+                vw = 1;
+                call value_check;
+            }
+            if (st == 0) & (clt == T_BYTE) & (ok != LITERAL) & !((ok == SLOT) & (ob == 1)) {
+                st = UNSUPPORTED;
+            }
+            if st != 0 { ret; }
+        }
+        cli = cli + 1;
+    }
+    if hasout != 0 {
+        if (cos == NONE) | !in_frame(cos, cow) {
+            st = OUT_OF_RANGE;
+            ret;
+        }
+    } else if cos != NONE {
+        st = OUT_OF_RANGE;
+        ret;
+    }
+    if css != NONE {
+        if ((css & 3) != 0) {
+            st = UNSUPPORTED;
+            ret;
+        }
+        if !in_frame(css, 4) {
+            st = OUT_OF_RANGE;
+            ret;
+        }
+    }
+    call be_call;
+    st = 0;
+}
+
+# The edge at `ea`: its jump to the target. `el` is 1 for the edge after which the next instruction
+# follows, to which no jump is needed.
+proc compile_edge {
+    e_at = ea;
+    e_last = el;
+    eat = e_at;
+    call edge_size;
+    if st != 0 { ret; }
+    ecn = word(e_at + 1);
+    # the copies are staged (read all before any is written), then written
+    ei = 0;
+    eu = 0;
+    while ei < ecn {
+        etarget = e_at + 2 + quintuple(ei);
+        enext = word(etarget + 4);
+        if word(etarget + 2) < enext { enext = word(etarget + 2); }
+        operand(etarget);
+        nd = enext;
+        call check;
+        if st != 0 { ret; }
+        if word(etarget + 4) > (RXF_GRAPH_COPY - eu) {
+            st = OUT_OF_RANGE;
+            ret;
+        }
+        g0 = STAGE_AT + eu;
+        g1 = word(etarget + 4);
+        g2 = enext;
+        call be_move;
+        eu = eu + word(etarget + 4);
+        ei = ei + 1;
+    }
+    ei = 0;
+    eu = 0;
+    while ei < ecn {
+        etarget = e_at + 2 + quintuple(ei);
+        if !in_frame(word(etarget + 3), word(etarget + 4)) {
+            st = OUT_OF_RANGE;
+            ret;
+        }
+        g0 = word(etarget + 3);
+        g1 = STAGE_AT + eu;
+        g2 = word(etarget + 4);
+        call be_slot_copy;
+        eu = eu + word(etarget + 4);
+        ei = ei + 1;
+    }
+    etarget = word(e_at);
+    enext = NO_INSTRUCTION;
+    if etarget < count {
+        enext = load32(index + (etarget << 2));
+    }
+    if enext == NO_INSTRUCTION {
+        st = UNSUPPORTED;
+        ret;
+    }
+    if (e_last == 0) | (enext != (current + 1)) {
+        # an edge that goes back is where a loop can be stopped: the state is whole here
+        if (enext <= current) & (area != 0) & (safe != 0) {
+            call be_safe_point;
+        }
+        g0 = enext;
+        call be_jump;
+    }
+    st = 0;
+}
+
+# The instruction at `pc`, written where the code is now.
+proc compile_instruction {
+    ik = word(pc);
+    st = 0;
+    switch ik {
+        case RXF_OP_CALL: {
+            call compile_call;
+        }
+        case RXF_OP_MOVE: {
+            ihb = word(pc + 5);
+            if word(pc + 2) < ihb { ihb = word(pc + 2); }
+            if !in_frame(word(pc + 1), word(pc + 2)) {
+                st = OUT_OF_RANGE;
+                ret;
+            }
+            operand(pc + 3);
+            nd = ihb;
+            call check;
+            if st == 0 {
+                g0 = word(pc + 1);
+                g1 = word(pc + 2);
+                g2 = ihb;
+                call be_move;
+            }
+        }
+        case RXF_OP_MAP: {
+            ihb = word(pc + 5);
+            if word(pc + 2) < ihb { ihb = word(pc + 2); }
+            if (!in_frame(word(pc + 1), word(pc + 2))) | !in_frame(word(pc + 1) + word(pc + 6), 4) {
+                st = OUT_OF_RANGE;
+                ret;
+            }
+            operand(pc + 3);
+            nd = ihb;
+            call check;
+            if st != 0 { ret; }
+            g0 = word(pc + 1);
+            g1 = word(pc + 2);
+            g2 = ihb;
+            call be_move;
+            inn = word(pc + 7);
+            if inn != 0 {
+                # the first pair that has the status wins: the pairs from the last, each looking at
+                # the status as it was
+                ok = SLOT;
+                oa = word(pc + 1) + word(pc + 6);
+                ob = 4;
+                vw = 0;
+                call value_check;
+                if st != 0 { ret; }
+                call be_value;
+                ii = inn;
+                while ii > 0 {
+                    if (word(pc + 6 + (ii << 1)) >> 32) == 0 {
+                        g0 = word(pc + 6 + (ii << 1));
+                        call be_if_tag;
+                        ipatch = R;
+                        ok = LITERAL;
+                        oa = word(pc + 7 + (ii << 1)) & 0xFFFFFFFF;
+                        ob = 4;
+                        g0 = word(pc + 1) + word(pc + 6);
+                        g1 = 4;
+                        g2 = 4;
+                        call be_move;
+                        g0 = ipatch;
+                        call be_if_end;
+                    }
+                    ii = ii - 1;
+                }
+            }
+        }
+        case RXF_OP_FIELD: {
+            if (word(pc + 7) > word(pc + 2)) | !in_frame(word(pc + 1), word(pc + 2)) {
+                st = OUT_OF_RANGE;
+                ret;
+            }
+            if (word(pc + 6) >> 32) != 0 {
+                st = OUT_OF_RANGE;
+                ret;
+            }
+            operand(pc + 3);
+            nd = word(pc + 6) + word(pc + 7);
+            call check;
+            if st != 0 { ret; }
+            # the bytes from `offset`, as an operand of their own
+            ob = word(pc + 7);
+            if ok == SLOT {
+                oa = oa + word(pc + 6);
+            } else if ok == OBJECT {
+                ooff = word(pc + 6);
+            } else if word(pc + 6) < 8 {
+                oa = oa >> (word(pc + 6) << 3);
+            } else {
+                oa = 0;
+            }
+            g0 = word(pc + 1);
+            g1 = word(pc + 2);
+            g2 = word(pc + 7);
+            call be_move;
+        }
+        case RXF_OP_CONSTRUCT: {
+            if (!in_frame(word(pc + 1), word(pc + 2))) | !in_frame(word(pc + 1) + word(pc + 3), 4) |
+               (word(pc + 9) > word(pc + 2)) | (word(pc + 8) > (word(pc + 2) - word(pc + 9))) {
+                st = OUT_OF_RANGE;
+                ret;
+            }
+            ihb = word(pc + 9);
+            if word(pc + 7) < ihb { ihb = word(pc + 7); }
+            operand(pc + 5);
+            nd = ihb;
+            call check;
+            if st != 0 { ret; }
+            g0 = word(pc + 1);
+            g1 = word(pc + 2);
+            call be_zero;
+            ok = LITERAL;
+            oa = word(pc + 4) & 0xFFFFFFFF;
+            ob = 4;
+            g0 = word(pc + 1) + word(pc + 3);
+            g1 = 4;
+            g2 = 4;
+            call be_move;
+            operand(pc + 5);
+            g0 = word(pc + 1) + word(pc + 8);
+            g1 = ihb;
+            g2 = ihb;
+            call be_move;
+        }
+        case RXF_OP_LESS: {
+            if !in_frame(word(pc + 1), 1) {
+                st = OUT_OF_RANGE;
+                ret;
+            }
+            operand(pc + 2);
+            vw = 0;
+            call value_check;
+            if st != 0 { ret; }
+            call be_less_begin;
+            g0 = 0;
+            call be_less_value;
+            operand(pc + 5);
+            vw = 0;
+            call value_check;
+            if st != 0 { ret; }
+            g0 = 1;
+            call be_less_value;
+            g0 = word(pc + 1);
+            call be_less_end;
+        }
+        case RXF_OP_INCREMENT: {
+            if !in_frame(word(pc + 1), word(pc + 2)) {
+                st = OUT_OF_RANGE;
+                ret;
+            }
+            operand(pc + 3);
+            vw = 0;
+            call value_check;
+            if st != 0 { ret; }
+            ihb = word(pc + 2);
+            if ihb == 0 { ret; }
+            ii = ihb;
+            if ii > 8 { ii = 8; }
+            if ((ihb != 1) & (ihb != 2) & (ihb != 4) & (ihb < 8)) | ((word(pc + 1) & (ii - 1)) != 0) {
+                st = UNSUPPORTED;
+                ret;
+            }
+            g0 = word(pc + 1);
+            g1 = ihb;
+            call be_increment;
+        }
+        case RXF_OP_GOTO: {
+            ea = pc + 1;
+            el = 1;
+            call compile_edge;
+        }
+        case RXF_OP_BRANCH: {
+            operand(pc + 1);
+            vw = 0;
+            call value_check;
+            if st != 0 { ret; }
+            ifirst = pc + 5;
+            eat = ifirst;
+            call edge_size;
+            if st != 0 { ret; }
+            iwords = ew;
+            call be_value;
+            # the first edge is taken when (value == 0) == (mode == ZERO)
+            g0 = word(pc + 4) == RXF_MODE_ZERO;
+            call be_if_zero;
+            ipatch = R;
+            ea = ifirst;
+            el = 0;
+            call compile_edge;
+            if st != 0 { ret; }
+            g0 = ipatch;
+            call be_if_else;
+            ea = ifirst + iwords;
+            el = 1;
+            call compile_edge;
+            call be_if_else_end;
+        }
+        case RXF_OP_SWITCH: {
+            operand(pc + 1);
+            vw = 0;
+            call value_check;
+            if st != 0 { ret; }
+            call be_value;
+            inn = word(pc + 4);
+            iat = pc + 5 + inn;
+            ii = 0;
+            while ii < inn {
+                g0 = word(pc + 5 + ii);
+                call be_if_tag;
+                ipatch = R;
+                ea = iat;
+                el = 0;
+                call compile_edge;
+                if st != 0 { ret; }
+                g0 = ipatch;
+                call be_if_end;
+                eat = iat;
+                call edge_size;
+                if st != 0 { ret; }
+                iat = iat + ew;
+                ii = ii + 1;
+            }
+            ea = iat;
+            el = 1;
+            call compile_edge;
+        }
+        case RXF_OP_RETURN: {
+            operand(pc + 1);
+            if word(pc + 4) > 8 {
+                nd = word(pc + 4);
+                call check;
+            } else {
+                vw = 0;
+                call value_check;
+            }
+            if st == 0 {
+                g0 = word(pc + 4);
+                call be_return;
+            }
+        }
+        case RXF_OP_REFUSE: {
+            operand(pc + 1);
+            vw = 0;
+            call value_check;
+            if st == 0 { call be_refuse; }
+        }
+        default: {
+            st = UNSUPPORTED;
+        }
+    }
+}
+
+# One pass over the whole program: the prologue, the parameters, every instruction.
+proc compile_pass {
+    size = 0;
+    nest = 0;
+    failed = 0;
+    g0 = nwords;
+    call be_begin;
+    cpu = 0;
+    cpi = 0;
+    while cpi < nparams {
+        cps = word(5 + (cpi << 1));
+        cpw = word(6 + (cpi << 1));
+        if (!in_frame(cps, cpw)) | (cpw > ((nwords << 3) - cpu)) {
+            at = 0;
+            st = OUT_OF_RANGE;
+            ret;
+        }
+        g0 = cps;
+        g1 = cpw;
+        g2 = cpu;
+        call be_param;
+        cpu = cpu + ((cpw + 7) & ~7);
+        cpi = cpi + 1;
+    }
+    call be_dispatch;
+    pc = entry;
+    cpi = 0;
+    while cpi < ninstr {
+        current = cpi;
+        store32(offset + (cpi << 2), size);
+        call isz;
+        call be_enter;
+        cps = wd;
+        call compile_instruction;
+        if st != 0 {
+            at = pc;
+            ret;
+        }
+        pc = pc + cps;
+        cpi = cpi + 1;
+    }
+    call be_tail;
+    st = 0;
+}
+
+# The operations of a machine, by machine.
+proc be_begin {
+    switch machine {
+        case X86_64: { call x_begin; }
+        case AARCH64: { call a_begin; }
+        default: { call w_begin; }
+    }
+}
+
+proc be_param {
+    switch machine {
+        case X86_64: { call x_param; }
+        case AARCH64: { call a_param; }
+        default: { call w_param; }
+    }
+}
+
+proc be_move {
+    switch machine {
+        case X86_64: { call x_move; }
+        case AARCH64: { call a_move; }
+        default: { call w_move; }
+    }
+}
+
+proc be_zero {
+    switch machine {
+        case X86_64: { call x_zero_slot; }
+        case AARCH64: { call a_zero_slot; }
+        default: { call w_zero_slot; }
+    }
+}
+
+proc be_slot_copy {
+    switch machine {
+        case X86_64: { call x_slot_copy; }
+        case AARCH64: { call a_slot_copy; }
+        default: { call w_slot_copy; }
+    }
+}
+
+# dst (one byte) = a < b, unsigned: the beginning, the two values (g0 is 0 or 1), the end (g0 is dst)
+proc be_less_begin {
+    if machine == WASM32 { call w_less_begin; }
+}
+
+proc be_less_value {
+    switch machine {
+        case X86_64: { call x_less_value; }
+        case AARCH64: { call a_less_value; }
+        default: { call w_less_value; }
+    }
+}
+
+proc be_less_end {
+    switch machine {
+        case X86_64: { call x_less_end; }
+        case AARCH64: { call a_less_end; }
+        default: { call w_less_end; }
+    }
+}
+
+# dst (g0) of g1 bytes = the operand + 1
+proc be_increment {
+    switch machine {
+        case X86_64: { call x_increment; }
+        case AARCH64: { call a_increment; }
+        default: { call w_increment; }
+    }
+}
+
+proc be_call {
+    switch machine {
+        case X86_64: { call x_call; }
+        case AARCH64: { call a_call; }
+        default: { call w_call; }
+    }
+}
+
+proc be_return {
+    switch machine {
+        case X86_64: { call x_return; }
+        case AARCH64: { call a_return; }
+        default: { call w_return; }
+    }
+}
+
+proc be_refuse {
+    switch machine {
+        case X86_64: { call x_refuse; }
+        case AARCH64: { call a_refuse; }
+        default: { call w_refuse; }
+    }
+}
+
+proc be_value {
+    switch machine {
+        case X86_64: { call x_set_value; }
+        case AARCH64: { call a_set_value; }
+        default: { call w_set_value; }
+    }
+}
+
+proc be_if_zero {
+    switch machine {
+        case X86_64: { call x_if_zero; }
+        case AARCH64: { call a_if_zero; }
+        default: { call w_if_zero; }
+    }
+}
+
+proc be_if_tag {
+    switch machine {
+        case X86_64: { call x_if_tag; }
+        case AARCH64: { call a_if_tag; }
+        default: { call w_if_tag; }
+    }
+}
+
+proc be_if_else {
+    switch machine {
+        case X86_64: { call x_if_end; }
+        case AARCH64: { call a_if_end; }
+        default: { call w_if_else; }
+    }
+}
+
+proc be_if_end {
+    switch machine {
+        case X86_64: { call x_if_end; }
+        case AARCH64: { call a_if_end; }
+        default: { call w_if_end; }
+    }
+}
+
+proc be_if_else_end {
+    if machine == WASM32 { call w_if_else_end; }
+}
+
+proc be_dispatch {
+    if machine == WASM32 { call w_dispatch; }
+}
+
+proc be_enter {
+    if machine == WASM32 { call w_enter; }
+}
+
+proc be_jump {
+    switch machine {
+        case X86_64: { call x_jump; }
+        case AARCH64: { call a_jump; }
+        default: { call w_jump; }
+    }
+}
+
+proc be_safe_point {
+    switch machine {
+        case X86_64: { call x_safe_point; }
+        case AARCH64: { call a_safe_point; }
+        default: { call w_safe_point; }
+    }
+}
+
+proc be_tail {
+    switch machine {
+        case X86_64: { call x_tail; }
+        case AARCH64: { call a_tail; }
+        default: { call w_tail; }
+    }
+}

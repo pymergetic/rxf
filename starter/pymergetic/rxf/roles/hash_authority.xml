@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="hash_authority" flags="ModuleFlags.Namespace">
+    <Role name="BucketStateType" />
+    <Role name="HashAlgorithm" />
+    <Role name="MapBucketType" />
+    <Role name="MapType" />
+    <Role name="SetBucketType" />
+    <Role name="SetType" />
+  </Module>
+</delta>

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="traits" category="ModuleCategory.Schema">
+    <Alias name="kinds" target="pymergetic.rxf.kinds" />
+    <Type name="AssociatedType" form="Form.Struct" size="16" align="4" flags="TypeFlags.SelfDescribing">
+      <Field name="flags" value_type="uint32_t" offset="4" />
+      <Field name="index" value_type="uint32_t" />
+    </Type>
+    <Type name="Conformance" form="Form.Struct" size="32" align="8" flags="TypeFlags.SelfDescribing">
+      <Field name="binding_count" value_type="uint32_t" offset="16" />
+      <Field name="bindings" flags="FieldFlags.Children" value_type="pymergetic.rxf.model.traits.ImplementationBinding" />
+      <Field name="conforming_type" flags="FieldFlags.Ref" value_type="uint64_t" offset="8" />
+      <Field name="flags" value_type="uint32_t" offset="20" />
+      <Field name="trait" flags="FieldFlags.Ref" value_type="uint64_t" />
+    </Type>
+    <Type name="ImplementationBinding" form="Form.Struct" size="24" align="8" flags="TypeFlags.SelfDescribing">
+      <Field name="implementation" flags="FieldFlags.Ref" value_type="uint64_t" offset="8" />
+      <Field name="kind" value_type="@kinds.BindingKind" offset="16" />
+      <Field name="requirement" flags="FieldFlags.Ref" value_type="uint64_t" />
+    </Type>
+    <Type name="Trait" form="Form.Struct" size="16" align="4" flags="TypeFlags.SelfDescribing">
+      <Field name="associated_type_count" value_type="uint32_t" offset="4" />
+      <Field name="associated_types" flags="FieldFlags.Children" value_type="pymergetic.rxf.model.traits.AssociatedType" />
+      <Field name="flags" value_type="uint32_t" offset="12" />
+      <Field name="requirement_count" value_type="uint32_t" />
+      <Field name="requirements" flags="FieldFlags.Children" value_type="pymergetic.rxf.model.traits.TraitRequirement" />
+      <Field name="supertrait_count" value_type="uint32_t" offset="8" />
+    </Type>
+    <Type name="TraitRequirement" form="Form.Struct" size="24" align="8" flags="TypeFlags.SelfDescribing">
+      <Field name="function" flags="FieldFlags.Ref" value_type="uint64_t" />
+      <Field name="index" value_type="uint32_t" offset="8" />
+      <Field name="kind" value_type="@kinds.TraitRequirementKind" offset="12" />
+    </Type>
+  </Module>
+</delta>

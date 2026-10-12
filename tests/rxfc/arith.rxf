@@ -1,0 +1,15 @@
+# operators, constants folded at compile time, comparisons, unary forms
+const MASK = (1 << 32) - 1;
+const BIG = 3 * 1000 + 7;
+
+program arith(a, b) {
+    var r, s;
+    r = a + b;
+    r = r - 1;
+    r = (r << 3) | 5;
+    r = r & ~0;
+    s = (a == b) + (a < b) * 2 + (a > b) * 4 + (a <= b) * 8 + (a >= b) * 16 + (a != b) * 32;
+    r = r + (s << 40);
+    r = r + (-a) + !a + BIG + (MASK >> 28);
+    return r;
+}

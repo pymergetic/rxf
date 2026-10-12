@@ -1,0 +1,32 @@
+# procs: statements that are run from several places, with a stack of ways back in memory;
+# a proc may call another, and itself
+program procs(n, cut, stack, out) {
+    var sp, x, y, depth;
+    sp = stack;
+    x = n;
+    y = 0;
+    call twice;
+    call twice;
+    depth = 0;
+    call down;
+    store64(out, depth);
+    call twice;
+    if x > cut { return x + y; }
+    return load64(out) * 8 + x + y;
+}
+
+proc twice {
+    x = x + x;
+    y = y + 1;
+    if x > 1000 { ret; }
+    call inc;
+}
+
+proc inc {
+    y = y + 100;
+}
+
+proc down {
+    depth = depth + 1;
+    if depth < 5 { call down; }
+}

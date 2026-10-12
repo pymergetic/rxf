@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="foundation" category="ModuleCategory.Library">
+    <Alias name="contract" target="pymergetic.rxf.roles.contract" />
+    <Alias name="foundation" target="pymergetic.rxf.foundation" />
+    <Alias name="kinds" target="pymergetic.rxf.kinds" />
+    <Type name="NativeTransaction" form="Form.Struct" size="48" align="8" />
+    <RefusalSet name="StdlibRefusals" variant_count="11">
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@foundation.overflow" />
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@foundation.division_by_zero" />
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@foundation.shift_count" />
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@foundation.non_finite" />
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@foundation.inexact" />
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@foundation.out_of_range" />
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@foundation.alignment" />
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@foundation.invalid_utf8" />
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@foundation.out_of_memory" />
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@foundation.borrow_conflict" />
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@foundation.pinned" />
+    </RefusalSet>
+    <RefusalVariant name="alignment" code="@kinds.RefusalCode.Alignment" />
+    <RefusalVariant name="borrow_conflict" code="@kinds.RefusalCode.BorrowConflict" />
+    <RefusalVariant name="division_by_zero" code="@kinds.RefusalCode.DivisionByZero" />
+    <RefusalVariant name="inexact" code="@kinds.RefusalCode.Inexact" />
+    <RefusalVariant name="invalid_utf8" code="@kinds.RefusalCode.InvalidUtf8" />
+    <RefusalVariant name="non_finite" code="@kinds.RefusalCode.NonFinite" />
+    <RefusalVariant name="out_of_memory" code="@kinds.RefusalCode.OutOfMemory" />
+    <RefusalVariant name="out_of_range" code="@kinds.RefusalCode.OutOfRange" />
+    <RefusalVariant name="overflow" code="@kinds.RefusalCode.Overflow" />
+    <RefusalVariant name="pinned" code="@kinds.RefusalCode.Pinned" />
+    <RefusalVariant name="shift_count" code="@kinds.RefusalCode.ShiftCount" />
+  </Module>
+</delta>

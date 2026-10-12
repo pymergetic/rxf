@@ -1,0 +1,52 @@
+# The bytes of the code: put one, put a value of `n` bytes, patch four that were written before.
+# Both passes write the same, the first only counts (`write` is 0).
+
+# A is the byte
+proc put {
+    if write != 0 {
+        if size < cap {
+            store8(buf + size, A);
+        } else {
+            failed = 1;
+        }
+    }
+    size = size + 1;
+}
+
+# V is the value, N the number of bytes (little endian)
+proc put_n {
+    while N != 0 {
+        A = V & 255;
+        call put;
+        V = V >> 8;
+        N = N - 1;
+    }
+}
+
+# g0 is where, g1 the value of 32 bits
+proc patch32 {
+    u0 = g0;
+    u1 = g1;
+    if write != 0 {
+        if (u0 + 4) <= cap {
+            store8(buf + u0, u1 & 255);
+            store8(buf + u0 + 1, (u1 >> 8) & 255);
+            store8(buf + u0 + 2, (u1 >> 16) & 255);
+            store8(buf + u0 + 3, (u1 >> 24) & 255);
+        }
+    }
+}
+
+# the size of the next piece of a copy: g0 bytes left, from g1 to g2; whole words where both ends
+# are aligned. R is the size.
+proc pick {
+    u0 = g1 | g2;
+    R = 1;
+    if (g0 >= 8) & ((u0 & 7) == 0) {
+        R = 8;
+    } else if (g0 >= 4) & ((u0 & 3) == 0) {
+        R = 4;
+    } else if (g0 >= 2) & ((u0 & 1) == 0) {
+        R = 2;
+    }
+}

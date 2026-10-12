@@ -1,0 +1,50 @@
+# The C++ core: build, test, and run the same tests under AddressSanitizer and UBSan.
+
+name: Core
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Core tests (${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Native toolchain (the snippets are compiled and run in the tests)
+        run: sudo apt-get install -y clang-18 clang-format-18 lld-18 nodejs
+      - name: Build and install
+        run: pip install -e ".[test]" --no-build-isolation scikit-build-core nanobind setuptools-scm cmake ninja
+      - name: Core tests
+        run: pytest tests
+
+  sanitize:
+    name: AddressSanitizer and UBSan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Tools
+        run: pip install pytest fire fastapi scikit-build-core nanobind setuptools-scm cmake ninja
+      - name: Sanitized core tests
+        run: |
+          pip install -e . --no-build-isolation
+          python tools/sanitize.py

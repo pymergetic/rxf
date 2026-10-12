@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="execution" category="ModuleCategory.Library">
+    <Alias name="kinds" target="pymergetic.rxf.kinds" />
+    <Type name="ABI" form="Form.Struct" size="24" align="8" flags="TypeFlags.SelfDescribing">
+      <Field name="architecture" flags="FieldFlags.Ref" value_type="uint64_t" offset="16" />
+      <Field name="calling_convention" value_type="@kinds.CallingConvention" offset="8" />
+      <Field name="flags" value_type="uint32_t" offset="12" />
+      <Field name="kind" value_type="@kinds.AbiKind" />
+      <Field name="version" value_type="uint32_t" offset="4" />
+    </Type>
+    <Type name="ABISignature" form="Form.Struct" size="24" align="8" flags="TypeFlags.Variable">
+      <Field name="class_count" value_type="uint32_t" offset="12" />
+      <Field name="kind" value_type="@kinds.AbiKind" offset="8" />
+      <Field name="location_count" value_type="uint32_t" offset="20" />
+      <Field name="locations" flags="FieldFlags.Children" value_type="pymergetic.rxf.model.ABIValueLocation" />
+      <Field name="output_class" value_type="uint32_t" offset="16" />
+      <Field name="target" flags="FieldFlags.Ref" value_type="uint64_t" />
+    </Type>
+    <Type name="Architecture" form="Form.Struct" size="16" align="8" flags="TypeFlags.SelfDescribing">
+      <Field name="endianness" value_type="@kinds.Endianness" offset="8" />
+      <Field name="flags" value_type="uint32_t" offset="12" />
+      <Field name="kind" value_type="@kinds.ArchitectureKind" />
+      <Field name="word_bits" value_type="uint32_t" offset="4" />
+    </Type>
+    <Type name="Argument" form="Form.Struct" size="16" align="8">
+      <Field name="parameter" flags="FieldFlags.Ref" value_type="uint64_t" />
+      <Field name="value" flags="FieldFlags.Ref" value_type="uint64_t" offset="8" />
+    </Type>
+    <Type name="Call" form="Form.Expression" size="24" align="8">
+      <Field name="argument_count" value_type="uint64_t" offset="8" />
+      <Field name="arguments" flags="FieldFlags.Children" value_type="pymergetic.rxf.execution.Argument" />
+      <Field name="callee" flags="FieldFlags.Ref" value_type="uint64_t" />
+      <Field name="result_type" flags="FieldFlags.Ref" value_type="uint64_t" offset="16" />
+    </Type>
+    <Type name="CapabilityRequirement" form="Form.Struct" size="72" align="8" flags="TypeFlags.Variable|SelfDescribing">
+      <Field name="effects" value_type="@kinds.Effects" offset="12" />
+      <Field name="environment_count" value_type="uint32_t" offset="20" />
+      <Field name="kind" value_type="@kinds.CapabilityKind" />
+      <Field name="policy_size" value_type="uint32_t" offset="24" />
+      <Field name="refusal_set" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="64" />
+      <Field name="rights" value_type="@kinds.CapabilityRights" offset="8" />
+      <Field name="semantic_digest" value_type="uint8_t" offset="28" count="32" />
+      <Field name="target_count" value_type="uint32_t" offset="16" />
+      <Field name="version" value_type="uint32_t" offset="4" />
+    </Type>
+    <Type name="CfgBlock" form="Form.Execution" align="1" />
+    <Type name="CfgOp" form="Form.Execution" align="1" />
+    <Type name="Code" form="Form.Opaque" size="64" align="1" flags="TypeFlags.Variable" node_kind="NodeKind.Code">
+      <Field name="byte_count" value_type="uint64_t" offset="48" />
+      <Field name="effects" value_type="@kinds.Effects" offset="28" />
+      <Field name="entry_offset" value_type="uint64_t" offset="40" />
+      <Field name="flags" value_type="uint32_t" offset="36" />
+      <Field name="format" value_type="@kinds.CodeFormat" offset="24" />
+      <Field name="owner_function" flags="FieldFlags.Ref" value_type="uint64_t" />
+      <Field name="runtime_target" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="8" />
+      <Field name="semantic_digest" value_type="uint8_t" offset="56" count="32" />
+      <Field name="semantic_version" value_type="uint32_t" offset="32" />
+      <Field name="signature" flags="FieldFlags.Ref" value_type="uint64_t" offset="16" />
+    </Type>
+    <Type name="CompilerProvenance" form="Form.Struct" size="40" align="8">
+      <Field name="compiler_major" value_type="uint32_t" />
+      <Field name="recipe_digest" value_type="uint8_t" offset="8" count="32" />
+    </Type>
+    <Type name="Environment" form="Form.Struct" size="16" align="8" flags="TypeFlags.SelfDescribing">
+      <Field name="flags" value_type="uint32_t" offset="8" />
+      <Field name="kind" value_type="@kinds.EnvironmentKind" />
+      <Field name="version" value_type="uint32_t" offset="4" />
+    </Type>
+    <Type name="Feature" form="Form.Struct" size="24" align="8" flags="TypeFlags.SelfDescribing">
+      <Field name="architecture" flags="FieldFlags.Ref" value_type="uint64_t" offset="16" />
+      <Field name="flags" value_type="uint32_t" offset="8" />
+      <Field name="kind" value_type="@kinds.FeatureKind" />
+      <Field name="version" value_type="uint32_t" offset="4" />
+    </Type>
+    <Type name="FeatureSet" form="Form.Struct" size="8" align="4" flags="TypeFlags.SelfDescribing">
+      <Field name="count" value_type="uint32_t" />
+      <Field name="flags" value_type="uint32_t" offset="4" />
+    </Type>
+    <Type name="Function" form="Form.Struct" size="72" align="8" node_kind="NodeKind.Fn">
+      <Field name="body" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="24" />
+      <Field name="effects" value_type="@kinds.Effects" offset="8" />
+      <Field name="implementation" value_type="@kinds.FunctionImplementation" />
+      <Field name="implementations" flags="FieldFlags.Children" value_type="pymergetic.rxf.execution.Code" />
+      <Field name="intrinsic" value_type="@kinds.Intrinsic" offset="32" />
+      <Field name="layer" value_type="@kinds.FunctionLayer" offset="4" />
+      <Field name="semantic_digest" value_type="uint8_t" offset="40" count="32" />
+      <Field name="semantic_version" value_type="uint32_t" offset="12" />
+      <Field name="signature" flags="FieldFlags.Ref" value_type="uint64_t" offset="16" />
+    </Type>
+    <Type name="Import" form="Form.Struct" size="24" align="8" node_kind="NodeKind.Import">
+      <Field name="function" flags="FieldFlags.Ref" value_type="uint64_t" />
+      <Field name="optional" value_type="uint32_t" offset="8" />
+      <Field name="requirement" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="16" />
+    </Type>
+    <Type name="NumericContract" form="Form.Struct" size="40" align="8">
+      <Field name="destination_type" flags="FieldFlags.Ref" value_type="uint64_t" offset="24" />
+      <Field name="operation" value_type="@kinds.NumericOperation" />
+      <Field name="policy" value_type="@kinds.NumericPolicy" offset="4" />
+      <Field name="signed" value_type="uint32_t" offset="12" />
+      <Field name="source_type" flags="FieldFlags.Ref" value_type="uint64_t" offset="16" />
+      <Field name="width" value_type="uint32_t" offset="8" />
+    </Type>
+    <Type name="Parameter" form="Form.Struct" size="24" align="8">
+      <Field name="index" value_type="uint64_t" offset="8" />
+      <Field name="lazy" value_type="uint32_t" offset="16" />
+      <Field name="value_type" flags="FieldFlags.Ref" value_type="uint64_t" />
+    </Type>
+    <Type name="RefusalSet" form="Form.Struct" size="8" align="4">
+      <Field name="variant_count" value_type="uint32_t" />
+    </Type>
+    <Type name="RefusalVariant" form="Form.Struct" size="8" align="4">
+      <Field name="code" value_type="@kinds.RefusalCode" />
+    </Type>
+    <Type name="Relocation" form="Form.Struct" size="32" align="8">
+      <Field name="addend" value_type="int64_t" offset="24" />
+      <Field name="kind" value_type="uint32_t" offset="8" />
+      <Field name="offset" value_type="uint64_t" />
+      <Field name="patch_width" value_type="uint32_t" offset="12" />
+      <Field name="target" flags="FieldFlags.Ref" value_type="uint64_t" offset="16" />
+    </Type>
+    <Type name="Result" form="Form.Struct" size="16" align="8">
+      <Field name="index" value_type="uint32_t" offset="8" />
+      <Field name="value_type" flags="FieldFlags.Ref" value_type="uint64_t" />
+    </Type>
+    <Type name="RuntimeTarget" form="Form.Struct" size="40" align="8" flags="TypeFlags.SelfDescribing">
+      <Field name="abi" flags="FieldFlags.Ref" value_type="uint64_t" offset="8" />
+      <Field name="architecture" flags="FieldFlags.Ref" value_type="uint64_t" />
+      <Field name="environment" flags="FieldFlags.Ref" value_type="uint64_t" offset="16" />
+      <Field name="feature_set" flags="FieldFlags.Ref" value_type="uint64_t" offset="24" />
+      <Field name="flags" value_type="uint32_t" offset="32" />
+    </Type>
+    <Type name="Signature" form="Form.Function" size="32" align="8">
+      <Field name="parameter_count" value_type="uint64_t" offset="8" />
+      <Field name="parameters" flags="FieldFlags.Children" value_type="pymergetic.rxf.execution.Parameter" />
+      <Field name="refusal_set" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="24" />
+      <Field name="result_count" value_type="uint64_t" offset="16" />
+      <Field name="results" flags="FieldFlags.Children" value_type="pymergetic.rxf.execution.Result" />
+      <Field name="return_type" flags="FieldFlags.Ref" value_type="uint64_t" />
+    </Type>
+    <Type name="Target" form="Form.Struct" size="24" align="4">
+      <Field name="abi" value_type="uint32_t" offset="8" />
+      <Field name="architecture" value_type="uint32_t" />
+      <Field name="endianness" value_type="uint32_t" offset="16" />
+      <Field name="environment" value_type="uint32_t" offset="4" />
+      <Field name="features" value_type="uint32_t" offset="20" />
+      <Field name="word_bits" value_type="uint32_t" offset="12" />
+    </Type>
+    <Type name="Value" form="Form.Expression" size="24" align="8" flags="TypeFlags.Variable">
+      <Field name="kind" value_type="@kinds.ValueKind" offset="8" />
+      <Field name="size" value_type="uint64_t" offset="16" />
+      <Field name="value_type" flags="FieldFlags.Ref" value_type="uint64_t" />
+    </Type>
+    <Type name="ValueReference" form="Form.Expression" size="32" align="8">
+      <Field name="kind" value_type="@kinds.ValueKind" offset="8" />
+      <Field name="size" value_type="uint64_t" offset="16" />
+      <Field name="target" flags="FieldFlags.Ref" value_type="uint64_t" offset="24" />
+      <Field name="value_type" flags="FieldFlags.Ref" value_type="uint64_t" />
+    </Type>
+  </Module>
+</delta>

@@ -1,0 +1,667 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="flow" category="ModuleCategory.Library">
+    <Alias name="flow" target="pymergetic.rxf.stdlib.flow" />
+    <Alias name="foundation" target="pymergetic.rxf.foundation" />
+    <Alias name="kinds" target="pymergetic.rxf.kinds" />
+    <Alias name="refusal_transform" target="pymergetic.rxf.roles.refusal_transform" />
+    <Alias name="runtime" target="pymergetic.rxf.foundation.runtime" />
+    <Alias name="semantic" target="pymergetic.rxf.roles.semantic" />
+    <Alias name="stdlib" target="pymergetic.rxf.roles.stdlib" />
+    <Alias name="types" target="pymergetic.rxf.stdlib.types" />
+    <Function name="catch_refusal" implementation="@kinds.FunctionImplementation.Semantic" layer="@kinds.FunctionLayer.Library" semantic_version="1" signature="@flow.catch_refusal.signature" body="@flow.catch_refusal.semantic_graph_compatibility_entry" semantic_digest="2254e08ad991fd79eb908ac41ec94605aa3c9987e1254a7bfbee4447f3363ca0">
+      <Code name="bytecode" owner_function="@flow.catch_refusal" signature="@flow.catch_refusal.signature" format="@kinds.CodeFormat.Bytecode" semantic_version="1" byte_count="1056" semantic_digest="2254e08ad991fd79eb908ac41ec94605aa3c9987e1254a7bfbee4447f3363ca0" rxf:data="5258473100000000b00000000000000002000000000000000800000000000000090000000000000000000000000000001000000000000000100000000000000030000000000000000300000000000000400000000000000010000000000000000000000000000000000000000000000010000000000000000800000000000000010000000000000008000000000000000800000000000000040000000000000050000000000000000400000000000000000000000000000000000000000000001000000000000000000000000000000004000000000000000400000000000000580000000000000008000000000000000000000000000000000000000000000010000000000000000800000000000000080000000000000005000000000000006000000000000000100000000000000000000000000000000000000000000000000000000000000058000000000000000800000000000000080000000000000008000000000000000a000000000000000000000000000000600000000000000010000000000000000200000000000000000000000000000001000000000000004900000000000000010000000000000001000000000000000000000000000000080000000000000070000000000000000800000000000000510000000000000001000000000000000100000000000000000000000000000008000000000000007800000000000000080000000000000059000000000000000100000000000000010000000000000000000000000000000800000000000000800000000000000008000000000000000800000000000000590000000000000001000000000000000000000000000000700000000000000008000000000000008000000000000000080000000000000008000000000000005900000000000000010000000000000000000000000000007800000000000000080000000000000080000000000000000800000000000000010000000000000015000000000000000100000000000000ffffffffffffffff0000000000000000880000000000000000000000000000001000000000000000300000000000000009000000000000000000000000000000880000000000000004000000000000000000000000000000750000000000000001000000000000000000000000000000880000000000000004000000000000009000000000000000040000000000000080000000000000000100000000000000000000000000000088000000000000000400000000000000a80000000000000004000000000000000200000000000000980000000000000010000000000000000000000000000000000000000000000010000000000000000b0000000000000000000000000000009800000000000000100000000000000010000000000000000c000000000000000000000000000000a8000000000000000400000000000000">
+        <rxf:ref role="pymergetic.rxf.roles.call.Interpreter" kind="RefKind.Data" target="@foundation.graph.run" />
+      </Code>
+      <SemanticGraph name="catch_refusal_graph" function="@flow.catch_refusal" entry_block="@flow.catch_refusal.catch_refusal_graph.block[0]" refusal_set="@foundation.StdlibRefusals" output_type="@types.TypedResultU64U32" block_count="6" parameter_count="2" result_count="1">
+        <rxf:ref role="@semantic.ParameterValue" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.parameter[0]" />
+        <rxf:ref role="@semantic.ParameterValue" index="1" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.parameter[1]" />
+        <rxf:ref role="@semantic.GraphResultValue" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.block[3].return_value.return_value_result" />
+        <SemanticBlock name="block[0]" terminator="@kinds.Terminator.SwitchTag" operation_count="4" successor_count="3" case_count="2" successor_map_count="3" condition_value="@flow.catch_refusal.catch_refusal_graph.block[0].construct_result.construct_result_result" rxf:data="000000000000000000000000000000000100000000000000010000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.block[1]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.block[2]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.status[3]" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.block[0].branch_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="64" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.block[0].branch_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="128" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.block[0].branch_status" />
+          <SemanticValue name="branch_status" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.catch_refusal" owner_block="@flow.catch_refusal.catch_refusal_graph.block[0]" rxf:data="0000000000000000" />
+          <SemanticOperation name="construct_result" opcode="@kinds.Opcode.ConstructResult" index="3" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.catch_refusal.catch_refusal_graph.block[0].project_payload.project_payload_result" target_field="@types.TypedResultU64U32.ok_payload">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.block[0].construct_result.construct_result_result" />
+            <SemanticValue name="construct_result_result" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.catch_refusal" owner_block="@flow.catch_refusal.catch_refusal_graph.block[0]" owner_operation="@flow.catch_refusal.catch_refusal_graph.block[0].construct_result" />
+          </SemanticOperation>
+          <SemanticOperation name="map_refusal" opcode="@kinds.Opcode.MapRefusal" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.catch_refusal.catch_refusal_graph.parameter[0]" target_field="@types.TypedResultU64U32.err_payload" transform_authority="@flow.catch_refusal_mapping">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.block[0].map_refusal.map_refusal_result" />
+            <SemanticValue name="map_refusal_result" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.catch_refusal" owner_block="@flow.catch_refusal.catch_refusal_graph.block[0]" owner_operation="@flow.catch_refusal.catch_refusal_graph.block[0].map_refusal" />
+          </SemanticOperation>
+          <SemanticValue name="map_refusal_argument[0]" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.catch_refusal" owner_block="@flow.catch_refusal.catch_refusal_graph.block[0]" rxf:data="0100000000000000" />
+          <SemanticOperation name="project_payload" opcode="@kinds.Opcode.ProjectPayload" index="2" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.catch_refusal.catch_refusal_graph.parameter[0]" target_field="@types.TypedResultU64U32.ok_payload">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.block[0].project_payload.project_payload_result" />
+            <SemanticValue name="project_payload_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.catch_refusal" owner_block="@flow.catch_refusal.catch_refusal_graph.block[0]" owner_operation="@flow.catch_refusal.catch_refusal_graph.block[0].project_payload" />
+          </SemanticOperation>
+          <SemanticValue name="project_payload_argument[0]" value_type="uint32_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.catch_refusal" owner_block="@flow.catch_refusal.catch_refusal_graph.block[0]" rxf:data="0100000000000000" />
+          <SemanticOperation name="read_tag" opcode="@kinds.Opcode.ReadTag" index="1" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.catch_refusal.catch_refusal_graph.parameter[0]" target_field="@types.TypedResultU64U32.tag">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.block[0].read_tag.read_tag_result" />
+            <SemanticValue name="read_tag_result" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.catch_refusal" owner_block="@flow.catch_refusal.catch_refusal_graph.block[0]" owner_operation="@flow.catch_refusal.catch_refusal_graph.block[0].read_tag" />
+          </SemanticOperation>
+          <SemanticValue name="read_tag_argument[0]" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.catch_refusal" owner_block="@flow.catch_refusal.catch_refusal_graph.block[0]" rxf:data="0100000000000000" />
+        </SemanticBlock>
+        <SemanticBlock name="block[1]" index="1" terminator="@kinds.Terminator.Goto" predecessor_count="1" successor_count="1" parameter_type_count="1" successor_map_count="1" rxf:data="00000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.status[3]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.block[1].block_1_value" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.block[1].block_1_value" />
+          <SemanticValue name="block_1_value" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.catch_refusal" owner_block="@flow.catch_refusal.catch_refusal_graph.block[1]" />
+        </SemanticBlock>
+        <SemanticBlock name="block[2]" index="2" terminator="@kinds.Terminator.Goto" predecessor_count="1" successor_count="1" parameter_type_count="1" successor_map_count="1" rxf:data="00000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.status[3]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.block[2].block_2_value" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.block[2].block_2_value" />
+          <SemanticValue name="block_2_value" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.catch_refusal" owner_block="@flow.catch_refusal.catch_refusal_graph.block[2]" />
+        </SemanticBlock>
+        <SemanticBlock name="block[3]" index="4" terminator="@kinds.Terminator.Return" operation_count="1" predecessor_count="1" parameter_type_count="1" terminator_value="@flow.catch_refusal.catch_refusal_graph.block[3].return_value.return_value_result" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.block[3].successful_call_status" />
+          <SemanticOperation name="return_value" opcode="@kinds.Opcode.ReturnValue" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.catch_refusal.catch_refusal_graph.parameter[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.block[3].return_value.return_value_result" />
+            <SemanticValue name="return_value_result" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.catch_refusal" owner_block="@flow.catch_refusal.catch_refusal_graph.status[3]" owner_operation="@flow.catch_refusal.catch_refusal_graph.block[3].return_value" source="@flow.catch_refusal.signature.value" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.catch_refusal" owner_block="@flow.catch_refusal.catch_refusal_graph.block[3]" />
+        </SemanticBlock>
+        <SemanticValue name="parameter[0]" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.Parameter" owner_function="@flow.catch_refusal" owner_block="@flow.catch_refusal.catch_refusal_graph.block[0]" source="@flow.catch_refusal.signature.argument[0]" />
+        <SemanticValue name="parameter[1]" value_type="@foundation.NativeTransaction" kind="@kinds.ValueKind.Parameter" result_index="1" owner_function="@flow.catch_refusal" owner_block="@flow.catch_refusal.catch_refusal_graph.block[0]" source="@flow.catch_refusal.signature.argument[1]" />
+        <SemanticBlock name="primary_refusal" index="5" terminator="@kinds.Terminator.Refuse" predecessor_count="1" parameter_type_count="1" terminator_value="@flow.catch_refusal.catch_refusal_graph.primary_refusal.primary_refusal_status" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <SemanticValue name="primary_refusal_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.catch_refusal" owner_block="@flow.catch_refusal.catch_refusal_graph.primary_refusal" />
+        </SemanticBlock>
+        <SemanticBlock name="status[3]" index="3" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="3" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@flow.catch_refusal.catch_refusal_graph.status[3].cleanup.cleanup_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.block[3]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.primary_refusal" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.catch_refusal.catch_refusal_graph.status[3].block_3_value" />
+          <SemanticValue name="block_3_value" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.catch_refusal" owner_block="@flow.catch_refusal.catch_refusal_graph.status[3]" />
+          <SemanticOperation name="cleanup" opcode="@kinds.Opcode.Cleanup" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.cleanup" status_value="@flow.catch_refusal.catch_refusal_graph.status[3].cleanup.cleanup_status" target_object="@flow.catch_refusal.catch_refusal_graph.parameter[1]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <SemanticValue name="cleanup_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.catch_refusal" owner_block="@flow.catch_refusal.catch_refusal_graph.status[3]" owner_operation="@flow.catch_refusal.catch_refusal_graph.status[3].cleanup" />
+          </SemanticOperation>
+        </SemanticBlock>
+      </SemanticGraph>
+      <ValueReference name="compatibility_argument[0]" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.Parameter" size="8" target="@flow.catch_refusal.signature.argument[0]" />
+      <ValueReference name="compatibility_argument[1]" value_type="@foundation.NativeTransaction" kind="@kinds.ValueKind.Parameter" size="8" target="@flow.catch_refusal.signature.argument[1]" />
+      <Call name="semantic_graph_compatibility_entry" callee="@flow.catch_refusal" argument_count="2" result_type="@types.TypedResultU64U32">
+        <Argument name="compatibility_argument[0]" parameter="@flow.catch_refusal.signature.argument[0]" value="@flow.catch_refusal.compatibility_argument[0]" />
+        <Argument name="compatibility_argument[1]" parameter="@flow.catch_refusal.signature.argument[1]" value="@flow.catch_refusal.compatibility_argument[1]" />
+      </Call>
+      <Signature name="signature" return_type="@types.TypedResultU64U32" parameter_count="2" result_count="1" refusal_set="@foundation.StdlibRefusals">
+        <Parameter name="argument[0]" value_type="@types.TypedResultU64U32" />
+        <Parameter name="argument[1]" value_type="@foundation.NativeTransaction" index="1" />
+        <Result name="value" value_type="@types.TypedResultU64U32" />
+      </Signature>
+    </Function>
+    <StdlibRecord name="catch_refusal_contract" kind="@kinds.StdlibKind.Flow" flags="@kinds.StdlibFlags.Standard|Semantic" related_count="1" value_type="@types.TypedResultU64U32">
+      <rxf:ref role="@stdlib.Function" kind="RefKind.Data" target="@flow.catch_refusal" />
+    </StdlibRecord>
+    <RefusalMapping name="catch_refusal_mapping" default_policy="@kinds.RefusalPolicy.Propagate" entry_count="1">
+      <rxf:ref role="@refusal_transform.SourceSet" kind="RefKind.Data" target="@foundation.StdlibRefusals" />
+      <rxf:ref role="@refusal_transform.DestinationSet" kind="RefKind.Data" target="@foundation.StdlibRefusals" />
+      <RefusalMappingEntry name="invalid_utf8_to_invalid_utf8" source_status="@kinds.RefusalCode.InvalidUtf8" destination_status="@kinds.RefusalCode.InvalidUtf8">
+        <rxf:ref role="@refusal_transform.SourceVariant" kind="RefKind.Data" target="@foundation.invalid_utf8" />
+        <rxf:ref role="@refusal_transform.DestinationVariant" kind="RefKind.Data" target="@foundation.invalid_utf8" />
+      </RefusalMappingEntry>
+    </RefusalMapping>
+    <Function name="cleanup" implementation="@kinds.FunctionImplementation.Semantic" layer="@kinds.FunctionLayer.Library" semantic_version="1" signature="@flow.cleanup.signature" body="@flow.cleanup.semantic_graph_compatibility_entry" semantic_digest="866521efe8e71d36d167cd0aeb69fe18b7b65d3bade60ee9ad4a98def71aa1f0">
+      <Code name="bytecode" owner_function="@flow.cleanup" signature="@flow.cleanup.signature" format="@kinds.CodeFormat.Bytecode" semantic_version="1" byte_count="624" semantic_digest="866521efe8e71d36d167cd0aeb69fe18b7b65d3bade60ee9ad4a98def71aa1f0" rxf:data="5258473100000000600000000000000001000000000000000600000000000000070000000000000000000000000000003000000000000000010000000000000015000000000000000100000000000000ffffffffffffffff000000000000000030000000000000000000000000000000000000000000000030000000000000000900000000000000000000000000000030000000000000000400000000000000000000000000000023000000000000000100000000000000000000000000000030000000000000000400000000000000380000000000000004000000000000004a00000000000000010000000000000000000000000000003000000000000000040000000000000058000000000000000400000000000000010000000000000015000000000000000100000000000000ffffffffffffffff00000000000000004000000000000000000000000000000000000000000000003000000000000000090000000000000000000000000000004000000000000000040000000000000000000000000000003f000000000000000100000000000000000000000000000040000000000000000400000000000000480000000000000004000000000000004a000000000000000100000000000000000000000000000040000000000000000400000000000000580000000000000004000000000000000200000000000000500000000000000008000000000000000100000000000000000000000000000008000000000000000b0000000000000000000000000000005000000000000000080000000000000008000000000000000c00000000000000000000000000000058000000000000000400000000000000">
+        <rxf:ref role="pymergetic.rxf.roles.call.Interpreter" kind="RefKind.Data" target="@foundation.graph.run" />
+      </Code>
+      <SemanticGraph name="cleanup_graph" function="@flow.cleanup" entry_block="@flow.cleanup.cleanup_graph.status[0]" refusal_set="@foundation.StdlibRefusals" output_type="uint64_t" block_count="4" parameter_count="1" result_count="1">
+        <rxf:ref role="@semantic.ParameterValue" kind="RefKind.Data" target="@flow.cleanup.cleanup_graph.parameter[0]" />
+        <rxf:ref role="@semantic.GraphResultValue" kind="RefKind.Data" target="@flow.cleanup.cleanup_graph.block[0].return_value.return_value_result" />
+        <SemanticBlock name="block[0]" index="2" terminator="@kinds.Terminator.Return" operation_count="1" predecessor_count="1" parameter_type_count="1" terminator_value="@flow.cleanup.cleanup_graph.block[0].return_value.return_value_result" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.cleanup.cleanup_graph.block[0].successful_call_status" />
+          <SemanticOperation name="return_value" opcode="@kinds.Opcode.ReturnValue" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.cleanup.cleanup_graph.status[0].cleanup_success_value">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.cleanup.cleanup_graph.block[0].return_value.return_value_result" />
+            <SemanticValue name="return_value_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.cleanup" owner_block="@flow.cleanup.cleanup_graph.status[0]" owner_operation="@flow.cleanup.cleanup_graph.block[0].return_value" source="@flow.cleanup.signature.value" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.cleanup" owner_block="@flow.cleanup.cleanup_graph.block[0]" />
+        </SemanticBlock>
+        <SemanticValue name="parameter[0]" value_type="@foundation.NativeTransaction" kind="@kinds.ValueKind.Parameter" owner_function="@flow.cleanup" owner_block="@flow.cleanup.cleanup_graph.status[0]" source="@flow.cleanup.signature.argument[0]" />
+        <SemanticBlock name="primary_refusal" index="3" terminator="@kinds.Terminator.Refuse" predecessor_count="2" parameter_type_count="1" terminator_value="@flow.cleanup.cleanup_graph.primary_refusal.primary_refusal_status" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <SemanticValue name="primary_refusal_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.cleanup" owner_block="@flow.cleanup.cleanup_graph.primary_refusal" />
+        </SemanticBlock>
+        <SemanticBlock name="status[0]" terminator="@kinds.Terminator.Branch" operation_count="1" successor_count="2" successor_map_count="2" condition_value="@flow.cleanup.cleanup_graph.status[0].cleanup.cleanup_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.cleanup.cleanup_graph.status[1]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.cleanup.cleanup_graph.primary_refusal" />
+          <SemanticOperation name="cleanup" opcode="@kinds.Opcode.Cleanup" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.cleanup" status_value="@flow.cleanup.cleanup_graph.status[0].cleanup.cleanup_status" target_object="@flow.cleanup.cleanup_graph.parameter[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <SemanticValue name="cleanup_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.cleanup" owner_block="@flow.cleanup.cleanup_graph.status[0]" owner_operation="@flow.cleanup.cleanup_graph.status[0].cleanup" />
+          </SemanticOperation>
+          <SemanticValue name="cleanup_success_value" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.cleanup" owner_block="@flow.cleanup.cleanup_graph.status[0]" rxf:data="0000000000000000" />
+        </SemanticBlock>
+        <SemanticBlock name="status[1]" index="1" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="1" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@flow.cleanup.cleanup_graph.status[1].cleanup.cleanup_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.cleanup.cleanup_graph.block[0]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.cleanup.cleanup_graph.primary_refusal" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.cleanup.cleanup_graph.status[1].successful_call_status" />
+          <SemanticOperation name="cleanup" opcode="@kinds.Opcode.Cleanup" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.cleanup" status_value="@flow.cleanup.cleanup_graph.status[1].cleanup.cleanup_status" target_object="@flow.cleanup.cleanup_graph.parameter[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <SemanticValue name="cleanup_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.cleanup" owner_block="@flow.cleanup.cleanup_graph.status[0]" owner_operation="@flow.cleanup.cleanup_graph.status[1].cleanup" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.cleanup" owner_block="@flow.cleanup.cleanup_graph.status[1]" />
+        </SemanticBlock>
+      </SemanticGraph>
+      <ValueReference name="compatibility_argument[0]" value_type="@foundation.NativeTransaction" kind="@kinds.ValueKind.Parameter" size="8" target="@flow.cleanup.signature.argument[0]" />
+      <Call name="semantic_graph_compatibility_entry" callee="@flow.cleanup" argument_count="1" result_type="uint64_t">
+        <Argument name="compatibility_argument[0]" parameter="@flow.cleanup.signature.argument[0]" value="@flow.cleanup.compatibility_argument[0]" />
+      </Call>
+      <Signature name="signature" return_type="uint64_t" parameter_count="1" result_count="1" refusal_set="@foundation.StdlibRefusals">
+        <Parameter name="argument[0]" value_type="@foundation.NativeTransaction" />
+        <Result name="value" value_type="uint64_t" />
+      </Signature>
+    </Function>
+    <StdlibRecord name="cleanup_contract" kind="@kinds.StdlibKind.Flow" flags="@kinds.StdlibFlags.Standard|Semantic" related_count="1" value_type="uint64_t">
+      <rxf:ref role="@stdlib.Function" kind="RefKind.Data" target="@flow.cleanup" />
+    </StdlibRecord>
+    <Function name="defer" implementation="@kinds.FunctionImplementation.Semantic" layer="@kinds.FunctionLayer.Library" semantic_version="1" signature="@flow.defer.signature" body="@flow.defer.semantic_graph_compatibility_entry" semantic_digest="63e4989b3fe618cadd6a6a75b9375a8d797a72a908e0a8d62d66e8e3f9039b51">
+      <Code name="bytecode" owner_function="@flow.defer" signature="@flow.defer.signature" format="@kinds.CodeFormat.Bytecode" semantic_version="1" byte_count="624" semantic_digest="63e4989b3fe618cadd6a6a75b9375a8d797a72a908e0a8d62d66e8e3f9039b51" rxf:data="5258473100000000600000000000000001000000000000000600000000000000070000000000000000000000000000003000000000000000010000000000000015000000000000000100000000000000ffffffffffffffff000000000000000030000000000000000000000000000000000000000000000030000000000000000900000000000000000000000000000030000000000000000400000000000000000000000000000023000000000000000100000000000000000000000000000030000000000000000400000000000000380000000000000004000000000000004a00000000000000010000000000000000000000000000003000000000000000040000000000000058000000000000000400000000000000010000000000000015000000000000000100000000000000ffffffffffffffff00000000000000004000000000000000000000000000000000000000000000003000000000000000090000000000000000000000000000004000000000000000040000000000000000000000000000003f000000000000000100000000000000000000000000000040000000000000000400000000000000480000000000000004000000000000004a000000000000000100000000000000000000000000000040000000000000000400000000000000580000000000000004000000000000000200000000000000500000000000000008000000000000000100000000000000000000000000000008000000000000000b0000000000000000000000000000005000000000000000080000000000000008000000000000000c00000000000000000000000000000058000000000000000400000000000000">
+        <rxf:ref role="pymergetic.rxf.roles.call.Interpreter" kind="RefKind.Data" target="@foundation.graph.run" />
+      </Code>
+      <ValueReference name="compatibility_argument[0]" value_type="@foundation.NativeTransaction" kind="@kinds.ValueKind.Parameter" size="8" target="@flow.defer.signature.argument[0]" />
+      <SemanticGraph name="defer_graph" function="@flow.defer" entry_block="@flow.defer.defer_graph.status[0]" refusal_set="@foundation.StdlibRefusals" output_type="uint64_t" block_count="4" parameter_count="1" result_count="1">
+        <rxf:ref role="@semantic.ParameterValue" kind="RefKind.Data" target="@flow.defer.defer_graph.parameter[0]" />
+        <rxf:ref role="@semantic.GraphResultValue" kind="RefKind.Data" target="@flow.defer.defer_graph.block[0].return_value.return_value_result" />
+        <SemanticBlock name="block[0]" index="2" terminator="@kinds.Terminator.Return" operation_count="1" predecessor_count="1" parameter_type_count="1" terminator_value="@flow.defer.defer_graph.block[0].return_value.return_value_result" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.defer.defer_graph.block[0].successful_call_status" />
+          <SemanticOperation name="return_value" opcode="@kinds.Opcode.ReturnValue" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.defer.defer_graph.status[0].cleanup_success_value">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.defer.defer_graph.block[0].return_value.return_value_result" />
+            <SemanticValue name="return_value_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.defer" owner_block="@flow.defer.defer_graph.status[0]" owner_operation="@flow.defer.defer_graph.block[0].return_value" source="@flow.defer.signature.value" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.defer" owner_block="@flow.defer.defer_graph.block[0]" />
+        </SemanticBlock>
+        <SemanticValue name="parameter[0]" value_type="@foundation.NativeTransaction" kind="@kinds.ValueKind.Parameter" owner_function="@flow.defer" owner_block="@flow.defer.defer_graph.status[0]" source="@flow.defer.signature.argument[0]" />
+        <SemanticBlock name="primary_refusal" index="3" terminator="@kinds.Terminator.Refuse" predecessor_count="2" parameter_type_count="1" terminator_value="@flow.defer.defer_graph.primary_refusal.primary_refusal_status" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <SemanticValue name="primary_refusal_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.defer" owner_block="@flow.defer.defer_graph.primary_refusal" />
+        </SemanticBlock>
+        <SemanticBlock name="status[0]" terminator="@kinds.Terminator.Branch" operation_count="1" successor_count="2" successor_map_count="2" condition_value="@flow.defer.defer_graph.status[0].cleanup.cleanup_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.defer.defer_graph.status[1]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.defer.defer_graph.primary_refusal" />
+          <SemanticOperation name="cleanup" opcode="@kinds.Opcode.Cleanup" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.cleanup" status_value="@flow.defer.defer_graph.status[0].cleanup.cleanup_status" target_object="@flow.defer.defer_graph.parameter[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <SemanticValue name="cleanup_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.defer" owner_block="@flow.defer.defer_graph.status[0]" owner_operation="@flow.defer.defer_graph.status[0].cleanup" />
+          </SemanticOperation>
+          <SemanticValue name="cleanup_success_value" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.defer" owner_block="@flow.defer.defer_graph.status[0]" rxf:data="0000000000000000" />
+        </SemanticBlock>
+        <SemanticBlock name="status[1]" index="1" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="1" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@flow.defer.defer_graph.status[1].cleanup.cleanup_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.defer.defer_graph.block[0]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.defer.defer_graph.primary_refusal" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.defer.defer_graph.status[1].successful_call_status" />
+          <SemanticOperation name="cleanup" opcode="@kinds.Opcode.Cleanup" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.cleanup" status_value="@flow.defer.defer_graph.status[1].cleanup.cleanup_status" target_object="@flow.defer.defer_graph.parameter[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <SemanticValue name="cleanup_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.defer" owner_block="@flow.defer.defer_graph.status[0]" owner_operation="@flow.defer.defer_graph.status[1].cleanup" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.defer" owner_block="@flow.defer.defer_graph.status[1]" />
+        </SemanticBlock>
+      </SemanticGraph>
+      <Call name="semantic_graph_compatibility_entry" callee="@flow.defer" argument_count="1" result_type="uint64_t">
+        <Argument name="compatibility_argument[0]" parameter="@flow.defer.signature.argument[0]" value="@flow.defer.compatibility_argument[0]" />
+      </Call>
+      <Signature name="signature" return_type="uint64_t" parameter_count="1" result_count="1" refusal_set="@foundation.StdlibRefusals">
+        <Parameter name="argument[0]" value_type="@foundation.NativeTransaction" />
+        <Result name="value" value_type="uint64_t" />
+      </Signature>
+    </Function>
+    <StdlibRecord name="defer_contract" kind="@kinds.StdlibKind.Flow" flags="@kinds.StdlibFlags.Standard|Semantic" related_count="1" value_type="uint64_t">
+      <rxf:ref role="@stdlib.Function" kind="RefKind.Data" target="@flow.defer" />
+    </StdlibRecord>
+    <Function name="enrich_refusal" implementation="@kinds.FunctionImplementation.Semantic" layer="@kinds.FunctionLayer.Library" semantic_version="1" signature="@flow.enrich_refusal.signature" body="@flow.enrich_refusal.semantic_graph_compatibility_entry" semantic_digest="b3f9c5a45f92aa584940738dc4dfc1d839770b76b119bd413cae55eab3a52705">
+      <Code name="bytecode" owner_function="@flow.enrich_refusal" signature="@flow.enrich_refusal.signature" format="@kinds.CodeFormat.Bytecode" semantic_version="1" byte_count="1024" semantic_digest="b3f9c5a45f92aa584940738dc4dfc1d839770b76b119bd413cae55eab3a52705" rxf:data="5258473100000000b0000000000000000200000000000000080000000000000009000000000000000000000000000000100000000000000010000000000000003000000000000000020000000000000040000000000000001000000000000000000000000000000000000000000000001000000000000000040000000000000050000000000000000400000000000000000000000000000000000000000000001000000000000000000000000000000004000000000000000400000000000000580000000000000008000000000000000000000000000000000000000000000010000000000000000800000000000000080000000000000005000000000000006000000000000000100000000000000000000000000000000000000000000000000000000000000058000000000000000800000000000000080000000000000008000000000000000a0000000000000000000000000000006000000000000000100000000000000002000000000000000000000000000000010000000000000045000000000000000100000000000000010000000000000000000000000000000800000000000000700000000000000008000000000000004d0000000000000001000000000000000100000000000000000000000000000008000000000000007800000000000000080000000000000055000000000000000100000000000000010000000000000000000000000000000800000000000000800000000000000008000000000000000800000000000000550000000000000001000000000000000000000000000000700000000000000008000000000000008000000000000000080000000000000008000000000000005500000000000000010000000000000000000000000000007800000000000000080000000000000080000000000000000800000000000000010000000000000015000000000000000100000000000000ffffffffffffffff000000000000000088000000000000000000000000000000100000000000000030000000000000000900000000000000000000000000000088000000000000000400000000000000000000000000000071000000000000000100000000000000000000000000000088000000000000000400000000000000900000000000000004000000000000007c000000000000000100000000000000000000000000000088000000000000000400000000000000a80000000000000004000000000000000200000000000000980000000000000010000000000000000000000000000000000000000000000010000000000000000b0000000000000000000000000000009800000000000000100000000000000010000000000000000c000000000000000000000000000000a8000000000000000400000000000000">
+        <rxf:ref role="pymergetic.rxf.roles.call.Interpreter" kind="RefKind.Data" target="@foundation.graph.run" />
+      </Code>
+      <ValueReference name="compatibility_argument[0]" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.Parameter" size="8" target="@flow.enrich_refusal.signature.argument[0]" />
+      <ValueReference name="compatibility_argument[1]" value_type="@foundation.NativeTransaction" kind="@kinds.ValueKind.Parameter" size="8" target="@flow.enrich_refusal.signature.argument[1]" />
+      <SemanticGraph name="enrich_refusal_graph" function="@flow.enrich_refusal" entry_block="@flow.enrich_refusal.enrich_refusal_graph.block[0]" refusal_set="@foundation.StdlibRefusals" output_type="@types.TypedResultU64U32" block_count="6" parameter_count="2" result_count="1">
+        <rxf:ref role="@semantic.ParameterValue" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.parameter[0]" />
+        <rxf:ref role="@semantic.ParameterValue" index="1" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.parameter[1]" />
+        <rxf:ref role="@semantic.GraphResultValue" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.block[3].return_value.return_value_result" />
+        <SemanticBlock name="block[0]" terminator="@kinds.Terminator.SwitchTag" operation_count="4" successor_count="3" case_count="2" successor_map_count="3" condition_value="@flow.enrich_refusal.enrich_refusal_graph.block[0].construct_result.construct_result_result" rxf:data="000000000000000000000000000000000100000000000000010000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.block[1]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.block[2]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.status[3]" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.block[0].branch_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="64" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.block[0].branch_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="128" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.block[0].branch_status" />
+          <SemanticValue name="branch_status" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.enrich_refusal" owner_block="@flow.enrich_refusal.enrich_refusal_graph.block[0]" rxf:data="0000000000000000" />
+          <SemanticOperation name="construct_result" opcode="@kinds.Opcode.ConstructResult" index="3" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.enrich_refusal.enrich_refusal_graph.block[0].project_payload.project_payload_result" target_field="@types.TypedResultU64U32.ok_payload">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.block[0].construct_result.construct_result_result" />
+            <SemanticValue name="construct_result_result" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.enrich_refusal" owner_block="@flow.enrich_refusal.enrich_refusal_graph.block[0]" owner_operation="@flow.enrich_refusal.enrich_refusal_graph.block[0].construct_result" />
+          </SemanticOperation>
+          <SemanticOperation name="enrich_refusal" opcode="@kinds.Opcode.EnrichRefusal" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.enrich_refusal.enrich_refusal_graph.parameter[0]" target_field="@types.TypedResultU64U32.err_payload" transform_authority="@flow.enrich_refusal_metadata">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.block[0].enrich_refusal.enrich_refusal_result" />
+            <SemanticValue name="enrich_refusal_result" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.enrich_refusal" owner_block="@flow.enrich_refusal.enrich_refusal_graph.block[0]" owner_operation="@flow.enrich_refusal.enrich_refusal_graph.block[0].enrich_refusal" />
+          </SemanticOperation>
+          <SemanticValue name="enrich_refusal_argument[0]" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.enrich_refusal" owner_block="@flow.enrich_refusal.enrich_refusal_graph.block[0]" rxf:data="0100000000000000" />
+          <SemanticOperation name="project_payload" opcode="@kinds.Opcode.ProjectPayload" index="2" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.enrich_refusal.enrich_refusal_graph.parameter[0]" target_field="@types.TypedResultU64U32.ok_payload">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.block[0].project_payload.project_payload_result" />
+            <SemanticValue name="project_payload_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.enrich_refusal" owner_block="@flow.enrich_refusal.enrich_refusal_graph.block[0]" owner_operation="@flow.enrich_refusal.enrich_refusal_graph.block[0].project_payload" />
+          </SemanticOperation>
+          <SemanticValue name="project_payload_argument[0]" value_type="uint32_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.enrich_refusal" owner_block="@flow.enrich_refusal.enrich_refusal_graph.block[0]" rxf:data="0100000000000000" />
+          <SemanticOperation name="read_tag" opcode="@kinds.Opcode.ReadTag" index="1" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.enrich_refusal.enrich_refusal_graph.parameter[0]" target_field="@types.TypedResultU64U32.tag">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.block[0].read_tag.read_tag_result" />
+            <SemanticValue name="read_tag_result" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.enrich_refusal" owner_block="@flow.enrich_refusal.enrich_refusal_graph.block[0]" owner_operation="@flow.enrich_refusal.enrich_refusal_graph.block[0].read_tag" />
+          </SemanticOperation>
+          <SemanticValue name="read_tag_argument[0]" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.enrich_refusal" owner_block="@flow.enrich_refusal.enrich_refusal_graph.block[0]" rxf:data="0100000000000000" />
+        </SemanticBlock>
+        <SemanticBlock name="block[1]" index="1" terminator="@kinds.Terminator.Goto" predecessor_count="1" successor_count="1" parameter_type_count="1" successor_map_count="1" rxf:data="00000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.status[3]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.block[1].block_1_value" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.block[1].block_1_value" />
+          <SemanticValue name="block_1_value" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.enrich_refusal" owner_block="@flow.enrich_refusal.enrich_refusal_graph.block[1]" />
+        </SemanticBlock>
+        <SemanticBlock name="block[2]" index="2" terminator="@kinds.Terminator.Goto" predecessor_count="1" successor_count="1" parameter_type_count="1" successor_map_count="1" rxf:data="00000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.status[3]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.block[2].block_2_value" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.block[2].block_2_value" />
+          <SemanticValue name="block_2_value" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.enrich_refusal" owner_block="@flow.enrich_refusal.enrich_refusal_graph.block[2]" />
+        </SemanticBlock>
+        <SemanticBlock name="block[3]" index="4" terminator="@kinds.Terminator.Return" operation_count="1" predecessor_count="1" parameter_type_count="1" terminator_value="@flow.enrich_refusal.enrich_refusal_graph.block[3].return_value.return_value_result" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.block[3].successful_call_status" />
+          <SemanticOperation name="return_value" opcode="@kinds.Opcode.ReturnValue" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.enrich_refusal.enrich_refusal_graph.parameter[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.block[3].return_value.return_value_result" />
+            <SemanticValue name="return_value_result" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.enrich_refusal" owner_block="@flow.enrich_refusal.enrich_refusal_graph.status[3]" owner_operation="@flow.enrich_refusal.enrich_refusal_graph.block[3].return_value" source="@flow.enrich_refusal.signature.value" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.enrich_refusal" owner_block="@flow.enrich_refusal.enrich_refusal_graph.block[3]" />
+        </SemanticBlock>
+        <SemanticValue name="parameter[0]" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.Parameter" owner_function="@flow.enrich_refusal" owner_block="@flow.enrich_refusal.enrich_refusal_graph.block[0]" source="@flow.enrich_refusal.signature.argument[0]" />
+        <SemanticValue name="parameter[1]" value_type="@foundation.NativeTransaction" kind="@kinds.ValueKind.Parameter" result_index="1" owner_function="@flow.enrich_refusal" owner_block="@flow.enrich_refusal.enrich_refusal_graph.block[0]" source="@flow.enrich_refusal.signature.argument[1]" />
+        <SemanticBlock name="primary_refusal" index="5" terminator="@kinds.Terminator.Refuse" predecessor_count="1" parameter_type_count="1" terminator_value="@flow.enrich_refusal.enrich_refusal_graph.primary_refusal.primary_refusal_status" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <SemanticValue name="primary_refusal_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.enrich_refusal" owner_block="@flow.enrich_refusal.enrich_refusal_graph.primary_refusal" />
+        </SemanticBlock>
+        <SemanticBlock name="status[3]" index="3" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="3" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@flow.enrich_refusal.enrich_refusal_graph.status[3].cleanup.cleanup_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.block[3]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.primary_refusal" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.enrich_refusal.enrich_refusal_graph.status[3].block_3_value" />
+          <SemanticValue name="block_3_value" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.enrich_refusal" owner_block="@flow.enrich_refusal.enrich_refusal_graph.status[3]" />
+          <SemanticOperation name="cleanup" opcode="@kinds.Opcode.Cleanup" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.cleanup" status_value="@flow.enrich_refusal.enrich_refusal_graph.status[3].cleanup.cleanup_status" target_object="@flow.enrich_refusal.enrich_refusal_graph.parameter[1]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <SemanticValue name="cleanup_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.enrich_refusal" owner_block="@flow.enrich_refusal.enrich_refusal_graph.status[3]" owner_operation="@flow.enrich_refusal.enrich_refusal_graph.status[3].cleanup" />
+          </SemanticOperation>
+        </SemanticBlock>
+      </SemanticGraph>
+      <Call name="semantic_graph_compatibility_entry" callee="@flow.enrich_refusal" argument_count="2" result_type="@types.TypedResultU64U32">
+        <Argument name="compatibility_argument[0]" parameter="@flow.enrich_refusal.signature.argument[0]" value="@flow.enrich_refusal.compatibility_argument[0]" />
+        <Argument name="compatibility_argument[1]" parameter="@flow.enrich_refusal.signature.argument[1]" value="@flow.enrich_refusal.compatibility_argument[1]" />
+      </Call>
+      <Signature name="signature" return_type="@types.TypedResultU64U32" parameter_count="2" result_count="1" refusal_set="@foundation.StdlibRefusals">
+        <Parameter name="argument[0]" value_type="@types.TypedResultU64U32" />
+        <Parameter name="argument[1]" value_type="@foundation.NativeTransaction" index="1" />
+        <Result name="value" value_type="@types.TypedResultU64U32" />
+      </Signature>
+    </Function>
+    <StdlibRecord name="enrich_refusal_contract" kind="@kinds.StdlibKind.Flow" flags="@kinds.StdlibFlags.Standard|Semantic" related_count="1" value_type="@types.TypedResultU64U32">
+      <rxf:ref role="@stdlib.Function" kind="RefKind.Data" target="@flow.enrich_refusal" />
+    </StdlibRecord>
+    <RefusalEnrichment name="enrich_refusal_metadata" preserve_identity="1" payload_field_count="1">
+      <rxf:ref role="@refusal_transform.SourceSet" kind="RefKind.Data" target="@foundation.StdlibRefusals" />
+      <rxf:ref role="@refusal_transform.DestinationSet" kind="RefKind.Data" target="@foundation.StdlibRefusals" />
+      <rxf:ref role="@refusal_transform.SourceVariant" kind="RefKind.Data" target="@foundation.borrow_conflict" />
+      <rxf:ref role="@refusal_transform.DestinationVariant" kind="RefKind.Data" target="@foundation.borrow_conflict" />
+      <rxf:ref role="@refusal_transform.PayloadField" kind="RefKind.Data" target="@types.TypedResultU64U32.err_payload" />
+    </RefusalEnrichment>
+    <Function name="map_refusal" implementation="@kinds.FunctionImplementation.Semantic" layer="@kinds.FunctionLayer.Library" semantic_version="1" signature="@flow.map_refusal.signature" body="@flow.map_refusal.semantic_graph_compatibility_entry" semantic_digest="770f34ac56eb60c0659e7b06d43457a311044c7926c046089db00fefc49f7c48">
+      <Code name="bytecode" owner_function="@flow.map_refusal" signature="@flow.map_refusal.signature" format="@kinds.CodeFormat.Bytecode" semantic_version="1" byte_count="1056" semantic_digest="770f34ac56eb60c0659e7b06d43457a311044c7926c046089db00fefc49f7c48" rxf:data="5258473100000000b00000000000000002000000000000000800000000000000090000000000000000000000000000001000000000000000100000000000000030000000000000000300000000000000400000000000000010000000000000000000000000000000000000000000000010000000000000000800000000000000010000000000000006000000000000000800000000000000040000000000000050000000000000000400000000000000000000000000000000000000000000001000000000000000000000000000000004000000000000000400000000000000580000000000000008000000000000000000000000000000000000000000000010000000000000000800000000000000080000000000000005000000000000006000000000000000100000000000000000000000000000000000000000000000000000000000000058000000000000000800000000000000080000000000000008000000000000000a000000000000000000000000000000600000000000000010000000000000000200000000000000000000000000000001000000000000004900000000000000010000000000000001000000000000000000000000000000080000000000000070000000000000000800000000000000510000000000000001000000000000000100000000000000000000000000000008000000000000007800000000000000080000000000000059000000000000000100000000000000010000000000000000000000000000000800000000000000800000000000000008000000000000000800000000000000590000000000000001000000000000000000000000000000700000000000000008000000000000008000000000000000080000000000000008000000000000005900000000000000010000000000000000000000000000007800000000000000080000000000000080000000000000000800000000000000010000000000000015000000000000000100000000000000ffffffffffffffff0000000000000000880000000000000000000000000000001000000000000000300000000000000009000000000000000000000000000000880000000000000004000000000000000000000000000000750000000000000001000000000000000000000000000000880000000000000004000000000000009000000000000000040000000000000080000000000000000100000000000000000000000000000088000000000000000400000000000000a80000000000000004000000000000000200000000000000980000000000000010000000000000000000000000000000000000000000000010000000000000000b0000000000000000000000000000009800000000000000100000000000000010000000000000000c000000000000000000000000000000a8000000000000000400000000000000">
+        <rxf:ref role="pymergetic.rxf.roles.call.Interpreter" kind="RefKind.Data" target="@foundation.graph.run" />
+      </Code>
+      <ValueReference name="compatibility_argument[0]" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.Parameter" size="8" target="@flow.map_refusal.signature.argument[0]" />
+      <ValueReference name="compatibility_argument[1]" value_type="@foundation.NativeTransaction" kind="@kinds.ValueKind.Parameter" size="8" target="@flow.map_refusal.signature.argument[1]" />
+      <SemanticGraph name="map_refusal_graph" function="@flow.map_refusal" entry_block="@flow.map_refusal.map_refusal_graph.block[0]" refusal_set="@foundation.StdlibRefusals" output_type="@types.TypedResultU64U32" block_count="6" parameter_count="2" result_count="1">
+        <rxf:ref role="@semantic.ParameterValue" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.parameter[0]" />
+        <rxf:ref role="@semantic.ParameterValue" index="1" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.parameter[1]" />
+        <rxf:ref role="@semantic.GraphResultValue" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.block[3].return_value.return_value_result" />
+        <SemanticBlock name="block[0]" terminator="@kinds.Terminator.SwitchTag" operation_count="4" successor_count="3" case_count="2" successor_map_count="3" condition_value="@flow.map_refusal.map_refusal_graph.block[0].construct_result.construct_result_result" rxf:data="000000000000000000000000000000000100000000000000010000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.block[1]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.block[2]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.status[3]" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.block[0].branch_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="64" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.block[0].branch_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="128" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.block[0].branch_status" />
+          <SemanticValue name="branch_status" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.map_refusal" owner_block="@flow.map_refusal.map_refusal_graph.block[0]" rxf:data="0000000000000000" />
+          <SemanticOperation name="construct_result" opcode="@kinds.Opcode.ConstructResult" index="3" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.map_refusal.map_refusal_graph.block[0].project_payload.project_payload_result" target_field="@types.TypedResultU64U32.ok_payload">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.block[0].construct_result.construct_result_result" />
+            <SemanticValue name="construct_result_result" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.map_refusal" owner_block="@flow.map_refusal.map_refusal_graph.block[0]" owner_operation="@flow.map_refusal.map_refusal_graph.block[0].construct_result" />
+          </SemanticOperation>
+          <SemanticOperation name="map_refusal" opcode="@kinds.Opcode.MapRefusal" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.map_refusal.map_refusal_graph.parameter[0]" target_field="@types.TypedResultU64U32.err_payload" transform_authority="@flow.map_refusal_mapping">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.block[0].map_refusal.map_refusal_result" />
+            <SemanticValue name="map_refusal_result" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.map_refusal" owner_block="@flow.map_refusal.map_refusal_graph.block[0]" owner_operation="@flow.map_refusal.map_refusal_graph.block[0].map_refusal" />
+          </SemanticOperation>
+          <SemanticValue name="map_refusal_argument[0]" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.map_refusal" owner_block="@flow.map_refusal.map_refusal_graph.block[0]" rxf:data="0100000000000000" />
+          <SemanticOperation name="project_payload" opcode="@kinds.Opcode.ProjectPayload" index="2" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.map_refusal.map_refusal_graph.parameter[0]" target_field="@types.TypedResultU64U32.ok_payload">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.block[0].project_payload.project_payload_result" />
+            <SemanticValue name="project_payload_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.map_refusal" owner_block="@flow.map_refusal.map_refusal_graph.block[0]" owner_operation="@flow.map_refusal.map_refusal_graph.block[0].project_payload" />
+          </SemanticOperation>
+          <SemanticValue name="project_payload_argument[0]" value_type="uint32_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.map_refusal" owner_block="@flow.map_refusal.map_refusal_graph.block[0]" rxf:data="0100000000000000" />
+          <SemanticOperation name="read_tag" opcode="@kinds.Opcode.ReadTag" index="1" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.map_refusal.map_refusal_graph.parameter[0]" target_field="@types.TypedResultU64U32.tag">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.block[0].read_tag.read_tag_result" />
+            <SemanticValue name="read_tag_result" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.map_refusal" owner_block="@flow.map_refusal.map_refusal_graph.block[0]" owner_operation="@flow.map_refusal.map_refusal_graph.block[0].read_tag" />
+          </SemanticOperation>
+          <SemanticValue name="read_tag_argument[0]" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.map_refusal" owner_block="@flow.map_refusal.map_refusal_graph.block[0]" rxf:data="0100000000000000" />
+        </SemanticBlock>
+        <SemanticBlock name="block[1]" index="1" terminator="@kinds.Terminator.Goto" predecessor_count="1" successor_count="1" parameter_type_count="1" successor_map_count="1" rxf:data="00000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.status[3]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.block[1].block_1_value" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.block[1].block_1_value" />
+          <SemanticValue name="block_1_value" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.map_refusal" owner_block="@flow.map_refusal.map_refusal_graph.block[1]" />
+        </SemanticBlock>
+        <SemanticBlock name="block[2]" index="2" terminator="@kinds.Terminator.Goto" predecessor_count="1" successor_count="1" parameter_type_count="1" successor_map_count="1" rxf:data="00000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.status[3]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.block[2].block_2_value" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.block[2].block_2_value" />
+          <SemanticValue name="block_2_value" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.map_refusal" owner_block="@flow.map_refusal.map_refusal_graph.block[2]" />
+        </SemanticBlock>
+        <SemanticBlock name="block[3]" index="4" terminator="@kinds.Terminator.Return" operation_count="1" predecessor_count="1" parameter_type_count="1" terminator_value="@flow.map_refusal.map_refusal_graph.block[3].return_value.return_value_result" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.block[3].successful_call_status" />
+          <SemanticOperation name="return_value" opcode="@kinds.Opcode.ReturnValue" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.map_refusal.map_refusal_graph.parameter[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.block[3].return_value.return_value_result" />
+            <SemanticValue name="return_value_result" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.map_refusal" owner_block="@flow.map_refusal.map_refusal_graph.status[3]" owner_operation="@flow.map_refusal.map_refusal_graph.block[3].return_value" source="@flow.map_refusal.signature.value" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.map_refusal" owner_block="@flow.map_refusal.map_refusal_graph.block[3]" />
+        </SemanticBlock>
+        <SemanticValue name="parameter[0]" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.Parameter" owner_function="@flow.map_refusal" owner_block="@flow.map_refusal.map_refusal_graph.block[0]" source="@flow.map_refusal.signature.argument[0]" />
+        <SemanticValue name="parameter[1]" value_type="@foundation.NativeTransaction" kind="@kinds.ValueKind.Parameter" result_index="1" owner_function="@flow.map_refusal" owner_block="@flow.map_refusal.map_refusal_graph.block[0]" source="@flow.map_refusal.signature.argument[1]" />
+        <SemanticBlock name="primary_refusal" index="5" terminator="@kinds.Terminator.Refuse" predecessor_count="1" parameter_type_count="1" terminator_value="@flow.map_refusal.map_refusal_graph.primary_refusal.primary_refusal_status" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <SemanticValue name="primary_refusal_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.map_refusal" owner_block="@flow.map_refusal.map_refusal_graph.primary_refusal" />
+        </SemanticBlock>
+        <SemanticBlock name="status[3]" index="3" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="3" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@flow.map_refusal.map_refusal_graph.status[3].cleanup.cleanup_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.block[3]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.primary_refusal" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.map_refusal.map_refusal_graph.status[3].block_3_value" />
+          <SemanticValue name="block_3_value" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.map_refusal" owner_block="@flow.map_refusal.map_refusal_graph.status[3]" />
+          <SemanticOperation name="cleanup" opcode="@kinds.Opcode.Cleanup" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.cleanup" status_value="@flow.map_refusal.map_refusal_graph.status[3].cleanup.cleanup_status" target_object="@flow.map_refusal.map_refusal_graph.parameter[1]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <SemanticValue name="cleanup_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.map_refusal" owner_block="@flow.map_refusal.map_refusal_graph.status[3]" owner_operation="@flow.map_refusal.map_refusal_graph.status[3].cleanup" />
+          </SemanticOperation>
+        </SemanticBlock>
+      </SemanticGraph>
+      <Call name="semantic_graph_compatibility_entry" callee="@flow.map_refusal" argument_count="2" result_type="@types.TypedResultU64U32">
+        <Argument name="compatibility_argument[0]" parameter="@flow.map_refusal.signature.argument[0]" value="@flow.map_refusal.compatibility_argument[0]" />
+        <Argument name="compatibility_argument[1]" parameter="@flow.map_refusal.signature.argument[1]" value="@flow.map_refusal.compatibility_argument[1]" />
+      </Call>
+      <Signature name="signature" return_type="@types.TypedResultU64U32" parameter_count="2" result_count="1" refusal_set="@foundation.StdlibRefusals">
+        <Parameter name="argument[0]" value_type="@types.TypedResultU64U32" />
+        <Parameter name="argument[1]" value_type="@foundation.NativeTransaction" index="1" />
+        <Result name="value" value_type="@types.TypedResultU64U32" />
+      </Signature>
+    </Function>
+    <StdlibRecord name="map_refusal_contract" kind="@kinds.StdlibKind.Flow" flags="@kinds.StdlibFlags.Standard|Semantic" related_count="1" value_type="@types.TypedResultU64U32">
+      <rxf:ref role="@stdlib.Function" kind="RefKind.Data" target="@flow.map_refusal" />
+    </StdlibRecord>
+    <RefusalMapping name="map_refusal_mapping" default_policy="@kinds.RefusalPolicy.Propagate" entry_count="1">
+      <rxf:ref role="@refusal_transform.SourceSet" kind="RefKind.Data" target="@foundation.StdlibRefusals" />
+      <rxf:ref role="@refusal_transform.DestinationSet" kind="RefKind.Data" target="@foundation.StdlibRefusals" />
+      <RefusalMappingEntry name="out_of_range_to_invalid_utf8" source_status="@kinds.RefusalCode.OutOfRange" destination_status="@kinds.RefusalCode.InvalidUtf8">
+        <rxf:ref role="@refusal_transform.SourceVariant" kind="RefKind.Data" target="@foundation.out_of_range" />
+        <rxf:ref role="@refusal_transform.DestinationVariant" kind="RefKind.Data" target="@foundation.invalid_utf8" />
+      </RefusalMappingEntry>
+    </RefusalMapping>
+    <Function name="map_success" implementation="@kinds.FunctionImplementation.Semantic" layer="@kinds.FunctionLayer.Library" semantic_version="1" signature="@flow.map_success.signature" body="@flow.map_success.semantic_graph_compatibility_entry" semantic_digest="148ca56cad2f0e9ea2a8e1b22d692bbb107cbdfab73234d6d7f0018efb6db6e2">
+      <Code name="bytecode" owner_function="@flow.map_success" signature="@flow.map_success.signature" format="@kinds.CodeFormat.Bytecode" semantic_version="1" byte_count="1040" semantic_digest="148ca56cad2f0e9ea2a8e1b22d692bbb107cbdfab73234d6d7f0018efb6db6e2" rxf:data="5258473100000000a800000000000000020000000000000008000000000000000900000000000000000000000000000010000000000000001000000000000000300000000000000004000000000000004000000000000000040000000000000000000000000000000000000000000000100000000000000000000000000000000400000000000000040000000000000048000000000000000400000000000000000000000000000000000000000000001000000000000000000000000000000004000000000000000400000000000000500000000000000008000000000000000000000000000000000000000000000010000000000000000800000000000000080000000000000005000000000000005800000000000000100000000000000000000000000000000000000000000000000000000000000050000000000000000800000000000000080000000000000008000000000000000a0000000000000000000000000000005800000000000000100000000000000002000000000000000000000000000000010000000000000047000000000000000100000000000000010000000000000000000000000000000800000000000000680000000000000008000000000000004f0000000000000001000000000000000100000000000000000000000000000008000000000000007000000000000000080000000000000057000000000000000100000000000000010000000000000000000000000000000800000000000000780000000000000008000000000000000800000000000000570000000000000001000000000000000000000000000000680000000000000008000000000000007800000000000000080000000000000008000000000000005700000000000000010000000000000000000000000000007000000000000000080000000000000078000000000000000800000000000000010000000000000015000000000000000100000000000000ffffffffffffffff000000000000000080000000000000000000000000000000100000000000000030000000000000000900000000000000000000000000000080000000000000000400000000000000000000000000000073000000000000000100000000000000000000000000000080000000000000000400000000000000880000000000000004000000000000007e000000000000000100000000000000000000000000000080000000000000000400000000000000a00000000000000004000000000000000200000000000000900000000000000010000000000000000000000000000000000000000000000010000000000000000b0000000000000000000000000000009000000000000000100000000000000010000000000000000c000000000000000000000000000000a0000000000000000400000000000000">
+        <rxf:ref role="pymergetic.rxf.roles.call.Interpreter" kind="RefKind.Data" target="@foundation.graph.run" />
+      </Code>
+      <ValueReference name="compatibility_argument[0]" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.Parameter" size="8" target="@flow.map_success.signature.argument[0]" />
+      <ValueReference name="compatibility_argument[1]" value_type="@foundation.NativeTransaction" kind="@kinds.ValueKind.Parameter" size="8" target="@flow.map_success.signature.argument[1]" />
+      <SemanticGraph name="map_success_graph" function="@flow.map_success" entry_block="@flow.map_success.map_success_graph.block[0]" refusal_set="@foundation.StdlibRefusals" output_type="@types.TypedResultU64U32" block_count="6" parameter_count="2" result_count="1">
+        <rxf:ref role="@semantic.ParameterValue" kind="RefKind.Data" target="@flow.map_success.map_success_graph.parameter[0]" />
+        <rxf:ref role="@semantic.ParameterValue" index="1" kind="RefKind.Data" target="@flow.map_success.map_success_graph.parameter[1]" />
+        <rxf:ref role="@semantic.GraphResultValue" kind="RefKind.Data" target="@flow.map_success.map_success_graph.block[3].return_value.return_value_result" />
+        <SemanticBlock name="block[0]" terminator="@kinds.Terminator.SwitchTag" operation_count="4" successor_count="3" case_count="2" successor_map_count="3" condition_value="@flow.map_success.map_success_graph.block[0].construct_result.construct_result_result" rxf:data="000000000000000000000000000000000100000000000000010000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.map_success.map_success_graph.block[1]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.map_success.map_success_graph.block[2]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.map_success.map_success_graph.status[3]" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@flow.map_success.map_success_graph.block[0].branch_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="64" kind="RefKind.Data" target="@flow.map_success.map_success_graph.block[0].branch_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="128" kind="RefKind.Data" target="@flow.map_success.map_success_graph.block[0].branch_status" />
+          <SemanticValue name="branch_status" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.map_success" owner_block="@flow.map_success.map_success_graph.block[0]" rxf:data="0000000000000000" />
+          <SemanticOperation name="construct_result" opcode="@kinds.Opcode.ConstructResult" index="3" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.map_success.map_success_graph.block[0].project_payload.project_payload_result" target_field="@types.TypedResultU64U32.ok_payload">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.map_success.map_success_graph.block[0].construct_result.construct_result_result" />
+            <SemanticValue name="construct_result_result" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.map_success" owner_block="@flow.map_success.map_success_graph.block[0]" owner_operation="@flow.map_success.map_success_graph.block[0].construct_result" />
+          </SemanticOperation>
+          <SemanticOperation name="project_payload" opcode="@kinds.Opcode.ProjectPayload" index="2" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.map_success.map_success_graph.parameter[0]" target_field="@types.TypedResultU64U32.ok_payload">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.map_success.map_success_graph.block[0].project_payload.project_payload_result" />
+            <SemanticValue name="project_payload_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.map_success" owner_block="@flow.map_success.map_success_graph.block[0]" owner_operation="@flow.map_success.map_success_graph.block[0].project_payload" />
+          </SemanticOperation>
+          <SemanticValue name="project_payload_argument[0]" value_type="uint32_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.map_success" owner_block="@flow.map_success.map_success_graph.block[0]" rxf:data="0100000000000000" />
+          <SemanticOperation name="read_tag" opcode="@kinds.Opcode.ReadTag" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.map_success.map_success_graph.parameter[0]" target_field="@types.TypedResultU64U32.tag">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.map_success.map_success_graph.block[0].read_tag.read_tag_result" />
+            <SemanticValue name="read_tag_result" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.map_success" owner_block="@flow.map_success.map_success_graph.block[0]" owner_operation="@flow.map_success.map_success_graph.block[0].read_tag" />
+          </SemanticOperation>
+          <SemanticOperation name="read_tag[1]" opcode="@kinds.Opcode.ReadTag" index="1" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.map_success.map_success_graph.parameter[0]" target_field="@types.TypedResultU64U32.tag">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.map_success.map_success_graph.block[0].read_tag[1].read_tag_result" />
+            <SemanticValue name="read_tag_result" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.map_success" owner_block="@flow.map_success.map_success_graph.block[0]" owner_operation="@flow.map_success.map_success_graph.block[0].read_tag[1]" />
+          </SemanticOperation>
+          <SemanticValue name="read_tag_argument[0]" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.map_success" owner_block="@flow.map_success.map_success_graph.block[0]" rxf:data="0100000000000000" />
+          <SemanticValue name="read_tag_argument[0][1]" value_type="uint32_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.map_success" owner_block="@flow.map_success.map_success_graph.block[0]" rxf:data="0100000000000000" />
+        </SemanticBlock>
+        <SemanticBlock name="block[1]" index="1" terminator="@kinds.Terminator.Goto" predecessor_count="1" successor_count="1" parameter_type_count="1" successor_map_count="1" rxf:data="00000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.map_success.map_success_graph.status[3]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.map_success.map_success_graph.block[1].block_1_value" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@flow.map_success.map_success_graph.block[1].block_1_value" />
+          <SemanticValue name="block_1_value" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.map_success" owner_block="@flow.map_success.map_success_graph.block[1]" />
+        </SemanticBlock>
+        <SemanticBlock name="block[2]" index="2" terminator="@kinds.Terminator.Goto" predecessor_count="1" successor_count="1" parameter_type_count="1" successor_map_count="1" rxf:data="00000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.map_success.map_success_graph.status[3]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.map_success.map_success_graph.block[2].block_2_value" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@flow.map_success.map_success_graph.block[2].block_2_value" />
+          <SemanticValue name="block_2_value" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.map_success" owner_block="@flow.map_success.map_success_graph.block[2]" />
+        </SemanticBlock>
+        <SemanticBlock name="block[3]" index="4" terminator="@kinds.Terminator.Return" operation_count="1" predecessor_count="1" parameter_type_count="1" terminator_value="@flow.map_success.map_success_graph.block[3].return_value.return_value_result" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.map_success.map_success_graph.block[3].successful_call_status" />
+          <SemanticOperation name="return_value" opcode="@kinds.Opcode.ReturnValue" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.map_success.map_success_graph.parameter[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.map_success.map_success_graph.block[3].return_value.return_value_result" />
+            <SemanticValue name="return_value_result" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.map_success" owner_block="@flow.map_success.map_success_graph.status[3]" owner_operation="@flow.map_success.map_success_graph.block[3].return_value" source="@flow.map_success.signature.value" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.map_success" owner_block="@flow.map_success.map_success_graph.block[3]" />
+        </SemanticBlock>
+        <SemanticValue name="parameter[0]" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.Parameter" owner_function="@flow.map_success" owner_block="@flow.map_success.map_success_graph.block[0]" source="@flow.map_success.signature.argument[0]" />
+        <SemanticValue name="parameter[1]" value_type="@foundation.NativeTransaction" kind="@kinds.ValueKind.Parameter" result_index="1" owner_function="@flow.map_success" owner_block="@flow.map_success.map_success_graph.block[0]" source="@flow.map_success.signature.argument[1]" />
+        <SemanticBlock name="primary_refusal" index="5" terminator="@kinds.Terminator.Refuse" predecessor_count="1" parameter_type_count="1" terminator_value="@flow.map_success.map_success_graph.primary_refusal.primary_refusal_status" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <SemanticValue name="primary_refusal_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.map_success" owner_block="@flow.map_success.map_success_graph.primary_refusal" />
+        </SemanticBlock>
+        <SemanticBlock name="status[3]" index="3" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="3" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@flow.map_success.map_success_graph.status[3].cleanup.cleanup_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.map_success.map_success_graph.block[3]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.map_success.map_success_graph.primary_refusal" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.map_success.map_success_graph.status[3].block_3_value" />
+          <SemanticValue name="block_3_value" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.map_success" owner_block="@flow.map_success.map_success_graph.status[3]" />
+          <SemanticOperation name="cleanup" opcode="@kinds.Opcode.Cleanup" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.cleanup" status_value="@flow.map_success.map_success_graph.status[3].cleanup.cleanup_status" target_object="@flow.map_success.map_success_graph.parameter[1]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <SemanticValue name="cleanup_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.map_success" owner_block="@flow.map_success.map_success_graph.status[3]" owner_operation="@flow.map_success.map_success_graph.status[3].cleanup" />
+          </SemanticOperation>
+        </SemanticBlock>
+      </SemanticGraph>
+      <Call name="semantic_graph_compatibility_entry" callee="@flow.map_success" argument_count="2" result_type="@types.TypedResultU64U32">
+        <Argument name="compatibility_argument[0]" parameter="@flow.map_success.signature.argument[0]" value="@flow.map_success.compatibility_argument[0]" />
+        <Argument name="compatibility_argument[1]" parameter="@flow.map_success.signature.argument[1]" value="@flow.map_success.compatibility_argument[1]" />
+      </Call>
+      <Signature name="signature" return_type="@types.TypedResultU64U32" parameter_count="2" result_count="1" refusal_set="@foundation.StdlibRefusals">
+        <Parameter name="argument[0]" value_type="@types.TypedResultU64U32" />
+        <Parameter name="argument[1]" value_type="@foundation.NativeTransaction" index="1" />
+        <Result name="value" value_type="@types.TypedResultU64U32" />
+      </Signature>
+    </Function>
+    <StdlibRecord name="map_success_contract" kind="@kinds.StdlibKind.Flow" flags="@kinds.StdlibFlags.Standard|Semantic" related_count="1" value_type="@types.TypedResultU64U32">
+      <rxf:ref role="@stdlib.Function" kind="RefKind.Data" target="@flow.map_success" />
+    </StdlibRecord>
+    <Function name="propagate" implementation="@kinds.FunctionImplementation.Semantic" layer="@kinds.FunctionLayer.Library" semantic_version="1" signature="@flow.propagate.signature" body="@flow.propagate.semantic_graph_compatibility_entry" semantic_digest="c70f7d8c36dc62903c946df3c0fe97a5812feff768172f7d5081ac9baac0074e">
+      <Code name="bytecode" owner_function="@flow.propagate" signature="@flow.propagate.signature" format="@kinds.CodeFormat.Bytecode" semantic_version="1" byte_count="1040" semantic_digest="c70f7d8c36dc62903c946df3c0fe97a5812feff768172f7d5081ac9baac0074e" rxf:data="5258473100000000a800000000000000020000000000000008000000000000000900000000000000000000000000000010000000000000001000000000000000300000000000000004000000000000004000000000000000040000000000000000000000000000000000000000000000100000000000000000000000000000000400000000000000040000000000000048000000000000000400000000000000000000000000000000000000000000001000000000000000000000000000000004000000000000000400000000000000500000000000000008000000000000000000000000000000000000000000000010000000000000000800000000000000080000000000000005000000000000005800000000000000100000000000000000000000000000000000000000000000000000000000000050000000000000000800000000000000080000000000000008000000000000000a0000000000000000000000000000005800000000000000100000000000000002000000000000000000000000000000010000000000000047000000000000000100000000000000010000000000000000000000000000000800000000000000680000000000000008000000000000004f0000000000000001000000000000000100000000000000000000000000000008000000000000007000000000000000080000000000000057000000000000000100000000000000010000000000000000000000000000000800000000000000780000000000000008000000000000000800000000000000570000000000000001000000000000000000000000000000680000000000000008000000000000007800000000000000080000000000000008000000000000005700000000000000010000000000000000000000000000007000000000000000080000000000000078000000000000000800000000000000010000000000000015000000000000000100000000000000ffffffffffffffff000000000000000080000000000000000000000000000000100000000000000030000000000000000900000000000000000000000000000080000000000000000400000000000000000000000000000073000000000000000100000000000000000000000000000080000000000000000400000000000000880000000000000004000000000000007e000000000000000100000000000000000000000000000080000000000000000400000000000000a00000000000000004000000000000000200000000000000900000000000000010000000000000000000000000000000000000000000000010000000000000000b0000000000000000000000000000009000000000000000100000000000000010000000000000000c000000000000000000000000000000a0000000000000000400000000000000">
+        <rxf:ref role="pymergetic.rxf.roles.call.Interpreter" kind="RefKind.Data" target="@foundation.graph.run" />
+      </Code>
+      <ValueReference name="compatibility_argument[0]" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.Parameter" size="8" target="@flow.propagate.signature.argument[0]" />
+      <ValueReference name="compatibility_argument[1]" value_type="@foundation.NativeTransaction" kind="@kinds.ValueKind.Parameter" size="8" target="@flow.propagate.signature.argument[1]" />
+      <SemanticGraph name="propagate_graph" function="@flow.propagate" entry_block="@flow.propagate.propagate_graph.block[0]" refusal_set="@foundation.StdlibRefusals" output_type="@types.TypedResultU64U32" block_count="6" parameter_count="2" result_count="1">
+        <rxf:ref role="@semantic.ParameterValue" kind="RefKind.Data" target="@flow.propagate.propagate_graph.parameter[0]" />
+        <rxf:ref role="@semantic.ParameterValue" index="1" kind="RefKind.Data" target="@flow.propagate.propagate_graph.parameter[1]" />
+        <rxf:ref role="@semantic.GraphResultValue" kind="RefKind.Data" target="@flow.propagate.propagate_graph.block[3].return_value.return_value_result" />
+        <SemanticBlock name="block[0]" terminator="@kinds.Terminator.SwitchTag" operation_count="4" successor_count="3" case_count="2" successor_map_count="3" condition_value="@flow.propagate.propagate_graph.block[0].construct_result.construct_result_result" rxf:data="000000000000000000000000000000000100000000000000010000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.propagate.propagate_graph.block[1]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.propagate.propagate_graph.block[2]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.propagate.propagate_graph.status[3]" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@flow.propagate.propagate_graph.block[0].branch_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="64" kind="RefKind.Data" target="@flow.propagate.propagate_graph.block[0].branch_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="128" kind="RefKind.Data" target="@flow.propagate.propagate_graph.block[0].branch_status" />
+          <SemanticValue name="branch_status" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.propagate" owner_block="@flow.propagate.propagate_graph.block[0]" rxf:data="0000000000000000" />
+          <SemanticOperation name="construct_result" opcode="@kinds.Opcode.ConstructResult" index="3" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.propagate.propagate_graph.block[0].project_payload.project_payload_result" target_field="@types.TypedResultU64U32.ok_payload">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.propagate.propagate_graph.block[0].construct_result.construct_result_result" />
+            <SemanticValue name="construct_result_result" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.propagate" owner_block="@flow.propagate.propagate_graph.block[0]" owner_operation="@flow.propagate.propagate_graph.block[0].construct_result" />
+          </SemanticOperation>
+          <SemanticOperation name="project_payload" opcode="@kinds.Opcode.ProjectPayload" index="2" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.propagate.propagate_graph.parameter[0]" target_field="@types.TypedResultU64U32.ok_payload">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.propagate.propagate_graph.block[0].project_payload.project_payload_result" />
+            <SemanticValue name="project_payload_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.propagate" owner_block="@flow.propagate.propagate_graph.block[0]" owner_operation="@flow.propagate.propagate_graph.block[0].project_payload" />
+          </SemanticOperation>
+          <SemanticValue name="project_payload_argument[0]" value_type="uint32_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.propagate" owner_block="@flow.propagate.propagate_graph.block[0]" rxf:data="0100000000000000" />
+          <SemanticOperation name="read_tag" opcode="@kinds.Opcode.ReadTag" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.propagate.propagate_graph.parameter[0]" target_field="@types.TypedResultU64U32.tag">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.propagate.propagate_graph.block[0].read_tag.read_tag_result" />
+            <SemanticValue name="read_tag_result" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.propagate" owner_block="@flow.propagate.propagate_graph.block[0]" owner_operation="@flow.propagate.propagate_graph.block[0].read_tag" />
+          </SemanticOperation>
+          <SemanticOperation name="read_tag[1]" opcode="@kinds.Opcode.ReadTag" index="1" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.propagate.propagate_graph.parameter[0]" target_field="@types.TypedResultU64U32.tag">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.propagate.propagate_graph.block[0].read_tag[1].read_tag_result" />
+            <SemanticValue name="read_tag_result" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.propagate" owner_block="@flow.propagate.propagate_graph.block[0]" owner_operation="@flow.propagate.propagate_graph.block[0].read_tag[1]" />
+          </SemanticOperation>
+          <SemanticValue name="read_tag_argument[0]" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.propagate" owner_block="@flow.propagate.propagate_graph.block[0]" rxf:data="0100000000000000" />
+          <SemanticValue name="read_tag_argument[0][1]" value_type="uint32_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@flow.propagate" owner_block="@flow.propagate.propagate_graph.block[0]" rxf:data="0100000000000000" />
+        </SemanticBlock>
+        <SemanticBlock name="block[1]" index="1" terminator="@kinds.Terminator.Goto" predecessor_count="1" successor_count="1" parameter_type_count="1" successor_map_count="1" rxf:data="00000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.propagate.propagate_graph.status[3]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.propagate.propagate_graph.block[1].block_1_value" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@flow.propagate.propagate_graph.block[1].block_1_value" />
+          <SemanticValue name="block_1_value" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.propagate" owner_block="@flow.propagate.propagate_graph.block[1]" />
+        </SemanticBlock>
+        <SemanticBlock name="block[2]" index="2" terminator="@kinds.Terminator.Goto" predecessor_count="1" successor_count="1" parameter_type_count="1" successor_map_count="1" rxf:data="00000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.propagate.propagate_graph.status[3]" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.propagate.propagate_graph.block[2].block_2_value" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@flow.propagate.propagate_graph.block[2].block_2_value" />
+          <SemanticValue name="block_2_value" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.propagate" owner_block="@flow.propagate.propagate_graph.block[2]" />
+        </SemanticBlock>
+        <SemanticBlock name="block[3]" index="4" terminator="@kinds.Terminator.Return" operation_count="1" predecessor_count="1" parameter_type_count="1" terminator_value="@flow.propagate.propagate_graph.block[3].return_value.return_value_result" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.propagate.propagate_graph.block[3].successful_call_status" />
+          <SemanticOperation name="return_value" opcode="@kinds.Opcode.ReturnValue" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@flow.propagate.propagate_graph.parameter[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="@types.TypedResultU64U32" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@flow.propagate.propagate_graph.block[3].return_value.return_value_result" />
+            <SemanticValue name="return_value_result" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.propagate" owner_block="@flow.propagate.propagate_graph.status[3]" owner_operation="@flow.propagate.propagate_graph.block[3].return_value" source="@flow.propagate.signature.value" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.propagate" owner_block="@flow.propagate.propagate_graph.block[3]" />
+        </SemanticBlock>
+        <SemanticValue name="parameter[0]" value_type="@types.TypedResultU64U32" kind="@kinds.ValueKind.Parameter" owner_function="@flow.propagate" owner_block="@flow.propagate.propagate_graph.block[0]" source="@flow.propagate.signature.argument[0]" />
+        <SemanticValue name="parameter[1]" value_type="@foundation.NativeTransaction" kind="@kinds.ValueKind.Parameter" result_index="1" owner_function="@flow.propagate" owner_block="@flow.propagate.propagate_graph.block[0]" source="@flow.propagate.signature.argument[1]" />
+        <SemanticBlock name="primary_refusal" index="5" terminator="@kinds.Terminator.Refuse" predecessor_count="1" parameter_type_count="1" terminator_value="@flow.propagate.propagate_graph.primary_refusal.primary_refusal_status" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <SemanticValue name="primary_refusal_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.propagate" owner_block="@flow.propagate.propagate_graph.primary_refusal" />
+        </SemanticBlock>
+        <SemanticBlock name="status[3]" index="3" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="3" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@flow.propagate.propagate_graph.status[3].cleanup.cleanup_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.propagate.propagate_graph.block[3]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@flow.propagate.propagate_graph.primary_refusal" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@flow.propagate.propagate_graph.status[3].block_3_value" />
+          <SemanticValue name="block_3_value" value_type="uint64_t" kind="@kinds.ValueKind.Bound" owner_function="@flow.propagate" owner_block="@flow.propagate.propagate_graph.status[3]" />
+          <SemanticOperation name="cleanup" opcode="@kinds.Opcode.Cleanup" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.cleanup" status_value="@flow.propagate.propagate_graph.status[3].cleanup.cleanup_status" target_object="@flow.propagate.propagate_graph.parameter[1]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <SemanticValue name="cleanup_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@flow.propagate" owner_block="@flow.propagate.propagate_graph.status[3]" owner_operation="@flow.propagate.propagate_graph.status[3].cleanup" />
+          </SemanticOperation>
+        </SemanticBlock>
+      </SemanticGraph>
+      <Call name="semantic_graph_compatibility_entry" callee="@flow.propagate" argument_count="2" result_type="@types.TypedResultU64U32">
+        <Argument name="compatibility_argument[0]" parameter="@flow.propagate.signature.argument[0]" value="@flow.propagate.compatibility_argument[0]" />
+        <Argument name="compatibility_argument[1]" parameter="@flow.propagate.signature.argument[1]" value="@flow.propagate.compatibility_argument[1]" />
+      </Call>
+      <Signature name="signature" return_type="@types.TypedResultU64U32" parameter_count="2" result_count="1" refusal_set="@foundation.StdlibRefusals">
+        <Parameter name="argument[0]" value_type="@types.TypedResultU64U32" />
+        <Parameter name="argument[1]" value_type="@foundation.NativeTransaction" index="1" />
+        <Result name="value" value_type="@types.TypedResultU64U32" />
+      </Signature>
+    </Function>
+    <StdlibRecord name="propagate_contract" kind="@kinds.StdlibKind.Flow" flags="@kinds.StdlibFlags.Standard|Semantic" related_count="1" value_type="@types.TypedResultU64U32">
+      <rxf:ref role="@stdlib.Function" kind="RefKind.Data" target="@flow.propagate" />
+    </StdlibRecord>
+  </Module>
+</delta>
