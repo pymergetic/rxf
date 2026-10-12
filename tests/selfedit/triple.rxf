@@ -1,0 +1,5 @@
+# triple: what the front end compiles in the image (docs/19). The Function these words name
+# answers three times its argument, which is what a machine must say after one delta installs it.
+program triple(n) {
+    return n + n + n;
+}

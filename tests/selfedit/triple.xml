@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Function name="triple" rxf:parent="pymergetic.rxf.selfedit" implementation="pymergetic.rxf.kinds.FunctionImplementation.Semantic" layer="pymergetic.rxf.kinds.FunctionLayer.Application" semantic_version="1" signature="pymergetic.rxf.selfedit.triple.signature">
+    <Signature name="signature" return_type="uint64_t" parameter_count="1" result_count="1" refusal_set="pymergetic.rxf.foundation.StdlibRefusals">
+      <Parameter name="argument[0]" value_type="uint64_t" />
+      <Result name="value" value_type="uint64_t" />
+    </Signature>
+  </Function>
+</delta>
