@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="targets" category="ModuleCategory.Library">
+    <Alias name="call" target="pymergetic.rxf.roles.call" />
+    <Alias name="kinds" target="pymergetic.rxf.kinds" />
+    <Alias name="targets" target="pymergetic.rxf.targets" />
+    <ABI name="aapcs64" kind="@kinds.AbiKind.Aapcs64" version="1" calling_convention="@kinds.CallingConvention.StatusOut" architecture="@targets.aarch64" />
+    <Architecture name="aarch64" kind="@kinds.ArchitectureKind.Aarch64" word_bits="64" endianness="@kinds.Endianness.Little" />
+    <Feature name="aarch64_baseline" kind="@kinds.FeatureKind.Baseline" version="1" architecture="@targets.aarch64" />
+    <FeatureSet name="aarch64_features" count="1">
+      <rxf:ref role="@call.Feature" kind="RefKind.Data" target="@targets.aarch64_baseline" />
+    </FeatureSet>
+    <RuntimeTarget name="aarch64_linux_aapcs64" architecture="@targets.aarch64" abi="@targets.aapcs64" environment="@targets.linux" feature_set="@targets.aarch64_features" />
+    <RuntimeTarget name="aarch64_uefi_aapcs64" architecture="@targets.aarch64" abi="@targets.aapcs64" environment="@targets.uefi" feature_set="@targets.aarch64_features" />
+    <Environment name="bios" kind="@kinds.EnvironmentKind.Bios" version="1" />
+    <CompilerProvenance name="clang_aarch64" compiler_major="18" recipe_digest="7d026619692e588d83ba0a283342731a21120e6c496fbc03544da744ee330c4a" />
+    <CompilerProvenance name="clang_wasm32" compiler_major="18" recipe_digest="94ce497a65af701c1d2e36b2b43ad41b0e4365e0577efa8c1de99ddeb1034a4b" />
+    <CompilerProvenance name="clang_x86_64" compiler_major="18" recipe_digest="5a151c69ad28c6ced4fa267416ccaaedfdaa4c821e7269b0d246dc1505281848" />
+    <Environment name="linux" kind="@kinds.EnvironmentKind.Linux" version="1" />
+    <ABI name="sysv" kind="@kinds.AbiKind.Sysv" version="1" calling_convention="@kinds.CallingConvention.StatusOut" architecture="@targets.x86_64" />
+    <Environment name="uefi" kind="@kinds.EnvironmentKind.Uefi" version="1" />
+    <Environment name="wasm" kind="@kinds.EnvironmentKind.Wasm" version="1" />
+    <Architecture name="wasm32" kind="@kinds.ArchitectureKind.Wasm32" word_bits="32" endianness="@kinds.Endianness.Little" />
+    <Feature name="wasm32_baseline" kind="@kinds.FeatureKind.Baseline" version="1" architecture="@targets.wasm32" />
+    <FeatureSet name="wasm32_features" count="1">
+      <rxf:ref role="@call.Feature" kind="RefKind.Data" target="@targets.wasm32_baseline" />
+    </FeatureSet>
+    <RuntimeTarget name="wasm32_wasm_c" architecture="@targets.wasm32" abi="@targets.wasm_c" environment="@targets.wasm" feature_set="@targets.wasm32_features" />
+    <ABI name="wasm_c" kind="@kinds.AbiKind.Wasm" version="1" calling_convention="@kinds.CallingConvention.StatusOut" architecture="@targets.wasm32" />
+    <Architecture name="x86_64" kind="@kinds.ArchitectureKind.X8664" word_bits="64" endianness="@kinds.Endianness.Little" />
+    <Feature name="x86_64_baseline" kind="@kinds.FeatureKind.Baseline" version="1" architecture="@targets.x86_64" />
+    <RuntimeTarget name="x86_64_bios_sysv" architecture="@targets.x86_64" abi="@targets.sysv" environment="@targets.bios" feature_set="@targets.x86_64_features" />
+    <FeatureSet name="x86_64_features" count="1">
+      <rxf:ref role="@call.Feature" kind="RefKind.Data" target="@targets.x86_64_baseline" />
+    </FeatureSet>
+    <RuntimeTarget name="x86_64_linux_sysv" architecture="@targets.x86_64" abi="@targets.sysv" environment="@targets.linux" feature_set="@targets.x86_64_features" />
+    <RuntimeTarget name="x86_64_uefi_sysv" architecture="@targets.x86_64" abi="@targets.sysv" environment="@targets.uefi" feature_set="@targets.x86_64_features" />
+  </Module>
+</delta>

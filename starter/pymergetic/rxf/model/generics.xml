@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="generics" category="ModuleCategory.Schema">
+    <Type name="GenericArgument" form="Form.Struct" size="24" align="8" flags="TypeFlags.SelfDescribing">
+      <Field name="bound_type" flags="FieldFlags.Ref" value_type="uint64_t" offset="8" />
+      <Field name="kind" value_type="uint32_t" offset="16" />
+      <Field name="parameter" flags="FieldFlags.Ref" value_type="uint64_t" />
+    </Type>
+    <Type name="GenericParameter" form="Form.Struct" size="16" align="4" flags="TypeFlags.SelfDescribing">
+      <Field name="flags" value_type="uint32_t" offset="8" />
+      <Field name="index" value_type="uint32_t" />
+      <Field name="kind" value_type="pymergetic.rxf.kinds.GenericParameterKind" offset="4" />
+    </Type>
+    <Type name="Specialization" form="Form.Struct" size="64" align="8" flags="TypeFlags.SelfDescribing">
+      <Field name="argument_count" value_type="uint32_t" offset="12" />
+      <Field name="digest" value_type="uint8_t" offset="32" count="32" />
+      <Field name="flags" value_type="uint32_t" offset="24" />
+      <Field name="function" flags="FieldFlags.Ref" value_type="uint64_t" offset="16" />
+      <Field name="template" flags="FieldFlags.Ref" value_type="uint64_t" />
+      <Field name="template_version" value_type="uint32_t" offset="8" />
+    </Type>
+    <Type name="Template" form="Form.Struct" size="24" align="8" flags="TypeFlags.SelfDescribing">
+      <Field name="flags" value_type="uint32_t" offset="16" />
+      <Field name="function" flags="FieldFlags.Ref" value_type="uint64_t" />
+      <Field name="parameter_count" value_type="uint32_t" offset="12" />
+      <Field name="version" value_type="uint32_t" offset="8" />
+    </Type>
+  </Module>
+</delta>

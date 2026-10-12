@@ -1,0 +1,13 @@
+# RXF builds with CMake and has no entry in the editor's compile database
+# (../../.vscode/compile_commands.json, which holds absolute paths too). `src` is the include
+# root of every `#include <pymergetic/rxf/...>`.
+CompileFlags:
+  Add:
+    - -I/home/ladmin/Devel/os-sdk/packages/rxf/src
+    - -I/home/ladmin/Devel/os-sdk/packages/rxf/third_party/pugixml
+---
+If:
+  PathMatch: .*\.(cpp|hpp)
+CompileFlags:
+  Add:
+    - -std=c++20

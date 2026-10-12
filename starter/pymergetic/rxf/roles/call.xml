@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="call" flags="ModuleFlags.Namespace">
+    <Role name="AbiSignature" />
+    <Role name="Feature" />
+    <Role name="Interpreter" />
+    <Role name="Leaf" />
+    <Role name="NumericContract" />
+    <Role name="Provenance" />
+  </Module>
+</delta>

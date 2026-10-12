@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="stdlib" category="ModuleCategory.Library">
+    <Alias name="canonical_order" target="pymergetic.rxf.roles.canonical_order" />
+    <Alias name="hash_authority" target="pymergetic.rxf.roles.hash_authority" />
+    <Alias name="hash_function" target="pymergetic.rxf.roles.hash_function" />
+    <Alias name="kinds" target="pymergetic.rxf.kinds" />
+    <Alias name="stdlib_collections" target="pymergetic.rxf.stdlib.collections" />
+    <Alias name="stdlib_types" target="pymergetic.rxf.stdlib.types" />
+    <CanonicalOrderAuthority name="ascending_slot_index" policy="@kinds.CanonicalOrderPolicy.AscendingSlotIndex" representation_preserving="1">
+      <rxf:ref role="@canonical_order.InputType" kind="RefKind.Type" target="uint64_t" />
+      <rxf:ref role="@canonical_order.OutputType" kind="RefKind.Type" target="uint64_t" />
+    </CanonicalOrderAuthority>
+    <HashAuthority name="fnv1a64_u64_le_v1" algorithm="@kinds.HashAlgorithm.Fnv1a64" representation="@kinds.HashRepresentation.U64Le" seed_policy="@kinds.SeedPolicy.Fixed" version="1" seed="14695981039346656037">
+      <rxf:ref role="@hash_function.HashFunction" kind="RefKind.Data" target="@stdlib_collections.hash_u64" />
+      <rxf:ref role="@hash_function.MapLookupFunction" kind="RefKind.Data" target="@stdlib_collections.runtime_hash_map_lookup" />
+      <rxf:ref role="@hash_function.SetLookupFunction" kind="RefKind.Data" target="@stdlib_collections.runtime_hash_set_lookup" />
+      <rxf:ref role="@hash_function.InputType" kind="RefKind.Type" target="uint64_t" />
+      <rxf:ref role="@hash_function.OutputType" kind="RefKind.Type" target="uint64_t" />
+    </HashAuthority>
+    <HashStorageAuthority name="linear_power_of_two_storage_v1" minimum_capacity="8" load_numerator="3" load_denominator="4" tombstone_numerator="1" tombstone_denominator="4" capacity_rule="@kinds.CapacityRule.PowerOfTwo" probe_policy="@kinds.ProbePolicy.Linear" termination_rule="@kinds.TerminationRule.EmptySlot" generation_policy="@kinds.GenerationPolicy.Monotonic" visibility_policy="@kinds.VisibilityPolicy.Published">
+      <rxf:ref role="@hash_authority.MapType" kind="RefKind.Type" target="@stdlib_types.HashMap" />
+      <rxf:ref role="@hash_authority.SetType" kind="RefKind.Type" target="@stdlib_types.HashSet" />
+      <rxf:ref role="@hash_authority.MapBucketType" kind="RefKind.Type" target="@stdlib_types.HashMapBucket" />
+      <rxf:ref role="@hash_authority.SetBucketType" kind="RefKind.Type" target="@stdlib_types.HashSetBucket" />
+      <rxf:ref role="@hash_authority.BucketStateType" kind="RefKind.Type" target="@stdlib_types.HashBucketState" />
+      <rxf:ref role="@hash_authority.HashAlgorithm" kind="RefKind.Data" target="pymergetic.rxf.stdlib.fnv1a64_u64_le_v1" />
+    </HashStorageAuthority>
+  </Module>
+</delta>

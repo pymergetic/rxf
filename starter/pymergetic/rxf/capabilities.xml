@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="capabilities" category="ModuleCategory.Library">
+    <Alias name="capabilities" target="pymergetic.rxf.capabilities" />
+    <Alias name="contract" target="pymergetic.rxf.roles.contract" />
+    <Alias name="kinds" target="pymergetic.rxf.kinds" />
+    <Alias name="model" target="pymergetic.rxf.model" />
+    <Type name="CapabilityHandle" form="Form.Struct" size="8" align="8" flags="TypeFlags.SelfDescribing">
+      <Field name="value" value_type="uint64_t" />
+    </Type>
+    <RefusalSet name="CapabilityRefusals" variant_count="3">
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@capabilities.refused" />
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@capabilities.unavailable" />
+      <rxf:ref role="@contract.RefusalVariant" kind="RefKind.Data" target="@capabilities.invalid" />
+    </RefusalSet>
+    <Type name="FileStat" form="Form.Struct" size="16" align="8" flags="TypeFlags.SelfDescribing">
+      <Field name="kind" value_type="uint32_t" offset="8" />
+      <Field name="size" value_type="uint64_t" />
+    </Type>
+    <Type name="PlatformInfo" form="Form.Struct" size="16" align="8" flags="TypeFlags.SelfDescribing">
+      <Field name="architecture" flags="FieldFlags.Ref" value_type="uint64_t" />
+      <Field name="environment" flags="FieldFlags.Ref" value_type="uint64_t" offset="8" />
+    </Type>
+    <Function name="clock_monotonic" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" effects="@kinds.Effects.Time" semantic_version="1" signature="@capabilities.clock_monotonic.signature" semantic_digest="a6b13e6eb4f1d2ffe5e23c00eab0ffbdac87af0d75bcb390fff739c3c44fc140">
+      <Signature name="signature" return_type="uint64_t" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Result name="result" value_type="uint64_t" />
+      </Signature>
+    </Function>
+    <Import name="clock_monotonic_import" function="@capabilities.clock_monotonic" requirement="@capabilities.clock_monotonic_requirement" />
+    <CapabilityRequirement name="clock_monotonic_requirement" kind="@kinds.CapabilityKind.Clock" version="1" rights="@kinds.CapabilityRights.ClockMonotonic" effects="@kinds.Effects.Time" semantic_digest="ffd323711da8cfe84dc8a2ea6e782cd314e0a8534b8abc66c586ff6b9749f11b" refusal_set="@capabilities.CapabilityRefusals" />
+    <Function name="clock_wall" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" effects="@kinds.Effects.Time" semantic_version="1" signature="@capabilities.clock_wall.signature" semantic_digest="47eb9b274f6dfecc7d14f1ddf86b641d8196ac2ebb8d8cd23ae90633dd9c2896">
+      <Signature name="signature" return_type="uint64_t" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Result name="result" value_type="uint64_t" />
+      </Signature>
+    </Function>
+    <Import name="clock_wall_import" function="@capabilities.clock_wall" requirement="@capabilities.clock_wall_requirement" />
+    <CapabilityRequirement name="clock_wall_requirement" kind="@kinds.CapabilityKind.Clock" version="1" rights="@kinds.CapabilityRights.ClockWall" effects="@kinds.Effects.Time" semantic_digest="29b9c5b0a7221dc5c0613dc0a9be210e57152a309ca68b7da1ce3e332a93aae7" refusal_set="@capabilities.CapabilityRefusals" />
+    <Function name="console_log" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" effects="@kinds.Effects.Host" semantic_version="1" signature="@capabilities.console_log.signature" semantic_digest="5bcea1905bf9aa06fc9363b7cfa710e98b932ef16ba4552f5d1d46d84f16e935">
+      <Signature name="signature" return_type="void" parameter_count="1" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Parameter name="message" value_type="@model.Bytes" />
+        <Result name="result" value_type="void" />
+      </Signature>
+    </Function>
+    <Import name="console_log_import" function="@capabilities.console_log" requirement="@capabilities.console_log_requirement" />
+    <CapabilityRequirement name="console_log_requirement" kind="@kinds.CapabilityKind.Console" version="1" rights="@kinds.CapabilityRights.ConsoleLog" effects="@kinds.Effects.Host" semantic_digest="f04e7b378acb64f875da1bca2f6a4322a1a5642e6b71b1899713e9345f3b3197" refusal_set="@capabilities.CapabilityRefusals" />
+    <Function name="environment_get" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" effects="@kinds.Effects.Host" semantic_version="1" signature="@capabilities.environment_get.signature" semantic_digest="0412aa846dd6cb47a0a9fbb356349b97e3208892e0f082206672ad73c0c9ae28">
+      <Signature name="signature" return_type="@model.Bytes" parameter_count="1" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Parameter name="name" value_type="@model.Bytes" />
+        <Result name="result" value_type="@model.Bytes" />
+      </Signature>
+    </Function>
+    <Import name="environment_get_import" function="@capabilities.environment_get" requirement="@capabilities.environment_get_requirement" />
+    <CapabilityRequirement name="environment_get_requirement" kind="@kinds.CapabilityKind.Environment" version="1" rights="@kinds.CapabilityRights.Query" effects="@kinds.Effects.Host" semantic_digest="343fe30e607f09373cb5baab3ef631f59d61cdb55d9b7f2c961735da38ee9cf4" refusal_set="@capabilities.CapabilityRefusals" />
+    <Function name="file_close" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" effects="@kinds.Effects.Host" semantic_version="1" signature="@capabilities.file_close.signature" semantic_digest="b6f1a08ddc61f32d2a75a72d306622ade139e6cf69f1b6fe37253457c788551c">
+      <Signature name="signature" return_type="void" parameter_count="1" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Parameter name="handle" value_type="@capabilities.CapabilityHandle" />
+        <Result name="result" value_type="void" />
+      </Signature>
+    </Function>
+    <Import name="file_close_import" function="@capabilities.file_close" requirement="@capabilities.file_close_requirement" />
+    <CapabilityRequirement name="file_close_requirement" kind="@kinds.CapabilityKind.File" version="1" rights="@kinds.CapabilityRights.Close" effects="@kinds.Effects.Host" semantic_digest="8b7bb0638d8ca32af8f8f48f3403967060068971f64c31e409e35a4b092610bb" refusal_set="@capabilities.CapabilityRefusals" />
+    <Function name="file_list" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" effects="@kinds.Effects.Host" semantic_version="1" signature="@capabilities.file_list.signature" semantic_digest="d4a5932626e7f253ec1fce7cebdfdc4f1252487a71a14f51e90f6443cc60f08c">
+      <Signature name="signature" return_type="@model.Bytes" parameter_count="1" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Parameter name="path" value_type="@model.Bytes" />
+        <Result name="result" value_type="@model.Bytes" />
+      </Signature>
+    </Function>
+    <Import name="file_list_import" function="@capabilities.file_list" requirement="@capabilities.file_list_requirement" />
+    <CapabilityRequirement name="file_list_requirement" kind="@kinds.CapabilityKind.File" version="1" rights="@kinds.CapabilityRights.FileList" effects="@kinds.Effects.Host" semantic_digest="30619fe4b63f5aee11b1af1d523a49d77af9d221d44ed9fd66f4d7d2aa5b551a" refusal_set="@capabilities.CapabilityRefusals" />
+    <Function name="file_open" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" effects="@kinds.Effects.Host" semantic_version="1" signature="@capabilities.file_open.signature" semantic_digest="6e332d8bf36c502e3357424b872d85f12f6fa697c8101af5c8664ff08c86cbde">
+      <Signature name="signature" return_type="@capabilities.CapabilityHandle" parameter_count="2" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Parameter name="flags" value_type="uint32_t" index="1" />
+        <Parameter name="path" value_type="@model.Bytes" />
+        <Result name="result" value_type="@capabilities.CapabilityHandle" />
+      </Signature>
+    </Function>
+    <Import name="file_open_import" function="@capabilities.file_open" requirement="@capabilities.file_open_requirement" />
+    <CapabilityRequirement name="file_open_requirement" kind="@kinds.CapabilityKind.File" version="1" rights="@kinds.CapabilityRights.FileOpen" effects="@kinds.Effects.Host" semantic_digest="9a9c32a51a46f19c55dba524df7e72237dac68d3fd50b932efb3a17479de9787" refusal_set="@capabilities.CapabilityRefusals" />
+    <Function name="file_read" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" effects="@kinds.Effects.Write|Host" semantic_version="1" signature="@capabilities.file_read.signature" semantic_digest="6635a446732d0de3bb49140650d5940c4941a304cec49b679512e014f472221a">
+      <Signature name="signature" return_type="uint64_t" parameter_count="2" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Parameter name="buffer" value_type="@model.Bytes" index="1" />
+        <Parameter name="handle" value_type="@capabilities.CapabilityHandle" />
+        <Result name="result" value_type="uint64_t" />
+      </Signature>
+    </Function>
+    <Import name="file_read_import" function="@capabilities.file_read" requirement="@capabilities.file_read_requirement" />
+    <CapabilityRequirement name="file_read_requirement" kind="@kinds.CapabilityKind.File" version="1" rights="@kinds.CapabilityRights.FileRead" effects="@kinds.Effects.Write|Host" semantic_digest="b21a0a48c02182748069f352070092031ceafe6cccea9503ec1ddd55a0984b29" refusal_set="@capabilities.CapabilityRefusals" />
+    <Function name="file_stat" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" effects="@kinds.Effects.Host" semantic_version="1" signature="@capabilities.file_stat.signature" semantic_digest="e2ec89f2dd7e6043100e436f5fba65af938e714dc7e2b4947785659803ea1a13">
+      <Signature name="signature" return_type="@capabilities.FileStat" parameter_count="1" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Parameter name="path" value_type="@model.Bytes" />
+        <Result name="result" value_type="@capabilities.FileStat" />
+      </Signature>
+    </Function>
+    <Import name="file_stat_import" function="@capabilities.file_stat" requirement="@capabilities.file_stat_requirement" />
+    <CapabilityRequirement name="file_stat_requirement" kind="@kinds.CapabilityKind.File" version="1" rights="@kinds.CapabilityRights.FileStat" effects="@kinds.Effects.Host" semantic_digest="6f60aa0219cba995c76e6f1440f4de4f29402895008eb4348d5b990f2776070c" refusal_set="@capabilities.CapabilityRefusals" />
+    <Function name="file_write" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" effects="@kinds.Effects.Read|Host" semantic_version="1" signature="@capabilities.file_write.signature" semantic_digest="d3d7ee46b004334bc636add66dc9bf44832c3afda7025640073d3386e8708615">
+      <Signature name="signature" return_type="uint64_t" parameter_count="2" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Parameter name="buffer" value_type="@model.Bytes" index="1" />
+        <Parameter name="handle" value_type="@capabilities.CapabilityHandle" />
+        <Result name="result" value_type="uint64_t" />
+      </Signature>
+    </Function>
+    <Import name="file_write_import" function="@capabilities.file_write" requirement="@capabilities.file_write_requirement" />
+    <CapabilityRequirement name="file_write_requirement" kind="@kinds.CapabilityKind.File" version="1" rights="@kinds.CapabilityRights.FileWrite" effects="@kinds.Effects.Read|Host" semantic_digest="59ad1b00e7127e8908ac5766dae9a745c86929004e8c36e5914ea6ca66829ab8" refusal_set="@capabilities.CapabilityRefusals" />
+    <RefusalVariant name="invalid" code="@kinds.RefusalCode.CapabilityInvalid" />
+    <Function name="network_close" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" effects="@kinds.Effects.Host" semantic_version="1" signature="@capabilities.network_close.signature" semantic_digest="90bad48f124a6c9bd343523cd6336100083094716642e17024a72d27072dbdcf">
+      <Signature name="signature" return_type="void" parameter_count="1" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Result name="result" value_type="void" />
+        <Parameter name="socket" value_type="@capabilities.CapabilityHandle" />
+      </Signature>
+    </Function>
+    <Import name="network_close_import" function="@capabilities.network_close" requirement="@capabilities.network_close_requirement" />
+    <CapabilityRequirement name="network_close_requirement" kind="@kinds.CapabilityKind.Network" version="1" rights="@kinds.CapabilityRights.Close" effects="@kinds.Effects.Host" semantic_digest="9c10426c3d4387d787258f1ac6fca6d233cd2ab34583cb97ca0add774dced659" refusal_set="@capabilities.CapabilityRefusals" />
+    <Function name="network_connect" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" effects="@kinds.Effects.Host" semantic_version="1" signature="@capabilities.network_connect.signature" semantic_digest="a5ef38d4c9a32d734bc5a4da30c001628cf9b831baf9c57cae9f9da852664746">
+      <Signature name="signature" return_type="@capabilities.CapabilityHandle" parameter_count="1" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Parameter name="address" value_type="@model.Bytes" />
+        <Result name="result" value_type="@capabilities.CapabilityHandle" />
+      </Signature>
+    </Function>
+    <Import name="network_connect_import" function="@capabilities.network_connect" requirement="@capabilities.network_connect_requirement" />
+    <CapabilityRequirement name="network_connect_requirement" kind="@kinds.CapabilityKind.Network" version="1" rights="@kinds.CapabilityRights.NetworkConnect" effects="@kinds.Effects.Host" semantic_digest="14d03d4a7b6d9669e91e83fd4f786e0b7bd65456b731f91d3d92a96b894a4d68" refusal_set="@capabilities.CapabilityRefusals" />
+    <Function name="network_listen" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" effects="@kinds.Effects.Host" semantic_version="1" signature="@capabilities.network_listen.signature" semantic_digest="747b05c6e36e9bd2ca9c6451ae878ebdb52fc8d79a26f917aba6c481919a9af7">
+      <Signature name="signature" return_type="@capabilities.CapabilityHandle" parameter_count="1" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Parameter name="address" value_type="@model.Bytes" />
+        <Result name="result" value_type="@capabilities.CapabilityHandle" />
+      </Signature>
+    </Function>
+    <Import name="network_listen_import" function="@capabilities.network_listen" requirement="@capabilities.network_listen_requirement" />
+    <CapabilityRequirement name="network_listen_requirement" kind="@kinds.CapabilityKind.Network" version="1" rights="@kinds.CapabilityRights.NetworkListen" effects="@kinds.Effects.Host" semantic_digest="3e4642f2f825796344abe68751d434c915b73a76247980c6086bd52781ce1011" refusal_set="@capabilities.CapabilityRefusals" />
+    <Function name="network_receive" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" effects="@kinds.Effects.Write|Host" semantic_version="1" signature="@capabilities.network_receive.signature" semantic_digest="6a09fb78712364f0ab4332266f8b125d46d468ce69ce5bc92bc8afdf58d3a3d5">
+      <Signature name="signature" return_type="uint64_t" parameter_count="2" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Parameter name="buffer" value_type="@model.Bytes" index="1" />
+        <Result name="result" value_type="uint64_t" />
+        <Parameter name="socket" value_type="@capabilities.CapabilityHandle" />
+      </Signature>
+    </Function>
+    <Import name="network_receive_import" function="@capabilities.network_receive" requirement="@capabilities.network_receive_requirement" />
+    <CapabilityRequirement name="network_receive_requirement" kind="@kinds.CapabilityKind.Network" version="1" rights="@kinds.CapabilityRights.NetworkReceive" effects="@kinds.Effects.Write|Host" semantic_digest="fa0b96126fbce47b931208a371179f4e6bf5bf0b9d61ffcd5fb8aff3d9205706" refusal_set="@capabilities.CapabilityRefusals" />
+    <Function name="network_resolve" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" effects="@kinds.Effects.Host" semantic_version="1" signature="@capabilities.network_resolve.signature" semantic_digest="f11496f92892c9ec07e950d295bc4efbf694f5827e90112e2ffbd08279378dbd">
+      <Signature name="signature" return_type="@model.Bytes" parameter_count="1" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Parameter name="host" value_type="@model.Bytes" />
+        <Result name="result" value_type="@model.Bytes" />
+      </Signature>
+    </Function>
+    <Import name="network_resolve_import" function="@capabilities.network_resolve" requirement="@capabilities.network_resolve_requirement" />
+    <CapabilityRequirement name="network_resolve_requirement" kind="@kinds.CapabilityKind.Network" version="1" rights="@kinds.CapabilityRights.NetworkResolve" effects="@kinds.Effects.Host" semantic_digest="42d116d8aada5c11ef289f58fa11578d008f4d6d5f7259129ffa818e6271f125" refusal_set="@capabilities.CapabilityRefusals" />
+    <Function name="network_send" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" effects="@kinds.Effects.Read|Host" semantic_version="1" signature="@capabilities.network_send.signature" semantic_digest="c61ff79b0dd10230d5afe8a44e00b6b74a554c5f553b534600fbde4dd237683c">
+      <Signature name="signature" return_type="uint64_t" parameter_count="2" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Parameter name="buffer" value_type="@model.Bytes" index="1" />
+        <Result name="result" value_type="uint64_t" />
+        <Parameter name="socket" value_type="@capabilities.CapabilityHandle" />
+      </Signature>
+    </Function>
+    <Import name="network_send_import" function="@capabilities.network_send" requirement="@capabilities.network_send_requirement" />
+    <CapabilityRequirement name="network_send_requirement" kind="@kinds.CapabilityKind.Network" version="1" rights="@kinds.CapabilityRights.NetworkSend" effects="@kinds.Effects.Read|Host" semantic_digest="167935da0541082409ca4554751397e7b1804ab63fafa74bf6e5e19dae79efd0" refusal_set="@capabilities.CapabilityRefusals" />
+    <Function name="platform_info" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@capabilities.platform_info.signature" semantic_digest="83863cec7f801a0cd4b2b5616a4d5ec51de9ffc0052cc71b4b8845720d41db8a">
+      <Signature name="signature" return_type="@capabilities.PlatformInfo" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Result name="result" value_type="@capabilities.PlatformInfo" />
+      </Signature>
+    </Function>
+    <Import name="platform_info_import" function="@capabilities.platform_info" requirement="@capabilities.platform_info_requirement" />
+    <CapabilityRequirement name="platform_info_requirement" kind="@kinds.CapabilityKind.Platform" version="1" rights="@kinds.CapabilityRights.Query" semantic_digest="002086bf09438a7ba996aa7c79655890e5fe8510371ac7cfb381e564f05b3603" refusal_set="@capabilities.CapabilityRefusals" />
+    <Function name="random_fill" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" effects="@kinds.Effects.Write|Host" semantic_version="1" signature="@capabilities.random_fill.signature" semantic_digest="c0f9a8fb28999c0c26ed1a97432bff8b1e7d04482baf7624ea04ec62e74498f1">
+      <Signature name="signature" return_type="uint64_t" parameter_count="1" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Parameter name="buffer" value_type="@model.Bytes" />
+        <Result name="result" value_type="uint64_t" />
+      </Signature>
+    </Function>
+    <Import name="random_fill_import" function="@capabilities.random_fill" requirement="@capabilities.random_fill_requirement" />
+    <CapabilityRequirement name="random_fill_requirement" kind="@kinds.CapabilityKind.Random" version="1" rights="@kinds.CapabilityRights.RandomFill" effects="@kinds.Effects.Write|Host" semantic_digest="4f2c2bc3eeae649750c066def1012a1c1cdec616233c1f7ba32de566ff1138de" refusal_set="@capabilities.CapabilityRefusals" />
+    <RefusalVariant name="refused" code="@kinds.RefusalCode.CapabilityRefused" />
+    <Function name="timer_cancel" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" effects="@kinds.Effects.Time" semantic_version="1" signature="@capabilities.timer_cancel.signature" semantic_digest="d6cfb74127ec757da0788305da856db8d27a070b7aa590aa9b63cde677a8b438">
+      <Signature name="signature" return_type="bool" parameter_count="1" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Result name="result" value_type="bool" />
+        <Parameter name="timer" value_type="@capabilities.CapabilityHandle" />
+      </Signature>
+    </Function>
+    <Import name="timer_cancel_import" function="@capabilities.timer_cancel" requirement="@capabilities.timer_cancel_requirement" />
+    <CapabilityRequirement name="timer_cancel_requirement" kind="@kinds.CapabilityKind.Timer" version="1" rights="@kinds.CapabilityRights.Close" effects="@kinds.Effects.Time" semantic_digest="dda218f325e7fb1ff5fcd7a6294238a6614962f48c7afcd9423285fa88b47cc8" refusal_set="@capabilities.CapabilityRefusals" />
+    <Function name="timer_schedule" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" effects="@kinds.Effects.Time" semantic_version="1" signature="@capabilities.timer_schedule.signature" semantic_digest="937648bca1a4c169c0747891fe7db003e6e38083e065598cd3d6de33997f56d1">
+      <Signature name="signature" return_type="@capabilities.CapabilityHandle" parameter_count="1" result_count="1" refusal_set="@capabilities.CapabilityRefusals">
+        <Parameter name="deadline" value_type="uint64_t" />
+        <Result name="result" value_type="@capabilities.CapabilityHandle" />
+      </Signature>
+    </Function>
+    <Import name="timer_schedule_import" function="@capabilities.timer_schedule" requirement="@capabilities.timer_schedule_requirement" />
+    <CapabilityRequirement name="timer_schedule_requirement" kind="@kinds.CapabilityKind.Timer" version="1" rights="@kinds.CapabilityRights.TimerSchedule" effects="@kinds.Effects.Time" semantic_digest="0ea8105657d63f2d39112d7e572e91496d8e477d0053593aca6186818daeef0e" refusal_set="@capabilities.CapabilityRefusals" />
+    <RefusalVariant name="unavailable" code="@kinds.RefusalCode.CapabilityUnavailable" />
+  </Module>
+</delta>

@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="template" category="ModuleCategory.Library">
+    <Alias name="generic" target="pymergetic.rxf.roles.generic" />
+    <Alias name="kinds" target="pymergetic.rxf.kinds" />
+    <Alias name="template" target="pymergetic.rxf.stdlib.template" />
+    <Template name="Callable_template" function="@template.model_callable" version="1" parameter_count="1">
+      <rxf:ref role="@generic.Parameter" kind="RefKind.Data" target="@template.model_callable.T0" />
+    </Template>
+    <Template name="FixedArray_template" function="@template.model_fixedarray" version="1" parameter_count="1">
+      <rxf:ref role="@generic.Parameter" kind="RefKind.Data" target="@template.model_fixedarray.T0" />
+    </Template>
+    <Template name="IntoIterator_template" function="@template.model_intoiterator" version="1" parameter_count="1">
+      <rxf:ref role="@generic.Parameter" kind="RefKind.Data" target="@template.model_intoiterator.T0" />
+    </Template>
+    <Template name="Iterator_template" function="@template.model_iterator" version="1" parameter_count="1">
+      <rxf:ref role="@generic.Parameter" kind="RefKind.Data" target="@template.model_iterator.T0" />
+    </Template>
+    <Template name="MutRef_template" function="@template.model_mutref" version="1" parameter_count="1">
+      <rxf:ref role="@generic.Parameter" kind="RefKind.Data" target="@template.model_mutref.T0" />
+    </Template>
+    <Template name="MutSlice_template" function="@template.model_mutslice" version="1" parameter_count="1">
+      <rxf:ref role="@generic.Parameter" kind="RefKind.Data" target="@template.model_mutslice.T0" />
+    </Template>
+    <Template name="Option_template" function="@template.model_option" version="1" parameter_count="1">
+      <rxf:ref role="@generic.Parameter" kind="RefKind.Data" target="@template.model_option.T0" />
+    </Template>
+    <Template name="Range_template" function="@template.model_range" version="1" parameter_count="1">
+      <rxf:ref role="@generic.Parameter" kind="RefKind.Data" target="@template.model_range.T0" />
+    </Template>
+    <Template name="Ref" function="@template.model_ref" version="1" parameter_count="1">
+      <rxf:ref role="@generic.Parameter" kind="RefKind.Data" target="@template.model_ref.T0" />
+    </Template>
+    <Template name="Slice_template" function="@template.model_slice" version="1" parameter_count="1">
+      <rxf:ref role="@generic.Parameter" kind="RefKind.Data" target="@template.model_slice.T0" />
+    </Template>
+    <Template name="Tuple" function="@template.model_tuple" version="1" parameter_count="2">
+      <rxf:ref role="@generic.Parameter" kind="RefKind.Data" target="@template.model_tuple.T0" />
+      <rxf:ref role="@generic.Parameter" kind="RefKind.Data" target="@template.model_tuple.T1" />
+    </Template>
+    <Template name="TypedResult_template" function="@template.model_typedresult" version="1" parameter_count="2">
+      <rxf:ref role="@generic.Parameter" kind="RefKind.Data" target="@template.model_typedresult.T0" />
+      <rxf:ref role="@generic.Parameter" kind="RefKind.Data" target="@template.model_typedresult.T1" />
+    </Template>
+    <Function name="model_callable" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@template.model_callable.signature" semantic_digest="115fab8ebf9f56939f07f83471d188b16022f9bb987024a33b9d63601261581c">
+      <GenericParameter name="T0" kind="@kinds.GenericParameterKind.Type" />
+      <Signature name="signature" return_type="uint64_t" />
+    </Function>
+    <Function name="model_fixedarray" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@template.model_fixedarray.signature" semantic_digest="c3c42a3684ae49c60781e078888900100357a5a920a84b0411d8f7904d6bc3dc">
+      <GenericParameter name="T0" kind="@kinds.GenericParameterKind.Type" />
+      <Signature name="signature" return_type="uint64_t" />
+    </Function>
+    <Function name="model_intoiterator" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@template.model_intoiterator.signature" semantic_digest="57243450d65a5e9d39c423858c61e3cf7e2a00561d584d6ff949b45b9a4bee10">
+      <GenericParameter name="T0" kind="@kinds.GenericParameterKind.Type" />
+      <Signature name="signature" return_type="uint64_t" />
+    </Function>
+    <Function name="model_iterator" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@template.model_iterator.signature" semantic_digest="163676589ab70d82e730649c04a1a9026c21fdaae7582816ea121eb05ce6a37f">
+      <GenericParameter name="T0" kind="@kinds.GenericParameterKind.Type" />
+      <Signature name="signature" return_type="uint64_t" />
+    </Function>
+    <Function name="model_mutref" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@template.model_mutref.signature" semantic_digest="5a19aa345f055beff857f4f45d6b183b4358aa95e1119f346c2b070f2a4c2d5a">
+      <GenericParameter name="T0" kind="@kinds.GenericParameterKind.Type" />
+      <Signature name="signature" return_type="uint64_t" />
+    </Function>
+    <Function name="model_mutslice" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@template.model_mutslice.signature" semantic_digest="b8a19a0b4d0dc335cccc0353fa0db68ec7bf0e8cda5c86961a8f90f3c361c1bd">
+      <GenericParameter name="T0" kind="@kinds.GenericParameterKind.Type" />
+      <Signature name="signature" return_type="uint64_t" />
+    </Function>
+    <Function name="model_option" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@template.model_option.signature" semantic_digest="ceb7a8f2c3dc8b1d96f34d9739071a0fac4b70bb6b5efc5bc9248135071eda3e">
+      <GenericParameter name="T0" kind="@kinds.GenericParameterKind.Type" />
+      <Signature name="signature" return_type="uint64_t" />
+    </Function>
+    <Function name="model_range" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@template.model_range.signature" semantic_digest="99d6c3ebc8c783e8861a56e8255d667bd8d1084b4285f81314dba29619487477">
+      <GenericParameter name="T0" kind="@kinds.GenericParameterKind.Type" />
+      <Signature name="signature" return_type="uint64_t" />
+    </Function>
+    <Function name="model_ref" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@template.model_ref.signature" semantic_digest="ae055bbbe23c47269afbefe6506924331dcd7108d0902c724a62fa661f4083bb">
+      <GenericParameter name="T0" kind="@kinds.GenericParameterKind.Type" />
+      <Signature name="signature" return_type="uint64_t" />
+    </Function>
+    <Function name="model_slice" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@template.model_slice.signature" semantic_digest="a4ff25c39977a4f4e6f316de5dca2737767de2ecf68f5ec72da0f53ff84a6995">
+      <GenericParameter name="T0" kind="@kinds.GenericParameterKind.Type" />
+      <Signature name="signature" return_type="uint64_t" />
+    </Function>
+    <Function name="model_tuple" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@template.model_tuple.signature" semantic_digest="1424be4df6e831a656bce0b576edf28406f70652063dcb2871eca4e83733f1b6">
+      <GenericParameter name="T0" kind="@kinds.GenericParameterKind.Type" />
+      <GenericParameter name="T1" index="1" kind="@kinds.GenericParameterKind.Type" />
+      <Signature name="signature" return_type="uint64_t" />
+    </Function>
+    <Function name="model_typedresult" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@template.model_typedresult.signature" semantic_digest="98d1e7a47c6c73955ddac37f92a95744801767bcbb2cd4f6268268e53f09c675">
+      <GenericParameter name="T0" kind="@kinds.GenericParameterKind.Type" />
+      <GenericParameter name="T1" index="1" kind="@kinds.GenericParameterKind.Type" />
+      <Signature name="signature" return_type="uint64_t" />
+    </Function>
+  </Module>
+</delta>

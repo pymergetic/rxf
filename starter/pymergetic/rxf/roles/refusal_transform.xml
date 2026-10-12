@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="refusal_transform" flags="ModuleFlags.Namespace">
+    <Role name="DestinationSet" />
+    <Role name="DestinationVariant" />
+    <Role name="PayloadField" />
+    <Role name="SourceSet" />
+    <Role name="SourceVariant" />
+  </Module>
+</delta>

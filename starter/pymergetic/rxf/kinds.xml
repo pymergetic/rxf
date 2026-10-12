@@ -1,0 +1,288 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="kinds" category="ModuleCategory.Library">
+    <Type name="AbiKind" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Aapcs64" value="2" />
+      <Enumerator name="Sysv" value="1" />
+      <Enumerator name="Wasm" value="3" />
+    </Type>
+    <Type name="AbiPassing" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Borrowed" value="4" />
+      <Enumerator name="Direct" value="1" />
+      <Enumerator name="Function" value="6" />
+      <Enumerator name="Mutable" value="5" />
+      <Enumerator name="Pointer" value="3" />
+      <Enumerator name="Stack" value="2" />
+    </Type>
+    <Type name="AbiValueClass" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Float" value="2" />
+      <Enumerator name="Integer" value="1" />
+      <Enumerator name="Pointer" value="3" />
+    </Type>
+    <Type name="AbiValueFlags" form="Form.Enum" size="4" align="4" flags="TypeFlags.Bitset">
+      <Enumerator name="CallerOwned" value="4" />
+      <Enumerator name="Synthetic" value="1" />
+      <Enumerator name="WritesMemory" value="2" />
+    </Type>
+    <Type name="AbiValueRole" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Argument" value="2" />
+      <Enumerator name="HiddenContext" value="1" />
+      <Enumerator name="Output" value="3" />
+      <Enumerator name="Status" value="4" />
+    </Type>
+    <Type name="ArchitectureKind" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Aarch64" value="2" />
+      <Enumerator name="Wasm32" value="3" />
+      <Enumerator name="X8664" value="1" />
+    </Type>
+    <Type name="BindingKind" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Function" value="1" />
+      <Enumerator name="Type" value="2" />
+    </Type>
+    <Type name="CallingConvention" form="Form.Enum" size="4" align="4">
+      <Enumerator name="StatusOut" value="1" />
+    </Type>
+    <Type name="CanonicalOrderPolicy" form="Form.Enum" size="4" align="4">
+      <Enumerator name="AscendingSlotIndex" value="1" />
+    </Type>
+    <Type name="CapabilityKind" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Clock" value="3" />
+      <Enumerator name="Console" value="1" />
+      <Enumerator name="Environment" value="7" />
+      <Enumerator name="File" value="2" />
+      <Enumerator name="Network" value="6" />
+      <Enumerator name="Platform" value="8" />
+      <Enumerator name="Random" value="5" />
+      <Enumerator name="Timer" value="4" />
+    </Type>
+    <Type name="CapabilityRights" form="Form.Enum" size="4" align="4" flags="TypeFlags.Bitset">
+      <Enumerator name="ClockMonotonic" value="128" />
+      <Enumerator name="ClockWall" value="256" />
+      <Enumerator name="Close" value="64" />
+      <Enumerator name="ConsoleLog" value="1" />
+      <Enumerator name="FileList" value="32" />
+      <Enumerator name="FileOpen" value="2" />
+      <Enumerator name="FileRead" value="4" />
+      <Enumerator name="FileStat" value="16" />
+      <Enumerator name="FileWrite" value="8" />
+      <Enumerator name="NetworkConnect" value="4096" />
+      <Enumerator name="NetworkListen" value="8192" />
+      <Enumerator name="NetworkReceive" value="32768" />
+      <Enumerator name="NetworkResolve" value="2048" />
+      <Enumerator name="NetworkSend" value="16384" />
+      <Enumerator name="Query" value="65536" />
+      <Enumerator name="RandomFill" value="1024" />
+      <Enumerator name="TimerSchedule" value="512" />
+    </Type>
+    <Type name="CapacityRule" form="Form.Enum" size="4" align="4">
+      <Enumerator name="PowerOfTwo" value="1" />
+    </Type>
+    <Type name="CodeFormat" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Bytecode" value="3" />
+      <Enumerator name="Machine" value="1" />
+      <Enumerator name="Wasm" value="2" />
+    </Type>
+    <Type name="Effects" form="Form.Enum" size="4" align="4" flags="TypeFlags.Bitset">
+      <Enumerator name="Allocate" value="4" />
+      <Enumerator name="Host" value="8" />
+      <Enumerator name="Read" value="1" />
+      <Enumerator name="Time" value="16" />
+      <Enumerator name="Write" value="2" />
+    </Type>
+    <Type name="Endianness" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Little" value="1" />
+    </Type>
+    <Type name="EnvironmentKind" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Bios" value="3" />
+      <Enumerator name="Linux" value="1" />
+      <Enumerator name="Uefi" value="2" />
+      <Enumerator name="Wasm" value="4" />
+    </Type>
+    <Type name="FeatureKind" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Baseline" value="1" />
+    </Type>
+    <Type name="FunctionImplementation" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Capability" value="3" />
+      <Enumerator name="Control" value="5" />
+      <Enumerator name="Native" value="2" />
+      <Enumerator name="Semantic" value="1" />
+    </Type>
+    <Type name="FunctionLayer" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Application" value="4" />
+      <Enumerator name="Core" value="2" />
+      <Enumerator name="Library" value="3" />
+      <Enumerator name="Platform" value="1" />
+    </Type>
+    <Type name="GenerationPolicy" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Monotonic" value="1" />
+    </Type>
+    <Type name="GenericParameterKind" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Type" value="1" />
+    </Type>
+    <Type name="HashAlgorithm" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Fnv1a64" value="1" />
+    </Type>
+    <Type name="HashRepresentation" form="Form.Enum" size="4" align="4">
+      <Enumerator name="U64Le" value="1" />
+    </Type>
+    <Type name="Intrinsic" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Break" value="6" />
+      <Enumerator name="Continue" value="7" />
+      <Enumerator name="If" value="1" />
+      <Enumerator name="Refuse" value="8" />
+      <Enumerator name="Return" value="5" />
+      <Enumerator name="Sequence" value="4" />
+      <Enumerator name="Switch" value="3" />
+      <Enumerator name="While" value="2" />
+    </Type>
+    <Type name="NumericOperation" form="Form.Enum" size="4" align="4">
+      <Enumerator name="BitAnd" value="17" />
+      <Enumerator name="BitNot" value="16" />
+      <Enumerator name="BitOr" value="18" />
+      <Enumerator name="BitXor" value="19" />
+      <Enumerator name="CheckedAbsolute" value="23" />
+      <Enumerator name="CheckedAdd" value="5" />
+      <Enumerator name="CheckedMultiply" value="11" />
+      <Enumerator name="CheckedNegate" value="22" />
+      <Enumerator name="CheckedSubtract" value="8" />
+      <Enumerator name="Convert" value="24" />
+      <Enumerator name="Divide" value="14" />
+      <Enumerator name="Equal" value="1" />
+      <Enumerator name="Less" value="2" />
+      <Enumerator name="Maximum" value="4" />
+      <Enumerator name="Minimum" value="3" />
+      <Enumerator name="Remainder" value="15" />
+      <Enumerator name="SaturatingAdd" value="7" />
+      <Enumerator name="SaturatingMultiply" value="13" />
+      <Enumerator name="SaturatingSubtract" value="10" />
+      <Enumerator name="ShiftLeft" value="20" />
+      <Enumerator name="ShiftRight" value="21" />
+      <Enumerator name="WrappingAdd" value="6" />
+      <Enumerator name="WrappingMultiply" value="12" />
+      <Enumerator name="WrappingSubtract" value="9" />
+    </Type>
+    <Type name="NumericPolicy" form="Form.Enum" size="4" align="4" flags="TypeFlags.Bitset">
+      <Enumerator name="ArithmeticShift" value="64" />
+      <Enumerator name="DividendSign" value="16" />
+      <Enumerator name="IeeeInfinity" value="512" />
+      <Enumerator name="IeeeNan" value="256" />
+      <Enumerator name="IeeeRounding" value="128" />
+      <Enumerator name="IeeeSignedZero" value="1024" />
+      <Enumerator name="RefuseDivisionByZero" value="8" />
+      <Enumerator name="RefuseInexact" value="4096" />
+      <Enumerator name="RefuseNonFinite" value="2048" />
+      <Enumerator name="RefuseOutOfRange" value="8192" />
+      <Enumerator name="RefuseOverflow" value="1" />
+      <Enumerator name="RefuseShiftCount" value="32" />
+      <Enumerator name="Saturate" value="4" />
+      <Enumerator name="Wrap" value="2" />
+    </Type>
+    <Type name="Opcode" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Allocate" value="3" />
+      <Enumerator name="AppendBytes" value="28" />
+      <Enumerator name="BeginPrivate" value="1" />
+      <Enumerator name="Borrow" value="38" />
+      <Enumerator name="CallCallback" value="19" />
+      <Enumerator name="CanonicalOrder" value="43" />
+      <Enumerator name="Cleanup" value="10" />
+      <Enumerator name="Compare" value="21" />
+      <Enumerator name="ConstructOption" value="13" />
+      <Enumerator name="ConstructResult" value="14" />
+      <Enumerator name="Copy" value="4" />
+      <Enumerator name="EnrichRefusal" value="31" />
+      <Enumerator name="FormatInteger" value="27" />
+      <Enumerator name="Hash" value="23" />
+      <Enumerator name="IterAdvance" value="18" />
+      <Enumerator name="IterCondition" value="16" />
+      <Enumerator name="IterInit" value="15" />
+      <Enumerator name="IterProject" value="17" />
+      <Enumerator name="Lookup" value="44" />
+      <Enumerator name="MapRefusal" value="30" />
+      <Enumerator name="MoveSlot" value="42" />
+      <Enumerator name="Pin" value="40" />
+      <Enumerator name="ProjectPayload" value="12" />
+      <Enumerator name="Publish" value="8" />
+      <Enumerator name="Read" value="6" />
+      <Enumerator name="ReadTag" value="11" />
+      <Enumerator name="ReleaseBorrow" value="39" />
+      <Enumerator name="ReturnValue" value="32" />
+      <Enumerator name="Rollback" value="9" />
+      <Enumerator name="Search" value="29" />
+      <Enumerator name="StoreField" value="35" />
+      <Enumerator name="Unpin" value="41" />
+      <Enumerator name="Utf8Boundary" value="26" />
+      <Enumerator name="Utf8Validate" value="25" />
+      <Enumerator name="Validate" value="7" />
+      <Enumerator name="Write" value="5" />
+    </Type>
+    <Type name="ProbePolicy" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Linear" value="1" />
+    </Type>
+    <Type name="RefusalCode" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Alignment" value="7" />
+      <Enumerator name="BorrowConflict" value="10" />
+      <Enumerator name="CapabilityInvalid" value="14" />
+      <Enumerator name="CapabilityRefused" value="12" />
+      <Enumerator name="CapabilityUnavailable" value="13" />
+      <Enumerator name="DivisionByZero" value="2" />
+      <Enumerator name="Inexact" value="5" />
+      <Enumerator name="InvalidUtf8" value="8" />
+      <Enumerator name="NonFinite" value="4" />
+      <Enumerator name="OutOfMemory" value="9" />
+      <Enumerator name="OutOfRange" value="6" />
+      <Enumerator name="Overflow" value="1" />
+      <Enumerator name="Pinned" value="11" />
+      <Enumerator name="ShiftCount" value="3" />
+    </Type>
+    <Type name="RefusalPolicy" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Propagate" value="1" />
+    </Type>
+    <Type name="RegisterBank" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Float" value="2" />
+      <Enumerator name="Integer" value="1" />
+      <Enumerator name="Local" value="5" />
+      <Enumerator name="Return" value="4" />
+      <Enumerator name="Stack" value="3" />
+    </Type>
+    <Type name="SeedPolicy" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Fixed" value="1" />
+    </Type>
+    <Type name="StdlibFlags" form="Form.Enum" size="4" align="4" flags="TypeFlags.Bitset">
+      <Enumerator name="Native" value="128" />
+      <Enumerator name="Semantic" value="64" />
+      <Enumerator name="Standard" value="32" />
+    </Type>
+    <Type name="StdlibKind" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Algorithm" value="7" />
+      <Enumerator name="Collection" value="5" />
+      <Enumerator name="Flow" value="8" />
+      <Enumerator name="Heap" value="3" />
+      <Enumerator name="Memory" value="4" />
+      <Enumerator name="Text" value="6" />
+    </Type>
+    <Type name="TerminationRule" form="Form.Enum" size="4" align="4">
+      <Enumerator name="EmptySlot" value="1" />
+    </Type>
+    <Type name="Terminator" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Branch" value="2" />
+      <Enumerator name="Goto" value="1" />
+      <Enumerator name="Loop" value="4" />
+      <Enumerator name="Refuse" value="6" />
+      <Enumerator name="Return" value="5" />
+      <Enumerator name="SwitchTag" value="3" />
+    </Type>
+    <Type name="TraitRequirementKind" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Function" value="1" />
+    </Type>
+    <Type name="ValueKind" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Bound" value="4" />
+      <Enumerator name="Literal" value="2" />
+      <Enumerator name="Object" value="5" />
+      <Enumerator name="OperationResult" value="3" />
+      <Enumerator name="Parameter" value="1" />
+    </Type>
+    <Type name="VisibilityPolicy" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Published" value="1" />
+    </Type>
+  </Module>
+</delta>

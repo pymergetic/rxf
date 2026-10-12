@@ -1,0 +1,506 @@
+# The backend of x86_64: the code of native/compile.c, instruction by instruction.
+#
+# rbp is the frame, rbx the context, r15 the output; rax, rcx are scratch and r10 holds the value
+# that an `if` looks at, r11 a tag. Arguments go in rdi, rsi, rdx, rcx, r8, r9.
+
+const RAX = 0;
+const RCX = 1;
+const RDX = 2;
+const RBX = 3;
+const RBP = 5;
+const RSI = 6;
+const RDI = 7;
+const R8 = 8;
+const R9 = 9;
+const R10 = 10;
+const R11 = 11;
+const R15 = 15;
+
+macro x_rex(w_, reg_, rm_) { g0 = w_; g1 = reg_; g2 = rm_; call x_rex; }
+macro x_mem(reg_, base_, disp_) { g0 = reg_; g1 = base_; g2 = disp_; call x_mem; }
+macro x_load(size_, reg_, base_, disp_) { g0 = size_; g1 = reg_; g2 = base_; g3 = disp_; call x_load; }
+macro x_store(size_, reg_, base_, disp_) { g0 = size_; g1 = reg_; g2 = base_; g3 = disp_; call x_store; }
+macro x_imm(reg_, value_) { g0 = reg_; g1 = value_; call x_imm; }
+macro x_lea(reg_, base_, disp_) { g0 = reg_; g1 = base_; g2 = disp_; call x_lea; }
+macro x_mov(dst_, src_) { g0 = dst_; g1 = src_; call x_mov; }
+macro x_copy(dbase_, dst_, sbase_, src_, count_) {
+    g0 = dbase_; g1 = dst_; g2 = sbase_; g3 = src_; g4 = count_; call x_copy;
+}
+macro x_zero(base_, disp_, count_) { g0 = base_; g1 = disp_; g2 = count_; call x_zero; }
+macro x_value(reg_, wide_) { g0 = reg_; g1 = wide_; call x_value; }
+macro pick(left_, a_, b_) { g0 = left_; g1 = a_; g2 = b_; call pick; }
+
+# the REX prefix, when it is more than 0x40: g0 is W, g1 the register, g2 the base
+proc x_rex {
+    u0 = 64 | (g0 << 3) | ((g1 >> 3) << 2) | (g2 >> 3);
+    if u0 != 64 {
+        byte(u0);
+    }
+}
+
+# [base + disp32]: the bases used are never rsp or r12, which need a SIB byte
+proc x_mem {
+    byte(128 | ((g0 & 7) << 3) | (g1 & 7));
+    bytes(g2, 4);
+}
+
+proc x_load {
+    m0 = g0;
+    m1 = g1;
+    m2 = g2;
+    m3 = g3;
+    if m0 == 8 {
+        x_rex(1, m1, m2);
+        byte(0x8B);
+    } else if m0 == 4 {
+        x_rex(0, m1, m2);
+        byte(0x8B);
+    } else {
+        x_rex(1, m1, m2);
+        byte(0x0F);
+        if m0 == 2 { byte(0xB7); } else { byte(0xB6); }
+    }
+    x_mem(m1, m2, m3);
+}
+
+proc x_store {
+    m0 = g0;
+    m1 = g1;
+    m2 = g2;
+    m3 = g3;
+    if m0 == 2 { byte(0x66); }
+    x_rex(m0 == 8, m1, m2);
+    if m0 == 1 { byte(0x88); } else { byte(0x89); }
+    x_mem(m1, m2, m3);
+}
+
+proc x_imm {
+    m0 = g0;
+    m1 = g1;
+    if (m1 >> 32) != 0 {
+        x_rex(1, 0, m0);
+        byte(0xB8 + (m0 & 7));
+        bytes(m1, 8);
+    } else {
+        x_rex(0, 0, m0);
+        byte(0xB8 + (m0 & 7));
+        bytes(m1, 4);
+    }
+}
+
+proc x_lea {
+    m0 = g0;
+    m1 = g1;
+    m2 = g2;
+    x_rex(1, m0, m1);
+    byte(0x8D);
+    x_mem(m0, m1, m2);
+}
+
+proc x_mov {
+    m0 = g0;
+    m1 = g1;
+    x_rex(1, m1, m0);
+    byte(0x89);
+    byte(0xC0 | ((m1 & 7) << 3) | (m0 & 7));
+}
+
+proc x_copy {
+    n0 = g0;
+    n1 = g1;
+    n2 = g2;
+    n3 = g3;
+    n4 = g4;
+    n5 = 0;
+    while n5 < n4 {
+        pick(n4 - n5, n1 + n5, n3 + n5);
+        n6 = R;
+        x_load(n6, RAX, n2, n3 + n5);
+        x_store(n6, RAX, n0, n1 + n5);
+        n5 = n5 + n6;
+    }
+}
+
+proc x_zero {
+    n0 = g0;
+    n1 = g1;
+    n2 = g2;
+    if n2 == 0 { ret; }
+    byte(0x31);
+    byte(0xC0);
+    n3 = 0;
+    while n3 < n2 {
+        n4 = n2 - n3;
+        n5 = 1;
+        if n4 >= 8 {
+            n5 = 8;
+        } else if n4 >= 4 {
+            n5 = 4;
+        } else if n4 >= 2 {
+            n5 = 2;
+        }
+        x_store(n5, RAX, n0, n1 + n3);
+        n3 = n3 + n5;
+    }
+}
+
+# add rsp, alloc; pop r15; pop rbx; pop rbp; ret
+proc x_epilogue {
+    byte(0x48);
+    byte(0x81);
+    byte(0xC4);
+    bytes(alloc, 4);
+    byte(0x41);
+    byte(0x5F);
+    byte(0x5B);
+    byte(0x5D);
+    byte(0xC3);
+}
+
+# The value of the operand (ok, oa, ob) in a register: g0, by address when it is wide and g1 is 1.
+proc x_value {
+    n0 = g0;
+    n1 = g1;
+    if ok == LITERAL {
+        x_imm(n0, oa);
+    } else if ok == OBJECT {
+        call object_address;
+        x_imm(n0, R);
+    } else if (n1 != 0) & (ob > 8) {
+        x_lea(n0, RBP, oa);
+    } else {
+        n2 = ob;
+        if ob >= 8 { n2 = 8; }
+        x_load(n2, n0, RBP, oa);
+    }
+}
+
+# g0 is the number of words of the arguments
+proc x_begin {
+    q0 = g0;
+    alloc = FRAME_ALLOC;
+    byte(0x55);
+    byte(0x53);
+    byte(0x41);
+    byte(0x57);
+    byte(0x48);
+    byte(0x81);
+    byte(0xEC);
+    bytes(alloc, 4);
+    byte(0x48);
+    byte(0x89);
+    byte(0xE5);
+    x_mov(RBX, RDI);
+    x_mov(R15, RCX);
+    byte(0x48);
+    byte(0x81);
+    byte(0xFA);
+    bytes(q0, 4);
+    byte(0x0F);
+    byte(0x84);
+    q1 = size;
+    bytes(0, 4);
+    x_imm(RAX, OUT_OF_RANGE);
+    call x_epilogue;
+    g0 = q1;
+    g1 = size - (q1 + 4);
+    call patch32;
+    x_zero(RBP, 0, frame);
+}
+
+# the parameter at slot g0, g1 wide, from g2 words into the arguments (rsi)
+proc x_param {
+    q0 = g0;
+    q1 = g1;
+    q2 = g2;
+    x_copy(RBP, q0, RSI, q2, q1);
+}
+
+# MOVE: the slot g0, g1 wide, from the operand (ok, oa), of which g2 bytes are there
+proc x_move {
+    q0 = g0;
+    q1 = g1;
+    q2 = g2;
+    x_zero(RBP, q0, q1);
+    if ok == SLOT {
+        x_copy(RBP, q0, RBP, oa, q2);
+    } else if ok == OBJECT {
+        call object_address;
+        x_imm(RCX, R);
+        x_copy(RBP, q0, RCX, 0, q2);
+    } else {
+        q3 = 0;
+        while q3 < q2 {
+            pick(q2 - q3, q0 + q3, 0);
+            q4 = R;
+            q5 = oa >> (q3 << 3);
+            if q4 == 8 {
+                x_imm(RAX, q5);
+            } else {
+                x_imm(RAX, q5 & ((1 << (q4 << 3)) - 1));
+            }
+            x_store(q4, RAX, RBP, q0 + q3);
+            q3 = q3 + q4;
+        }
+    }
+}
+
+# One argument of a call, in the register g0: `which` (g1) of the plan, of the letter g2: the
+# context, the output, or an operand.
+proc x_argument {
+    q5 = g0;
+    q6 = g1;
+    q7 = g2;
+    if q6 == ARG_CONTEXT {
+        x_mov(q5, RBX);
+    } else if q6 == ARG_OUT {
+        x_lea(q5, RBP, cos);
+    } else {
+        operand(pc + 6 + triple(q6));
+        if (q7 == T_BYTE) & (ok == LITERAL) {
+            x_imm(q5, oa & 255);
+        } else {
+            x_value(q5, 1);
+        }
+    }
+}
+
+# A handle goes by value on the stack (a structure of 24 bytes is passed in memory): the three words,
+# the last first, so that the first is the lowest. The operand is at (ok, oa).
+proc x_push_handle {
+    if ok == OBJECT {
+        call object_address;
+        x_imm(RAX, R);
+    }
+    q5 = 3;
+    while q5 > 0 {
+        byte(0xFF);
+        if ok == OBJECT {
+            if q5 > 1 {
+                byte(0x70);
+                byte((q5 - 1) << 3);
+            } else {
+                byte(0x30);
+            }
+        } else {
+            byte(0xB5);
+            bytes(oa + ((q5 - 1) << 3), 4);
+        }
+        q5 = q5 - 1;
+    }
+}
+
+# The call of the leaf at `function` with the plan of its arguments, the operands at pc + 6.
+proc x_call {
+    q4 = 0;
+    q1 = 0;
+    while q1 < pn {
+        if load8(plantype + q1) == T_HANDLE { q4 = q4 + 1; }
+        q1 = q1 + 1;
+    }
+    if (q4 & 1) != 0 {
+        # the stack is 16-byte aligned at the call
+        byte(0x48);
+        byte(0x83);
+        byte(0xEC);
+        byte(8);
+    }
+    q1 = pn;
+    while q1 > 0 {
+        if load8(plantype + (q1 - 1)) == T_HANDLE {
+            operand(pc + 6 + triple(load64(planarg + ((q1 - 1) << 3))));
+            call x_push_handle;
+        }
+        q1 = q1 - 1;
+    }
+    q0 = 0;
+    q1 = 0;
+    while q1 < pn {
+        q2 = load64(planarg + (q1 << 3));
+        q3 = load8(plantype + q1);
+        if (q3 != T_HANDLE) & (q0 < 6) {
+            switch q0 {
+                case 0: { g0 = RDI; }
+                case 1: { g0 = RSI; }
+                case 2: { g0 = RDX; }
+                case 3: { g0 = RCX; }
+                case 4: { g0 = R8; }
+                default: { g0 = R9; }
+            }
+            g1 = q2;
+            g2 = q3;
+            call x_argument;
+            q0 = q0 + 1;
+        }
+        q1 = q1 + 1;
+    }
+    # the arguments beyond the registers go on the stack, the last first
+    q1 = pn;
+    while q1 > (6 + q4) {
+        g0 = RAX;
+        g1 = load64(planarg + ((q1 - 1) << 3));
+        g2 = load8(plantype + (q1 - 1));
+        call x_argument;
+        byte(0x50);
+        q1 = q1 - 1;
+    }
+    if hasout != 0 {
+        x_zero(RBP, cos, cow);
+    }
+    x_imm(RAX, function);
+    byte(0xFF);
+    byte(0xD0);
+    # what is pushed and what is aligned is taken off
+    q2 = (q4 << 1) + q4 + (q4 & 1);
+    if pn > (6 + q4) { q2 = q2 + (pn - 6 - q4); }
+    if q2 != 0 {
+        byte(0x48);
+        byte(0x83);
+        byte(0xC4);
+        byte(q2 << 3);
+    }
+    if css != NONE {
+        x_store(4, RAX, RBP, css);
+    }
+}
+
+# RETURN: the operand (ok, oa), g0 wide, into the output
+proc x_return {
+    q0 = g0;
+    if q0 > 8 {
+        if ok == OBJECT {
+            call object_address;
+            x_imm(RCX, R);
+            x_copy(R15, 0, RCX, 0, q0);
+        } else {
+            x_copy(R15, 0, RBP, oa, q0);
+        }
+    } else {
+        x_value(RAX, 0);
+        x_store(8, RAX, R15, 0);
+    }
+    byte(0x31);
+    byte(0xC0);
+    call x_epilogue;
+}
+
+proc x_refuse {
+    x_value(RAX, 0);
+    call x_epilogue;
+}
+
+# The value that the next `if` looks at.
+proc x_set_value {
+    x_value(R10, 0);
+}
+
+# The code up to the matching end runs only when the value is zero (g0 is 1) or not. R is the place
+# to patch, the distance of the skip.
+proc x_if_zero {
+    q0 = g0;
+    byte(0x4D);
+    byte(0x85);
+    byte(0xD2);
+    byte(0x0F);
+    if q0 != 0 { byte(0x85); } else { byte(0x84); }
+    R = size;
+    bytes(0, 4);
+}
+
+# ... only when the value is the tag g0
+proc x_if_tag {
+    q0 = g0;
+    x_imm(R11, q0);
+    byte(0x4D);
+    byte(0x39);
+    byte(0xDA);
+    byte(0x0F);
+    byte(0x85);
+    R = size;
+    bytes(0, 4);
+}
+
+# g0 is what x_if_zero and x_if_tag gave
+proc x_if_end {
+    g1 = size - (g0 + 4);
+    call patch32;
+}
+
+# jmp to the start of instruction g0
+proc x_jump {
+    q0 = g0;
+    byte(0xE9);
+    bytes(load32(offset + (q0 << 2)) - (size + 4), 4);
+}
+
+# The safe point of an edge that goes back (native/safe.c): the leaf is called on the context and
+# the area, and what it answers other than OK is the status of the program.
+proc x_safe_point {
+    x_mov(RDI, RBX);
+    x_imm(RSI, area);
+    x_imm(RAX, safe);
+    byte(0xFF);
+    byte(0xD0);
+    byte(0x85);
+    byte(0xC0);
+    byte(0x0F);
+    byte(0x84);
+    q0 = size;
+    bytes(0, 4);
+    call x_epilogue;
+    g0 = q0;
+    g1 = size - (q0 + 4);
+    call patch32;
+}
+
+# what is after the last instruction: the program ran off its end
+proc x_tail {
+    x_imm(RAX, OUT_OF_RANGE);
+    call x_epilogue;
+}
+
+# the slot g0, g1 wide, zero
+proc x_zero_slot {
+    q0 = g0;
+    q1 = g1;
+    x_zero(RBP, q0, q1);
+}
+
+# g2 bytes of the frame, from the slot g1 to the slot g0
+proc x_slot_copy {
+    q0 = g0;
+    q1 = g1;
+    q2 = g2;
+    x_copy(RBP, q0, RBP, q1, q2);
+}
+
+# the value of the operand in rax (g0 is 0) or rcx
+proc x_less_value {
+    q0 = g0;
+    if q0 == 0 { x_value(RAX, 0); } else { x_value(RCX, 0); }
+}
+
+# cmp rax, rcx; setb al; into the byte g0
+proc x_less_end {
+    q0 = g0;
+    byte(0x48);
+    byte(0x39);
+    byte(0xC8);
+    byte(0x0F);
+    byte(0x92);
+    byte(0xC0);
+    x_store(1, RAX, RBP, q0);
+}
+
+# the slot g0 of g1 bytes = the operand + 1
+proc x_increment {
+    q0 = g0;
+    q1 = g1;
+    x_value(RAX, 0);
+    byte(0x48);
+    byte(0x83);
+    byte(0xC0);
+    byte(1);
+    if q1 >= 8 { q1 = 8; }
+    x_store(q1, RAX, RBP, q0);
+}

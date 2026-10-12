@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RXF inspector</title>
+<style>
+  body { margin: 0; font: 13px/1.4 system-ui, sans-serif; display: grid; grid-template-columns: 380px 1fr; height: 100vh; }
+  #side { overflow: auto; border-right: 1px solid #ccc; padding: 8px; }
+  #main { overflow: auto; padding: 12px 16px; }
+  header { padding: 4px 0 8px; border-bottom: 1px solid #ddd; margin-bottom: 6px; }
+  input { width: 100%; box-sizing: border-box; padding: 4px; }
+  ul { list-style: none; margin: 0; padding-left: 14px; }
+  li > span { cursor: pointer; white-space: nowrap; }
+  li > span:hover { background: #eef; }
+  .t { color: #888; margin-left: 6px; }
+  .bad { color: #b00; }
+  table { border-collapse: collapse; margin: 6px 0 14px; }
+  td, th { border: 1px solid #ddd; padding: 2px 8px; text-align: left; vertical-align: top; }
+  a { color: #05c; cursor: pointer; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { font: 12px ui-monospace, monospace; word-break: break-all; }
+</style>
+</head>
+<body>
+<div id="side">
+  <header><b>RXF</b> <span id="info"></span><br><input id="q" placeholder="search names"></header>
+  <div id="results"></div>
+  <ul id="tree"></ul>
+</div>
+<div id="main"><p>Select an object.</p></div>
+<script>
+const $ = (id) => document.getElementById(id);
+const get = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error(await r.text()); return r.json(); };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const link = (path) => path === null ? "none" : `<a data-path="${esc(path)}">${esc(path || "(root)")}</a>`;
+
+async function expand(li, path) {
+  if (li.dataset.open) { li.querySelector("ul").remove(); delete li.dataset.open; return; }
+  const data = await get(`/api/children?path=${encodeURIComponent(path)}&limit=300`);
+  const ul = document.createElement("ul");
+  for (const c of data.items) ul.append(node(c));
+  if (data.total > data.items.length) {
+    const more = document.createElement("li");
+    more.textContent = `... ${data.total - data.items.length} more (use search)`;
+    ul.append(more);
+  }
+  li.append(ul);
+  li.dataset.open = "1";
+}
+
+function node(c) {
+  const li = document.createElement("li");
+  const span = document.createElement("span");
+  span.innerHTML = `${c.children ? "&#9656; " : "&nbsp;&nbsp; "}${esc(c.name)}<span class="t">${esc(c.type || "")}</span>`;
+  span.onclick = () => { show(c.path); if (c.children) expand(li, c.path); };
+  li.append(span);
+  return li;
+}
+
+async function show(path) {
+  const o = await get(`/api/object?path=${encodeURIComponent(path)}`);
+  const rows = (items, f) => items.map(f).join("");
+  $("main").innerHTML = `
+    <h3>${esc(o.path || "(root)")}</h3>
+    <table>
+      <tr><th>type</th><td>${o.type_path ? link(o.type_path) : "none"}</td></tr>
+      <tr><th>kind</th><td>${esc(o.kind)}</td></tr>
+      <tr><th>parent</th><td>${o.parent === null ? "none" : link(o.parent)}</td></tr>
+      <tr><th>handle</th><td>${o.handle}</td></tr>
+      <tr><th>payload</th><td>${o.payload_size} bytes</td></tr>
+    </table>
+    <h4>fields</h4>
+    <table>${rows(o.fields, (f) => `<tr><td>${esc(f.name)}</td><td><code>${esc(f.value)}</code></td></tr>`) || "<tr><td>none</td></tr>"}</table>
+    <h4>refs</h4>
+    <table>${rows(o.refs, (r) => `<tr><td>${esc(r.kind)}</td><td>${r.role ? link(r.role) : ""}${r.index ? `[${r.index}]` : ""}</td><td>${esc(r.binding)}</td><td>${link(r.target)}</td></tr>`) || "<tr><td>none</td></tr>"}</table>
+    ${o.members.map((m) => `<h4>${esc(m.field)} (${m.count})</h4><table>${rows(m.paths, (p, i) => `<tr><td>${i}</td><td>${link(p)}</td></tr>`)}</table>`).join("")}
+    ${o.aliases.length ? `<h4>written with</h4><table>${rows(o.aliases, (a) => `<tr><td>alias</td><td>${link(a)}</td></tr>`)}</table>` : ""}
+    <h4>used by</h4>
+    <table>${rows(o.referrers, (r) => `<tr><td>${esc(r.how)}</td><td>${link(r.path)}</td></tr>`) || "<tr><td>none</td></tr>"}</table>
+    ${o.referrer_count > o.referrers.length ? `<p>... ${o.referrer_count - o.referrers.length} more</p>` : ""}`;
+}
+
+document.addEventListener("click", (e) => { const a = e.target.closest("a[data-path]"); if (a) show(a.dataset.path); });
+
+$("q").addEventListener("input", async (e) => {
+  const q = e.target.value.trim();
+  if (!q) { $("results").innerHTML = ""; return; }
+  const found = await get(`/api/search?q=${encodeURIComponent(q)}&limit=50`);
+  $("results").innerHTML = found.map((f) => `<div>${link(f.path)}<span class="t">${esc(f.type || "")}</span></div>`).join("");
+});
+
+(async () => {
+  const info = await get("/api/info");
+  $("info").innerHTML = `${info.objects} objects, ${info.issue_count ? `<span class="bad">${info.issue_count} problems</span>` : "links"}<br><code>${info.digest.slice(0, 16)}</code>`;
+  const root = await get("/api/children?path=");
+  for (const c of root.items) $("tree").append(node(c));
+})();
+</script>
+</body>
+</html>

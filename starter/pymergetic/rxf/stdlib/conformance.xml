@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="conformance" category="ModuleCategory.Library">
+    <Alias name="conformance" target="pymergetic.rxf.stdlib.conformance" />
+    <Alias name="types" target="pymergetic.rxf.stdlib.types" />
+    <Conformance name="ByteBuffer_Move" trait="@conformance.Move" conforming_type="@types.ByteBuffer" />
+    <Trait name="CallableTrait" />
+    <Conformance name="Callable_CallableTrait" trait="@conformance.CallableTrait" conforming_type="@types.Callable" />
+    <Trait name="Clone" />
+    <Trait name="Compare" />
+    <Trait name="Drop" />
+    <Trait name="Equal" />
+    <Trait name="Hash" />
+    <Trait name="IntoIteratorTrait" />
+    <Trait name="IteratorTrait" />
+    <Conformance name="Iterator_IteratorTrait" trait="@conformance.IteratorTrait" conforming_type="@types.Iterator" />
+    <Trait name="Move" />
+    <Conformance name="String_Clone" trait="@conformance.Clone" conforming_type="@types.String" />
+    <Conformance name="String_Compare" trait="@conformance.Compare" conforming_type="@types.String" />
+    <Conformance name="String_Equal" trait="@conformance.Equal" conforming_type="@types.String" />
+    <Conformance name="String_Hash" trait="@conformance.Hash" conforming_type="@types.String" />
+    <Conformance name="Vector_Drop" trait="@conformance.Drop" conforming_type="@types.Vector" />
+    <Conformance name="Vector_IntoIteratorTrait" trait="@conformance.IntoIteratorTrait" conforming_type="@types.Vector" />
+  </Module>
+</delta>

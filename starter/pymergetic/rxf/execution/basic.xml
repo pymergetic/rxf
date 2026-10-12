@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="basic" category="ModuleCategory.Library">
+    <Alias name="basic" target="pymergetic.rxf.execution.basic" />
+    <Alias name="kinds" target="pymergetic.rxf.kinds" />
+    <Function name="break" implementation="@kinds.FunctionImplementation.Control" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@basic.break.signature" intrinsic="@kinds.Intrinsic.Break" semantic_digest="c7d0c491fbc2214fde09519be9d58ebf4a974b25d50288e6addb6671f793061c">
+      <Signature name="signature" return_type="void" result_count="1">
+        <Result name="value" value_type="void" />
+      </Signature>
+    </Function>
+    <Function name="continue" implementation="@kinds.FunctionImplementation.Control" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@basic.continue.signature" intrinsic="@kinds.Intrinsic.Continue" semantic_digest="1b50c9d9d2075bd4f423ee00d5bb191697d53f0d1d70bd0f00fa956e62f499b1">
+      <Signature name="signature" return_type="void" result_count="1">
+        <Result name="value" value_type="void" />
+      </Signature>
+    </Function>
+    <Function name="if" implementation="@kinds.FunctionImplementation.Control" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@basic.if.signature" intrinsic="@kinds.Intrinsic.If" semantic_digest="cfc32f17c78c041117bfb78abe244405cc24f0d17284d5dfa5e01337d76d4fd2">
+      <Signature name="signature" return_type="void" parameter_count="3" result_count="1">
+        <Parameter name="argument[0]" value_type="bool" />
+        <Parameter name="argument[1]" value_type="uint64_t" index="1" lazy="1" />
+        <Parameter name="argument[2]" value_type="uint64_t" index="2" lazy="1" />
+        <Result name="value" value_type="void" />
+      </Signature>
+    </Function>
+    <Function name="refuse" implementation="@kinds.FunctionImplementation.Control" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@basic.refuse.signature" intrinsic="@kinds.Intrinsic.Refuse" semantic_digest="7ca0e86ba9d6c14720b0f8da5efbcb0380f520c6b60e6c9ccb193786f369b270">
+      <Signature name="signature" return_type="void" parameter_count="1" result_count="1">
+        <Parameter name="argument[0]" value_type="uint32_t" />
+        <Result name="value" value_type="void" />
+      </Signature>
+    </Function>
+    <Function name="return" implementation="@kinds.FunctionImplementation.Control" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@basic.return.signature" intrinsic="@kinds.Intrinsic.Return" semantic_digest="e58c640a2fa46d6550645bc0af6f580d39608f17b51a412b64dcf1ae60b16e93">
+      <Signature name="signature" return_type="void" parameter_count="1" result_count="1">
+        <Parameter name="argument[0]" value_type="uint64_t" />
+        <Result name="value" value_type="void" />
+      </Signature>
+    </Function>
+    <Function name="sequence" implementation="@kinds.FunctionImplementation.Control" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@basic.sequence.signature" intrinsic="@kinds.Intrinsic.Sequence" semantic_digest="e52f35c86ab9bf2e1ef2874cb16a76eca61ff2b05b80196ea6a6d9cf034c68e7">
+      <Signature name="signature" return_type="void" parameter_count="2" result_count="1">
+        <Parameter name="argument[0]" value_type="uint64_t" />
+        <Parameter name="argument[1]" value_type="uint64_t" index="1" />
+        <Result name="value" value_type="void" />
+      </Signature>
+    </Function>
+    <Function name="switch" implementation="@kinds.FunctionImplementation.Control" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@basic.switch.signature" intrinsic="@kinds.Intrinsic.Switch" semantic_digest="01fb935ce3415be78d28acfb3d482fc9894de73824524bccb7260eb960de7a3b">
+      <Signature name="signature" return_type="void" parameter_count="3" result_count="1">
+        <Parameter name="argument[0]" value_type="uint64_t" />
+        <Parameter name="argument[1]" value_type="uint64_t" index="1" lazy="1" />
+        <Parameter name="argument[2]" value_type="uint64_t" index="2" lazy="1" />
+        <Result name="value" value_type="void" />
+      </Signature>
+    </Function>
+    <Function name="while" implementation="@kinds.FunctionImplementation.Control" layer="@kinds.FunctionLayer.Core" semantic_version="1" signature="@basic.while.signature" intrinsic="@kinds.Intrinsic.While" semantic_digest="b553fb7dfbe2cf2fa94e5a0b975ac6fc2da45f54f91c69bb00fb8d344554c65e">
+      <Signature name="signature" return_type="void" parameter_count="2" result_count="1">
+        <Parameter name="argument[0]" value_type="uint64_t" lazy="1" />
+        <Parameter name="argument[1]" value_type="uint64_t" index="1" lazy="1" />
+        <Result name="value" value_type="void" />
+      </Signature>
+    </Function>
+  </Module>
+</delta>

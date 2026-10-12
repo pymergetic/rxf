@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="semantic" flags="ModuleFlags.Namespace">
+    <Role name="BlockParameterValue" />
+    <Role name="GraphResultValue" />
+    <Role name="InputType" />
+    <Role name="InputValue" />
+    <Role name="ParameterValue" />
+    <Role name="ResultType" />
+    <Role name="ResultValue" />
+    <Role name="Successor" />
+    <Role name="SuccessorArgument" />
+  </Module>
+</delta>

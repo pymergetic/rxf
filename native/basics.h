@@ -19,6 +19,42 @@ _Static_assert(sizeof(rxf_u64) == 8, "u64");
 _Static_assert(sizeof(rxf_f32) == 4, "f32");
 _Static_assert(sizeof(rxf_f64) == 8, "f64");
 
+/*
+ * Multiplication with overflow detection. A 64-bit multiply that overflows
+ * calls __multi3 in the wasm32 runtime library; a snippet cannot call out, so
+ * wasm32 gets the same result from 32-bit halves. Every other target keeps the
+ * compiler builtin.
+ */
+#if defined(__wasm__)
+static inline int rxf_mul_overflow_u64(rxf_u64 a, rxf_u64 b, rxf_u64 *out) {
+    rxf_u64 ah = a >> 32, al = (rxf_u32)a, bh = b >> 32, bl = (rxf_u32)b;
+    rxf_u64 cross = ah * bl + al * bh;
+    rxf_u64 low = al * bl;
+    rxf_u64 sum = low + (cross << 32);
+    *out = a * b;
+    return (ah != 0 && bh != 0) || (cross >> 32) != 0 || sum < low;
+}
+
+static inline int rxf_mul_overflow_i64(rxf_i64 a, rxf_i64 b, rxf_i64 *out) {
+    rxf_u64 ua = a < 0 ? 0 - (rxf_u64)a : (rxf_u64)a;
+    rxf_u64 ub = b < 0 ? 0 - (rxf_u64)b : (rxf_u64)b;
+    rxf_u64 magnitude;
+    int overflow = rxf_mul_overflow_u64(ua, ub, &magnitude);
+    int negative = (a < 0) != (b < 0);
+    *out = (rxf_i64)((rxf_u64)a * (rxf_u64)b);
+    return overflow || magnitude > (negative ? (1ULL << 63) : (1ULL << 63) - 1);
+}
+
+#define RXF_MUL_OVERFLOW(a, b, out)                                                                \
+    (sizeof(*(out)) == 8                                                                           \
+         ? ((__typeof__(*(out)))-1 < 0                                                             \
+                ? rxf_mul_overflow_i64((rxf_i64)(a), (rxf_i64)(b), (rxf_i64 *)(out))               \
+                : rxf_mul_overflow_u64((rxf_u64)(a), (rxf_u64)(b), (rxf_u64 *)(out)))              \
+         : __builtin_mul_overflow(a, b, out))
+#else
+#define RXF_MUL_OVERFLOW(a, b, out) __builtin_mul_overflow(a, b, out)
+#endif
+
 enum rxf_status {
     RXF_OK = 0,
     RXF_REFUSE_OVERFLOW = 1,

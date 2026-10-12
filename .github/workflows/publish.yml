@@ -1,4 +1,6 @@
-# Publish sdist + pure-Python wheel to PyPI on tag v*.
+# Publish the sdist and compiled wheels to PyPI on tag v*.
+# The package contains a C++ extension (pymergetic.rxf.core), so the wheels
+# are built per platform with cibuildwheel (settings: pyproject.toml).
 # Requires repository secret: PYPI_API_TOKEN
 
 name: Publish to PyPI
@@ -12,8 +14,32 @@ permissions:
   contents: read
 
 jobs:
-  publish:
-    runs-on: ubuntu-latest
+  wheels:
+    name: Wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Version from the tag
+        run: echo "SETUPTOOLS_SCM_PRETEND_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v3.2
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,16 +49,35 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install build tools
-        run: pip install --upgrade build twine
-
-      - name: Build sdist and wheel
+      - name: Build sdist
         run: |
           export SETUPTOOLS_SCM_PRETEND_VERSION="${GITHUB_REF_NAME#v}"
-          python -m build
+          pip install --upgrade build
+          python -m build --sdist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  publish:
+    name: Check and publish
+    needs: [wheels, sdist]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Check distributions
-        run: twine check dist/*
+        run: |
+          pip install --upgrade twine
+          twine check dist/*
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

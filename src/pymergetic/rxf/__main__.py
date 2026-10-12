@@ -1,4 +1,4 @@
-"""Allow `python -m pymergetic.rxf` to invoke the CLI."""
+"""`python -m pymergetic.rxf` is the `rxf` command."""
 
 import sys
 

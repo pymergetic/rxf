@@ -1,0 +1,172 @@
+# The compiler of native/compile.c as a program of the interpreter (docs/19, WP12).
+#
+# A program of the interpreter is made into the code of a machine: x86_64, aarch64, or the body of
+# a wasm32 function. What it writes is what native/compile.c writes, byte for byte, for the programs
+# that this one can read: CALL of the leaves that take numbers and pointers, MOVE, GOTO, BRANCH,
+# SWITCH, RETURN and REFUSE, with edges that copy nothing, slots and literals. These are the
+# instructions of the programs that tools/native/rxfc.py makes, and so of this one. What it cannot
+# read it refuses with RXF_REFUSE_UNSUPPORTED and the word of the instruction, and what is not a
+# program it refuses with what compile.c says.
+#
+# It is a program, not a Function with a native body: the interpreter runs it, and the code it
+# writes of itself is the compiler that no longer needs the interpreter (tests/test_tiny.py).
+#
+# Request (words, `context` is the one of every leaf):
+#   0 program, 1 its size in bytes, 2 out, 3 its capacity, 4 work, 5 its size, 6 out_size, 7 at,
+#   8 machine, 9 table of the leaves (id, generation, address) or 0, 10 how many.
+# The work memory holds, in this order: a u32 for each word of the program (the number of the
+# instruction that starts there), a u32 for each word (where the code of an instruction is), and
+# room for the stack of the procs below and the plan of a call.
+#
+# Everything here is variables of one frame: the procs take what they need in g0..g6 and answer in
+# R, st (a status) and wd (words), and keep their own names for what they use inside.
+
+include "words.rxf";
+
+program tiny(context, request) {
+    var sp;
+    # the program and the code
+    var code, count, buf, cap, size, frame, nparams, nwords, entry, index, offset, ninstr;
+    var write, failed, current, nest, at, alloc, machine, table, tcount, work, workcap;
+    var stack, planarg, plantype, need, started, osz;
+    # the safe point of an edge that goes back: the area of the Channel and the leaf, 0 if none
+    var area, safe;
+    # what the procs take and give
+    var A, V, N, R, st, wd, pc, g0, g1, g2, g3, g4, g5, g6;
+    var ok, oa, ob, ooff, nd, vw, ea, el, eat, ew, leafid;
+    # the call that is being compiled
+    var pn, pcount, hasout, function, cl, cos, cow, css;
+    # locals of the procs (one set for a level of calls: a proc keeps its set while it calls a
+    # proc of a higher level)
+    var u0, u1;                                   # put, put_n, patch32
+    var m0, m1, m2, m3;                           # x_load, x_store, x_imm, x_lea, x_mov
+    var n0, n1, n2, n3, n4, n5, n6;               # x_copy, x_zero, x_value
+    var q0, q1, q2, q3, q4, q5, q6, q7;           # be_*
+    var ik, ihb, iat, ifirst, iwords, inn, ii, ipatch;   # compile_instruction
+    var cpi, cps, cpw, cpu;                       # compile_pass
+    var ecn, etarget, enext, e_at, e_last, ei, eu; # compile_edge, edge_size
+    var cli, cla, clt;                            # compile_call
+    var vsz;                                      # value_check
+
+    code = load64(request + R_PROGRAM);
+    count = load64(request + R_PROGRAM_SIZE) >> 3;
+    buf = load64(request + R_OUT);
+    cap = load64(request + R_CAPACITY);
+    work = load64(request + R_WORK);
+    workcap = load64(request + R_WORK_CAPACITY);
+    machine = load64(request + R_MACHINE);
+    table = load64(request + R_FUNCTIONS);
+    tcount = load64(request + R_FUNCTION_COUNT);
+    if table == 0 {
+        table = load64(context + CONTEXT_FUNCTIONS);
+        tcount = load64(context + CONTEXT_FUNCTION_COUNT);
+    }
+    area = 0;
+    safe = 0;
+    q0 = 0;
+    while q0 < load64(context + CONTEXT_CAPABILITY_COUNT) {
+        if load64(load64(context + CONTEXT_CAPABILITIES) + (triple(q0) << 3)) == RXF_CAPABILITY_CHANNEL {
+            area = load64(load64(context + CONTEXT_CAPABILITIES) + (triple(q0) << 3) + 16);
+            break;
+        }
+        q0 = q0 + 1;
+    }
+    q0 = 0;
+    while (area != 0) & (q0 < tcount) {
+        if load64(table + (triple(q0) << 3)) == RXF_LEAF_SAFE_POINT {
+            safe = load64(table + (triple(q0) << 3) + 16);
+            break;
+        }
+        q0 = q0 + 1;
+    }
+    st = 0;
+    osz = 0;
+    at = 0;
+    started = 0;
+    size = 0;
+    while 1 {
+        if (request == 0) | (code == 0) | (buf == 0) {
+            st = UNBOUND;
+            break;
+        }
+        if (!have(0, 5)) | (word(0) != RXF_GRAPH_MAGIC) {
+            st = TYPE_MISMATCH;
+            break;
+        }
+        frame = word(1);
+        nparams = word(2);
+        nwords = word(3);
+        entry = word(4);
+        if (frame > RXF_GRAPH_FRAME) | ((frame & 7) != 0) | (nparams > count) {
+            st = OUT_OF_RANGE;
+            break;
+        }
+        if (!have(5, nparams << 1)) | (nwords > RXF_GRAPH_FRAME) {
+            st = OUT_OF_RANGE;
+            break;
+        }
+        need = (count << 3) + ROOM;
+        if (work == 0) | ((work & 3) != 0) | (workcap < need) {
+            at = need;
+            st = OUT_OF_MEMORY;
+            break;
+        }
+        if (machine < 1) | (machine > 3) {
+            st = UNSUPPORTED;
+            break;
+        }
+        index = work;
+        offset = work + (count << 2);
+        stack = work + (count << 3);
+        sp = stack;
+        planarg = stack + STACK_BYTES;
+        plantype = planarg + 64;
+        cpi = 0;
+        while cpi < count {
+            store32(index + (cpi << 2), NO_INSTRUCTION);
+            store32(offset + (cpi << 2), 0);
+            cpi = cpi + 1;
+        }
+        # which words start an instruction
+        pc = entry;
+        ninstr = 0;
+        st = 0;
+        while pc < count {
+            call isz;
+            if st != 0 { break; }
+            store32(index + (pc << 2), ninstr);
+            ninstr = ninstr + 1;
+            pc = pc + wd;
+        }
+        if (st == 0) & (ninstr == 0) { st = OUT_OF_RANGE; }
+        if st != 0 {
+            at = pc;
+            break;
+        }
+        # the first pass counts and places every instruction, the second writes
+        started = 1;
+        write = 0;
+        call compile_pass;
+        if st != 0 { break; }
+        osz = size;
+        if size > cap {
+            st = OUT_OF_MEMORY;
+            break;
+        }
+        write = 1;
+        call compile_pass;
+        if (st == 0) & (failed != 0) { st = OUT_OF_MEMORY; }
+        break;
+    }
+    if started != 0 { osz = size; }
+    store64(request + R_OUT_SIZE, osz);
+    store64(request + R_AT, at);
+    if st != 0 { refuse st; }
+    return osz;
+}
+
+include "emit.rxf";
+include "front.rxf";
+include "x86.rxf";
+include "arm.rxf";
+include "wasm.rxf";

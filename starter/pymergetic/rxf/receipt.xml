@@ -1,0 +1,248 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="receipt" category="ModuleCategory.Application">
+    <Alias name="foundation" target="pymergetic.rxf.foundation" />
+    <Alias name="kinds" target="pymergetic.rxf.kinds" />
+    <Alias name="model" target="pymergetic.rxf.model" />
+    <Alias name="receipt" target="pymergetic.rxf.receipt" />
+    <Alias name="runtime" target="pymergetic.rxf.foundation.runtime" />
+    <Alias name="semantic" target="pymergetic.rxf.roles.semantic" />
+    <Function name="build_receipt" implementation="@kinds.FunctionImplementation.Semantic" layer="@kinds.FunctionLayer.Application" effects="@kinds.Effects.Read|Write|Allocate" semantic_version="1" signature="@receipt.build_receipt.signature" body="@receipt.build_receipt.semantic_graph_compatibility_entry" semantic_digest="348f8f0a72d5f9b7494ff22761cd63e470be0f991bf5272f00c774c7dad847c0">
+      <SemanticGraph name="build_receipt_graph" function="@receipt.build_receipt" entry_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" refusal_set="@foundation.StdlibRefusals" output_type="uint64_t" block_count="13" effects="@kinds.Effects.Read|Write|Allocate" result_count="1">
+        <rxf:ref role="@semantic.GraphResultValue" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.return_value_result" />
+        <SemanticValue name="alignment" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" rxf:data="0800000000000000" />
+        <SemanticValue name="allocate_abi_argument[4]" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" rxf:data="0100000000000000" />
+        <SemanticValue name="allocate_result" value_type="@model.Ref" kind="@kinds.ValueKind.OperationResult" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" owner_operation="@receipt.build_receipt.build_receipt_graph.receipt_status[1].allocate" />
+        <SemanticValue name="allocate_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" result_index="1" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" owner_operation="@receipt.build_receipt.build_receipt_graph.receipt_status[1].allocate" />
+        <SemanticValue name="append_bytes_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" owner_operation="@receipt.build_receipt.build_receipt_graph.receipt_status[2].append_bytes" />
+        <SemanticValue name="append_bytes_status[1]" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" owner_operation="@receipt.build_receipt.build_receipt_graph.receipt_status[4].append_bytes" />
+        <SemanticValue name="begin_private_result" value_type="@foundation.NativeTransaction" kind="@kinds.ValueKind.OperationResult" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" owner_operation="@receipt.build_receipt.build_receipt_graph.receipt_status[0].begin_private" />
+        <SemanticValue name="begin_private_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" result_index="1" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" owner_operation="@receipt.build_receipt.build_receipt_graph.receipt_status[0].begin_private" />
+        <SemanticValue name="capacity" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" rxf:data="4000000000000000" />
+        <SemanticBlock name="cleanup" index="11" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="1" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@receipt.build_receipt.build_receipt_graph.cleanup_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.refusal" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.refusal" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.cleanup_primary_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.cleanup_primary_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="64" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.cleanup_primary_status" />
+          <SemanticOperation name="cleanup" opcode="@kinds.Opcode.Cleanup" input_type_count="1" result_type_count="1" effects="@kinds.Effects.Read|Write|Allocate" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.cleanup" status_value="@receipt.build_receipt.build_receipt_graph.cleanup_status" target_object="@receipt.build_receipt.build_receipt_graph.begin_private_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticValue name="cleanup_primary_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.cleanup" />
+        <SemanticValue name="cleanup_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.refusal" owner_operation="@receipt.build_receipt.build_receipt_graph.cleanup.cleanup" />
+        <SemanticValue name="decimal_expected" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" rxf:data="3a02000000000000" />
+        <SemanticValue name="decimal_input" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" rxf:data="3a02000000000000" />
+        <SemanticValue name="decimal_u32" value_type="uint32_t" kind="@kinds.ValueKind.Literal" literal_size="4" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" rxf:data="3a020000" />
+        <SemanticValue name="final_length" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" rxf:data="1300000000000000" />
+        <SemanticValue name="format_integer_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" owner_operation="@receipt.build_receipt.build_receipt_graph.receipt_status[3].format_integer" />
+        <SemanticObject name="newline_handle" value_type="@model.Ref" kind="@kinds.ValueKind.Object" literal_size="24" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" object_id="90008" rxf:data="985f01000000000001000000000000000000000000000000" />
+        <SemanticValue name="one" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" rxf:data="0100000000000000" />
+        <SemanticObject name="prefix_handle" value_type="@model.Ref" kind="@kinds.ValueKind.Object" literal_size="24" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" object_id="90007" rxf:data="975f01000000000001000000000000000000000000000000" />
+        <SemanticValue name="prefix_length" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" rxf:data="0f00000000000000" />
+        <SemanticValue name="publish_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.success" owner_operation="@receipt.build_receipt.build_receipt_graph.receipt_status[8].publish" />
+        <SemanticValue name="published" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.success" />
+        <SemanticValue name="receipt_object_id" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" rxf:data="ea5f010000000000" />
+        <SemanticBlock name="receipt_status[0]" terminator="@kinds.Terminator.Branch" operation_count="1" successor_count="2" successor_map_count="2" condition_value="@receipt.build_receipt.build_receipt_graph.begin_private_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.receipt_status[1]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.refusal" />
+          <SemanticOperation name="begin_private" opcode="@kinds.Opcode.BeginPrivate" input_type_count="2" result_type_count="2" effects="@kinds.Effects.Read|Write|Allocate" input_value_count="2" result_value_count="2" refusal_set="@foundation.StdlibRefusals" callee="@runtime.begin_private" status_value="@receipt.build_receipt.build_receipt_graph.begin_private_status" target_object="@receipt.build_receipt.build_receipt_graph.transaction_handle">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultType" index="1" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.receipt_object_id" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.begin_private_result" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticBlock name="receipt_status[1]" index="1" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="1" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@receipt.build_receipt.build_receipt_graph.allocate_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.receipt_status[2]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.rollback" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.successful_call_status" />
+          <SemanticOperation name="allocate" opcode="@kinds.Opcode.Allocate" input_type_count="6" result_type_count="2" effects="@kinds.Effects.Read|Write|Allocate" input_value_count="6" result_value_count="2" refusal_set="@foundation.StdlibRefusals" callee="@runtime.allocate_prepare" status_value="@receipt.build_receipt.build_receipt_graph.allocate_status" target_object="@receipt.build_receipt.build_receipt_graph.receipt_object_id">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.InputType" index="2" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.InputType" index="3" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.InputType" index="4" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.InputType" index="5" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.ResultType" index="1" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.zero_offset" />
+            <rxf:ref role="@semantic.InputValue" index="2" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.capacity" />
+            <rxf:ref role="@semantic.InputValue" index="3" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.alignment" />
+            <rxf:ref role="@semantic.InputValue" index="4" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.allocate_abi_argument[4]" />
+            <rxf:ref role="@semantic.InputValue" index="5" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.begin_private_result" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.allocate_result" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticBlock name="receipt_status[2]" index="2" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="1" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@receipt.build_receipt.build_receipt_graph.append_bytes_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.receipt_status[3]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.rollback" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.successful_call_status[1]" />
+          <SemanticOperation name="append_bytes" opcode="@kinds.Opcode.AppendBytes" input_type_count="4" result_type_count="1" effects="@kinds.Effects.Read|Write|Allocate" input_value_count="4" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.append" status_value="@receipt.build_receipt.build_receipt_graph.append_bytes_status" target_object="@receipt.build_receipt.build_receipt_graph.allocate_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="2" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="3" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.transaction_handle" />
+            <rxf:ref role="@semantic.InputValue" index="2" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.prefix_handle" />
+            <rxf:ref role="@semantic.InputValue" index="3" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.prefix_length" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticBlock name="receipt_status[3]" index="3" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="1" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@receipt.build_receipt.build_receipt_graph.format_integer_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.receipt_status[4]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.rollback" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.successful_call_status[2]" />
+          <SemanticOperation name="format_integer" opcode="@kinds.Opcode.FormatInteger" input_type_count="3" result_type_count="1" effects="@kinds.Effects.Read|Write|Allocate" input_value_count="3" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.format_u32" status_value="@receipt.build_receipt.build_receipt_graph.format_integer_status" target_object="@receipt.build_receipt.build_receipt_graph.allocate_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="2" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.transaction_handle" />
+            <rxf:ref role="@semantic.InputValue" index="2" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.decimal_u32" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticBlock name="receipt_status[4]" index="4" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="1" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@receipt.build_receipt.build_receipt_graph.append_bytes_status[1]" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.receipt_status[5]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.rollback" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.successful_call_status[3]" />
+          <SemanticOperation name="append_bytes" opcode="@kinds.Opcode.AppendBytes" input_type_count="4" result_type_count="1" effects="@kinds.Effects.Read|Write|Allocate" input_value_count="4" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.append" status_value="@receipt.build_receipt.build_receipt_graph.append_bytes_status[1]" target_object="@receipt.build_receipt.build_receipt_graph.allocate_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="2" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="3" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.transaction_handle" />
+            <rxf:ref role="@semantic.InputValue" index="2" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.newline_handle" />
+            <rxf:ref role="@semantic.InputValue" index="3" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.one" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticBlock name="receipt_status[5]" index="5" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="1" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@receipt.build_receipt.build_receipt_graph.utf8_validate_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.receipt_status[6]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.rollback" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.successful_call_status[4]" />
+          <SemanticOperation name="utf8_validate" opcode="@kinds.Opcode.Utf8Validate" input_type_count="4" result_type_count="2" effects="@kinds.Effects.Read|Write|Allocate" input_value_count="4" result_value_count="2" refusal_set="@foundation.StdlibRefusals" callee="@runtime.read" status_value="@receipt.build_receipt.build_receipt_graph.utf8_validate_status" target_object="@receipt.build_receipt.build_receipt_graph.allocate_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="2" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.InputType" index="3" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" index="1" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.transaction_handle" />
+            <rxf:ref role="@semantic.InputValue" index="2" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.zero_offset" />
+            <rxf:ref role="@semantic.InputValue" index="3" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.final_length" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.utf8_validate_result" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticBlock name="receipt_status[6]" index="6" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="1" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@receipt.build_receipt.build_receipt_graph.search_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.receipt_status[7]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.rollback" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.successful_call_status[5]" />
+          <SemanticOperation name="search" opcode="@kinds.Opcode.Search" input_type_count="5" result_type_count="2" effects="@kinds.Effects.Read|Write|Allocate" input_value_count="5" result_value_count="2" refusal_set="@foundation.StdlibRefusals" callee="@runtime.search" status_value="@receipt.build_receipt.build_receipt_graph.search_status" target_object="@receipt.build_receipt.build_receipt_graph.allocate_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.InputType" index="2" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="3" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.InputType" index="4" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" index="1" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.final_length" />
+            <rxf:ref role="@semantic.InputValue" index="2" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.prefix_handle" />
+            <rxf:ref role="@semantic.InputValue" index="3" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.prefix_length" />
+            <rxf:ref role="@semantic.InputValue" index="4" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.transaction_handle" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.search_result" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticBlock name="receipt_status[7]" index="7" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="1" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@receipt.build_receipt.build_receipt_graph.validate_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.receipt_status[8]" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.rollback" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.successful_call_status[6]" />
+          <SemanticOperation name="validate" opcode="@kinds.Opcode.Validate" input_type_count="2" result_type_count="2" effects="@kinds.Effects.Read|Write|Allocate" input_value_count="2" result_value_count="2" refusal_set="@foundation.StdlibRefusals" callee="@runtime.resolve" status_value="@receipt.build_receipt.build_receipt_graph.validate_status" target_object="@receipt.build_receipt.build_receipt_graph.allocate_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@model.Ref" />
+            <rxf:ref role="@semantic.InputType" index="1" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" index="1" kind="RefKind.Type" target="uint32_t" />
+            <rxf:ref role="@semantic.InputValue" index="1" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.final_length" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.validate_result" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticBlock name="receipt_status[8]" index="8" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="1" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@receipt.build_receipt.build_receipt_graph.publish_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.success" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.rollback" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.successful_call_status[7]" />
+          <SemanticOperation name="publish" opcode="@kinds.Opcode.Publish" input_type_count="1" result_type_count="1" effects="@kinds.Effects.Read|Write|Allocate" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.publish" status_value="@receipt.build_receipt.build_receipt_graph.publish_status" target_object="@receipt.build_receipt.build_receipt_graph.begin_private_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticBlock name="refusal" index="12" terminator="@kinds.Terminator.Refuse" predecessor_count="2" parameter_type_count="1" terminator_value="@receipt.build_receipt.build_receipt_graph.refusal_status" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+        </SemanticBlock>
+        <SemanticValue name="refusal_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.refusal" />
+        <SemanticValue name="return_value_abi_argument[0]" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.success" rxf:data="0100000000000000" />
+        <SemanticValue name="return_value_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.success" owner_operation="@receipt.build_receipt.build_receipt_graph.success.return_value" source="@receipt.build_receipt.signature.result" />
+        <SemanticBlock name="rollback" index="10" terminator="@kinds.Terminator.Branch" operation_count="1" predecessor_count="8" successor_count="2" parameter_type_count="1" successor_map_count="2" condition_value="@receipt.build_receipt.build_receipt_graph.rollback_status" rxf:data="000000000000000001000000000000000100000000000000">
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.cleanup" />
+          <rxf:ref role="@semantic.Successor" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.cleanup" />
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.rollback_primary_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.rollback_primary_status" />
+          <rxf:ref role="@semantic.SuccessorArgument" index="64" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.rollback_primary_status" />
+          <SemanticOperation name="rollback" opcode="@kinds.Opcode.Rollback" input_type_count="1" result_type_count="1" effects="@kinds.Effects.Read|Write|Allocate" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" callee="@runtime.rollback" status_value="@receipt.build_receipt.build_receipt_graph.rollback_status" target_object="@receipt.build_receipt.build_receipt_graph.begin_private_result">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="@foundation.NativeTransaction" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint32_t" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticValue name="rollback_primary_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.rollback" />
+        <SemanticValue name="rollback_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.refusal" owner_operation="@receipt.build_receipt.build_receipt_graph.rollback.rollback" />
+        <SemanticValue name="search_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" owner_operation="@receipt.build_receipt.build_receipt_graph.receipt_status[6].search" />
+        <SemanticValue name="search_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" result_index="1" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" owner_operation="@receipt.build_receipt.build_receipt_graph.receipt_status[6].search" />
+        <SemanticBlock name="success" index="9" terminator="@kinds.Terminator.Return" operation_count="1" predecessor_count="1" parameter_type_count="1" terminator_value="@receipt.build_receipt.build_receipt_graph.return_value_result" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.published" />
+          <SemanticOperation name="return_value" opcode="@kinds.Opcode.ReturnValue" input_type_count="1" result_type_count="1" effects="@kinds.Effects.Read|Write|Allocate" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@receipt.build_receipt.build_receipt_graph.return_value_abi_argument[0]">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@receipt.build_receipt.build_receipt_graph.return_value_result" />
+          </SemanticOperation>
+        </SemanticBlock>
+        <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[1]" />
+        <SemanticValue name="successful_call_status[1]" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[2]" />
+        <SemanticValue name="successful_call_status[2]" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[3]" />
+        <SemanticValue name="successful_call_status[3]" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[4]" />
+        <SemanticValue name="successful_call_status[4]" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[5]" />
+        <SemanticValue name="successful_call_status[5]" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[6]" />
+        <SemanticValue name="successful_call_status[6]" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[7]" />
+        <SemanticValue name="successful_call_status[7]" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[8]" />
+        <SemanticObject name="transaction_handle" value_type="@model.Ref" kind="@kinds.ValueKind.Object" literal_size="24" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" object_id="90090" rxf:data="ea5f01000000000001000000000000000000000000000000" />
+        <SemanticValue name="utf8_validate_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" owner_operation="@receipt.build_receipt.build_receipt_graph.receipt_status[5].utf8_validate" />
+        <SemanticValue name="utf8_validate_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" result_index="1" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" owner_operation="@receipt.build_receipt.build_receipt_graph.receipt_status[5].utf8_validate" />
+        <SemanticValue name="validate_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" owner_operation="@receipt.build_receipt.build_receipt_graph.receipt_status[7].validate" />
+        <SemanticValue name="validate_status" value_type="uint32_t" kind="@kinds.ValueKind.OperationResult" result_index="1" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" owner_operation="@receipt.build_receipt.build_receipt_graph.receipt_status[7].validate" />
+        <SemanticValue name="zero_offset" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@receipt.build_receipt" owner_block="@receipt.build_receipt.build_receipt_graph.receipt_status[0]" rxf:data="0000000000000000" />
+      </SemanticGraph>
+      <Code name="bytecode" owner_function="@receipt.build_receipt" signature="@receipt.build_receipt.signature" format="@kinds.CodeFormat.Bytecode" semantic_version="1" byte_count="3152" semantic_digest="348f8f0a72d5f9b7494ff22761cd63e470be0f991bf5272f00c774c7dad847c0" rxf:data="525847310000000020010000000000000000000000000000000000000000000005000000000000000100000000000000070000000000000002000000000000000000000000000000300000000000000030000000000000000200000000000000ea5f01000000000018000000000000000100000000000000ea5f010000000000080000000000000009000000000000000000000000000000300000000000000004000000000000000000000000000000240000000000000001000000000000000000000000000000300000000000000004000000000000003800000000000000040000000000000086010000000000000100000000000000000000000000000030000000000000000400000000000000180100000000000004000000000000000100000000000000090000000000000006000000000000004000000000000000180000000000000058000000000000000100000000000000ea5f0100000000000800000000000000010000000000000000000000000000000800000000000000010000000000000040000000000000000800000000000000010000000000000008000000000000000800000000000000010000000000000001000000000000000800000000000000000000000000000000000000000000003000000000000000090000000000000000000000000000005800000000000000040000000000000000000000000000004f000000000000000100000000000000000000000000000058000000000000000400000000000000600000000000000004000000000000004e010000000000000100000000000000000000000000000058000000000000000400000000000000f8000000000000000400000000000000010000000000000012000000000000000400000000000000ffffffffffffffff000000000000000068000000000000000000000000000000400000000000000018000000000000000200000000000000ea5f01000000000018000000000000000200000000000000975f010000000000180000000000000001000000000000000f0000000000000008000000000000000900000000000000000000000000000068000000000000000400000000000000000000000000000074000000000000000100000000000000000000000000000068000000000000000400000000000000700000000000000004000000000000004e010000000000000100000000000000000000000000000068000000000000000400000000000000f8000000000000000400000000000000010000000000000013000000000000000300000000000000ffffffffffffffff000000000000000078000000000000000000000000000000400000000000000018000000000000000200000000000000ea5f010000000000180000000000000001000000000000003a0200000000000004000000000000000900000000000000000000000000000078000000000000000400000000000000000000000000000096000000000000000100000000000000000000000000000078000000000000000400000000000000800000000000000004000000000000004e010000000000000100000000000000000000000000000078000000000000000400000000000000f8000000000000000400000000000000010000000000000012000000000000000400000000000000ffffffffffffffff000000000000000088000000000000000000000000000000400000000000000018000000000000000200000000000000ea5f01000000000018000000000000000200000000000000985f010000000000180000000000000001000000000000000100000000000000080000000000000009000000000000000000000000000000880000000000000004000000000000000000000000000000bb000000000000000100000000000000000000000000000088000000000000000400000000000000900000000000000004000000000000004e010000000000000100000000000000000000000000000088000000000000000400000000000000f800000000000000040000000000000001000000000000001000000000000000040000000000000098000000000000000800000000000000a0000000000000000000000000000000400000000000000018000000000000000200000000000000ea5f010000000000180000000000000001000000000000000000000000000000080000000000000001000000000000001300000000000000080000000000000009000000000000000000000000000000a00000000000000004000000000000000000000000000000e00000000000000001000000000000000000000000000000a0000000000000000400000000000000a80000000000000004000000000000004e0100000000000001000000000000000000000000000000a0000000000000000400000000000000f8000000000000000400000000000000010000000000000014000000000000000500000000000000b0000000000000000800000000000000b8000000000000000000000000000000400000000000000018000000000000000100000000000000130000000000000008000000000000000200000000000000975f010000000000180000000000000001000000000000000f0000000000000008000000000000000200000000000000ea5f010000000000180000000000000009000000000000000000000000000000b80000000000000004000000000000000000000000000000080100000000000001000000000000000000000000000000b8000000000000000400000000000000c00000000000000004000000000000004e0100000000000001000000000000000000000000000000b8000000000000000400000000000000f8000000000000000400000000000000010000000000000008000000000000000200000000000000c8000000000000000800000000000000d00000000000000000000000000000004000000000000000180000000000000001000000000000001300000000000000080000000000000009000000000000000000000000000000d00000000000000004000000000000000000000000000000270100000000000001000000000000000000000000000000d0000000000000000400000000000000d80000000000000004000000000000004e0100000000000001000000000000000000000000000000d0000000000000000400000000000000f800000000000000040000000000000001000000000000000a000000000000000100000000000000ffffffffffffffff0000000000000000e00000000000000000000000000000000000000000000000300000000000000009000000000000000000000000000000e00000000000000004000000000000000000000000000000430100000000000001000000000000000000000000000000e0000000000000000400000000000000e80000000000000004000000000000004e0100000000000001000000000000000000000000000000e0000000000000000400000000000000f80000000000000004000000000000000200000000000000f00000000000000008000000000000000100000000000000010000000000000008000000000000000b000000000000000000000000000000f0000000000000000800000000000000080000000000000001000000000000000b000000000000000100000000000000ffffffffffffffff00000000000000000001000000000000000000000000000000000000000000003000000000000000090000000000000000000000000000000001000000000000040000000000000000000000000000006a0100000000000001000000000000000000000000000000f8000000000000000400000000000000080100000000000004000000000000006a0100000000000001000000000000000000000000000000f800000000000000040000000000000008010000000000000400000000000000010000000000000015000000000000000100000000000000ffffffffffffffff0000000000000000100100000000000000000000000000000000000000000000300000000000000009000000000000000000000000000000100100000000000004000000000000000000000000000000860100000000000001000000000000000000000000000000080100000000000004000000000000001801000000000000040000000000000086010000000000000100000000000000000000000000000008010000000000000400000000000000180100000000000004000000000000000c00000000000000000000000000000018010000000000000400000000000000">
+        <rxf:ref role="pymergetic.rxf.roles.call.Interpreter" kind="RefKind.Data" target="@foundation.graph.run" />
+      </Code>
+      <Call name="semantic_graph_compatibility_entry" callee="@receipt.build_receipt" result_type="uint64_t" />
+      <Signature name="signature" return_type="uint64_t" result_count="1" refusal_set="@foundation.StdlibRefusals">
+        <Result name="result" value_type="uint64_t" />
+      </Signature>
+    </Function>
+    <Bytes name="expected_utf8" rxf:data="5265636569707420746f74616c3a203537300a" />
+    <Bytes name="receipt_newline_bytes" rxf:data="0a" />
+    <Bytes name="receipt_prefix_bytes" rxf:data="5265636569707420746f74616c3a20" />
+  </Module>
+</delta>

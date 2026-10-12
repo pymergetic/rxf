@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="selfedit" rxf:parent="pymergetic.rxf" category="ModuleCategory.Application">
+    <Function name="double" implementation="pymergetic.rxf.kinds.FunctionImplementation.Semantic" layer="pymergetic.rxf.kinds.FunctionLayer.Application" semantic_version="1" signature="pymergetic.rxf.selfedit.double.signature" body="pymergetic.rxf.selfedit.double.twice">
+      <Call name="checkout" callee="pymergetic.rxf.library.checkout_total" result_type="uint32_t" />
+      <ValueReference name="checkout_value" value_type="uint32_t" kind="pymergetic.rxf.kinds.ValueKind.OperationResult" size="8" target="pymergetic.rxf.selfedit.double.checkout" />
+      <Signature name="signature" return_type="uint32_t" result_count="1">
+        <Result name="total" value_type="uint32_t" />
+      </Signature>
+      <Call name="twice" callee="pymergetic.rxf.numeric.checked.add_uint32_t" argument_count="2" result_type="uint32_t">
+        <Argument name="operand[0]" parameter="pymergetic.rxf.numeric.checked.add_uint32_t.signature.operand[0]" value="pymergetic.rxf.selfedit.double.checkout_value" />
+        <Argument name="operand[1]" parameter="pymergetic.rxf.numeric.checked.add_uint32_t.signature.operand[1]" value="pymergetic.rxf.selfedit.double.checkout_value" />
+      </Call>
+    </Function>
+  </Module>
+</delta>

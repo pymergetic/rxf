@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="hash_function" flags="ModuleFlags.Namespace">
+    <Role name="HashFunction" />
+    <Role name="InputType" />
+    <Role name="MapLookupFunction" />
+    <Role name="OutputType" />
+    <Role name="SetLookupFunction" />
+  </Module>
+</delta>
