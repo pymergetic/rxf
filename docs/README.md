@@ -79,6 +79,7 @@ Read in order:
 13. [Path to a self-contained operating system](17-OPERATING-SYSTEM-PATH.md)
 14. [The native snippets: a multi-platform binary](18-NATIVE-SNIPPETS.md)
 15. [The way to a self-editing image](19-SELF-EDITING-PATH.md)
+16. [The execution policy: suspension is a data property](20-EXECUTION-POLICY.md)
 
 These documents specify RXF independently of any runtime provider. The optional Metal binding
 is described separately in [`integrations/metal.md`](integrations/metal.md).
