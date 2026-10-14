@@ -21,3 +21,9 @@ pub extern "C" fn r_sadd_ovf(a: i64, b: i64) -> u64 {
     let (s, o) = a.overflowing_add(b);
     (s as u64) ^ (0u64.wrapping_sub(o as u64) & 0x8000_0000_0000_0000u64)
 }
+
+#[no_mangle]
+pub extern "C" fn r_ssub_ovf(a: i64, b: i64) -> u64 {
+    let (s, o) = a.overflowing_sub(b);
+    (s as u64) ^ (0u64.wrapping_sub(o as u64) & 0x8000_0000_0000_0000u64)
+}
