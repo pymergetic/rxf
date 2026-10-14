@@ -9,6 +9,8 @@ from pymergetic.rxf import core
 from pymergetic.rxf.core.arena import (
     ARENA_HEADER_SIZE,
     ARENA_VERSION,
+    BLOCK_INDEX,
+    BLOCK_NAMES,
     CELL_ALIGN,
     CELL_SIZE,
     FIELD_SIZE,
@@ -17,6 +19,9 @@ from pymergetic.rxf.core.arena import (
     HANDLE_ROOT,
     HANDLE_TYPE,
     INDEX_CHUNK_ENTRIES,
+    KIND_BLOCK,
+    KIND_DEAD,
+    NAME_BLOCK_PAYLOAD,
     REF_SIZE,
     TYPE_SIZE,
 )
@@ -69,3 +74,6 @@ def test_core_reports_ground_layout():
     assert INDEX_CHUNK_ENTRIES == 4096
     assert HANDLE_NONE == 2**64 - 1
     assert (HANDLE_ROOT, HANDLE_TYPE, HANDLE_FIELD) == (0, 1, 2)
+    assert (KIND_DEAD, KIND_BLOCK) == (254, 255)
+    assert (BLOCK_INDEX, BLOCK_NAMES) == (1, 2)
+    assert NAME_BLOCK_PAYLOAD == 4096

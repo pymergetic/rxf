@@ -4,6 +4,8 @@
 #include <nanobind/stl/unique_ptr.h>
 #include <nanobind/stl/vector.h>
 
+#include <unordered_map>
+
 #include <pymergetic/rxf/core/bindings.hpp>
 #include <pymergetic/rxf/core/ground.h>
 #include <pymergetic/rxf/core/object/image.hpp>
@@ -59,6 +61,87 @@ Described describe(const Image &image, uint64_t handle) {
     }
     d["refs"] = refs;
     return Described(d);
+}
+
+/* The arena as the inspector draws it: the header decoded, and every cell of the stream with its
+ * arena offset and decoded header. The offsets and sizes this decoding reads are the ones
+ * ground.h pins; the assertions below restate what is relied on, so a layout change stops the
+ * build here too (the walk advances by the pinned cell size formula, nothing else). */
+PYMERGETIC_RXF_PIN(pymergetic_rxf_arena_header, body_size, 16, 8);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_arena_header, index_off, 48, 8);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_arena_header, cells_off, 56, 8);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_arena_header, names_off, 64, 8);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_arena_header, handle_count, 88, 8);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_cell, payload_size, 16, 8);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_cell, flags, 40, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_cell, ref_count, 44, 4);
+
+nb::dict describe_header(const pymergetic_rxf_arena_header *h) {
+    nb::dict d;
+    d["magic"] = std::string(reinterpret_cast<const char *>(h->magic), sizeof(h->magic));
+    d["version"] = h->version;
+    d["header_size"] = h->header_size;
+    d["flags"] = h->flags;
+    d["body_size"] = h->body_size;
+    d["committed_size"] = h->committed_size;
+    d["limit"] = h->limit;
+    d["frontier"] = h->frontier;
+    d["index_off"] = h->index_off;
+    d["cells_off"] = h->cells_off;
+    d["names_off"] = h->names_off;
+    d["names_size"] = h->names_size;
+    d["index_chunks"] = h->index_chunks;
+    d["handle_count"] = h->handle_count;
+    d["free_head"] = h->free_head;
+    d["entry"] = h->entry;
+    d["root"] = h->root;
+    d["cell_align"] = h->cell_align;
+    d["page_size"] = h->page_size;
+    return d;
+}
+
+std::vector<nb::dict> describe_cells(const Image &image) {
+    const arena::Arena &a = image.arena();
+    const pymergetic_rxf_arena_header *h = a.header();
+    /* The live handle of each cell: the walk sees bytes, the index says whose they are. */
+    std::unordered_map<uint64_t, uint64_t> owners;
+    for (uint64_t handle = 0; handle < h->handle_count; handle++) {
+        const pymergetic_rxf_cell *c = a.cell(handle);
+        if (c != nullptr) owners.emplace(static_cast<uint64_t>(reinterpret_cast<const uint8_t *>(c) - a.memory().base), handle);
+    }
+    std::vector<nb::dict> out;
+    uint64_t at = a.first_offset();
+    const uint64_t end = a.end_offset();
+    while (at < end) {
+        if (end - at < sizeof(pymergetic_rxf_cell)) throw ArenaError("BadImage");
+        const pymergetic_rxf_cell *c = a.cell_at(at);
+        if (c->reserved != 0 || c->payload_size > arena::kMaxPayload || c->ref_count > arena::kMaxRefs)
+            throw ArenaError("BadImage");
+        const uint64_t size = pymergetic_rxf_cell_size(c);
+        if (size < sizeof(pymergetic_rxf_cell) || size > end - at) throw ArenaError("BadImage");
+        const uint32_t kind = (c->flags >> PYMERGETIC_RXF_FLAG_KIND_SHIFT) & PYMERGETIC_RXF_FLAG_KIND_MASK;
+        std::optional<uint64_t> handle;
+        const auto found = owners.find(at);
+        if (found != owners.end()) handle = found->second;
+        nb::dict d;
+        d["offset"] = at;
+        d["size"] = size;
+        d["kind"] = kind;
+        d["block_kind"] = kind == PYMERGETIC_RXF_KIND_BLOCK ? static_cast<uint32_t>(c->type) : 0U;
+        d["handle"] = handle;
+        d["type"] = c->type;
+        d["parent"] = c->parent;
+        d["payload_size"] = c->payload_size;
+        d["ref_count"] = c->ref_count;
+        d["flags"] = c->flags;
+        d["generation"] = c->generation;
+        d["name_off"] = c->name;
+        d["forward"] = c->forward;
+        d["index"] = c->index;
+        out.push_back(std::move(d));
+        at += size;
+    }
+    return out;
 }
 
 } // namespace
@@ -128,6 +211,10 @@ nb::class_<object::Image> bind_object(nb::module_ &m) {
         .def("set_state", [](Image &self, uint64_t handle, uint32_t state) { check(self.set_state(handle, state)); })
         .def("get", [](const Image &self, uint64_t handle) { return describe(self, handle); })
         .def("live", [](const Image &self, uint64_t handle) { return self.arena().live(handle); })
+        .def("arena_header", [](const Image &self) { return describe_header(self.arena().header()); },
+             "The arena header decoded: sizes, region offsets, and counts.")
+        .def("arena_cells", [](const Image &self) { return describe_cells(self); },
+             "Every cell of the stream in order: arena offset, size, decoded header, and the live handle it holds (none for a block or dead cell).")
         .def("resolve",
              [](const Image &self, const std::string &path) -> std::optional<uint64_t> {
                  const pymergetic_rxf_handle h = self.resolve(path);

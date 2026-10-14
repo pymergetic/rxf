@@ -38,6 +38,14 @@ class Image:
 
     def live(self, arg: int, /) -> bool: ...
 
+    def arena_header(self) -> dict:
+        """The arena header decoded: sizes, region offsets, and counts."""
+
+    def arena_cells(self) -> list[dict]:
+        """
+        Every cell of the stream in order: arena offset, size, decoded header, and the live handle it holds (none for a block or dead cell).
+        """
+
     def resolve(self, arg: str, /) -> int | None: ...
 
     def handle(self, arg: str, /) -> int:

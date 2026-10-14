@@ -26,5 +26,15 @@ TYPE_SIZE: int = 48
 
 FIELD_SIZE: int = 48
 
+KIND_BLOCK: int = 255
+
+KIND_DEAD: int = 254
+
+BLOCK_INDEX: int = 1
+
+BLOCK_NAMES: int = 2
+
+NAME_BLOCK_PAYLOAD: int = 4096
+
 class ArenaError(RuntimeError):
     pass

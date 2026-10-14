@@ -12,7 +12,7 @@ The same image can be:
 - inspected as an object tree with fields, references, and who uses what; and
 - digested twice: the image (compacted bytes) and the canonical text.
 
-The direction (see [the operating-system path](docs/17-OPERATING-SYSTEM-PATH.md)) is native
+The direction (see [the operating-system path](17-OPERATING-SYSTEM-PATH.md)) is native
 Code for several architectures inside the same image, and executable wrappers that keep **RXF
 as the program** rather than a stripped binary with a metadata copy next to it.
 
@@ -23,13 +23,17 @@ canonical copying compaction); the self-description (`Type` and `Field` objects 
 generic codec); deltas as XML ([pugixml](https://pugixml.org)) with atomic replay on a journal, a link check,
 and SHA-256 digests; a **live layer** that lets a running image be read and edited from outside
 (CRC-framed channel, physical delta, compaction and relink in the image, safe points and break,
-UART, shared-memory and pty providers, `rxf live`) and a compiler leaf for every program (machine code on three machines)
-([19](docs/19-SELF-EDITING-PATH.md)); an image as a **module tree**, one XML file per module (`starter/`); the
-`rxf` command line (Python Fire, command path = module path); a read-only inspector; and the
+UART, shared-memory and pty providers, `rxf live`); a compiler leaf for every program (machine code on
+three machines); the **self-editing path** ([19](19-SELF-EDITING-PATH.md)) under construction: the running
+image compiles its own front end and replaces the compiler from a delta (the fixpoint run, proven on
+x86-64, AArch64, and wasm32), and the in-image composer writes program words byte-identical to the host
+composer for 52 of its 53 graphs; an image as a **module tree**, one XML file per module (`starter/`); the
+`rxf` command line (Python Fire, command path = module path); a read-only inspector with an arena
+memory map and cell introspection (see below); and the
 build (CMake, scikit-build-core, nanobind 3, platform wheels through cibuildwheel). The compiler,
 native Code binding, and executable builders of the former v5 Python stack are not in the tree
 (its last state is the git tag `legacy-v5-python`) and are still to be rebuilt on the core
-([what is missing](docs/08-INVENTORY.md)). The package version stays `0.x` until then.
+([what is missing](08-INVENTORY.md)). The package version stays `0.x` until then.
 
 ## Why
 
@@ -43,7 +47,7 @@ produces deterministic successor images.
 
 ## Core invariants
 
-([The operating-system path](docs/17-OPERATING-SYSTEM-PATH.md), [the object model](docs/01-OBJECT-MODEL.md).)
+([The operating-system path](17-OPERATING-SYSTEM-PATH.md), [the object model](01-OBJECT-MODEL.md).)
 
 - the identity of an object is its path, unique per parent; handles are image-local `uint64` slots and never appear in a delta;
 - the root, `Type`, and `Field` have the fixed handles 0, 1, and 2; every other object is found by path;
@@ -60,28 +64,28 @@ produces deterministic successor images.
 
 Read in order:
 
-1. [Object model](docs/01-OBJECT-MODEL.md)
-2. [Allocator state](docs/03-ALLOCATOR-STATE.md)
-3. [References](docs/04-REFERENCES.md)
-4. [Semantic authority](docs/05-SEMANTIC-AUTHORITY.md)
-5. [Paths and views](docs/06-PATHS-AND-VIEWS.md)
-6. [Successor and activation](docs/07-SUCCESSOR-AND-ACTIVATION.md)
-7. [Current implementation inventory](docs/08-INVENTORY.md)
-8. [Operations and adapters](docs/10-FACE-AND-CHANNELS.md)
-9. [Bootstrap, verification, and trust](docs/11-BOOTSTRAP-AND-QUORUM.md)
-10. [Authoring](docs/12-AUTHORING.md)
-11. [Deltas, their XML form, and the module tree](docs/15-DELTAS-AND-XML.md)
-12. [Self-description](docs/16-SELF-DESCRIPTION.md)
-13. [Path to a self-contained operating system](docs/17-OPERATING-SYSTEM-PATH.md)
-14. [The native snippets: a multi-platform binary](docs/18-NATIVE-SNIPPETS.md)
-15. [The way to a self-editing image](docs/19-SELF-EDITING-PATH.md)
+1. [Object model](01-OBJECT-MODEL.md)
+2. [Allocator state](03-ALLOCATOR-STATE.md)
+3. [References](04-REFERENCES.md)
+4. [Semantic authority](05-SEMANTIC-AUTHORITY.md)
+5. [Paths and views](06-PATHS-AND-VIEWS.md)
+6. [Successor and activation](07-SUCCESSOR-AND-ACTIVATION.md)
+7. [Current implementation inventory](08-INVENTORY.md)
+8. [Operations and adapters](10-FACE-AND-CHANNELS.md)
+9. [Bootstrap, verification, and trust](11-BOOTSTRAP-AND-QUORUM.md)
+10. [Authoring](12-AUTHORING.md)
+11. [Deltas, their XML form, and the module tree](15-DELTAS-AND-XML.md)
+12. [Self-description](16-SELF-DESCRIPTION.md)
+13. [Path to a self-contained operating system](17-OPERATING-SYSTEM-PATH.md)
+14. [The native snippets: a multi-platform binary](18-NATIVE-SNIPPETS.md)
+15. [The way to a self-editing image](19-SELF-EDITING-PATH.md)
 
 These documents specify RXF independently of any runtime provider. The optional Metal binding
-is described separately in [`docs/integrations/metal.md`](docs/integrations/metal.md).
+is described separately in [`integrations/metal.md`](integrations/metal.md).
 
 ## RXFB 6 binary model
 
-An image is one arena: a 192-byte header, an index directory, and a cell stream. Object cells have a 64-byte header, the payload padded to 16 bytes, and 24-byte references (target, role, kind, binding, index); block cells carry the index chunks (4096 slots of 8 bytes) and the names. Identities, addresses, offsets, and sizes are 64-bit. The layout is defined once as C structs in `src/pymergetic/rxf/core/ground.h`, with the size and offset of every field pinned by static assertions. See [the arena and allocator state](docs/03-ALLOCATOR-STATE.md).
+An image is one arena: a 192-byte header, an index directory, and a cell stream. Object cells have a 64-byte header, the payload padded to 16 bytes, and 24-byte references (target, role, kind, binding, index); block cells carry the index chunks (4096 slots of 8 bytes) and the names. Identities, addresses, offsets, and sizes are 64-bit. The layout is defined once as C structs in `src/pymergetic/rxf/core/ground.h`, with the size and offset of every field pinned by static assertions. See [the arena and allocator state](03-ALLOCATOR-STATE.md).
 
 ## The module tree
 
@@ -102,7 +106,7 @@ starter/pymergetic/rxf/roles/call.xml       module pymergetic.rxf.roles.call
 </ABIValueLocation>
 ```
 
-Everything the format says itself is in the `rxf` XML namespace; an edge is said once (a field is the reference, the children are the list, the other direction is computed); roles are objects named by path; order among siblings is `rxf:index`; the n-th element of a list is `name[n]`; a word is the path of its enumerator (`kind="RefKind.Data"`, `layer="@kinds.FunctionLayer.Library"`), never a bare word or a number; a module may shorten long paths with aliases (`@call.Callee`); Types, enumerators, and roles are CamelCase, modules and fields snake_case. See [deltas and their XML form](docs/15-DELTAS-AND-XML.md).
+Everything the format says itself is in the `rxf` XML namespace; an edge is said once (a field is the reference, the children are the list, the other direction is computed); roles are objects named by path; order among siblings is `rxf:index`; the n-th element of a list is `name[n]`; a word is the path of its enumerator (`kind="RefKind.Data"`, `layer="@kinds.FunctionLayer.Library"`), never a bare word or a number; a module may shorten long paths with aliases (`@call.Callee`); Types, enumerators, and roles are CamelCase, modules and fields snake_case. See [deltas and their XML form](15-DELTAS-AND-XML.md).
 
 ## Command line
 
@@ -119,6 +123,18 @@ rxf server browse      starter                 # read-only inspector on http://1
 ```
 
 A source is a module tree (directory), a `.xml` delta, or RXFB 6 bytes.
+
+### Inspector
+
+`rxf server browse` serves the read-only inspector: the object tree on the left, the arena
+as a memory map in the middle (cells colored by kind, fill by payload occupancy — click
+selects, double-click zooms, `Reset zoom` returns), and full cell introspection on the
+right: decoded kind/state/owner flags, the cell fields, a payload hex dump, every
+reference row with its role and target, and who points at the object.
+
+![The inspector: object tree, arena memory map, and object details](images/inspector-overview.png)
+
+![The details pane: payload hex dump, references, and used-by links](images/inspector-detail.png)
 
 ## Layout
 

@@ -23,9 +23,13 @@ canonical copying compaction); the self-description (`Type` and `Field` objects 
 generic codec); deltas as XML ([pugixml](https://pugixml.org)) with atomic replay on a journal, a link check,
 and SHA-256 digests; a **live layer** that lets a running image be read and edited from outside
 (CRC-framed channel, physical delta, compaction and relink in the image, safe points and break,
-UART, shared-memory and pty providers, `rxf live`) and a compiler leaf for every program (machine code on three machines)
-([19](docs/19-SELF-EDITING-PATH.md)); an image as a **module tree**, one XML file per module (`starter/`); the
-`rxf` command line (Python Fire, command path = module path); a read-only inspector; and the
+UART, shared-memory and pty providers, `rxf live`); a compiler leaf for every program (machine code on
+three machines); the **self-editing path** ([19](docs/19-SELF-EDITING-PATH.md)) under construction: the running
+image compiles its own front end and replaces the compiler from a delta (the fixpoint run, proven on
+x86-64, AArch64, and wasm32), and the in-image composer writes program words byte-identical to the host
+composer for 52 of its 53 graphs; an image as a **module tree**, one XML file per module (`starter/`); the
+`rxf` command line (Python Fire, command path = module path); a read-only inspector with an arena
+memory map and cell introspection (see below); and the
 build (CMake, scikit-build-core, nanobind 3, platform wheels through cibuildwheel). The compiler,
 native Code binding, and executable builders of the former v5 Python stack are not in the tree
 (its last state is the git tag `legacy-v5-python`) and are still to be rebuilt on the core
@@ -94,7 +98,11 @@ An image is one arena: a 192-byte header, an index directory, and a cell stream.
 | **`.xml`** | a **delta**, the storage and exchange form; one per module in the module tree. | text |
 | **program words** | what `rxfc.py` compiles a `.rxf` source into: a header and a sequence of 64-bit instructions (`native/graph.h`), run by the interpreter and turned into machine code by leaf 31 or `tiny.compile`. | binary, stored as a `Bytecode` object in the image |
 
-So `.rxf` is always source text and `.rxfb` is always an image; they differ by one letter. The compiled form of a `.rxf` program is **not a file**: it is bytes that live inside an RXFB 6 image (for example `tiny.compile` in `starter/…/foundation/tiny.xml`), never a `.rxf` file. The front end of the language (`native/front`, in progress) reads `.rxf` source and writes those program words inside a running image; `rxfc.py` is the same compiler on the host.
+So `.rxf` is always source text and `.rxfb` is always an image; they differ by one letter. The compiled form of a `.rxf` program is **not a file**: it is bytes that live inside an RXFB 6 image (for example `tiny.compile` in `starter/…/foundation/tiny.xml`), never a `.rxf` file. The front end of the language (`native/front`) reads `.rxf` source and writes those program words inside
+a running image — the image compiles its own front end and the successor replaces it from a delta;
+`rxfc.py` is the same compiler on the host. The composer is moving in beside it (`native/compose`, 52 of
+53 graphs byte-identical with `tools/native/compose.py`), and `tools/native/rximport.py` lowers C through
+LLVM IR onto the same semantic graphs (C++ and Rust experimentally).
 
 ## The module tree
 
@@ -132,6 +140,18 @@ rxf server browse      starter                 # read-only inspector on http://1
 ```
 
 A source is a module tree (directory), a `.xml` delta, or RXFB 6 bytes.
+
+### Inspector
+
+`rxf server browse` serves the read-only inspector: the object tree on the left, the arena
+as a memory map in the middle (cells colored by kind, fill by payload occupancy — click
+selects, double-click zooms, `Reset zoom` returns), and full cell introspection on the
+right: decoded kind/state/owner flags, the cell fields, a payload hex dump, every
+reference row with its role and target, and who points at the object.
+
+![The inspector: object tree, arena memory map, and object details](docs/images/inspector-overview.png)
+
+![The details pane: payload hex dump, references, and used-by links](docs/images/inspector-detail.png)
 
 ## Layout
 
