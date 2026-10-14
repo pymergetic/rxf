@@ -68,7 +68,7 @@ extend-exclude = ["src/pymergetic/rxf/core/*.pyi"]
 
 [tool.pytest.ini_options]
 # The native tools are scripts (tools/native), not a package; tests import them by name.
-pythonpath = ["tools/native"]
+pythonpath = ["tools/native", "."]
 filterwarnings = [
   # Python Fire still calls asyncio.iscoroutinefunction (removal planned for 3.16).
   "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning",

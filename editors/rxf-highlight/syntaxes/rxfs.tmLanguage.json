@@ -1,0 +1,160 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "RXF Source",
+  "scopeName": "source.rxfs",
+  "patterns": [
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#declaration"
+    },
+    {
+      "include": "#call"
+    },
+    {
+      "include": "#string"
+    },
+    {
+      "include": "#keyword"
+    },
+    {
+      "include": "#builtin"
+    },
+    {
+      "include": "#number"
+    },
+    {
+      "include": "#constant"
+    },
+    {
+      "include": "#operator"
+    },
+    {
+      "include": "#punctuation"
+    }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.line.number-sign.rxfs",
+      "match": "#.*$"
+    },
+    "declaration": {
+      "match": "\\b(program|macro|proc|fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": {
+          "name": "storage.type.function.rxfs"
+        },
+        "2": {
+          "name": "entity.name.function.rxfs"
+        }
+      }
+    },
+    "call": {
+      "match": "\\b(call)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": {
+          "name": "keyword.control.proc.rxfs"
+        },
+        "2": {
+          "name": "entity.name.function.rxfs"
+        }
+      }
+    },
+    "keyword": {
+      "patterns": [
+        {
+          "name": "keyword.control.directive.rxfs",
+          "match": "\\b(include|const)\\b"
+        },
+        {
+          "name": "storage.type.function.rxfs",
+          "match": "\\b(program|macro|proc|fn)\\b"
+        },
+        {
+          "name": "storage.type.rxfs",
+          "match": "\\b(var)\\b"
+        },
+        {
+          "name": "keyword.control.flow.rxfs",
+          "match": "\\b(continue|default|refuse|return|switch|break|while|case|else|if)\\b"
+        },
+        {
+          "name": "keyword.control.proc.rxfs",
+          "match": "\\b(call|ret)\\b"
+        }
+      ]
+    },
+    "builtin": {
+      "name": "support.function.memory.rxfs",
+      "match": "\\b(store16|store32|store64|load16|load32|load64|store8|load8|copy|fill|put)\\b(?=\\s*\\()"
+    },
+    "string": {
+      "name": "string.quoted.double.rxfs",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.rxfs",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "number": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.rxfs",
+          "match": "\\b0[xX][0-9a-fA-F_]+\\b"
+        },
+        {
+          "name": "constant.numeric.decimal.rxfs",
+          "match": "\\b[0-9][0-9_]*\\b"
+        }
+      ]
+    },
+    "constant": {
+      "name": "constant.other.rxfs",
+      "match": "\\b[A-Z][A-Z0-9_]{2,}\\b"
+    },
+    "operator": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arithmetic.rxfs",
+          "match": "\\+|\\-"
+        },
+        {
+          "name": "keyword.operator.shift.desugared.rxfs",
+          "match": "\\*"
+        },
+        {
+          "name": "keyword.operator.bitwise.rxfs",
+          "match": "\\&|\\|"
+        },
+        {
+          "name": "keyword.operator.shift.rxfs",
+          "match": "<<|>>"
+        },
+        {
+          "name": "keyword.operator.comparison.rxfs",
+          "match": "==|<"
+        },
+        {
+          "name": "keyword.operator.comparison.desugared.rxfs",
+          "match": "!=|<=|>=|!|>"
+        },
+        {
+          "name": "keyword.operator.arithmetic.desugared.rxfs",
+          "match": "\\~"
+        },
+        {
+          "name": "keyword.operator.assignment.rxfs",
+          "match": "="
+        }
+      ]
+    },
+    "punctuation": {
+      "name": "punctuation.separator.rxfs",
+      "match": "[(){},;:]"
+    }
+  }
+}

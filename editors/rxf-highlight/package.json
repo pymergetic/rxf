@@ -1,0 +1,38 @@
+{
+  "name": "rxf-highlight",
+  "displayName": "RXF highlighting (.rxfs / .rxfd)",
+  "description": "TextMate grammars for the RXF program language (.rxfs) and the RXF delta documents (.rxfd), generated from tools/highlight/meaning.json",
+  "version": "0.1.0",
+  "publisher": "pymergetic",
+  "license": "LicenseRef-PolyForm-Noncommercial-1.0.0",
+  "engines": { "vscode": "^1.60.0" },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "rxfs",
+        "aliases": ["RXF Source", "rxfs"],
+        "extensions": [".rxfs"],
+        "configuration": "./language-configuration-rxfs.json"
+      },
+      {
+        "id": "rxfd",
+        "aliases": ["RXF Delta", "rxfd"],
+        "extensions": [".rxfd"],
+        "configuration": "./language-configuration-rxfd.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "rxfs",
+        "scopeName": "source.rxfs",
+        "path": "./syntaxes/rxfs.tmLanguage.json"
+      },
+      {
+        "language": "rxfd",
+        "scopeName": "text.xml.rxfd",
+        "path": "./syntaxes/rxfd.tmLanguage.json"
+      }
+    ]
+  }
+}
