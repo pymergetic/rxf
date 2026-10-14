@@ -1,0 +1,249 @@
+# The id of a durable object: the SHA-256 of the path of a handle, which is what
+# tools/native/compose.py calls `object_id(image, handle)`. The id is the first 8 bytes of the
+# digest read as a little-endian word. It is what a `Bound` value carries in the operand of an
+# object (the operand kind RXF_OPERAND_OBJECT holds it), so the Expression that reads a Bound needs
+# it before it can write that word.
+#
+# The path is the names of the handle and its ancestors joined by '.', from the child of the root
+# down to the handle (the root's own name is not in the path). The hash is the plain SHA-256 of
+# those bytes. Every path of the starter is shorter than 56 bytes, so the message is one block and
+# the padding is done in place; a longer path would need a second block and is refused here.
+#
+# The words are the numbers of native/graph.h and of words.rxf. The arithmetic is 32-bit (SHA-256
+# works in words of 32 bits) done in 64-bit words and masked back. The state and the schedule live
+# in the work region at W_H*; the scratch of these procs is the words h0..h19 the entry declares.
+
+# ---- the 32-bit arithmetic of the compression -------------------------------------------------
+fn u32_(x) = ((x) & 0xFFFFFFFF);
+fn add32_(a, b) = (((a) + (b)) & 0xFFFFFFFF);
+fn xor32_(a, b) = ((((a) & not32_(b)) | ((not32_(a)) & (b))) & 0xFFFFFFFF);
+fn not32_(x) = ((~(x)) & 0xFFFFFFFF);
+fn rotr32_(x, n) = ((((x) >> (n)) | ((x) << (32 - (n)))) & 0xFFFFFFFF);
+fn shr32_(x, n) = ((x) >> (n));
+
+# the round functions: the big sigmas S0/S1 of a word, and the little sigmas of the schedule
+fn S0_(x) = (xor32_(xor32_(rotr32_((x), 2), rotr32_((x), 13)), rotr32_((x), 22)));
+fn S1_(x) = (xor32_(xor32_(rotr32_((x), 6), rotr32_((x), 11)), rotr32_((x), 25)));
+fn s0_(x) = (xor32_(xor32_(rotr32_((x), 7), rotr32_((x), 18)), shr32_((x), 3)));
+fn s1_(x) = (xor32_(xor32_(rotr32_((x), 17), rotr32_((x), 19)), shr32_((x), 10)));
+
+# choose and majority
+fn ch_(e, f, g) = (xor32_(((e) & (f)), ((not32_(e)) & (g))));
+fn maj_(a, b, c) = (xor32_(xor32_(((a) & (b)), ((a) & (c))), ((b) & (c))));
+
+# the bytes of a word reversed: the digest is big-endian, the id is read little-endian
+fn bswap32_(x) = ((((x) >> 24) & 0xFF) | ((((x) >> 16) & 0xFF) << 8) | ((((x) >> 8) & 0xFF) << 16) | (((x) & 0xFF) << 24));
+
+# ---- the constants of the round (SHA-256 K[0..63]), two to a word -----------------------------
+proc hash_k_init {
+    store64(work + W_HK +   0, 0x428a2f9871374491);   # K[0], K[1]
+    store64(work + W_HK +   8, 0xb5c0fbcfe9b5dba5);   # K[2], K[3]
+    store64(work + W_HK +  16, 0x3956c25b59f111f1);   # K[4], K[5]
+    store64(work + W_HK +  24, 0x923f82a4ab1c5ed5);   # K[6], K[7]
+    store64(work + W_HK +  32, 0xd807aa9812835b01);   # K[8], K[9]
+    store64(work + W_HK +  40, 0x243185be550c7dc3);   # K[10], K[11]
+    store64(work + W_HK +  48, 0x72be5d7480deb1fe);   # K[12], K[13]
+    store64(work + W_HK +  56, 0x9bdc06a7c19bf174);   # K[14], K[15]
+    store64(work + W_HK +  64, 0xe49b69c1efbe4786);   # K[16], K[17]
+    store64(work + W_HK +  72, 0x0fc19dc6240ca1cc);   # K[18], K[19]
+    store64(work + W_HK +  80, 0x2de92c6f4a7484aa);   # K[20], K[21]
+    store64(work + W_HK +  88, 0x5cb0a9dc76f988da);   # K[22], K[23]
+    store64(work + W_HK +  96, 0x983e5152a831c66d);   # K[24], K[25]
+    store64(work + W_HK + 104, 0xb00327c8bf597fc7);   # K[26], K[27]
+    store64(work + W_HK + 112, 0xc6e00bf3d5a79147);   # K[28], K[29]
+    store64(work + W_HK + 120, 0x06ca635114292967);   # K[30], K[31]
+    store64(work + W_HK + 128, 0x27b70a852e1b2138);   # K[32], K[33]
+    store64(work + W_HK + 136, 0x4d2c6dfc53380d13);   # K[34], K[35]
+    store64(work + W_HK + 144, 0x650a7354766a0abb);   # K[36], K[37]
+    store64(work + W_HK + 152, 0x81c2c92e92722c85);   # K[38], K[39]
+    store64(work + W_HK + 160, 0xa2bfe8a1a81a664b);   # K[40], K[41]
+    store64(work + W_HK + 168, 0xc24b8b70c76c51a3);   # K[42], K[43]
+    store64(work + W_HK + 176, 0xd192e819d6990624);   # K[44], K[45]
+    store64(work + W_HK + 184, 0xf40e3585106aa070);   # K[46], K[47]
+    store64(work + W_HK + 192, 0x19a4c1161e376c08);   # K[48], K[49]
+    store64(work + W_HK + 200, 0x2748774c34b0bcb5);   # K[50], K[51]
+    store64(work + W_HK + 208, 0x391c0cb34ed8aa4a);   # K[52], K[53]
+    store64(work + W_HK + 216, 0x5b9cca4f682e6ff3);   # K[54], K[55]
+    store64(work + W_HK + 224, 0x748f82ee78a5636f);   # K[56], K[57]
+    store64(work + W_HK + 232, 0x84c878148cc70208);   # K[58], K[59]
+    store64(work + W_HK + 240, 0x90befffaa4506ceb);   # K[60], K[61]
+    store64(work + W_HK + 248, 0xbef9a3f7c67178f2);   # K[62], K[63]
+    ret;
+}
+
+# ---- the message: the path of a handle, padded to one block ------------------------------------
+# g0: the handle. The message lands at W_HMSG (8 words, each 8 message bytes with the earliest
+# byte in the high half). R: the length L of the path. The path is built top-to-leaf by gathering
+# the segments walking up (leaf first) and then emitting them back the other way, a '.' between.
+proc path_build {
+    # clear the message, so the padding of bytes past the path is already zero
+    h0 = 0;
+    while h0 < 8 {
+        store64(work + W_HMSG + (h0 << 3), 0);
+        h0 = h0 + 1;
+    }
+    # gather the segments (name_off, name_len) walking up, leaf first
+    h0 = g0;                       # the handle we walk from
+    h1 = 0;                        # how many segments
+    h2 = 1;                        # still walking
+    while h2 == 1 {
+        if h0 == HANDLE_NONE {
+            h2 = 0;
+        }
+        if h2 == 1 {
+            if h0 == load64(work + W_ROOT) {
+                h2 = 0;            # the root's own name is not in the path
+            }
+        }
+        if h2 == 1 {
+            g0 = h0;
+            call cell_of;          # R: the cell of h0
+            if R == HANDLE_NONE {
+                h2 = 0;
+            }
+        }
+        if h2 == 1 {
+            h3 = R;                                     # the cell
+            h4 = arena_q(h3 + C_NAME);                  # the name offset in the arena
+            h5 = load64(work + W_ARENA) + h4;           # the name bytes
+            h6 = 0;                                     # the name length
+            while (load8(h5 + h6) & 0xFF) != 0 {
+                h6 = h6 + 1;
+            }
+            store64(work + W_HSEG + (h1 << 4), h4);     # name_off
+            store64(work + W_HSEG + (h1 << 4) + 8, h6); # name_len
+            h1 = h1 + 1;
+            h0 = arena_q(h3 + C_PARENT);                # walk up
+        }
+    }
+    # emit the path top-to-leaf: segment h1-1 first, a '.' before each lower one
+    h7 = 0;                        # the byte position in the message
+    h8 = h1;                       # the segment to emit next, from the top down
+    while h8 > 0 {
+        h8 = h8 - 1;
+        h4 = load64(work + W_HSEG + (h8 << 4));         # the name offset
+        h6 = load64(work + W_HSEG + (h8 << 4) + 8);     # the name length
+        h9 = 0;                    # the byte of the name
+        while h9 < h6 {
+            h10 = load8(load64(work + W_ARENA) + h4 + h9) & 0xFF;
+            h11 = load64(work + W_HMSG + ((h7 >> 3) << 3));
+            h12 = 56 - ((h7 & 7) << 3);
+            store64(work + W_HMSG + ((h7 >> 3) << 3), h11 | (h10 << h12));
+            h7 = h7 + 1;
+            h9 = h9 + 1;
+        }
+        if h8 > 0 {
+            h11 = load64(work + W_HMSG + ((h7 >> 3) << 3));
+            h12 = 56 - ((h7 & 7) << 3);
+            store64(work + W_HMSG + ((h7 >> 3) << 3), h11 | (0x2E << h12));
+            h7 = h7 + 1;
+        }
+    }
+    # pad: 0x80 right after the path, then the length in bits, big-endian, in the last word
+    h11 = load64(work + W_HMSG + ((h7 >> 3) << 3));
+    h12 = 56 - ((h7 & 7) << 3);
+    store64(work + W_HMSG + ((h7 >> 3) << 3), h11 | (0x80 << h12));
+    store64(work + W_HMSG + 56, h7 << 3);   # bytes 56..63 are the bit length of the path
+    R = h7;
+    ret;
+}
+
+# ---- the compression of one block --------------------------------------------------------------
+# The message at W_HMSG (one block) is compressed; the state lands at W_HSTATE. The schedule is a
+# rolling ring of 16 words (a word past 16 overwrites the one 16 back), so no W[64] is kept.
+proc sha256_block {
+    # the state H[0..7]
+    store64(work + W_HSTATE +  0, 0x6a09e667);
+    store64(work + W_HSTATE +  8, 0xbb67ae85);
+    store64(work + W_HSTATE + 16, 0x3c6ef372);
+    store64(work + W_HSTATE + 24, 0xa54ff53a);
+    store64(work + W_HSTATE + 32, 0x510e527f);
+    store64(work + W_HSTATE + 40, 0x9b05688c);
+    store64(work + W_HSTATE + 48, 0x1f83d9ab);
+    store64(work + W_HSTATE + 56, 0x5be0cd19);
+    # the schedule W[0..15] from the message: word i takes the high then the low half of the
+    # message word that holds its 8 bytes
+    h0 = 0;
+    while h0 < 16 {
+        h1 = load64(work + W_HMSG + ((h0 >> 1) << 3));
+        if (h0 & 1) == 0 {
+            store64(work + W_HRING + (h0 << 3), (h1 >> 32) & 0xFFFFFFFF);
+        } else {
+            store64(work + W_HRING + (h0 << 3), h1 & 0xFFFFFFFF);
+        }
+        h0 = h0 + 1;
+    }
+    # the working words a..h start as the state
+    h0 = 0;
+    while h0 < 8 {
+        store64(work + W_HWORK + (h0 << 3), load64(work + W_HSTATE + (h0 << 3)));
+        h0 = h0 + 1;
+    }
+    # the 64 rounds
+    h0 = 0;
+    while h0 < 64 {
+        # the word of the schedule for this round (computed past the first 16)
+        if h0 >= 16 {
+            h1 = load64(work + W_HRING + (((h0 - 2) & 15) << 3));    # W[i-2]
+            h2 = load64(work + W_HRING + (((h0 - 7) & 15) << 3));    # W[i-7]
+            h3 = load64(work + W_HRING + (((h0 - 15) & 15) << 3));   # W[i-15]
+            h15 = load64(work + W_HRING + (((h0 - 16) & 15) << 3));  # W[i-16]
+            h16 = add32_(add32_(add32_(s1_(h1), h2), s0_(h3)), h15); # W[i]
+            store64(work + W_HRING + ((h0 & 15) << 3), h16);
+        } else {
+            h16 = load64(work + W_HRING + (h0 << 3));                # W[i]
+        }
+        # the constant of the round, two to a word: K[i] is the high half when i is even
+        h17 = load64(work + W_HK + ((h0 >> 1) << 3));
+        if (h0 & 1) == 0 {
+            h4 = (h17 >> 32) & 0xFFFFFFFF;
+        } else {
+            h4 = h17 & 0xFFFFFFFF;
+        }
+        # a..h
+        h5 = load64(work + W_HWORK +  0);
+        h6 = load64(work + W_HWORK +  8);
+        h7 = load64(work + W_HWORK + 16);
+        h8 = load64(work + W_HWORK + 24);
+        h9 = load64(work + W_HWORK + 32);
+        h10 = load64(work + W_HWORK + 40);
+        h11 = load64(work + W_HWORK + 48);
+        h12 = load64(work + W_HWORK + 56);
+        # t1 = h + S1(e) + ch(e,f,g) + K[i] + W[i]; t2 = S0(a) + maj(a,b,c)
+        h13 = add32_(add32_(add32_(add32_(h12, S1_(h9)), ch_(h9, h10, h11)), h4), h16);
+        h14 = add32_(S0_(h5), maj_(h5, h6, h7));
+        # the shift of the working words
+        store64(work + W_HWORK +  0, add32_(h13, h14));   # a = t1 + t2
+        store64(work + W_HWORK +  8, h5);                 # b = a
+        store64(work + W_HWORK + 16, h6);                 # c = b
+        store64(work + W_HWORK + 24, h7);                 # d = c
+        store64(work + W_HWORK + 32, add32_(h8, h13));    # e = d + t1
+        store64(work + W_HWORK + 40, h9);                 # f = e
+        store64(work + W_HWORK + 48, h10);                # g = f
+        store64(work + W_HWORK + 56, h11);                # h = g
+        h0 = h0 + 1;
+    }
+    # fold the working words into the state
+    h0 = 0;
+    while h0 < 8 {
+        store64(work + W_HSTATE + (h0 << 3),
+            add32_(load64(work + W_HSTATE + (h0 << 3)), load64(work + W_HWORK + (h0 << 3))));
+        h0 = h0 + 1;
+    }
+    ret;
+}
+
+# ---- the id of an object ----------------------------------------------------------------------
+# g0: the handle. R: the id -- the first 8 bytes of the SHA-256 of its path, read little-endian.
+proc object_id {
+    h0 = g0;                        # the handle (the procs below take their own scratch)
+    call hash_k_init;
+    g0 = h0;
+    call path_build;                # the message of the path at W_HMSG
+    call sha256_block;              # the digest in the state at W_HSTATE
+    h1 = u32_(load64(work + W_HSTATE +  0));   # H[0]
+    h2 = u32_(load64(work + W_HSTATE +  8));   # H[1]
+    # the digest is big-endian; the id is its first 8 bytes read little-endian
+    R = bswap32_(h1) | (bswap32_(h2) << 32);
+    ret;
+}

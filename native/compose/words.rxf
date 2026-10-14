@@ -1,0 +1,475 @@
+# The words of the in-image composer: the numbers of its request and work memory, the layout of
+# the arena it reads (RXFB v6, the structs of src/pymergetic/rxf/core/ground.h), and the few
+# expressions it repeats.
+#
+# The composer takes a Graph (a typed object tree) of the live image and writes the words of a
+# program of native/graph.h -- the same words tools/native/compose.py writes for that graph, byte
+# for byte (tests/test_compose_corpus.py). The request names the arena the graph lies in, the
+# handle to compose, and where the words go; the work memory holds the tables it builds (the map
+# from name to child, the plan of the graph).
+#
+# The numbers of native/graph.h (RXF_OP_CALL, RXF_LEAF_MEMORY_COPY, RXF_GRAPH_MAGIC ...) and the
+# refusals of native/basics.h are known to the language already. What follows is what only this
+# program needs.
+
+# ---- the request (words of 8 bytes) -----------------------------------------------------------
+const R_ARENA = 0;           # the bytes of the live image (RXFB v6)
+const R_ARENA_SIZE = 8;
+const R_TARGET = 16;         # the handle to compose: a SemanticGraph, or a Function
+const R_TARGET_KIND = 24;    # 0 a SemanticGraph (a Plan), 1 a Function (an Expression)
+const R_OUT = 32;            # where the words of the program are written
+const R_OUT_CAPACITY = 40;
+const R_WORK = 48;           # everything the composer keeps while it works
+const R_WORK_CAPACITY = 56;
+const R_OUT_SIZE = 64;       # (out) the bytes written
+const R_AT = 72;             # (out) the word it stopped at, 0 when it did not
+
+# ---- what the run answers ---------------------------------------------------------------------
+const OK = 0;
+const OUT_OF_MEMORY = RXF_REFUSE_OUT_OF_MEMORY;
+const BAD_SOURCE = RXF_REFUSE_TYPE_MISMATCH;
+
+# ---- the arena layout (ground.h) --------------------------------------------------------------
+const ARENA_HEADER = 192;
+const H_INDEX_OFF = 48;      # directory of index chunk cell offsets
+const H_CHUNKS = 80;         # index_chunks
+const H_HANDLES = 88;        # handle_count
+const H_CELLS_OFF = 56;      # start of the cell stream
+const H_NAMES_OFF = 64;      # NAME block that takes the next name
+const H_ROOT = 112;          # root module handle
+
+const CELL_BYTES = 64;       # the fixed part of a cell
+const C_TYPE = 0;
+const C_PARENT = 8;
+const C_PAYLOAD_SIZE = 16;
+const C_GENERATION = 24;
+const C_NAME = 32;
+const C_FLAGS = 40;
+const C_REF_COUNT = 44;
+const C_FORWARD = 48;
+const C_INDEX = 56;
+
+const REF_BYTES = 24;        # target, role, kind/binding, index
+const R_TARGET_FIELD = 0;
+const R_ROLE = 8;
+const R_KIND_INDEX = 16;     # kind (u16) | binding (u16) << 16, then index (u32) at 20
+
+# the payload of a Field (ground.h): flags, the type of the value, the offset in the owner
+const F_FLAGS = 4;
+const F_VALUE_TYPE = 16;
+const F_OFFSET = 24;
+const F_COUNT = 32;
+const FIELD_REF = 0x8;       # PYMERGETIC_RXF_FIELD_FLAG_REF: the field holds a handle
+
+# the payload of a Type (ground.h): form, then the size of an instance
+const T_SIZE = 8;
+const T_FLAGS = 36;
+
+const INDEX_CHUNK = 4096;    # entries in an index chunk; chunk = handle >> 12
+const KIND_MASK = 0xFF;
+const KIND_BLOCK = 255;
+const KIND_DEAD = 254;
+const HANDLE_NONE = 0xFFFFFFFFFFFFFFFF;
+
+# the flags of a cell: kind 8 bits, state 6 bits, owner 4 bits
+const FLAG_STATE_SHIFT = 8;
+const FLAG_STATE_MASK = 0x3F;
+
+# ---- what a run keeps in the frame (words that pass between procs) and in work -----------------
+# The frame of a program is RXF_GRAPH_FRAME (1024) bytes. Only words a proc passes to another live
+# there; everything else is a word of work memory at `work + G_*` or `W_*`.
+
+# the numbers one procedure sets for another (the scalars), at W_*
+const W_SP = 0;              # the stack of the procs
+const W_ARENA = 8;           # the arena base
+const W_HANDLES = 16;
+const W_INDEX_OFF = 24;
+const W_CHUNKS = 32;
+const W_CELLS_OFF = 40;
+const W_ROOT = 48;
+const W_OUT = 56;
+const W_OUT_CAP = 64;        # in words
+const W_OUT_SIZE = 72;       # in words
+const W_TARGET = 80;
+const W_TARGET_KIND = 88;
+const W_STATUS = 96;
+
+# what the procs give back
+const W_R = 104;             # the answer of a proc
+const W_R0 = 112;
+const W_R1 = 120;
+const W_R2 = 128;
+
+# the scratch a proc uses while it works (one set per level of recursion)
+const W_X = 136;             # 16 scratch words: W_X .. W_X + 15*8
+const NX = 16;
+
+# the call stack of the procs, and the room below it
+const W_CALLSTACK = 256;     # 512 bytes of stack
+const STACK_BYTES = 512;
+
+# The tables below the stack. The map from (parent, name) to child is an open-addressed table of
+# (hash, epoch, parent, child) rows: what child_named has resolved since this request began. The
+# epoch of the request is written when the run starts; a row of an earlier request answers nothing,
+# and the first empty or old row ends the walk (the row an answer takes is that same row).
+const W_MAP = (W_CALLSTACK + STACK_BYTES);   # (parent, name) -> child
+const MAP_ROW = 32;          # hash, epoch, parent, child
+const NMAP = 4096;           # rows of the map (a power of two: the walk masks with NMAP - 1)
+const MAP_BYTES = (NMAP * MAP_ROW);
+const W_MAP_EPOCH = (W_MAP + MAP_BYTES);   # the request whose rows the map holds
+
+# ---- the bits and pieces the composer repeats -------------------------------------------------
+const NONE = RXF_GRAPH_NONE;
+const SLOT = RXF_OPERAND_SLOT;
+const LITERAL = RXF_OPERAND_LITERAL;
+const OBJECT = RXF_OPERAND_OBJECT;
+# the program opcodes and jump modes of native/graph.h (what a word of the program carries)
+const CALL = RXF_OP_CALL;
+const MOVE = RXF_OP_MOVE;
+const BRANCH = RXF_OP_BRANCH;
+const RETURN = RXF_OP_RETURN;
+const REFUSE = RXF_OP_REFUSE;
+const GOTO = RXF_OP_GOTO;
+const FIELD = RXF_OP_FIELD;
+const INCREMENT = RXF_OP_INCREMENT;
+const LESS = RXF_OP_LESS;
+const CONSTRUCT = RXF_OP_CONSTRUCT;
+const MAP = RXF_OP_MAP;
+const SWITCH = RXF_OP_SWITCH;
+const MAGIC = RXF_GRAPH_MAGIC;
+const MZERO = RXF_MODE_ZERO;
+const MNONZERO = RXF_MODE_NONZERO;
+const BIG = 1 << 40;
+
+# the word of the output at index i
+fn word_at(i) = load64(load64(work + W_OUT) + ((i) << 3));
+# `n` bytes at `at_` of the arena
+fn arena_q(at_) = load64(load64(work + W_ARENA) + (at_));
+# the bits of one word against the bits of another (the language has no ^ of its own)
+fn xor64_(a, b) = ((((a) & ~(b)) | ((~(a)) & (b))));
+# 3 * n
+fn triple(n) = (((n) << 1) + (n));
+# 5 * n
+fn quintuple(n) = (((n) << 2) + (n));
+# 24 * n (a reference record)
+fn refs_of(n) = (((n) << 4) + ((n) << 3));
+# 24 * n (a row of an Expression operand table)
+fn xrow(n) = (((n) << 4) + ((n) << 3));
+# 32 * n (a row of an Expression map / argument table)
+fn xmap(n) = ((n) << 5);
+# 2048 * n (the stride of one level of the Expression call recursion)
+fn xfr(n) = ((n) << 11);
+# the cell offset of a handle, or HANDLE_NONE when the slot is free (tree.rxf answers this)
+# align a byte count up to 16 (the payload of a cell)
+fn align16(n) = (((n) + 15) & ~15);
+fn wordsof(n) = (((n) + 7) >> 3);    # how many words hold n bytes
+fn edge_of(n) = ((n) >> 6);          # the edge a SuccessorArgument names (index / 64)
+
+# ---- the value model (a SemanticValue / SemanticObject of the graph) ---------------------------
+# The payload of a value: value_type (a handle) at 0, kind (a number) at 8, result_index at 12,
+# literal_size at 16, owner_function at 24, owner_block at 32, owner_operation at 40. What follows
+# the fixed 56 bytes (the prefix) is `data`: the literal bytes of a Literal. An Object carries its
+# id where a SemanticValue carries `source` (offset 48).
+const V_VALUE_TYPE = 0;
+const V_KIND = 8;
+const V_RESULT_INDEX = 12;
+const V_LITERAL_SIZE = 16;
+const V_OWNER_FUNCTION = 24;
+const V_OWNER_BLOCK = 32;
+const V_OWNER_OPERATION = 40;
+const V_OBJECT_ID = 48;
+const V_PREFIX = 56;         # where `data` begins
+
+# the kind of a value (the ValueKind of the image)
+const KIND_PARAMETER = 1;
+const KIND_LITERAL = 2;
+const KIND_OPERATION_RESULT = 3;
+const KIND_BOUND = 4;
+const KIND_OBJECT = 5;
+# the ABI value role and the function implementation (the enums of the image, read as scalars)
+const ABI_OUTPUT = 3;         # AbiValueRole.Output: a result handed back through an output
+const FN_SEMANTIC = 1;        # FunctionImplementation.Semantic: a body that is a call
+const FN_NATIVE = 2;          # FunctionImplementation.Native: a leaf of the interpreter
+
+# the Terminator of a block (the Terminator of the image)
+const T_GOTO = 1;
+const T_BRANCH = 2;
+const T_SWITCHTAG = 3;
+const T_LOOP = 4;
+const T_RETURN = 5;
+const T_REFUSE = 6;
+
+# the Opcode of an operation (the Opcode of the image)
+const OP_BEGIN = 1;
+const OP_ALLOCATE = 3;
+const OP_COPY = 4;
+const OP_WRITE = 5;
+const OP_READ = 6;
+const OP_VALIDATE = 7;
+const OP_PUBLISH = 8;
+const OP_ROLLBACK = 9;
+const OP_CLEANUP = 10;
+const OP_READTAG = 11;
+const OP_PROJECTPAYLOAD = 12;
+const OP_CONSTRUCTOPTION = 13;
+const OP_CONSTRUCTRESULT = 14;
+const OP_ITERINIT = 15;
+const OP_ITERCONDITION = 16;
+const OP_ITERPROJECT = 17;
+const OP_ITERADVANCE = 18;
+const OP_CALLBACK = 19;
+const OP_COMPARE = 21;
+const OP_HASH = 23;
+const OP_UTF8VALIDATE = 25;
+const OP_UTF8BOUNDARY = 26;
+const OP_FORMATINTEGER = 27;
+const OP_APPENDBYTES = 28;
+const OP_SEARCH = 29;
+const OP_MAPREFUSAL = 30;
+const OP_ENRICHREFUSAL = 31;
+const OP_RETURNVALUE = 32;
+const OP_STOREFIELD = 35;
+const OP_BORROW = 38;
+const OP_RELEASEBORROW = 39;
+const OP_PIN = 40;
+const OP_UNPIN = 41;
+const OP_MOVESLOT = 42;
+const OP_CANONICALORDER = 43;
+const OP_LOOKUP = 44;
+
+# the offsets of the payload of a SemanticBlock (its fixed part) and a SemanticOperation
+const B_INDEX = 0;
+const B_TERMINATOR = 4;
+const B_OPERATION_COUNT = 8;
+const B_SUCCESSOR_COUNT = 16;
+const B_PARAMETER_TYPE_COUNT = 20;
+const B_CASE_COUNT = 24;
+const B_CONDITION = 32;
+const B_TERMINATOR_VALUE = 40;
+const B_DATA = 48;           # the case tags and the argument counts
+
+const O_OPCODE = 0;
+const O_INDEX = 4;
+const O_INPUT_VALUE_COUNT = 20;
+const O_RESULT_VALUE_COUNT = 24;
+const O_CALLEE = 40;
+const O_STATUS_VALUE = 48;
+const O_TARGET_OBJECT = 56;
+const O_TARGET_FIELD = 64;
+const O_TRANSFORM_AUTHORITY = 72;
+
+# the offsets of the payload of a SemanticGraph
+const G_FUNCTION = 0;
+const G_ENTRY_BLOCK = 8;
+const G_BLOCK_COUNT = 32;
+const G_PARAMETER_COUNT = 40;
+const G_RESULT_COUNT = 44;
+
+# ---- the plan: what it keeps while it lays a graph out (a region of its own, clear of the above)
+# W_PLAN holds the (handle, slot) pairs of the frame values and the scratch of the plan's procs.
+const W_PLAN = 0x40000;
+const W_SLOTS = W_PLAN;      # the (handle, slot) pairs of the frame values
+const SLOT_ROW = 16;
+const NSLOT = 512;
+const W_NSLOT = (W_PLAN + 0x30000);   # how many (handle, slot) pairs
+const W_FRAME = (W_PLAN + 0x30008);   # the frame bytes used so far
+# the cache of the value the plan is looking at
+const W_VKIND = (W_PLAN + 0x30010);
+const W_VWIDTH = (W_PLAN + 0x30018);
+const W_VLITERAL = (W_PLAN + 0x30020);
+const W_VOID = (W_PLAN + 0x30028);
+const W_VSLOT = (W_PLAN + 0x30030);
+const W_TMP = (W_PLAN + 0x30040);    # scratch the plan passes between its procs (W_TMP..W_TMP+31*8)
+const W_NBLOCKS = (W_PLAN + 0x30038);  # how many blocks the plan ordered
+# the type handles the plan resolves once while it reads a graph (a SemanticValue / Operation / Block)
+const W_TVALUE = (W_PLAN + 0x30140);
+const W_TOP = (W_PLAN + 0x30148);
+const W_TBLOCK = (W_PLAN + 0x30150);
+const W_OPS = (W_PLAN + 0x30160);    # the operations of a block in index order while the plan lays it out
+const W_OPT = (W_OPS + 0x400);       # a block's operations gathered in handle order, scattered into W_OPS by index
+const W_OST = (W_OPS + 0x800);       # the gather's own state: the block, how many, and the cursor
+# The values one holder (the graph or a block) carries, gathered while a block's owned parameters
+# are found. The graph of build_receipt carries 41, so this is its own room -- clear of W_TMP, whose
+# tail the types above stand in (a gather of more than 16 there ran over W_TVALUE and W_TOP).
+const NVSCAN = 512;
+const W_VSCAN = (W_PLAN + 0x34C00);  # the value children of one holder, in handle order
+const W_PCS = (W_PLAN + 0x31000);    # the handle of block i (the order the plan lays it in)
+const NBLOCK = 256;
+const W_CUR = (W_PLAN + 0x31800);    # the handle of the graph / block / op being encoded
+# the word synthesis: where each block begins in the program (parallel to W_PCS), the inputs of the
+# operation being written, and the work-memory state the writing procs keep while they nest.
+const W_LPC = (W_PLAN + 0x31900);    # the word index of block i (its pc in the program)
+const NEIN = 16;                     # the most inputs one operation takes
+const W_EIN = (W_PLAN + 0x33000);    # the value handle of input i of the operation being written
+const W_ECUR = (W_PLAN + 0x33100);   # the plan's own state as it lays a graph out (see plan.rxf)
+const NEREF = 32;                    # the most references one collector gathers
+const W_EREF = (W_PLAN + 0x33200);   # (target, index) of the references a collector gathered
+# ---- the word synthesis: where each writing proc keeps its state while it nests ---------------
+# The writer's procs nest (plan_encode > emit_terminator > emit_edge > val_operand > ...). Each
+# keeps its cross-call state in its own region of work memory, so it takes no frame word of its own
+# and cannot disturb the procs above or below it. None of this is frame: the frame stays small.
+const W_FLD = (W_PLAN + 0x33900);    # fld: the object, the field name, the field handle
+const W_REF = (W_PLAN + 0x33980);    # refs_role: the object, the role name, the loop
+const W_GIN = (W_PLAN + 0x33A00);    # op_inputs: the operation and its count
+const W_GLEV = (W_PLAN + 0x33A80);   # gather_leaves: the scan of every reference for role Leaf
+const W_OPR = (W_PLAN + 0x33B00);    # val_operand: the value and its (kind, a, b)
+const W_INS = (W_PLAN + 0x33B80);    # emit_call / emit_move: the operation being written
+const W_TRM = (W_PLAN + 0x33C00);    # emit_terminator: the block and its terminator
+const W_EDG = (W_PLAN + 0x33C80);    # emit_edge: the target, the arguments, the parameters
+const W_PEX = (W_PLAN + 0x33D00);    # plan_encode: the pass, the header numbers
+# every frame word writes through here; it keeps the plan crash-free at its one caller and gives the
+# tests one observable word when an encoding is refused (1 = ok, 0 = refused)
+const W_EBAD = (W_PLAN + 0x33D80);
+# construct / map / switch: the op and the numbers it writes. The packed names below reach 856, so
+# the collectors take their room clear of them (fresh after that delta): a gather overruns W_NAM
+# otherwise and the names the Expression reads by are gone before it reads them.
+const W_CMS = (W_PLAN + 0x34A00);
+const W_CME = (W_CMS + 0x80);        # the children a gather of entries collected (16 words)
+const W_CMV = (W_CMS + 0x100);       # variant_tag: the payload, the scan, the tag value
+const W_CMP = (W_CMS + 0x180);       # the (source, destination) status pairs of a map (32 words)
+# the leaf table: (target, leaf id) of every reference of role Leaf (graph.run's function table)
+const NLEAF = 64;
+const W_ELEAF = (W_PLAN + 0x33E00);  # (target, leaf id) gathered by gather_leaves
+# the packed role / field / type names the writer compares a name to (bytes little-endian, NUL close)
+const W_NAM = (W_PLAN + 0x34600);
+# where each packed name sits in W_NAM
+const NX_LEAF = 0;                   # "Leaf"
+const NX_INPUT = 16;                 # "InputValue"
+const NX_RESULT = 40;                # "ResultValue"
+const NX_PARAM = 64;                 # "ParameterValue"
+const NX_SUCC = 88;                  # "Successor"
+const NX_SUCCARG = 112;              # "SuccessorArgument"
+const NX_OPCODE = 144;               # "opcode"
+const NX_VALUE = 160;                # "value"
+const NX_CALLEE = 176;               # "callee"
+const NX_INCOUNT = 192;              # "input_value_count"
+const NX_TOBJ = 224;                 # "target_object"
+const NX_STATUSVAL = 248;            # "status_value"
+const NX_TERM = 272;                 # "terminator"
+const NX_CONDVAL = 296;              # "condition_value"
+const NX_TERMVAL = 320;              # "terminator_value"
+const NX_VTYPE = 352;                # "value_type"
+const NX_UINT32 = 376;               # "uint32_t" (the status type: a zero test)
+# the names the M3 opcode classes read by (each packed little-endian, a NUL closes it)
+const NX_TFIELD = 392;               # "target_field"
+const NX_OFFSET = 408;               # "offset"
+const NX_TAUTH = 416;                # "transform_authority"
+const NX_SRCST = 440;                # "source_status"
+const NX_DSTST = 456;                # "destination_status"
+const NX_PAYLD = 480;                # "PayloadField"
+const NX_RME = 496;                  # "RefusalMappingEntry"
+const NX_TVV = 520;                  # "TaggedVariant"
+const NX_TAG = 536;                  # "tag"
+const NX_TAGVAL = 544;               # "tag_value"
+const NX_BLOCKPARAMVALUE = 560;      # "BlockParameterValue" (3 words: 560, 568, 576)
+const NX_SEMOP = 584;                # "SemanticOperation" (the type of a block's operations)
+const NX_SEMVAL = 608;               # "SemanticValue" (the type of a frame value)
+const NX_SEMBLK = 624;               # "SemanticBlock" (the type of a block)
+# the names the Expression face (M4) reads by (expr.rxf): the Function/Call/Argument model
+const NX_EVR = 640;                  # "ValueReference" (the type of a function's value refs)
+const NX_EABISIG = 656;              # "ABISignature"
+const NX_EABILOC = 672;              # "ABIValueLocation"
+const NX_EIMPL = 696;                # "implementation"
+const NX_EBODY = 712;                # "body"
+const NX_EKIND = 720;                # "kind"
+const NX_ETARGET = 728;              # "target"
+const NX_EPARAM = 736;               # "parameter"
+const NX_EKPARAM = 752;              # "Parameter" (a ValueKind)
+const NX_EKBOUND = 768;              # "Bound" (a ValueKind)
+const NX_EKOPRES = 776;              # "OperationResult" (a ValueKind)
+const NX_ERESULT = 792;              # "Result" (a signature's results)
+const NX_EVRROLE = 800;              # "value_role"
+const NX_EOUTPUT = 816;              # "Output"
+const NX_ESIZE = 824;                # "size" (of a type)
+const NX_ESIG = 832;                 # "signature"
+const NX_EARGT = 848;                # "Argument" (the type of a call's arguments)
+const NX_ECALLT = 864;               # "Call" (the type of the body of a Semantic function)
+
+# ---- the Expression face: what it keeps while it lays a Function out (a region of its own) -----
+# Clear of the plan (W_PLAN) and of the hash (W_HMSG), and inside the work the request declares.
+# The Expression is one recursion: a call resolves its arguments, and an argument that is another
+# call nests. Each call keeps its state in its own frame below, so the levels cannot disturb one
+# another and the recursion takes no frame word of the interpreter. What is here is the allocator
+# (the frame bytes used so far), the map a Parameter of the program resolves in, one frame per
+# level, the memo of the calls already written (a result that is referenced again is written once)
+# and the branches that wait for the refusal at the end.
+const W_EXPR = 0x81000;
+const W_XFRAME = (W_EXPR);           # the frame bytes used so far (the allocator)
+const W_XD = (W_EXPR + 8);           # the level the next nested call takes
+const W_XNARG = (W_EXPR + 16);       # the argument words of the parameter table (the header's 4th word)
+const W_XFP = (W_EXPR + 24);         # the frame of the call being written now
+const W_XNCHAIN = (W_EXPR + 32);     # how many Semantic inlines are open (the key of the memo)
+const W_XCHAIN = (W_EXPR + 40);      # the call of each open inline (8 words)
+const W_XNMEM = (W_EXPR + 104);      # how many memo rows are written
+const W_XNBR = (W_EXPR + 112);       # how many branches wait for the refusal
+const W_XO = (W_EXPR + 120);         # the operand a proc answers with: (kind, a, b)
+const W_XS = (W_EXPR + 0x90);        # the scratch of the Expression procs (see each below)
+# The scratch below is one sub-region per proc, spaced so one may call another and the words it
+# keeps across that call stay its own. A proc that recurses keeps its state in its frame instead.
+const W_XA0 = (W_XS + 0x00);         # expr_width (1 word)
+const W_XA1 = (W_XS + 0x08);         # expr_lentry (2 words)
+const W_XA2 = (W_XS + 0x18);         # expr_writes (6 words)
+const W_XA3 = (W_XS + 0x48);         # expr_res_width (2 words)
+const W_XA4 = (W_XS + 0x58);         # expr_map_get / expr_map_set (3 words)
+const W_XA5 = (W_XS + 0x70);         # expr_val (5 words)
+const W_XA6 = (W_XS + 0x98);         # expr_memo_get / expr_memo_set (2 words)
+const W_XA7 = (W_XS + 0xA8);         # expr_params (9 words: its cursors and the row it swaps through)
+const W_XA8 = (W_XS + 0xF0);         # expr_encode (4 words)
+# the map a Parameter resolves in: the count, then rows of (target, kind, a, b)
+const W_XPARM = (W_EXPR + 0x200);
+const XMAP_ROW = 32;
+const NMAP_ROW = 16;                 # the most parameters / formals one map holds
+# one level of the call recursion: its frame. The map at a frame is the one the call at that level
+# resolves its arguments in (the formals map its caller built); the rows are that call's arguments,
+# their sort keys and the operands they resolved to.
+const XFR = 0x800;
+const W_XFR = (W_EXPR + 0x1000);
+const NXR = 16;                      # the levels of call nesting the corpus takes
+const XF_MAP = 0x000;                # the map: the count at 0, the rows of (target, kind, a, b) at 8
+const XF_MAPR = 0x008;
+const XF_CALL = 0x208;               # the call being written at this level
+const XF_CALLEE = 0x210;
+const XF_INNER = 0x218;              # the map this call's arguments resolve in
+const XF_NARG = 0x220;
+const XF_KIND = 0x228;               # the implementation of the callee
+const XF_RES = 0x230;                # the signature / the body of the callee
+const XF_WIDTH = 0x238;              # the width of the result
+const XF_SLOT = 0x240;               # the out slot (or NONE when the callee writes no result)
+const XF_L = 0x248;                  # the level this frame is
+const XF_PARENT = 0x250;             # the frame of the call above (the frame pointer restored)
+const XF_I = 0x258;                  # the cursor of the walk this call is in
+const XF_J = 0x260;
+const XF_TMP = 0x268;
+const XF_ROWS = 0x270;               # rows of (parameter, value reference, index, spare)
+const XF_OPS = 0x370;                # rows of (kind, a, b): the operand each argument resolved to
+const XF_SWAP = 0x430;               # three words the sort swaps a row through
+const XF_IMAP = 0x450;               # the map the inlined body's arguments resolve in
+const XF_TSORT = 0x458;              # the index the sort of the formals looks at
+const XROW = 32;
+const XOPS = 24;
+# the memo of the calls already written: the key is the chain of the inlines above and the call
+# itself (compose.py keys its results by (stack, call)), then the operand the call answered with.
+const W_XMEM = (W_EXPR + 0x9000);
+const XMEM_ROW = 128;
+const NMEM = 64;                     # the most calls one program writes
+const XM_CHAIN = 0;                  # the row: the chain length, the chain, the call, the operand
+const XM_C0 = 8;                     # the chain: 8 words (the inlines that are open above)
+const XM_CALL = 72;
+const XM_KIND = 80;
+const XM_A = 88;
+const XM_B = 96;
+# the word index of each status-check branch's refusal destination; the trailer patches them
+const W_XBRT = (W_EXPR + 0xB000);
+const NXBR = 64;
+
+# ---- the id of a durable object (hash.rxf): SHA-256 of its path ------------------------------
+# A region of its own, clear of the plan (W_PLAN) and of the map. The message of the path is one
+# block (every path of the starter is < 56 bytes); the state and the schedule live here while the
+# hash runs. The constants of the round are two to a word (K[2i] in the high half).
+const W_HMSG = 0x80000;      # the message, one block, 8 words of 8 message bytes (big-endian)
+const W_HSEG = 0x80040;      # the segments (name_off, name_len) gathered walking up, leaf first
+const W_HNSEG = 0x80140;     # how many segments
+const W_HSTATE = 0x80148;    # the SHA-256 state H[0..7]
+const W_HWORK = 0x80188;     # the working words a..h of the compression
+const W_HRING = 0x801C8;     # the rolling schedule W (16 words)
+const W_HK = 0x80248;        # the 64 constants of the round, two to a word

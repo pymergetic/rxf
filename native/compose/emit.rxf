@@ -1,0 +1,28 @@
+# Writing the words of a program: the header and the instructions of native/graph.h, in the order
+# the host writes them, byte for byte. `ow` is the number of the word written next; `w` the word to
+# write. There is no recursion here and no allocator. The answers are the shared words ow and st.
+#
+# The words are counted from the first word of the output, which is the header, so a word index is
+# already where it is in the finished program. A label is a word index not known yet; a patch is
+# the word that will hold it. For this module only the plain writer is needed; the labels of the
+# Plan land when the Plan lays its blocks out.
+
+# One word `w` at `ow`.
+proc putq {
+    if ow >= load64(work + W_OUT_CAP) {
+        st = OUT_OF_MEMORY;
+        ret;
+    }
+    store64(load64(work + W_OUT) + (ow << 3), w);
+    ow = ow + 1;
+}
+
+# An operand: three words, its kind and the two words it carries.
+proc put_operand {
+    w = g0;
+    call putq;
+    w = g1;
+    call putq;
+    w = g2;
+    call putq;
+}

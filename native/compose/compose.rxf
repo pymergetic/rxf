@@ -1,0 +1,160 @@
+# The composer of the image as a program of the interpreter (docs/19): a Graph (a typed object
+# tree) of the live image goes in; the words of a program of native/graph.h come out, byte
+# identical to what tools/native/compose.py writes for the same graph (tests/test_compose_corpus).
+#
+# The request is the one of native/compose/words.rxf: the arena the graph lies in, the handle to
+# compose, and where the words go. The work memory holds the tables the composer builds while it
+# works. The module split is the one of the front end (native/front): words.rxf the numbers,
+# tree.rxf the reader of the arena, emit.rxf the writer, plan.rxf the graph, expr.rxf the call
+# body, hash.rxf the id of a durable object, and this file the entry and the dispatch.
+#
+# What runs today is the reader of tree.rxf and the writer of emit.rxf: the entry resolves the
+# target cell of the arena and writes its descriptor (its type, parent, name, payload size and its
+# references) through the writer, which is the ground the Plan reads a graph from. The Plan and the
+# Expression that turn that ground into program words are the work that follows; the corpus test
+# holds the words to what compose.py writes.
+
+include "words.rxf";
+
+program compose(context, request) {
+    var work, sp;
+    var g0, g1, g2, R, R0, R1, R2;
+    var st, ow, w, at;
+    var t0, t1, t2;                        # cell_of
+    var e0, e1;                            # name_eq
+    var k0, k1, k2, k3, k4, k5, k6;        # child_named
+    var n0, n1, n2, n3, n4, n5;            # the entry
+    var v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10;   # read_value
+    var h0, h1, h2, h3, h4, h5, h6, h7, h8, h9;        # hash.rxf
+    var h10, h11, h12, h13, h14, h15, h16, h17, h18, h19;
+    var q0, q1, q2, q3, q4, q5, q6, q7, q8, q9;        # plan.rxf
+    var q10, q11, q12, q13, q14, q15, q16, q17, q18, q19;
+    var q20, q21, q22, q23, q24, q25, q26, q27, q28, q29;
+    var q30, q31, q32, q33, q34, q35, q36, q37, q38, q39;
+
+    work = load64(request + R_WORK);
+    sp = work + W_CALLSTACK;
+
+    # what the request names, and the arena header the reader walks
+    store64(work + W_ARENA, load64(request + R_ARENA));
+    store64(work + W_OUT, load64(request + R_OUT));
+    store64(work + W_OUT_CAP, load64(request + R_OUT_CAPACITY) >> 3);
+    store64(work + W_OUT_SIZE, 0);
+    store64(work + W_TARGET, load64(request + R_TARGET));
+    store64(work + W_TARGET_KIND, load64(request + R_TARGET_KIND));
+    store64(work + W_INDEX_OFF, arena_q(H_INDEX_OFF));
+    store64(work + W_CHUNKS, arena_q(H_CHUNKS));
+    store64(work + W_HANDLES, arena_q(H_HANDLES));
+    store64(work + W_CELLS_OFF, arena_q(H_CELLS_OFF));
+    store64(work + W_ROOT, arena_q(H_ROOT));
+
+    st = 0;
+    ow = 0;
+    at = 0;
+    w = 0;
+
+    # kind 1 is the program of a Function (an Expression): the words of its call body, byte
+    # identical to what tools/native/compose.py writes for the same Function.
+    if load64(work + W_TARGET_KIND) == 1 {
+        g0 = load64(work + W_TARGET);
+        call expr_encode;
+        store64(request + R_OUT_SIZE, ow << 3);
+        store64(request + R_AT, 0);
+        return 0;
+    }
+
+    # kind 2 is the id of the target itself: the SHA-256 of its path (the id a Bound value carries
+    # in an object operand), written as one word. It is how the id is proved against compose.py.
+    if load64(work + W_TARGET_KIND) == 2 {
+        g0 = load64(work + W_TARGET);
+        call object_id;
+        store64(load64(work + W_OUT), R);
+        store64(request + R_OUT_SIZE, 8);
+        store64(request + R_AT, 0);
+        return 0;
+    }
+
+    # kind 3 is the plan of a graph: the frame, each placed value (handle, slot, width), and the
+    # blocks in order -- the ground the corpus test holds to compose.py's Plan.
+    if load64(work + W_TARGET_KIND) == 3 {
+        g0 = load64(work + W_TARGET);
+        call plan_dump;
+        store64(request + R_OUT_SIZE, ow << 3);
+        store64(request + R_AT, 0);
+        return 0;
+    }
+
+    # kind 4 is the program of a graph: the words of its header and blocks, byte identical to what
+    # tools/native/compose.py writes for the same graph.
+    if load64(work + W_TARGET_KIND) == 4 {
+        g0 = load64(work + W_TARGET);
+        call plan_encode;
+        store64(request + R_OUT_SIZE, ow << 3);
+        store64(request + R_AT, 0);
+        return 0;
+    }
+
+    # kind 0 is the descriptor of the target itself: its cell and the fields the Plan reads from
+    # its type. Every kind above answers one question of the composer; this one is the ground all
+    # of them read the arena through.
+    if load64(work + W_TARGET_KIND) == 0 {
+
+        # the field names the Plan reads, packed little-endian for the reader's name compare
+        store64(work + W_X, 0x6c625f7972746e65);       # entry_block[0..7]
+        store64(work + W_X + 8, 0x6b636f);             # entry_block[8..10]
+        store64(work + W_X + 16, 0x6f635f6b636f6c62);  # block_count[0..7]
+        store64(work + W_X + 24, 0x746e75);            # block_count[8..10]
+
+        # the target cell of the arena, and its descriptor through the writer
+        g0 = load64(work + W_TARGET);
+        call cell_of;
+        if R == HANDLE_NONE {
+            st = BAD_SOURCE;
+            at = load64(work + W_TARGET);
+        }
+        if st == 0 {
+            n0 = R;
+            w = arena_q(n0 + C_TYPE);            call putq;
+            w = arena_q(n0 + C_PARENT);          call putq;
+            w = arena_q(n0 + C_NAME);            call putq;
+            w = arena_q(n0 + C_PAYLOAD_SIZE);    call putq;
+            w = arena_q(n0 + C_FLAGS);           call putq;   # flags (u32) | ref_count (u32) << 32
+            n1 = arena_q(n0 + C_REF_COUNT) & 0xFFFFFFFF;
+            w = n1;                              call putq;
+            n2 = n0 + CELL_BYTES + align16(arena_q(n0 + C_PAYLOAD_SIZE));
+            n3 = 0;
+            while n3 < n1 {
+                w = arena_q(n2 + refs_of(n3) + R_TARGET_FIELD);   call putq;
+                w = arena_q(n2 + refs_of(n3) + R_ROLE);           call putq;
+                n3 = n3 + 1;
+            }
+            # the fields the Plan reads from the type of the target: entry_block (a reference) and
+            # block_count (a number), decoded through the Field that names each
+            n4 = arena_q(n0 + C_TYPE);
+            g0 = n4; g1 = work + W_X; g2 = 11;      call child_named;
+            n5 = R;
+            g0 = load64(work + W_TARGET); g1 = n5;  call read_value;
+            w = R;                                  call putq;
+            g0 = n4; g1 = work + W_X + 16; g2 = 11; call child_named;
+            n5 = R;
+            g0 = load64(work + W_TARGET); g1 = n5;  call read_value;
+            w = R;                                  call putq;
+        }
+
+        if st == 0 {
+            store64(request + R_OUT_SIZE, ow << 3);
+            store64(request + R_AT, 0);
+            return 0;
+        }
+        store64(request + R_AT, at);
+        store64(request + R_OUT_SIZE, 0);
+        refuse st;
+    }
+    refuse BAD_SOURCE;
+}
+
+include "tree.rxf";
+include "emit.rxf";
+include "hash.rxf";
+include "plan.rxf";
+include "expr.rxf";
