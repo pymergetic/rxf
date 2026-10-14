@@ -1,0 +1,138 @@
+# The tree: reading the arena of the live image as the typed object tree the composer works on.
+#
+# The arena is RXFB v6 (the structs of src/pymergetic/rxf/core/ground.h): a 192-byte header, a
+# directory of index chunks (4096 slots each, one cell offset per slot), and a stream of cells.
+# A cell is a 64-byte header (type, parent, payload size, name, flags, ref count), then its payload
+# aligned to 16, then its references (24 bytes each). A handle is a slot number; the index maps it
+# to the offset of its cell, or marks it free.
+#
+# What is here is the reader the composer stands on: a handle to its cell, the name of a cell, and
+# the child of an object with a given name. Arguments come in the shared words g0..g2; the answers
+# are R (and R0..R2 where more). Every proc keeps its own scratch in the words the program
+# declares (compose.rxf), so one proc may call another without its own state being disturbed.
+
+# ---- a handle to its cell ----------------------------------------------------------------------
+# g0: handle. R: the arena offset of the cell, or HANDLE_NONE when the slot is free or out of range.
+proc cell_of {
+    R = HANDLE_NONE;
+    if g0 < load64(work + W_HANDLES) {
+        t0 = g0 >> 12;                            # the index chunk
+        if t0 < load64(work + W_CHUNKS) {
+            t1 = g0 & (INDEX_CHUNK - 1);          # the slot in the chunk
+            t2 = arena_q(load64(work + W_INDEX_OFF) + (t0 << 3));   # the index block cell
+            t2 = arena_q(t2 + CELL_BYTES + (t1 << 3));              # the entry: a cell offset
+            if (t2 & 1) == 0 {
+                R = t2;
+            }
+        }
+    }
+    ret;
+}
+
+# ---- the name of a cell ------------------------------------------------------------------------
+# g0: the arena offset of a cell. R: the arena offset of its NUL-terminated name, 0 when unnamed.
+# A cell that is not there (cell_of's HANDLE_NONE) carries no name; without this guard its name
+# offset would be read from a wrapped address and the compare would walk off the arena.
+proc name_of {
+    R = 0;
+    if g0 == HANDLE_NONE {
+        ret;
+    }
+    R = arena_q(g0 + C_NAME);
+    ret;
+}
+
+# g0: the arena offset of a name. g1: the address of the bytes to compare. g2: how many.
+# R: 1 when the name is exactly those bytes (same length, then a NUL), else 0. A name at offset 0
+# is no name (name_of's answer for a cell that carries none) and never matches.
+proc name_eq {
+    R = 0;
+    if g0 == 0 {
+        ret;
+    }
+    e0 = load64(work + W_ARENA) + g0;
+    e1 = 0;
+    while e1 < g2 {
+        if (load8(e0 + e1) & 0xFF) != (load8(g1 + e1) & 0xFF) {
+            ret;
+        }
+        e1 = e1 + 1;
+    }
+    if (load8(e0 + g2) & 0xFF) == 0 {
+        R = 1;
+    }
+    ret;
+}
+
+# ---- the child of an object with a given name ---------------------------------------------------
+# g0: the handle of the parent. g1: the address of the name bytes. g2: how many.
+# R: the handle of the child whose name is those bytes, or HANDLE_NONE. A scan of the index; the
+# composer may build the map at W_MAP when it resolves many names and a scan is too slow.
+proc child_named {
+    R = HANDLE_NONE;
+    k0 = g0;                                  # the parent
+    k1 = g1;                                  # the name bytes
+    k2 = g2;                                  # how many
+    k3 = 0;
+    k4 = load64(work + W_HANDLES);
+    while k3 < k4 {
+        g0 = k3;
+        call cell_of;                         # R = the cell of k3
+        if R != HANDLE_NONE {
+            k5 = R;
+            k6 = arena_q(k5 + C_TYPE) & KIND_MASK;
+            if k6 != KIND_BLOCK {
+                if k6 != KIND_DEAD {
+                    if arena_q(k5 + C_PARENT) == k0 {
+                        g0 = arena_q(k5 + C_NAME);
+                        g1 = k1;
+                        g2 = k2;
+                        call name_eq;
+                        if R == 1 {
+                            R = k3;
+                            ret;
+                        }
+                    }
+                }
+            }
+        }
+        k3 = k3 + 1;
+    }
+    R = HANDLE_NONE;
+    ret;
+}
+
+# ---- the value of a field of an object ----------------------------------------------------------
+# g0: the handle of the object. g1: the handle of the Field that names the value.
+# R: the value -- the target handle when the field is a reference, else the number it holds. The
+# Field carries the byte offset in the payload and, for a reference, the flag that says so; a
+# scalar takes the size of its value type.
+proc read_value {
+    v0 = g0;                              # the object
+    v1 = g1;                              # the Field
+    g0 = v0;
+    call cell_of;
+    v2 = R;                               # the object cell
+    g0 = v1;
+    call cell_of;
+    v3 = R;                               # the Field cell
+    v4 = arena_q(v3 + CELL_BYTES + F_OFFSET);   # the byte offset in the owner payload
+    v5 = arena_q(v3 + CELL_BYTES + F_FLAGS) & 0xFFFFFFFF;
+    if (v5 & FIELD_REF) != 0 {
+        R = arena_q(v2 + CELL_BYTES + v4);   # a reference: the target handle
+        ret;
+    }
+    v6 = arena_q(v3 + CELL_BYTES + F_VALUE_TYPE);   # the type of the value
+    g0 = v6;
+    call cell_of;
+    v7 = R;
+    v8 = arena_q(v7 + CELL_BYTES + T_SIZE);   # its size
+    v9 = arena_q(v2 + CELL_BYTES + v4);   # the raw bytes, read whole and masked
+    if v8 < 8 {
+        v10 = (1 << (v8 << 3)) - 1;
+        R = v9 & v10;
+    } else {
+        R = v9;
+    }
+    ret;
+}

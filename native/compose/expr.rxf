@@ -1,0 +1,817 @@
+# expr.rxf -- the Expression of a Function: its body is a call, and every call to a native is an
+# instruction. A callee that is itself such a function (its implementation is Semantic) is inlined,
+# so the program calls only leaves; a Bound value (a data object of a module) is moved from its
+# object into a slot; the status of every call is checked, and a refusal ends the run with it.
+# This is tools/native/compose.py's Expression face, word for word: the words of the program of the
+# same Function are byte identical (tests/test_compose_corpus). plan.rxf turns a SemanticGraph into
+# words; this turns the call graph of a Function whose body is one Call into them.
+#
+# g0..g2 carry the arguments, R (and R0..R2) the answers, W_XO the operand a proc answers with.
+# What must survive the calls that nest below lives in work memory: the scratch sub-regions of W_XS
+# for the procs that do not recurse (words.rxf names one per proc), and the frame of its level for
+# the call being written (expr_callproc). The recursion takes no frame word of the interpreter.
+#
+# The order is compose.py's: the arguments of a call resolve in the order their parameters are
+# named, and an argument that is another call is written first (post order); the result of a call
+# is written once and the memo of the (chain of open inlines, call) key answers the next reference
+# to it from the slot of the first. The chain is what makes the same call under two different
+# inlines two writes, as compose.py keys its results by (stack, call).
+
+# ---- the packed names the Expression reads -----------------------------------------------------
+proc expr_names {
+    store64(work + W_NAM + 640, 0x66655265756c6156);
+    store64(work + W_NAM + 648, 0x65636e657265);              # "ValueReference"
+    store64(work + W_NAM + 656, 0x616e676953494241);
+    store64(work + W_NAM + 664, 0x65727574);                  # "ABISignature"
+    store64(work + W_NAM + 672, 0x65756c6156494241);
+    store64(work + W_NAM + 680, 0x6e6f697461636f4c);
+    store64(work + W_NAM + 688, 0x0);                         # "ABIValueLocation"
+    store64(work + W_NAM + 696, 0x6e656d656c706d69);
+    store64(work + W_NAM + 704, 0x6e6f69746174);              # "implementation"
+    store64(work + W_NAM + 712, 0x79646f62);                  # "body"
+    store64(work + W_NAM + 720, 0x646e696b);                  # "kind"
+    store64(work + W_NAM + 728, 0x746567726174);              # "target"
+    store64(work + W_NAM + 736, 0x6574656d61726170);
+    store64(work + W_NAM + 744, 0x72);                        # "parameter"
+    store64(work + W_NAM + 752, 0x6574656d61726150);
+    store64(work + W_NAM + 760, 0x72);                        # "Parameter"
+    store64(work + W_NAM + 768, 0x646e756f42);                # "Bound"
+    store64(work + W_NAM + 776, 0x6f6974617265704f);
+    store64(work + W_NAM + 784, 0x746c757365526e);            # "OperationResult"
+    store64(work + W_NAM + 792, 0x746c75736552);              # "Result"
+    store64(work + W_NAM + 800, 0x6f725f65756c6176);
+    store64(work + W_NAM + 808, 0x656c);                      # "value_role"
+    store64(work + W_NAM + 816, 0x74757074754f);              # "Output"
+    store64(work + W_NAM + 824, 0x657a6973);                  # "size"
+    store64(work + W_NAM + 832, 0x727574616e676973);
+    store64(work + W_NAM + 840, 0x65);                        # "signature"
+    store64(work + W_NAM + 848, 0x746e656d75677241);
+    store64(work + W_NAM + 856, 0x0);                         # "Argument"
+    store64(work + W_NAM + 864, 0x6c6c6143);                  # "Call"
+    ret;
+}
+
+# ---- the size of a value reference --------------------------------------------------------------
+# g0 = a ValueReference. R = the width it takes: the size of its value_type when it has one (a value
+# reference has the size of its type, whatever its own `size` says -- compose.py's sized), else the
+# literal size of a Literal, else nothing (0).
+proc expr_width {
+    store64(work + W_XA0, g0);
+    g0 = load64(work + W_XA0);  g1 = work + W_NAM + NX_VTYPE;  g2 = 10;
+    call fld;
+    if R != HANDLE_NONE {
+        if R != 0 {
+            g0 = R;
+            call cell_of;
+            R = arena_q(R + CELL_BYTES + T_SIZE);
+            ret;
+        }
+    }
+    g0 = load64(work + W_XA0);  g1 = work + W_NAM + NX_EKIND;  g2 = 4;
+    call fld;
+    if R == KIND_LITERAL {
+        g0 = load64(work + W_XA0);
+        call cell_of;
+        R = arena_q(R + CELL_BYTES + V_LITERAL_SIZE) & 0xFFFFFFFF;
+        ret;
+    }
+    R = 0;
+    ret;
+}
+
+# ---- the kind of a value reference --------------------------------------------------------------
+# g0 = a ValueReference. R = its ValueKind as a number: KIND_PARAMETER, KIND_LITERAL,
+# KIND_OPERATION_RESULT, KIND_BOUND or KIND_OBJECT. The `kind` field is a scalar enum, read as the
+# number it holds.
+proc expr_kind {
+    g1 = work + W_NAM + NX_EKIND;
+    g2 = 4;
+    call fld;
+    ret;
+}
+
+# ---- the index of a parameter --------------------------------------------------------------------
+# g0 = a parameter of a signature. R = the number its name carries (parameter[2] is 2): the order
+# compose.py sorts the parameters of a function and the arguments of a call by (its index_of).
+proc expr_lentry {
+    store64(work + W_XA1, g0);
+    R = 0;
+    g0 = load64(work + W_XA1);
+    call cell_of;
+    if R == HANDLE_NONE {
+        ret;
+    }
+    g0 = R;
+    call name_of;
+    store64(work + W_XA1 + 8, load64(work + W_ARENA) + R);     # the name bytes
+    store64(work + W_XA1, 0);                                  # the scan
+    while (load8(load64(work + W_XA1 + 8) + load64(work + W_XA1)) & 0xFF) != 0 {
+        if (load8(load64(work + W_XA1 + 8) + load64(work + W_XA1)) & 0xFF) == 91 {
+            # the decimal number between the brackets
+            R = 0;
+            store64(work + W_XA1, load64(work + W_XA1) + 1);
+            while (load8(load64(work + W_XA1 + 8) + load64(work + W_XA1)) & 0xFF) != 93 {
+                R = (R << 3) + (R << 1)
+                    + ((load8(load64(work + W_XA1 + 8) + load64(work + W_XA1)) & 0xFF) - 48);
+                store64(work + W_XA1, load64(work + W_XA1) + 1);
+            }
+            ret;
+        }
+        store64(work + W_XA1, load64(work + W_XA1) + 1);
+    }
+    ret;
+}
+
+# ---- does a callee hand its result back through an output location --------------------------------
+# g0 = the callee (a Native Function). R = 1 when an ABIValueLocation of one of its ABISignatures
+# has value_role Output (compose.py's Expression.writes); else 0.
+proc expr_writes {
+    store64(work + W_XA2, g0);
+    g0 = load64(work + W_XA2);  g1 = work + W_NAM + NX_EABISIG;  g2 = 12;
+    call children_of_named;
+    store64(work + W_XA2 + 8, R);                # how many ABISignatures
+    store64(work + W_XA2 + 16, 0);
+    while load64(work + W_XA2 + 16) < load64(work + W_XA2 + 8) {
+        # the gather of the locations below would take the table the signatures lie in: gather
+        # the signatures again and pick this one
+        g0 = load64(work + W_XA2);  g1 = work + W_NAM + NX_EABISIG;  g2 = 12;
+        call children_of_named;
+        store64(work + W_XA2 + 24,
+                load64(work + W_CME + (load64(work + W_XA2 + 16) << 3)));
+        g0 = load64(work + W_XA2 + 24);  g1 = work + W_NAM + NX_EABILOC;  g2 = 16;
+        call children_of_named;
+        store64(work + W_XA2 + 32, R);           # how many ABIValueLocations
+        store64(work + W_XA2 + 40, 0);
+        while load64(work + W_XA2 + 40) < load64(work + W_XA2 + 32) {
+            g0 = load64(work + W_CME + (load64(work + W_XA2 + 40) << 3));
+            g1 = work + W_NAM + NX_EVRROLE;  g2 = 10;
+            call fld;
+            if R == ABI_OUTPUT {
+                R = 1;
+                ret;
+            }
+            store64(work + W_XA2 + 40, load64(work + W_XA2 + 40) + 1);
+        }
+        store64(work + W_XA2 + 16, load64(work + W_XA2 + 16) + 1);
+    }
+    R = 0;
+    ret;
+}
+
+# ---- the width of a result ----------------------------------------------------------------------
+# g0 = the callee (a Native Function). R = the width of the value its signature hands back: the size
+# of the value type of its first Result when it writes through an output, else 0 (compose.py's
+# Expression.call takes `results[0]` and asks whether the callee writes).
+proc expr_res_width {
+    store64(work + W_XA3, g0);
+    g0 = load64(work + W_XA3);  g1 = work + W_NAM + NX_ESIG;  g2 = 9;
+    call fld;
+    g0 = R;  g1 = work + W_NAM + NX_ERESULT;  g2 = 6;
+    call children_of_named;
+    if R == 0 {
+        R = 0;
+        ret;
+    }
+    store64(work + W_XA3 + 8, load64(work + W_CME));          # the first Result
+    g0 = load64(work + W_XA3);
+    call expr_writes;
+    if R != 1 {
+        R = 0;
+        ret;
+    }
+    g0 = load64(work + W_XA3 + 8);  g1 = work + W_NAM + NX_VTYPE;  g2 = 10;
+    call fld;
+    if R == HANDLE_NONE {
+        R = 0;
+        ret;
+    }
+    if R == 0 {
+        R = 0;
+        ret;
+    }
+    g0 = R;
+    call cell_of;
+    R = arena_q(R + CELL_BYTES + T_SIZE);
+    ret;
+}
+
+# ---- a map: what a Parameter resolves in ---------------------------------------------------------
+# A map is the count of its rows and then rows of (target, kind, a, b): the target a value reference
+# names and the operand it stands for. The parameter table of the program is one (W_XPARM); the
+# formals of a Semantic callee take the map of the level its body runs at.
+
+# g0 = the map, g1 = the target. W_XO = the operand to stand at that target.
+proc expr_map_set {
+    store64(work + W_XA4, g0);
+    store64(work + W_XA4 + 8, g1);
+    store64(work + W_XA4 + 16, 0);
+    while load64(work + W_XA4 + 16) < load64(load64(work + W_XA4)) {
+        if load64(load64(work + W_XA4) + 8 + xmap(load64(work + W_XA4 + 16)))
+                == load64(work + W_XA4 + 8) {
+            ret;                                  # already there: the operand stands as it did
+        }
+        store64(work + W_XA4 + 16, load64(work + W_XA4 + 16) + 1);
+    }
+    store64(load64(work + W_XA4) + 8 + xmap(load64(work + W_XA4 + 16)),
+            load64(work + W_XA4 + 8));
+    store64(load64(work + W_XA4) + 8 + xmap(load64(work + W_XA4 + 16)) + 8,
+            load64(work + W_XO));
+    store64(load64(work + W_XA4) + 8 + xmap(load64(work + W_XA4 + 16)) + 16,
+            load64(work + W_XO + 8));
+    store64(load64(work + W_XA4) + 8 + xmap(load64(work + W_XA4 + 16)) + 24,
+            load64(work + W_XO + 16));
+    store64(load64(work + W_XA4), load64(load64(work + W_XA4)) + 1);
+    ret;
+}
+
+# g0 = the map, g1 = the target. R = 1 and W_XO = the operand when the map carries the target.
+proc expr_map_get {
+    store64(work + W_XA4, g0);
+    store64(work + W_XA4 + 8, g1);
+    store64(work + W_XA4 + 16, 0);
+    while load64(work + W_XA4 + 16) < load64(load64(work + W_XA4)) {
+        if load64(load64(work + W_XA4) + 8 + xmap(load64(work + W_XA4 + 16)))
+                == load64(work + W_XA4 + 8) {
+            store64(work + W_XO,
+                    load64(load64(work + W_XA4) + 8 + xmap(load64(work + W_XA4 + 16)) + 8));
+            store64(work + W_XO + 8,
+                    load64(load64(work + W_XA4) + 8 + xmap(load64(work + W_XA4 + 16)) + 16));
+            store64(work + W_XO + 16,
+                    load64(load64(work + W_XA4) + 8 + xmap(load64(work + W_XA4 + 16)) + 24));
+            R = 1;
+            ret;
+        }
+        store64(work + W_XA4 + 16, load64(work + W_XA4 + 16) + 1);
+    }
+    R = 0;
+    ret;
+}
+
+# ---- the memo of the calls already written -------------------------------------------------------
+# The key is the chain of the Semantic inlines that are open above and the call itself (compose.py
+# keys its results by (stack, call)); the row carries the operand the call answered with.
+
+# g0 = the call. R = 1 and W_XO = its operand when a row carries (chain, call); else 0.
+proc expr_memo_get {
+    store64(work + W_XA6, g0);
+    store64(work + W_XA6 + 8, 0);
+    while load64(work + W_XA6 + 8) < load64(work + W_XNMEM) {
+        store64(work + W_XA6, load64(work + W_XA6));          # (the call stays across the walk)
+        if load64(work + W_XMEM + (load64(work + W_XA6 + 8) << 7) + XM_CHAIN)
+                == load64(work + W_XNCHAIN) {
+            store64(work + W_XA6 + 16, 1);
+            store64(work + W_XA6 + 24, 0);
+            while load64(work + W_XA6 + 24) < load64(work + W_XNCHAIN) {
+                if load64(work + W_XMEM + (load64(work + W_XA6 + 8) << 7) + XM_C0
+                          + (load64(work + W_XA6 + 24) << 3))
+                        != load64(work + W_XCHAIN + (load64(work + W_XA6 + 24) << 3)) {
+                    store64(work + W_XA6 + 16, 0);
+                }
+                store64(work + W_XA6 + 24, load64(work + W_XA6 + 24) + 1);
+            }
+            if load64(work + W_XA6 + 16) == 1 {
+                if load64(work + W_XMEM + (load64(work + W_XA6 + 8) << 7) + XM_CALL)
+                        == load64(work + W_XA6) {
+                    store64(work + W_XO,
+                            load64(work + W_XMEM + (load64(work + W_XA6 + 8) << 7) + XM_KIND));
+                    store64(work + W_XO + 8,
+                            load64(work + W_XMEM + (load64(work + W_XA6 + 8) << 7) + XM_A));
+                    store64(work + W_XO + 16,
+                            load64(work + W_XMEM + (load64(work + W_XA6 + 8) << 7) + XM_B));
+                    R = 1;
+                    ret;
+                }
+            }
+        }
+        store64(work + W_XA6 + 8, load64(work + W_XA6 + 8) + 1);
+    }
+    R = 0;
+    ret;
+}
+
+# g0 = the call. W_XO = the operand it answered with: one row more of the memo.
+proc expr_memo_set {
+    store64(work + W_XA6, g0);
+    store64(work + W_XA6 + 8, 0);
+    while load64(work + W_XA6 + 8) < load64(work + W_XNCHAIN) {
+        store64(work + W_XMEM + (load64(work + W_XNMEM) << 7) + XM_C0
+                + (load64(work + W_XA6 + 8) << 3),
+                load64(work + W_XCHAIN + (load64(work + W_XA6 + 8) << 3)));
+        store64(work + W_XA6 + 8, load64(work + W_XA6 + 8) + 1);
+    }
+    store64(work + W_XMEM + (load64(work + W_XNMEM) << 7) + XM_CHAIN, load64(work + W_XNCHAIN));
+    store64(work + W_XMEM + (load64(work + W_XNMEM) << 7) + XM_CALL, load64(work + W_XA6));
+    store64(work + W_XMEM + (load64(work + W_XNMEM) << 7) + XM_KIND, load64(work + W_XO));
+    store64(work + W_XMEM + (load64(work + W_XNMEM) << 7) + XM_A, load64(work + W_XO + 8));
+    store64(work + W_XMEM + (load64(work + W_XNMEM) << 7) + XM_B, load64(work + W_XO + 16));
+    store64(work + W_XNMEM, load64(work + W_XNMEM) + 1);
+    ret;
+}
+
+# ---- the operand of a value reference ------------------------------------------------------------
+# g0 = a ValueReference, g1 = the map its Parameter resolves in. W_XO = the operand it stands for: a
+# Parameter the operand of its target in the map; a Bound moved from its object into a fresh slot;
+# an OperationResult the result of the call that writes it (compose.py's Expression.operand).
+proc expr_val {
+    store64(work + W_XA5, g0);
+    store64(work + W_XA5 + 8, g1);
+    g0 = load64(work + W_XA5);
+    call expr_kind;
+    store64(work + W_XA5 + 16, R);
+    if R == KIND_PARAMETER {
+        g0 = load64(work + W_XA5);  g1 = work + W_NAM + NX_ETARGET;  g2 = 6;
+        call fld;
+        g0 = load64(work + W_XA5 + 8);  g1 = R;
+        call expr_map_get;
+        if R == 0 {
+            refuse BAD_SOURCE;
+        }
+        ret;
+    }
+    if load64(work + W_XA5 + 16) == KIND_BOUND {
+        # the object is moved into a slot of the frame; the operand is that slot
+        g0 = load64(work + W_XA5);
+        call expr_width;
+        store64(work + W_XA5 + 24, R);                         # the width
+        store64(work + W_XA5 + 32, load64(work + W_XFRAME));   # its slot
+        store64(work + W_XFRAME, load64(work + W_XFRAME) + (wordsof(R) << 3));
+        g0 = load64(work + W_XA5);  g1 = work + W_NAM + NX_ETARGET;  g2 = 6;
+        call fld;
+        g0 = R;
+        call object_id;                                        # the SHA-256 of its path
+        store64(work + W_XA5 + 40, R);
+        w = MOVE;                                              call putq;
+        w = load64(work + W_XA5 + 32);                         call putq;
+        w = load64(work + W_XA5 + 24);                         call putq;
+        w = OBJECT;                                            call putq;
+        w = load64(work + W_XA5 + 40);                         call putq;
+        w = load64(work + W_XA5 + 24);                         call putq;
+        store64(work + W_XO, SLOT);
+        store64(work + W_XO + 8, load64(work + W_XA5 + 32));
+        store64(work + W_XO + 16, load64(work + W_XA5 + 24));
+        ret;
+    }
+    if load64(work + W_XA5 + 16) == KIND_OPERATION_RESULT {
+        g0 = load64(work + W_XA5);  g1 = work + W_NAM + NX_ETARGET;  g2 = 6;
+        call fld;
+        g0 = R;
+        g1 = load64(work + W_XA5 + 8);
+        call expr_callproc;
+        ret;
+    }
+    refuse BAD_SOURCE;
+}
+
+# ---- one call, written ---------------------------------------------------------------------------
+# g0 = the Call, g1 = the map its arguments resolve in. W_XO = the operand the call answers with.
+# The arguments resolve in the order their parameters are named, and one that is another call is
+# written first; a callee that is Semantic is inlined (what is written is its body's call, against
+# the map of its formals); a leaf is called and its status checked. The result is written once: the
+# memo answers the next reference to the same call from the slot of the first.
+proc expr_callproc {
+    # the frame of the level this call takes keeps what must survive the calls that nest below
+    store64(work + W_XA6, load64(work + W_XD));
+    if load64(work + W_XA6) >= NXR {
+        refuse BAD_SOURCE;
+    }
+    store64(work + W_XA6 + 8, load64(work + W_XFP));          # the frame of the call above
+    store64(work + W_XD, load64(work + W_XA6) + 1);
+    store64(work + W_XFP, work + W_XFR + xfr(load64(work + W_XA6)));
+    store64(load64(work + W_XFP) + XF_L, load64(work + W_XA6));
+    store64(load64(work + W_XFP) + XF_PARENT, load64(work + W_XA6 + 8));
+    store64(load64(work + W_XFP) + XF_CALL, g0);
+    store64(load64(work + W_XFP) + XF_INNER, g1);
+
+    # the memo of (chain, call): the second reference to a result takes the slot of the first
+    g0 = load64(load64(work + W_XFP) + XF_CALL);
+    call expr_memo_get;
+    if R == 1 {
+        g0 = load64(work + W_XFP);
+        store64(work + W_XD, load64(g0 + XF_L));
+        store64(work + W_XFP, load64(g0 + XF_PARENT));
+        ret;
+    }
+
+    # the callee, and its arguments gathered in the order the image stores them
+    g0 = load64(load64(work + W_XFP) + XF_CALL);  g1 = work + W_NAM + NX_CALLEE;  g2 = 6;
+    call fld;
+    store64(load64(work + W_XFP) + XF_CALLEE, R);
+    g0 = load64(load64(work + W_XFP) + XF_CALL);  g1 = work + W_NAM + NX_EARGT;  g2 = 8;
+    call children_of_named;
+    store64(load64(work + W_XFP) + XF_NARG, R);
+    if R > 8 {
+        refuse BAD_SOURCE;
+    }
+    store64(load64(work + W_XFP) + XF_I, 0);
+    while load64(load64(work + W_XFP) + XF_I) < load64(load64(work + W_XFP) + XF_NARG) {
+        g0 = load64(work + W_CME + (load64(load64(work + W_XFP) + XF_I) << 3));
+        g1 = work + W_NAM + NX_EPARAM;  g2 = 9;
+        call fld;
+        store64(load64(work + W_XFP) + XF_ROWS + xmap(load64(load64(work + W_XFP) + XF_I)), R);
+        g0 = R;
+        call expr_lentry;
+        store64(load64(work + W_XFP) + XF_ROWS + xmap(load64(load64(work + W_XFP) + XF_I)) + 16, R);
+        g0 = load64(work + W_CME + (load64(load64(work + W_XFP) + XF_I) << 3));
+        g1 = work + W_NAM + NX_VALUE;  g2 = 5;
+        call fld;
+        store64(load64(work + W_XFP) + XF_ROWS + xmap(load64(load64(work + W_XFP) + XF_I)) + 8, R);
+        store64(load64(work + W_XFP) + XF_ROWS + xmap(load64(load64(work + W_XFP) + XF_I)) + 24, 0);
+        store64(load64(work + W_XFP) + XF_I, load64(load64(work + W_XFP) + XF_I) + 1);
+    }
+
+    # the arguments take their places by the index their parameter's name carries (compose.py
+    # sorts the arguments of a call by it)
+    store64(load64(work + W_XFP) + XF_I, 1);
+    while load64(load64(work + W_XFP) + XF_I) < load64(load64(work + W_XFP) + XF_NARG) {
+        store64(load64(work + W_XFP) + XF_J, load64(load64(work + W_XFP) + XF_I));
+        while load64(load64(work + W_XFP) + XF_J) > 0 {
+            store64(load64(work + W_XFP) + XF_TMP,
+                    load64(load64(work + W_XFP) + XF_ROWS
+                           + xmap(load64(load64(work + W_XFP) + XF_J)) + 16));
+            if load64(load64(work + W_XFP) + XF_TMP)
+                    < load64(load64(work + W_XFP) + XF_ROWS
+                             + xmap(load64(load64(work + W_XFP) + XF_J) - 1) + 16) {
+                store64(load64(work + W_XFP) + XF_SWAP,
+                        load64(load64(work + W_XFP) + XF_ROWS
+                               + xmap(load64(load64(work + W_XFP) + XF_J))));
+                store64(load64(work + W_XFP) + XF_ROWS + xmap(load64(load64(work + W_XFP) + XF_J)),
+                        load64(load64(work + W_XFP) + XF_ROWS
+                               + xmap(load64(load64(work + W_XFP) + XF_J) - 1)));
+                store64(load64(work + W_XFP) + XF_ROWS
+                        + xmap(load64(load64(work + W_XFP) + XF_J) - 1),
+                        load64(load64(work + W_XFP) + XF_SWAP));
+                store64(load64(work + W_XFP) + XF_SWAP,
+                        load64(load64(work + W_XFP) + XF_ROWS
+                               + xmap(load64(load64(work + W_XFP) + XF_J)) + 8));
+                store64(load64(work + W_XFP) + XF_ROWS
+                        + xmap(load64(load64(work + W_XFP) + XF_J)) + 8,
+                        load64(load64(work + W_XFP) + XF_ROWS
+                               + xmap(load64(load64(work + W_XFP) + XF_J) - 1) + 8));
+                store64(load64(work + W_XFP) + XF_ROWS
+                        + xmap(load64(load64(work + W_XFP) + XF_J) - 1) + 8,
+                        load64(load64(work + W_XFP) + XF_SWAP));
+                store64(load64(work + W_XFP) + XF_SWAP,
+                        load64(load64(work + W_XFP) + XF_ROWS
+                               + xmap(load64(load64(work + W_XFP) + XF_J)) + 16));
+                store64(load64(work + W_XFP) + XF_ROWS
+                        + xmap(load64(load64(work + W_XFP) + XF_J)) + 16,
+                        load64(load64(work + W_XFP) + XF_ROWS
+                               + xmap(load64(load64(work + W_XFP) + XF_J) - 1) + 16));
+                store64(load64(load64(work + W_XFP) + XF_ROWS
+                               + xmap(load64(load64(work + W_XFP) + XF_J) - 1) + 16),
+                        load64(load64(work + W_XFP) + XF_SWAP));
+                store64(load64(work + W_XFP) + XF_SWAP,
+                        load64(load64(work + W_XFP) + XF_ROWS
+                               + xmap(load64(load64(work + W_XFP) + XF_J)) + 24));
+                store64(load64(work + W_XFP) + XF_ROWS
+                        + xmap(load64(load64(work + W_XFP) + XF_J)) + 24,
+                        load64(load64(work + W_XFP) + XF_ROWS
+                               + xmap(load64(load64(work + W_XFP) + XF_J) - 1) + 24));
+                store64(load64(work + W_XFP) + XF_ROWS
+                        + xmap(load64(load64(work + W_XFP) + XF_J) - 1) + 24,
+                        load64(load64(work + W_XFP) + XF_SWAP));
+                store64(load64(work + W_XFP) + XF_J, load64(load64(work + W_XFP) + XF_J) - 1);
+            } else {
+                break;
+            }
+        }
+        store64(load64(work + W_XFP) + XF_I, load64(load64(work + W_XFP) + XF_I) + 1);
+    }
+
+    # the arguments resolve in order: one that is another call is written here, before this one
+    store64(load64(work + W_XFP) + XF_I, 0);
+    while load64(load64(work + W_XFP) + XF_I) < load64(load64(work + W_XFP) + XF_NARG) {
+        g0 = load64(load64(work + W_XFP) + XF_ROWS
+                    + xmap(load64(load64(work + W_XFP) + XF_I)) + 8);
+        g1 = load64(load64(work + W_XFP) + XF_INNER);
+        call expr_val;
+        store64(load64(work + W_XFP) + XF_OPS + xrow(load64(load64(work + W_XFP) + XF_I)),
+                load64(work + W_XO));
+        store64(load64(work + W_XFP) + XF_OPS + xrow(load64(load64(work + W_XFP) + XF_I)) + 8,
+                load64(work + W_XO + 8));
+        store64(load64(work + W_XFP) + XF_OPS + xrow(load64(load64(work + W_XFP) + XF_I)) + 16,
+                load64(work + W_XO + 16));
+        store64(load64(work + W_XFP) + XF_I, load64(load64(work + W_XFP) + XF_I) + 1);
+    }
+
+    # what the callee is decides how the call is written
+    g0 = load64(load64(work + W_XFP) + XF_CALLEE);  g1 = work + W_NAM + NX_EIMPL;  g2 = 14;
+    call fld;
+    store64(load64(work + W_XFP) + XF_KIND, R);
+    if R == FN_SEMANTIC {
+        # inline: the body of the callee is one call of its own, and that is what is written. Its
+        # arguments resolve in the map of the formals, each taking the operand of the argument at
+        # its place (compose.py's names = {formal target: given[i]}).
+        g0 = load64(load64(work + W_XFP) + XF_CALLEE);  g1 = work + W_NAM + NX_EBODY;  g2 = 4;
+        call fld;
+        store64(load64(work + W_XFP) + XF_RES, R);
+        store64(load64(work + W_XFP) + XF_IMAP, work + W_XFR + xfr(load64(work + W_XD)));
+        store64(load64(load64(work + W_XFP) + XF_IMAP), 0);   # the body's map: no rows yet
+        g0 = load64(load64(work + W_XFP) + XF_CALLEE);  g1 = work + W_NAM + NX_EVR;  g2 = 14;
+        call children_of_named;
+        store64(load64(work + W_XFP) + XF_TMP, R);          # how many value references
+        store64(load64(work + W_XFP) + XF_I, 0);
+        while load64(load64(work + W_XFP) + XF_I) < load64(load64(work + W_XFP) + XF_TMP) {
+            g0 = load64(work + W_CME + (load64(load64(work + W_XFP) + XF_I) << 3));
+            call expr_kind;
+            if R == KIND_PARAMETER {
+                g0 = load64(work + W_CME + (load64(load64(work + W_XFP) + XF_I) << 3));
+                g1 = work + W_NAM + NX_ETARGET;  g2 = 6;
+                call fld;
+                store64(load64(load64(work + W_XFP) + XF_IMAP) + 8
+                        + xmap(load64(load64(load64(work + W_XFP) + XF_IMAP))), R);
+                g0 = R;
+                call expr_lentry;
+                store64(load64(load64(work + W_XFP) + XF_IMAP) + 8
+                        + xmap(load64(load64(load64(work + W_XFP) + XF_IMAP))) + 16, R);
+                store64(load64(load64(work + W_XFP) + XF_IMAP), load64(load64(load64(work + W_XFP) + XF_IMAP)) + 1);
+            }
+            store64(load64(work + W_XFP) + XF_I, load64(load64(work + W_XFP) + XF_I) + 1);
+        }
+        # the formals take their places by their index, then each takes its argument's operand
+        store64(load64(work + W_XFP) + XF_I, 1);
+        while load64(load64(work + W_XFP) + XF_I) < load64(load64(load64(work + W_XFP) + XF_IMAP)) {
+            store64(load64(work + W_XFP) + XF_J, load64(load64(work + W_XFP) + XF_I));
+            while load64(load64(work + W_XFP) + XF_J) > 0 {
+                store64(load64(work + W_XFP) + XF_TSORT,
+                        load64(load64(load64(work + W_XFP) + XF_IMAP) + 8
+                               + xmap(load64(load64(work + W_XFP) + XF_J)) + 16));
+                if load64(load64(work + W_XFP) + XF_TSORT)
+                        < load64(load64(load64(work + W_XFP) + XF_IMAP) + 8
+                                 + xmap(load64(load64(work + W_XFP) + XF_J) - 1) + 16) {
+                    store64(load64(work + W_XFP) + XF_SWAP,
+                            load64(load64(load64(work + W_XFP) + XF_IMAP) + 8
+                                   + xmap(load64(load64(work + W_XFP) + XF_J))));
+                    store64(load64(load64(work + W_XFP) + XF_IMAP) + 8
+                            + xmap(load64(load64(work + W_XFP) + XF_J)),
+                            load64(load64(load64(work + W_XFP) + XF_IMAP) + 8
+                                   + xmap(load64(load64(work + W_XFP) + XF_J) - 1)));
+                    store64(load64(load64(work + W_XFP) + XF_IMAP) + 8
+                            + xmap(load64(load64(work + W_XFP) + XF_J) - 1),
+                            load64(load64(work + W_XFP) + XF_SWAP));
+                    store64(load64(work + W_XFP) + XF_SWAP,
+                            load64(load64(load64(work + W_XFP) + XF_IMAP) + 8
+                                   + xmap(load64(load64(work + W_XFP) + XF_J)) + 16));
+                    store64(load64(load64(work + W_XFP) + XF_IMAP) + 8
+                            + xmap(load64(load64(work + W_XFP) + XF_J)) + 16,
+                            load64(load64(load64(work + W_XFP) + XF_IMAP) + 8
+                                   + xmap(load64(load64(work + W_XFP) + XF_J) - 1) + 16));
+                    store64(load64(load64(work + W_XFP) + XF_IMAP) + 8
+                            + xmap(load64(load64(work + W_XFP) + XF_J) - 1) + 16,
+                            load64(load64(work + W_XFP) + XF_SWAP));
+                    store64(load64(work + W_XFP) + XF_J, load64(load64(work + W_XFP) + XF_J) - 1);
+                } else {
+                    break;
+                }
+            }
+            store64(load64(work + W_XFP) + XF_I, load64(load64(work + W_XFP) + XF_I) + 1);
+        }
+        store64(load64(work + W_XFP) + XF_I, 0);
+        while load64(load64(work + W_XFP) + XF_I) < load64(load64(load64(work + W_XFP) + XF_IMAP)) {
+            if load64(load64(work + W_XFP) + XF_I) >= load64(load64(work + W_XFP) + XF_NARG) {
+                refuse BAD_SOURCE;
+            }
+            store64(work + W_XO,
+                    load64(load64(work + W_XFP) + XF_OPS
+                           + xrow(load64(load64(work + W_XFP) + XF_I))));
+            store64(work + W_XO + 8,
+                    load64(load64(work + W_XFP) + XF_OPS
+                           + xrow(load64(load64(work + W_XFP) + XF_I)) + 8));
+            store64(work + W_XO + 16,
+                    load64(load64(work + W_XFP) + XF_OPS
+                           + xrow(load64(load64(work + W_XFP) + XF_I)) + 16));
+            g0 = load64(load64(work + W_XFP) + XF_IMAP);
+            g1 = load64(load64(load64(work + W_XFP) + XF_IMAP) + 8
+                        + xmap(load64(load64(work + W_XFP) + XF_I)));
+            call expr_map_set;
+            store64(load64(work + W_XFP) + XF_I, load64(load64(work + W_XFP) + XF_I) + 1);
+        }
+
+        # the body's call is written with this inline open above it: its key carries this call
+        # before it, as compose.py's stack does (*stack, call, body)
+        if load64(work + W_XNCHAIN) >= 8 {
+            refuse BAD_SOURCE;
+        }
+        store64(work + W_XCHAIN + (load64(work + W_XNCHAIN) << 3),
+                load64(load64(work + W_XFP) + XF_CALL));
+        store64(work + W_XNCHAIN, load64(work + W_XNCHAIN) + 1);
+        g0 = load64(load64(work + W_XFP) + XF_RES);
+        g1 = load64(load64(work + W_XFP) + XF_IMAP);
+        call expr_callproc;
+        store64(work + W_XNCHAIN, load64(work + W_XNCHAIN) - 1);
+        g0 = load64(load64(work + W_XFP) + XF_CALL);
+        call expr_memo_set;
+        g0 = load64(work + W_XFP);
+        store64(work + W_XD, load64(g0 + XF_L));
+        store64(work + W_XFP, load64(g0 + XF_PARENT));
+        ret;
+    }
+
+    # a leaf: its call and the branch that ends the run when its status is not zero
+    g0 = load64(load64(work + W_XFP) + XF_CALLEE);
+    call expr_res_width;
+    store64(load64(work + W_XFP) + XF_WIDTH, R);
+    store64(load64(work + W_XFP) + XF_SLOT, NONE);
+    if R > 0 {
+        store64(load64(work + W_XFP) + XF_SLOT, load64(work + W_XFRAME));
+        store64(work + W_XFRAME, load64(work + W_XFRAME) + (wordsof(R) << 3));
+    }
+    g0 = load64(load64(work + W_XFP) + XF_CALLEE);
+    call leaf_id_of;
+    if R == HANDLE_NONE {
+        refuse BAD_SOURCE;
+    }
+    store64(load64(work + W_XFP) + XF_TMP, R);                # the leaf of the interpreter
+    w = CALL;                                                 call putq;
+    w = load64(load64(work + W_XFP) + XF_TMP);                call putq;
+    w = load64(load64(work + W_XFP) + XF_NARG);               call putq;
+    w = load64(load64(work + W_XFP) + XF_SLOT);               call putq;
+    w = load64(load64(work + W_XFP) + XF_WIDTH);              call putq;
+    w = 0;                                                    call putq;
+    store64(load64(work + W_XFP) + XF_I, 0);
+    while load64(load64(work + W_XFP) + XF_I) < load64(load64(work + W_XFP) + XF_NARG) {
+        g0 = load64(load64(work + W_XFP) + XF_OPS
+                    + xrow(load64(load64(work + W_XFP) + XF_I)));
+        g1 = load64(load64(work + W_XFP) + XF_OPS
+                    + xrow(load64(load64(work + W_XFP) + XF_I)) + 8);
+        g2 = load64(load64(work + W_XFP) + XF_OPS
+                    + xrow(load64(load64(work + W_XFP) + XF_I)) + 16);
+        call put_operand;
+        store64(load64(work + W_XFP) + XF_I, load64(load64(work + W_XFP) + XF_I) + 1);
+    }
+    # the status-check branch: on to the instruction after it when the status is zero, else to the
+    # refusal at the end of the program (its destination is patched where that is written)
+    w = BRANCH;                                               call putq;
+    w = SLOT;                                                 call putq;
+    w = 0;                                                    call putq;
+    w = 4;                                                    call putq;
+    w = MZERO;                                                call putq;
+    w = ow + 4;                                               call putq;
+    w = 0;                                                    call putq;
+    w = 0;                                                    call putq;
+    w = 0;                                                    call putq;
+    store64(work + W_XBRT + (load64(work + W_XNBR) << 3), ow - 2);
+    store64(work + W_XNBR, load64(work + W_XNBR) + 1);
+    # the result: the out slot, or the status when the callee writes no result
+    store64(work + W_XO, SLOT);
+    store64(work + W_XO + 8, load64(load64(work + W_XFP) + XF_SLOT));
+    store64(work + W_XO + 16, load64(load64(work + W_XFP) + XF_WIDTH));
+    if load64(load64(work + W_XFP) + XF_WIDTH) == 0 {
+        store64(work + W_XO + 8, 0);
+        store64(work + W_XO + 16, 4);
+    }
+    g0 = load64(load64(work + W_XFP) + XF_CALL);
+    call expr_memo_set;
+    g0 = load64(work + W_XFP);
+    store64(work + W_XD, load64(g0 + XF_L));
+    store64(work + W_XFP, load64(g0 + XF_PARENT));
+    ret;
+}
+
+# ---- the parameter table of the program ----------------------------------------------------------
+# g0 = the Function. Its ValueReference parameters take their places after the status slot (which
+# takes 0..8), in the order compose.py sorts them by (the index the name of each parameter
+# carries), each rounded up to 8 bytes. W_XPARM is the map a Parameter resolves in and the rows of
+# the header's table; W_XNARG counts one word per parameter width (the header's 4th word).
+proc expr_params {
+    store64(work + W_XA7, g0);
+    store64(work + W_XFRAME, 8);                  # the status slot takes 0..8
+    store64(work + W_XNARG, 0);
+    g0 = load64(work + W_XA7);  g1 = work + W_NAM + NX_EVR;  g2 = 14;
+    call children_of_named;
+    store64(work + W_XA7 + 8, R);                 # how many ValueReferences
+    store64(work + W_XPARM, 0);
+    store64(work + W_XA7 + 16, 0);
+    while load64(work + W_XA7 + 16) < load64(work + W_XA7 + 8) {
+        g0 = load64(work + W_CME + (load64(work + W_XA7 + 16) << 3));
+        call expr_kind;
+        if R == KIND_PARAMETER {
+            g0 = load64(work + W_CME + (load64(work + W_XA7 + 16) << 3));
+            g1 = work + W_NAM + NX_ETARGET;  g2 = 6;
+            call fld;
+            store64(work + W_XPARM + 8 + xmap(load64(work + W_XPARM)), R);
+            g0 = R;
+            call expr_lentry;
+            store64(work + W_XPARM + 8 + xmap(load64(work + W_XPARM)) + 16, R);
+            store64(work + W_XPARM + 8 + xmap(load64(work + W_XPARM)) + 8, 0);
+            g0 = load64(work + W_CME + (load64(work + W_XA7 + 16) << 3));
+            call expr_width;
+            store64(work + W_XPARM + 8 + xmap(load64(work + W_XPARM)) + 24, R);
+            store64(work + W_XPARM, load64(work + W_XPARM) + 1);
+        }
+        store64(work + W_XA7 + 16, load64(work + W_XA7 + 16) + 1);
+    }
+    # the order: the index of each parameter, ascending (compose.py sorts the parameters by it)
+    store64(work + W_XA7 + 16, 1);
+    while load64(work + W_XA7 + 16) < load64(work + W_XPARM) {
+        store64(work + W_XA7 + 24, load64(work + W_XA7 + 16));
+        while load64(work + W_XA7 + 24) > 0 {
+            store64(work + W_XA7 + 32,
+                    load64(work + W_XPARM + 8 + xmap(load64(work + W_XA7 + 24)) + 16));
+            if load64(work + W_XA7 + 32)
+                    < load64(work + W_XPARM + 8 + xmap(load64(work + W_XA7 + 24) - 1) + 16) {
+                store64(work + W_XA7 + 40,
+                        load64(work + W_XPARM + 8 + xmap(load64(work + W_XA7 + 24))));
+                store64(work + W_XPARM + 8 + xmap(load64(work + W_XA7 + 24)),
+                        load64(work + W_XPARM + 8 + xmap(load64(work + W_XA7 + 24) - 1)));
+                store64(work + W_XPARM + 8 + xmap(load64(work + W_XA7 + 24) - 1),
+                        load64(work + W_XA7 + 40));
+                store64(work + W_XA7 + 40,
+                        load64(work + W_XPARM + 8 + xmap(load64(work + W_XA7 + 24)) + 16));
+                store64(work + W_XPARM + 8 + xmap(load64(work + W_XA7 + 24)) + 16,
+                        load64(work + W_XPARM + 8 + xmap(load64(work + W_XA7 + 24) - 1) + 16));
+                store64(work + W_XPARM + 8 + xmap(load64(work + W_XA7 + 24) - 1) + 16,
+                        load64(work + W_XA7 + 40));
+                store64(work + W_XA7 + 24, load64(work + W_XA7 + 24) - 1);
+            } else {
+                break;
+            }
+        }
+        store64(work + W_XA7 + 16, load64(work + W_XA7 + 16) + 1);
+    }
+    # place each after the one before it; the row is then the operand its target resolves to and
+    # the table row of the header (slot, width)
+    store64(work + W_XA7 + 16, 0);
+    while load64(work + W_XA7 + 16) < load64(work + W_XPARM) {
+        store64(work + W_XA7 + 24,
+                load64(work + W_XPARM + 8 + xmap(load64(work + W_XA7 + 16)) + 24));
+        store64(work + W_XPARM + 8 + xmap(load64(work + W_XA7 + 16)) + 16,
+                load64(work + W_XFRAME));
+        store64(work + W_XPARM + 8 + xmap(load64(work + W_XA7 + 16)) + 8, SLOT);
+        store64(work + W_XFRAME,
+                load64(work + W_XFRAME) + (wordsof(load64(work + W_XA7 + 24)) << 3));
+        store64(work + W_XNARG, load64(work + W_XNARG) + wordsof(load64(work + W_XA7 + 24)));
+        store64(work + W_XA7 + 16, load64(work + W_XA7 + 16) + 1);
+    }
+    ret;
+}
+
+# ---- the Expression, written as the words of the program ------------------------------------------
+# g0 = the Function. The header with its parameter table, the calls of its body with their operands
+# and status branches, the return and the refusal trailer: the words of a program, byte identical
+# to tools/native/compose.py's Expression.program() for the same Function.
+proc expr_encode {
+    store64(work + W_XA8, g0);                    # the function
+    call names_init;
+    call expr_names;
+    call gather_leaves;
+    store64(work + W_XNMEM, 0);
+    store64(work + W_XNBR, 0);
+    store64(work + W_XNCHAIN, 0);
+    store64(work + W_XD, 0);
+    store64(work + W_XFP, 0);
+    g0 = load64(work + W_XA8);
+    call expr_params;
+    # the header: the magic, the frame (patched when the allocator is done), the parameter count,
+    # the argument words and the offset of the first instruction, then (slot, width) per parameter
+    w = MAGIC;                                    call putq;
+    w = 0;                                        call putq;
+    w = load64(work + W_XPARM);                   call putq;
+    w = load64(work + W_XNARG);                   call putq;
+    w = 5 + (load64(work + W_XPARM) << 1);        call putq;
+    store64(work + W_XA8 + 8, 0);
+    while load64(work + W_XA8 + 8) < load64(work + W_XPARM) {
+        w = load64(work + W_XPARM + 8 + xmap(load64(work + W_XA8 + 8)) + 16);   call putq;
+        w = load64(work + W_XPARM + 8 + xmap(load64(work + W_XA8 + 8)) + 24);   call putq;
+        store64(work + W_XA8 + 8, load64(work + W_XA8 + 8) + 1);
+    }
+    # the body is one call: what it answers with is what the run returns
+    g0 = load64(work + W_XA8);  g1 = work + W_NAM + NX_EBODY;  g2 = 4;
+    call fld;
+    store64(work + W_XA8 + 16, R);                # the body call
+    g0 = R;
+    call cell_of;
+    g0 = arena_q(R + C_TYPE);                     # the type of the body
+    call cell_of;
+    g0 = R;
+    call name_of;
+    g0 = R;  g1 = work + W_NAM + NX_ECALLT;  g2 = 4;
+    call name_eq;
+    if R != 1 {
+        refuse BAD_SOURCE;                        # a Function whose body is no Call has no Expression
+    }
+    g0 = load64(work + W_XA8 + 16);  g1 = work + W_XPARM;
+    call expr_callproc;
+    # the return: the operand of the result, and its width again
+    w = RETURN;                                   call putq;
+    w = load64(work + W_XO);                      call putq;
+    w = load64(work + W_XO + 8);                  call putq;
+    w = load64(work + W_XO + 16);                 call putq;
+    w = load64(work + W_XO + 16);                 call putq;
+    # the refusal trailer, and the branches that wait for it
+    store64(work + W_XA8 + 24, ow);
+    w = REFUSE;                                   call putq;
+    w = SLOT;                                     call putq;
+    w = 0;                                        call putq;
+    w = 4;                                        call putq;
+    store64(work + W_XA8 + 8, 0);
+    while load64(work + W_XA8 + 8) < load64(work + W_XNBR) {
+        store64(load64(work + W_OUT)
+                + (load64(work + W_XBRT + (load64(work + W_XA8 + 8) << 3)) << 3),
+                load64(work + W_XA8 + 24));
+        store64(work + W_XA8 + 8, load64(work + W_XA8 + 8) + 1);
+    }
+    # the frame the allocator reached
+    store64(load64(work + W_OUT) + (1 << 3), load64(work + W_XFRAME));
+    ret;
+}

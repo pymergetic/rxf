@@ -1,0 +1,1500 @@
+# plan.rxf -- the plan of one SemanticGraph: every frame value in a slot and the blocks in order.
+# This is the first increment of the composer's Plan (tools/native/compose.py); the words of the
+# program come next. What is here reads the arena of the graph and answers the slot of each frame
+# value and the order of the blocks, so the corpus test can hold it equal to compose.py's Plan.
+#
+# g0..g2 carry the arguments, R (and R0..R2) the answers. Scratch is the words q0..q39 the program
+# declares (compose.rxf); tree.rxf uses g/t/k/v/e and never touches q. Procs that nest use disjoint
+# ranges: the reference readers q0..q2, the value readers and scanners q3..q10, place_one q11..q17,
+# block_parameters q18..q25, place_values and ordered_blocks q26..q35, plan_dump q36..q39.
+
+# ---- the reference array of a cell ------------------------------------------------------------
+# A cell is its 64-byte record, then its payload (align16 of its size), then its references,
+# 24 bytes each (target, role, kind/binding, index). g0 = the cell; R = the first reference.
+
+proc ref_base {
+    R = g0 + CELL_BYTES + align16(arena_q(g0 + C_PAYLOAD_SIZE) & 0xFFFFFFFF);
+    ret;
+}
+
+# g0 = the cell, g1 = the reference number. R0 = target, R1 = role, R2 = the stored index.
+proc ref_at {
+    q0 = g0;
+    q1 = g1;
+    call ref_base;
+    q2 = R + refs_of(q1);
+    R0 = arena_q(q2 + R_TARGET_FIELD);
+    R1 = arena_q(q2 + R_ROLE);
+    R2 = (arena_q(q2 + R_KIND_INDEX) >> 32) & 0xFFFFFFFF;
+    ret;
+}
+
+# ---- a value of the graph --------------------------------------------------------------------
+# The kind of a value is its number (Parameter..Object) at offset 8, with the result_index in the
+# high half of the same word; the width is the size of its type, or the literal size for a literal.
+
+proc val_kind {
+    q3 = g0;
+    g0 = q3;
+    call cell_of;
+    R = arena_q(R + CELL_BYTES + V_KIND) & 0xFFFFFFFF;
+    ret;
+}
+
+proc val_width {
+    q3 = g0;
+    g0 = q3;
+    call cell_of;
+    q4 = R;
+    q5 = arena_q(q4 + CELL_BYTES + V_KIND) & 0xFFFFFFFF;
+    if q5 == KIND_LITERAL {
+        R = arena_q(q4 + CELL_BYTES + V_LITERAL_SIZE) & 0xFFFFFFFF;
+        ret;
+    }
+    q5 = arena_q(q4 + CELL_BYTES + V_VALUE_TYPE);
+    if q5 == 0 {
+        R = 0;
+        ret;
+    }
+    g0 = q5;
+    call cell_of;
+    R = arena_q(R + CELL_BYTES + T_SIZE);
+    ret;
+}
+
+proc val_owner_block {
+    q3 = g0;
+    g0 = q3;
+    call cell_of;
+    R = arena_q(R + CELL_BYTES + V_OWNER_BLOCK);
+    ret;
+}
+
+proc block_index {
+    q3 = g0;
+    g0 = q3;
+    call cell_of;
+    R = arena_q(R + CELL_BYTES + B_INDEX) & 0xFFFFFFFF;
+    ret;
+}
+
+# g0 = an operation. R = its index within its block (dense 0..count-1, so it is where the operation
+# lands when the block's operations are laid in index order).
+proc op_index {
+    q3 = g0;
+    g0 = q3;
+    call cell_of;
+    R = arena_q(R + CELL_BYTES + O_INDEX) & 0xFFFFFFFF;
+    ret;
+}
+
+# ---- the children of a parent of one type ----------------------------------------------------
+# g0 = the parent, g1 = the type, g2 = where the handles go. R = how many, in handle order.
+
+proc children_of {
+    q3 = g0;
+    q4 = g1;
+    q5 = g2;
+    q6 = 0;
+    q7 = 0;
+    q8 = load64(work + W_HANDLES);
+    while q7 < q8 {
+        g0 = q7;
+        call cell_of;
+        q9 = R;
+        if q9 != HANDLE_NONE {
+            if (arena_q(q9 + C_TYPE) & KIND_MASK) != KIND_DEAD {
+                if arena_q(q9 + C_PARENT) == q3 {
+                    if arena_q(q9 + C_TYPE) == q4 {
+                        store64(q5 + (q6 << 3), q7);
+                        q6 = q6 + 1;
+                    }
+                }
+            }
+        }
+        q7 = q7 + 1;
+    }
+    R = q6;
+    ret;
+}
+
+# ---- the children of a parent whose type is named ------------------------------------------------
+# g0 = the parent, g1 = the packed type name, g2 = its length. The handles go to W_CME in handle
+# order (the order the composer's children carry). R = how many. The entries of a RefusalMapping
+# are gathered this way; a type name finds them where no type handle is at hand.
+proc children_of_named {
+    store64(work + W_CMS + 0x40, g0);
+    store64(work + W_CMS + 0x48, g1);
+    store64(work + W_CMS + 0x50, g2);
+    store64(work + W_CMS + 0x58, 0);
+    store64(work + W_CMS + 0x60, 0);
+    while load64(work + W_CMS + 0x58) < load64(work + W_HANDLES) {
+        g0 = load64(work + W_CMS + 0x58);
+        call cell_of;
+        if R != HANDLE_NONE {
+            if (arena_q(R + C_TYPE) & KIND_MASK) != KIND_DEAD {
+                if arena_q(R + C_PARENT) == load64(work + W_CMS + 0x40) {
+                    g0 = arena_q(R + C_TYPE);
+                    call cell_of;
+                    g0 = R;
+                    call name_of;
+                    g0 = R;
+                    g1 = load64(work + W_CMS + 0x48);
+                    g2 = load64(work + W_CMS + 0x50);
+                    call name_eq;
+                    if R == 1 {
+                        store64(work + W_CME + (load64(work + W_CMS + 0x60) << 3),
+                                load64(work + W_CMS + 0x58));
+                        store64(work + W_CMS + 0x60, load64(work + W_CMS + 0x60) + 1);
+                    }
+                }
+            }
+        }
+        store64(work + W_CMS + 0x58, load64(work + W_CMS + 0x58) + 1);
+    }
+    R = load64(work + W_CMS + 0x60);
+    ret;
+}
+
+# ---- the operations of a block in index order ----------------------------------------------------
+# g0 = the block. children_of gathers its operations (the children whose type is W_TOP, the
+# SemanticOperation type plan_types resolved by name) in handle order to W_OPT; the composer orders
+# a block's operations by their index, and the indices are dense 0..count-1, so each is scattered to
+# W_OPS at its index and W_OPS comes out in index order. R = how many. (The state lives in W_OST so
+# the gather is safe to call with the caller's own registers live.)
+proc gather_ops_ordered {
+    store64(work + W_OST, g0);
+    g0 = load64(work + W_OST);
+    g1 = load64(work + W_TOP);
+    g2 = work + W_OPT;
+    call children_of;
+    store64(work + W_OST + 8, R);
+    store64(work + W_OST + 16, 0);
+    while load64(work + W_OST + 16) < load64(work + W_OST + 8) {
+        g0 = load64(work + W_OPT + (load64(work + W_OST + 16) << 3));
+        call op_index;
+        store64(work + W_OPS + (R << 3),
+                load64(work + W_OPT + (load64(work + W_OST + 16) << 3)));
+        store64(work + W_OST + 16, load64(work + W_OST + 16) + 1);
+    }
+    R = load64(work + W_OST + 8);
+    ret;
+}
+
+# ---- the three types a plan walks ------------------------------------------------------------
+# A SemanticBlock is the type of the entry block; a SemanticValue is a child of the graph that is
+# not a block; a SemanticOperation is a child of a block that is not a value. g0 = the graph.
+proc plan_types {
+    q3 = g0;
+    g0 = q3;
+    call cell_of;
+    q4 = R;
+    q5 = arena_q(q4 + CELL_BYTES + G_ENTRY_BLOCK);
+    g0 = q5;
+    call cell_of;
+    q6 = R;
+    store64(work + W_TBLOCK, arena_q(q6 + C_TYPE));
+    q7 = load64(work + W_TBLOCK);
+    q8 = 0;
+    q9 = load64(work + W_HANDLES);
+    while q8 < q9 {
+        g0 = q8;
+        call cell_of;
+        q10 = R;
+        if q10 != HANDLE_NONE {
+            if (arena_q(q10 + C_TYPE) & KIND_MASK) != KIND_DEAD {
+                if arena_q(q10 + C_PARENT) == q3 {
+                    if arena_q(q10 + C_TYPE) != q7 {
+                        store64(work + W_TVALUE, arena_q(q10 + C_TYPE));
+                    }
+                }
+            }
+        }
+        q8 = q8 + 1;
+    }
+    # The operation type is the type of a block's operations, found by the name it carries
+    # ("SemanticOperation") so the resolution does not depend on how many child types a block holds.
+    q8 = 0;
+    while q8 < q9 {
+        g0 = q8;
+        call cell_of;
+        q10 = R;
+        if q10 != HANDLE_NONE {
+            if (arena_q(q10 + C_TYPE) & KIND_MASK) != KIND_DEAD {
+                g0 = arena_q(q10 + C_TYPE);
+                call cell_of;
+                g0 = R;
+                call name_of;
+                g0 = R;
+                g1 = work + W_NAM + NX_SEMOP;
+                g2 = 17;
+                call name_eq;
+                if R == 1 {
+                    store64(work + W_TOP, arena_q(q10 + C_TYPE));
+                }
+            }
+        }
+        q8 = q8 + 1;
+    }
+    ret;
+}
+
+# ---- placing one value ------------------------------------------------------------------------
+# g0 = a frame value. Give it the next slot unless it already has one. A width rounds up to eight.
+
+proc place_one {
+    q11 = g0;
+    q12 = load64(work + W_NSLOT);
+    q13 = 0;
+    while q13 < q12 {
+        if load64(work + W_SLOTS + (q13 << 4)) == q11 {
+            ret;
+        }
+        q13 = q13 + 1;
+    }
+    g0 = q11;
+    call val_width;
+    q14 = R;
+    if q14 < 1 {
+        q14 = 1;
+    }
+    q14 = (q14 + 7) & ~7;
+    q15 = load64(work + W_FRAME);
+    store64(work + W_SLOTS + (q12 << 4), q11);
+    store64(work + W_SLOTS + (q12 << 4) + 8, q15);
+    store64(work + W_NSLOT, q12 + 1);
+    store64(work + W_FRAME, q15 + q14);
+    ret;
+}
+
+# ---- the parameters of a block -----------------------------------------------------------------
+# The values a block takes on entry. The composer names them with the block's BlockParameterValue
+# references, in the order those carry (their index); where a block names none (a refusal block takes
+# one owned status) they are the Bound values it owns (kind Bound, owner_block the block) among the
+# value children of the graph and of the block (gathered to W_VSCAN). g0 = the block; the handles go
+# to W_TMP; R = how many.
+
+proc block_params {
+    q18 = g0;
+    # the named parameters: the block's BlockParameterValue references, in index order
+    g0 = q18;
+    g1 = work + W_NAM + NX_BLOCKPARAMVALUE;
+    g2 = 19;
+    call refs_role;
+    store64(work + W_TMP + 0x80, R);
+    g0 = q18;
+    call cell_of;
+    q20 = arena_q(R + CELL_BYTES + B_PARAMETER_TYPE_COUNT) & 0xFFFFFFFF;
+    # the composer names the parameters with the references only when their count is the block's
+    # parameter_type_count; a mismatch (an entry block of one stray reference) falls to the owned values
+    if load64(work + W_TMP + 0x80) == q20 {
+        q21 = 0;
+        while q21 < load64(work + W_TMP + 0x80) {
+            # scatter by the reference's index (dense 0..count-1): parameter i lands at W_TMP[i]
+            q22 = load64(work + W_EREF + (q21 << 4) + 8);
+            q23 = load64(work + W_EREF + (q21 << 4));
+            store64(work + W_TMP + (q22 << 3), q23);
+            q21 = q21 + 1;
+        }
+        R = load64(work + W_TMP + 0x80);
+        ret;
+    }
+    # the owned Bound values the block owns (owner_block), among the graph's and the block's values
+    q19 = 0;
+    g0 = q18;
+    call cell_of;
+    q20 = arena_q(R + C_PARENT);
+    q21 = 0;
+    while q21 < 2 {
+        if q21 == 0 {
+            g0 = q20;
+        } else {
+            g0 = q18;
+        }
+        g1 = load64(work + W_TVALUE);
+        g2 = work + W_VSCAN;
+        call children_of;
+        q22 = R;
+        q23 = 0;
+        while q23 < q22 {
+            q24 = load64(work + W_VSCAN + (q23 << 3));
+            g0 = q24;
+            call val_kind;
+            if R == KIND_BOUND {
+                g0 = q24;
+                call val_owner_block;
+                if R == q18 {
+                    store64(work + W_TMP + (q19 << 3), q24);
+                    q19 = q19 + 1;
+                }
+            }
+            q23 = q23 + 1;
+        }
+        q21 = q21 + 1;
+    }
+    R = q19;
+    ret;
+}
+
+# ---- placing every frame value -----------------------------------------------------------------
+# The parameters of the graph, then block by block in order: the parameters of the block, then the
+# results and the status of each operation. g0 = the graph.
+
+proc place_values {
+    q26 = g0;
+    store64(work + W_NSLOT, 0);
+    store64(work + W_FRAME, 0);
+    # the graph's ParameterValue references, in the order the image stores them
+    g0 = q26;
+    g1 = work + W_NAM + NX_PARAM;
+    g2 = 14;
+    call refs_role;
+    q27 = R;
+    q28 = 0;
+    while q28 < q27 {
+        g0 = load64(work + W_EREF + (q28 << 4));
+        call place_one;
+        q28 = q28 + 1;
+    }
+    q28 = 0;
+    while q28 < load64(work + W_NBLOCKS) {
+        q30 = load64(work + W_PCS + (q28 << 3));
+        g0 = q30;
+        call block_params;
+        q27 = R;
+        q29 = 0;
+        while q29 < q27 {
+            g0 = load64(work + W_TMP + (q29 << 3));
+            call place_one;
+            q29 = q29 + 1;
+        }
+        g0 = q30;
+        call gather_ops_ordered;
+        q27 = R;
+        q29 = 0;
+        while q29 < q27 {
+            q31 = load64(work + W_OPS + (q29 << 3));
+            g0 = q31;
+            call cell_of;
+            q32 = arena_q(R + CELL_BYTES + O_STATUS_VALUE);
+            # the op's ResultValue references, in the order the image stores them
+            g0 = q31;
+            g1 = work + W_NAM + NX_RESULT;
+            g2 = 11;
+            call refs_role;
+            q33 = R;
+            q34 = 0;
+            while q34 < q33 {
+                g0 = load64(work + W_EREF + (q34 << 4));
+                call place_one;
+                q34 = q34 + 1;
+            }
+            if (q32 != 0) & (q32 != HANDLE_NONE) {
+                g0 = q32;
+                call place_one;
+            }
+            q29 = q29 + 1;
+        }
+        q28 = q28 + 1;
+    }
+    if load64(work + W_FRAME) < 8 {
+        store64(work + W_FRAME, 8);
+    }
+    ret;
+}
+
+# ---- the blocks in order -----------------------------------------------------------------------
+# The entry block first, then the rest by their index. g0 = the graph; the handles go to W_PCS and
+# the count to W_NBLOCKS. (The corpus blocks have distinct indices; a name tiebreak comes with M3.)
+
+proc ordered_blocks {
+    q26 = g0;
+    g0 = q26;
+    g1 = load64(work + W_TBLOCK);
+    g2 = work + W_TMP;
+    call children_of;
+    q27 = R;
+    g0 = q26;
+    call cell_of;
+    q28 = arena_q(R + CELL_BYTES + G_ENTRY_BLOCK);
+    store64(work + W_PCS, q28);
+    q29 = 1;
+    q30 = 0;
+    while q30 < q27 {
+        q31 = load64(work + W_TMP + (q30 << 3));
+        if q31 != q28 {
+            store64(work + W_PCS + (q29 << 3), q31);
+            q29 = q29 + 1;
+        }
+        q30 = q30 + 1;
+    }
+    store64(work + W_NBLOCKS, q29);
+    q30 = 1;
+    while q30 < q29 {
+        q32 = q30;
+        q33 = q30 + 1;
+        while q33 < q29 {
+            g0 = load64(work + W_PCS + (q33 << 3));
+            call block_index;
+            q34 = R;
+            g0 = load64(work + W_PCS + (q32 << 3));
+            call block_index;
+            q31 = R;
+            if q34 < q31 {
+                q32 = q33;
+            }
+            q33 = q33 + 1;
+        }
+        if q32 != q30 {
+            q35 = load64(work + W_PCS + (q30 << 3));
+            store64(work + W_PCS + (q30 << 3), load64(work + W_PCS + (q32 << 3)));
+            store64(work + W_PCS + (q32 << 3), q35);
+        }
+        q30 = q30 + 1;
+    }
+    ret;
+}
+
+# ---- the plan, written ------------------------------------------------------------------------
+# g0 = the graph. Writes the frame, then each placed value (handle, slot, width), then the ordered
+# block handles. The corpus test reads these words and holds them equal to compose.py's Plan.
+
+proc plan_dump {
+    q36 = g0;
+    call names_init;
+    g0 = q36;
+    call plan_types;
+    g0 = q36;
+    call ordered_blocks;
+    g0 = q36;
+    call place_values;
+    w = load64(work + W_FRAME);
+    call putq;
+    w = load64(work + W_NSLOT);
+    call putq;
+    q37 = 0;
+    while q37 < load64(work + W_NSLOT) {
+        q38 = load64(work + W_SLOTS + (q37 << 4));
+        w = q38;
+        call putq;
+        w = load64(work + W_SLOTS + (q37 << 4) + 8);
+        call putq;
+        g0 = q38;
+        call val_width;
+        w = R;
+        call putq;
+        q37 = q37 + 1;
+    }
+    w = load64(work + W_NBLOCKS);
+    call putq;
+    q37 = 0;
+    while q37 < load64(work + W_NBLOCKS) {
+        w = load64(work + W_PCS + (q37 << 3));
+        call putq;
+        q37 = q37 + 1;
+    }
+    ret;
+}
+
+# =================================================================================================
+# The word synthesis: the plan of a graph written as the words of a program, byte for byte what
+# tools/native/compose.py writes. Two passes lay the blocks out (the first writes the words with
+# placeholder jump targets so the block addresses fall out, the second rewrites them with the real
+# addresses); the lengths do not depend on the addresses, so the passes agree. For now this emits
+# the operations and terminators clamp_graph uses -- a call (Read), a move (ReturnValue), and the
+# Branch / Return / Refuse terminators with their edge copies. Each new opcode class of M3 lands
+# here against its smallest carrier program. Every writing proc keeps its state in work memory (see
+# words.rxf), so none of this takes a frame word.
+# =================================================================================================
+
+# ---- the packed names the writer compares to ---------------------------------------------------
+proc names_init {
+    store64(work + W_NAM + 0, 0x6661654c);
+    store64(work + W_NAM + 16, 0x6c61567475706e49);   store64(work + W_NAM + 24, 0x6575);
+    store64(work + W_NAM + 40, 0x6156746c75736552);   store64(work + W_NAM + 48, 0x65756c);
+    store64(work + W_NAM + 64, 0x6574656d61726150);   store64(work + W_NAM + 72, 0x65756c615672);
+    store64(work + W_NAM + 88, 0x6f73736563637553);   store64(work + W_NAM + 96, 0x72);
+    store64(work + W_NAM + 112, 0x6f73736563637553);  store64(work + W_NAM + 120, 0x6e656d7567724172); store64(work + W_NAM + 128, 0x74);
+    store64(work + W_NAM + 144, 0x65646f63706f);
+    store64(work + W_NAM + 160, 0x65756c6176);
+    store64(work + W_NAM + 176, 0x65656c6c6163);
+    store64(work + W_NAM + 192, 0x61765f7475706e69);  store64(work + W_NAM + 200, 0x6e756f635f65756c); store64(work + W_NAM + 208, 0x74);
+    store64(work + W_NAM + 224, 0x6f5f746567726174);  store64(work + W_NAM + 232, 0x7463656a62);
+    store64(work + W_NAM + 248, 0x765f737574617473);  store64(work + W_NAM + 256, 0x65756c61);
+    store64(work + W_NAM + 272, 0x74616e696d726574);  store64(work + W_NAM + 280, 0x726f);
+    store64(work + W_NAM + 296, 0x6f697469646e6f63);  store64(work + W_NAM + 304, 0x65756c61765f6e);
+    store64(work + W_NAM + 320, 0x74616e696d726574);  store64(work + W_NAM + 328, 0x65756c61765f726f); store64(work + W_NAM + 336, 0x0);
+    store64(work + W_NAM + 352, 0x79745f65756c6176);  store64(work + W_NAM + 360, 0x6570);
+    store64(work + W_NAM + 376, 0x745f3233746e6975);  store64(work + W_NAM + 384, 0x0);
+    # the names the M3 opcode classes read by
+    store64(work + W_NAM + 392, 0x665f746567726174);  store64(work + W_NAM + 400, 0x00000000646c6569);  # "target_field"
+    store64(work + W_NAM + 408, 0x000074657366666f);                                                  # "offset"
+    store64(work + W_NAM + 416, 0x726f66736e617274);  store64(work + W_NAM + 424, 0x726f687475615f6d);  store64(work + W_NAM + 432, 0x0000000000797469);  # "transform_authority"
+    store64(work + W_NAM + 440, 0x735f656372756f73);  store64(work + W_NAM + 448, 0x0000007375746174);  # "source_status"
+    store64(work + W_NAM + 456, 0x74616e6974736564);  store64(work + W_NAM + 464, 0x746174735f6e6f69);  store64(work + W_NAM + 472, 0x0000000000007375);  # "destination_status"
+    store64(work + W_NAM + 480, 0x4664616f6c796150);  store64(work + W_NAM + 488, 0x00000000646c6569);  # "PayloadField"
+    store64(work + W_NAM + 496, 0x4d6c617375666552);  store64(work + W_NAM + 504, 0x6e45676e69707061);  store64(work + W_NAM + 512, 0x0000000000797274);  # "RefusalMappingEntry"
+    store64(work + W_NAM + 520, 0x6156646567676154);  store64(work + W_NAM + 528, 0x000000746e616972);  # "TaggedVariant"
+    store64(work + W_NAM + 536, 0x0000000000676174);                                                  # "tag"
+    store64(work + W_NAM + 544, 0x756c61765f676174);  store64(work + W_NAM + 552, 0x0000000000000065);  # "tag_value"
+    store64(work + W_NAM + 560, 0x7261506b636f6c42);  store64(work + W_NAM + 568, 0x6156726574656d61);  store64(work + W_NAM + 576, 0x65756c);  # "BlockParameterValue"
+    store64(work + W_NAM + 584, 0x6369746e616d6553);  store64(work + W_NAM + 592, 0x6f6974617265704f);  store64(work + W_NAM + 600, 0x6e);  # "SemanticOperation"
+    store64(work + W_NAM + 608, 0x6369746e616d6553);  store64(work + W_NAM + 616, 0x65756c6156);  # "SemanticValue"
+    store64(work + W_NAM + 624, 0x6369746e616d6553);  store64(work + W_NAM + 632, 0x6b636f6c42);  # "SemanticBlock"
+    ret;
+}
+
+# ---- the value of a named field -----------------------------------------------------------------
+# g0 = the object, g1 = the packed name, g2 = its length. R = the field's value -- the target handle
+# of a reference, the number of a scalar, or HANDLE_NONE when the object has no such field.
+proc fld {
+    store64(work + W_FLD, g0);
+    store64(work + W_FLD + 8, g1);
+    store64(work + W_FLD + 16, g2);
+    g0 = load64(work + W_FLD);
+    call cell_of;
+    if R == HANDLE_NONE {
+        R = HANDLE_NONE;
+        ret;
+    }
+    g0 = arena_q(R + C_TYPE);
+    g1 = load64(work + W_FLD + 8);
+    g2 = load64(work + W_FLD + 16);
+    call child_named;
+    if R == HANDLE_NONE {
+        R = HANDLE_NONE;
+        ret;
+    }
+    g0 = load64(work + W_FLD);
+    g1 = R;
+    call read_value;
+    ret;
+}
+
+# ---- the references of one role ------------------------------------------------------------------
+# g0 = the object, g1 = the packed role name, g2 = its length. The (target, index) of each reference
+# whose role is named so goes to W_EREF in the order stored. R = how many.
+proc refs_role {
+    store64(work + W_REF, g0);
+    store64(work + W_REF + 8, g1);
+    store64(work + W_REF + 16, g2);
+    g0 = load64(work + W_REF);
+    call cell_of;
+    if R == HANDLE_NONE {
+        R = 0;
+        ret;
+    }
+    store64(work + W_REF + 24, R);
+    store64(work + W_REF + 32, arena_q(R + C_REF_COUNT) & 0xFFFFFFFF);
+    store64(work + W_REF + 40, 0);
+    store64(work + W_REF + 48, 0);
+    while load64(work + W_REF + 40) < load64(work + W_REF + 32) {
+        g0 = load64(work + W_REF + 24);
+        g1 = load64(work + W_REF + 40);
+        call ref_at;
+        store64(work + W_REF + 56, R0);
+        store64(work + W_REF + 64, R1);
+        store64(work + W_REF + 72, R2);
+        g0 = load64(work + W_REF + 64);
+        call cell_of;
+        g0 = R;
+        call name_of;
+        g0 = R;
+        g1 = load64(work + W_REF + 8);
+        g2 = load64(work + W_REF + 16);
+        call name_eq;
+        if R == 1 {
+            store64(work + W_EREF + (load64(work + W_REF + 48) << 4), load64(work + W_REF + 56));
+            store64(work + W_EREF + (load64(work + W_REF + 48) << 4) + 8, load64(work + W_REF + 72));
+            store64(work + W_REF + 48, load64(work + W_REF + 48) + 1);
+        }
+        store64(work + W_REF + 40, load64(work + W_REF + 40) + 1);
+    }
+    R = load64(work + W_REF + 48);
+    ret;
+}
+
+# ---- the slot of a frame value -------------------------------------------------------------------
+# g0 = the value. R = the byte offset it was placed at in the frame (0 when it is not a frame value).
+proc val_slot {
+    store64(work + W_OPR + 48, g0);
+    store64(work + W_OPR + 56, 0);
+    while load64(work + W_OPR + 56) < load64(work + W_NSLOT) {
+        if load64(work + W_SLOTS + (load64(work + W_OPR + 56) << 4)) == load64(work + W_OPR + 48) {
+            R = load64(work + W_SLOTS + (load64(work + W_OPR + 56) << 4) + 8);
+            ret;
+        }
+        store64(work + W_OPR + 56, load64(work + W_OPR + 56) + 1);
+    }
+    R = 0;
+    ret;
+}
+
+# ---- the operand of a value ----------------------------------------------------------------------
+# g0 = a value. Its operand is three words -- the kind (SLOT / LITERAL / OBJECT) and the two words it
+# carries -- kept in W_OPR: a literal its data and size, an object its id and the width of its type,
+# a frame value its slot and width.
+proc val_operand {
+    store64(work + W_OPR + 32, g0);
+    g0 = load64(work + W_OPR + 32);
+    call val_kind;
+    if R == KIND_LITERAL {
+        store64(work + W_OPR, LITERAL);
+        g0 = load64(work + W_OPR + 32);
+        call val_width;
+        store64(work + W_OPR + 16, R);
+        g0 = load64(work + W_OPR + 32);
+        call cell_of;
+        store64(work + W_OPR + 8, arena_q(R + CELL_BYTES + V_PREFIX));
+        ret;
+    }
+    if R == KIND_OBJECT {
+        store64(work + W_OPR, OBJECT);
+        g0 = load64(work + W_OPR + 32);
+        call val_width;
+        store64(work + W_OPR + 16, R);
+        g0 = load64(work + W_OPR + 32);
+        call cell_of;
+        store64(work + W_OPR + 8, arena_q(R + CELL_BYTES + V_OBJECT_ID));
+        ret;
+    }
+    store64(work + W_OPR, SLOT);
+    g0 = load64(work + W_OPR + 32);
+    call val_width;
+    store64(work + W_OPR + 16, R);
+    g0 = load64(work + W_OPR + 32);
+    call val_slot;
+    store64(work + W_OPR + 8, R);
+    ret;
+}
+
+# ---- one operand written -------------------------------------------------------------------------
+# g0 = a value. Its three operand words go to the program.
+proc emit_operand {
+    call val_operand;
+    g0 = load64(work + W_OPR);
+    g1 = load64(work + W_OPR + 8);
+    g2 = load64(work + W_OPR + 16);
+    call put_operand;
+    ret;
+}
+
+# ---- the leaf table ------------------------------------------------------------------------------
+# Every reference of role Leaf (graph.run's function table) is (target, leaf id). Gathered once by a
+# scan of every reference of the arena; a callee finds its leaf id by its target.
+proc gather_leaves {
+    store64(work + W_GLEV, 0);
+    store64(work + W_GLEV + 8, 0);
+    while load64(work + W_GLEV) < load64(work + W_HANDLES) {
+        g0 = load64(work + W_GLEV);
+        call cell_of;
+        store64(work + W_GLEV + 16, R);
+        if R != HANDLE_NONE {
+            if (arena_q(R + C_TYPE) & KIND_MASK) != KIND_DEAD {
+                store64(work + W_GLEV + 24, arena_q(R + C_REF_COUNT) & 0xFFFFFFFF);
+                store64(work + W_GLEV + 32, 0);
+                while load64(work + W_GLEV + 32) < load64(work + W_GLEV + 24) {
+                    g0 = load64(work + W_GLEV + 16);
+                    g1 = load64(work + W_GLEV + 32);
+                    call ref_at;
+                    store64(work + W_GLEV + 40, R0);
+                    store64(work + W_GLEV + 48, R1);
+                    store64(work + W_GLEV + 56, R2);
+                    g0 = load64(work + W_GLEV + 48);
+                    call cell_of;
+                    g0 = R;
+                    call name_of;
+                    g0 = R;
+                    g1 = work + W_NAM + NX_LEAF;
+                    g2 = 4;
+                    call name_eq;
+                    if R == 1 {
+                        store64(work + W_ELEAF + (load64(work + W_GLEV + 8) << 4), load64(work + W_GLEV + 40));
+                        store64(work + W_ELEAF + (load64(work + W_GLEV + 8) << 4) + 8, load64(work + W_GLEV + 56));
+                        store64(work + W_GLEV + 8, load64(work + W_GLEV + 8) + 1);
+                    }
+                    store64(work + W_GLEV + 32, load64(work + W_GLEV + 32) + 1);
+                }
+            }
+        }
+        store64(work + W_GLEV, load64(work + W_GLEV) + 1);
+    }
+    ret;
+}
+
+# g0 = the callee (a Function). R = its leaf id, or HANDLE_NONE when the table does not name it.
+proc leaf_id_of {
+    store64(work + W_GLEV + 64, g0);
+    store64(work + W_GLEV + 72, 0);
+    while load64(work + W_GLEV + 72) < load64(work + W_GLEV + 8) {
+        if load64(work + W_ELEAF + (load64(work + W_GLEV + 72) << 4)) == load64(work + W_GLEV + 64) {
+            R = load64(work + W_ELEAF + (load64(work + W_GLEV + 72) << 4) + 8);
+            ret;
+        }
+        store64(work + W_GLEV + 72, load64(work + W_GLEV + 72) + 1);
+    }
+    R = HANDLE_NONE;
+    ret;
+}
+
+# ---- the pc of a block ---------------------------------------------------------------------------
+# g0 = the block. R = the word index it begins at (from the layout pass), 0 when it is not a block.
+proc block_pc {
+    store64(work + W_PEX + 96, g0);
+    store64(work + W_PEX + 104, 0);
+    while load64(work + W_PEX + 104) < load64(work + W_NBLOCKS) {
+        if load64(work + W_PCS + (load64(work + W_PEX + 104) << 3)) == load64(work + W_PEX + 96) {
+            R = load64(work + W_LPC + (load64(work + W_PEX + 104) << 3));
+            ret;
+        }
+        store64(work + W_PEX + 104, load64(work + W_PEX + 104) + 1);
+    }
+    R = 0;
+    ret;
+}
+
+# ---- the inputs of an operation, in order --------------------------------------------------------
+# g0 = the operation. The value handle of each input goes to W_EIN in input order: index 0 is the
+# target object when the operation names one, the rest are its InputValue references by index. R = how
+# many.
+proc op_inputs {
+    store64(work + W_GIN, g0);
+    g0 = load64(work + W_GIN);
+    g1 = work + W_NAM + NX_INCOUNT;
+    g2 = 17;
+    call fld;
+    store64(work + W_GIN + 8, R);
+    store64(work + W_EIN, 0);
+    g0 = load64(work + W_GIN);
+    g1 = work + W_NAM + NX_TOBJ;
+    g2 = 13;
+    call fld;
+    if R != 0 {
+        if R != HANDLE_NONE {
+            store64(work + W_EIN, R);
+        }
+    }
+    g0 = load64(work + W_GIN);
+    g1 = work + W_NAM + NX_INPUT;
+    g2 = 10;
+    call refs_role;
+    store64(work + W_GIN + 16, R);
+    store64(work + W_GIN + 24, 0);
+    while load64(work + W_GIN + 24) < load64(work + W_GIN + 16) {
+        store64(work + W_EIN + (load64(work + W_EREF + (load64(work + W_GIN + 24) << 4) + 8) << 3),
+                 load64(work + W_EREF + (load64(work + W_GIN + 24) << 4)));
+        store64(work + W_GIN + 24, load64(work + W_GIN + 24) + 1);
+    }
+    R = load64(work + W_GIN + 8);
+    ret;
+}
+
+# ---- the first result of an operation ------------------------------------------------------------
+# g0 = the operation. R = the value handle of its result of least index, or 0 when it has none.
+proc op_results0 {
+    g1 = work + W_NAM + NX_RESULT;
+    g2 = 11;
+    call refs_role;
+    if R == 0 {
+        R = 0;
+        ret;
+    }
+    store64(work + W_GIN + 32, load64(work + W_EREF));
+    store64(work + W_GIN + 40, load64(work + W_EREF + 8));
+    store64(work + W_GIN + 48, 1);
+    while load64(work + W_GIN + 48) < R {
+        if load64(work + W_EREF + (load64(work + W_GIN + 48) << 4) + 8) < load64(work + W_GIN + 40) {
+            store64(work + W_GIN + 32, load64(work + W_EREF + (load64(work + W_GIN + 48) << 4)));
+            store64(work + W_GIN + 40, load64(work + W_EREF + (load64(work + W_GIN + 48) << 4) + 8));
+        }
+        store64(work + W_GIN + 48, load64(work + W_GIN + 48) + 1);
+    }
+    R = load64(work + W_GIN + 32);
+    ret;
+}
+
+# ---- the tag value of the variant a payload field belongs to ---------------------------------------
+# g0 = the payload Field. The composer keeps a table of the payload fields of every TaggedVariant
+# with the tag value the variant carries (its variants table); the payload of a construction finds
+# its tag there. The last variant to name the field wins, as the table's last write does. R = the
+# tag value, 0 when no variant names the field.
+proc variant_tag {
+    store64(work + W_CMV, g0);
+    store64(work + W_CMV + 8, 0);
+    store64(work + W_CMV + 16, 0);
+    while load64(work + W_CMV + 8) < load64(work + W_HANDLES) {
+        g0 = load64(work + W_CMV + 8);
+        call cell_of;
+        if R != HANDLE_NONE {
+            if (arena_q(R + C_TYPE) & KIND_MASK) != KIND_DEAD {
+                g0 = arena_q(R + C_TYPE);
+                call cell_of;
+                g0 = R;
+                call name_of;
+                g0 = R;
+                g1 = work + W_NAM + NX_TVV;
+                g2 = 13;
+                call name_eq;
+                if R == 1 {
+                    g0 = load64(work + W_CMV + 8);
+                    g1 = work + W_NAM + NX_PAYLD;
+                    g2 = 12;
+                    call refs_role;
+                    store64(work + W_CMV + 24, R);
+                    store64(work + W_CMV + 32, 0);
+                    while load64(work + W_CMV + 32) < load64(work + W_CMV + 24) {
+                        if load64(work + W_EREF + (load64(work + W_CMV + 32) << 4)) == load64(work + W_CMV) {
+                            g0 = load64(work + W_CMV + 8);
+                            g1 = work + W_NAM + NX_TAGVAL;
+                            g2 = 9;
+                            call fld;
+                            store64(work + W_CMV + 16, R);
+                        }
+                        store64(work + W_CMV + 32, load64(work + W_CMV + 32) + 1);
+                    }
+                }
+            }
+        }
+        store64(work + W_CMV + 8, load64(work + W_CMV + 8) + 1);
+    }
+    R = load64(work + W_CMV + 16);
+    ret;
+}
+
+# ---- a call (an operation that names a callee) ----------------------------------------------------
+# g0 = the operation. The words of a CALL and its operands.
+proc emit_call {
+    store64(work + W_INS, g0);
+    g0 = load64(work + W_INS);
+    call op_inputs;
+    store64(work + W_INS + 8, R);
+    g0 = load64(work + W_INS);
+    g1 = work + W_NAM + NX_CALLEE;
+    g2 = 6;
+    call fld;
+    g0 = R;
+    call leaf_id_of;
+    store64(work + W_INS + 16, R);
+    g0 = load64(work + W_INS);
+    call op_results0;
+    store64(work + W_INS + 24, R);
+    store64(work + W_INS + 32, NONE);
+    store64(work + W_INS + 40, 0);
+    if R != 0 {
+        if R != HANDLE_NONE {
+            g0 = load64(work + W_INS + 24);
+            call val_slot;
+            store64(work + W_INS + 32, R);
+            g0 = load64(work + W_INS + 24);
+            call val_width;
+            store64(work + W_INS + 40, R);
+        }
+    }
+    store64(work + W_INS + 48, NONE);
+    g0 = load64(work + W_INS);
+    g1 = work + W_NAM + NX_STATUSVAL;
+    g2 = 12;
+    call fld;
+    if R != 0 {
+        if R != HANDLE_NONE {
+            g0 = R;
+            call val_slot;
+            store64(work + W_INS + 48, R);
+        }
+    }
+    w = CALL;                              call putq;
+    w = load64(work + W_INS + 16);         call putq;
+    w = load64(work + W_INS + 8);          call putq;
+    w = load64(work + W_INS + 32);         call putq;
+    w = load64(work + W_INS + 40);         call putq;
+    w = load64(work + W_INS + 48);         call putq;
+    store64(work + W_INS + 56, 0);
+    while load64(work + W_INS + 56) < load64(work + W_INS + 8) {
+        g0 = load64(work + W_EIN + (load64(work + W_INS + 56) << 3));
+        call emit_operand;
+        store64(work + W_INS + 56, load64(work + W_INS + 56) + 1);
+    }
+    ret;
+}
+
+# ---- a move (an operation that moves a value) ----------------------------------------------------
+# g0 = the operation. The words of a MOVE and its one operand.
+proc emit_move {
+    store64(work + W_INS, g0);
+    g0 = load64(work + W_INS);
+    call op_results0;
+    store64(work + W_INS + 24, R);
+    g0 = R;
+    call val_slot;
+    store64(work + W_INS + 32, R);
+    g0 = load64(work + W_INS + 24);
+    call val_width;
+    store64(work + W_INS + 40, R);
+    g0 = load64(work + W_INS);
+    call op_inputs;
+    w = MOVE;                              call putq;
+    w = load64(work + W_INS + 32);         call putq;
+    w = load64(work + W_INS + 40);         call putq;
+    g0 = load64(work + W_EIN);
+    call emit_operand;
+    ret;
+}
+
+# ---- a field read (an operation that reads a field of its target) --------------------------------
+# g0 = the operation. ReadTag / ProjectPayload write FIELD: dst, width, src, offset, size. The
+# offset is the offset of the field the operation names (its target_field) in the owner.
+proc emit_field {
+    store64(work + W_INS, g0);
+    g0 = load64(work + W_INS);
+    call op_results0;
+    store64(work + W_INS + 24, R);
+    g0 = R;
+    call val_slot;
+    store64(work + W_INS + 32, R);
+    g0 = load64(work + W_INS + 24);
+    call val_width;
+    store64(work + W_INS + 40, R);
+    g0 = load64(work + W_INS);
+    call op_inputs;
+    g0 = load64(work + W_INS);
+    g1 = work + W_NAM + NX_TFIELD;
+    g2 = 12;
+    call fld;
+    g0 = R;
+    g1 = work + W_NAM + NX_OFFSET;
+    g2 = 6;
+    call fld;
+    store64(work + W_INS + 48, R);
+    w = FIELD;                             call putq;
+    w = load64(work + W_INS + 32);         call putq;
+    w = load64(work + W_INS + 40);         call putq;
+    g0 = load64(work + W_EIN);
+    call emit_operand;
+    w = load64(work + W_INS + 48);         call putq;
+    w = load64(work + W_INS + 40);         call putq;
+    ret;
+}
+
+# ---- an increment (an operation that advances an iterator) --------------------------------------
+# g0 = the operation. IterAdvance writes INCREMENT: dst, width, src.
+proc emit_increment {
+    store64(work + W_INS, g0);
+    g0 = load64(work + W_INS);
+    call op_results0;
+    store64(work + W_INS + 24, R);
+    g0 = R;
+    call val_slot;
+    store64(work + W_INS + 32, R);
+    g0 = load64(work + W_INS + 24);
+    call val_width;
+    store64(work + W_INS + 40, R);
+    g0 = load64(work + W_INS);
+    call op_inputs;
+    w = INCREMENT;                         call putq;
+    w = load64(work + W_INS + 32);         call putq;
+    w = load64(work + W_INS + 40);         call putq;
+    g0 = load64(work + W_EIN);
+    call emit_operand;
+    ret;
+}
+
+# ---- a comparison (an iterator condition of two inputs) -----------------------------------------
+# g0 = the operation. IterCondition of two inputs writes LESS: dst, a, b (no width).
+proc emit_less {
+    store64(work + W_INS, g0);
+    g0 = load64(work + W_INS);
+    call op_results0;
+    store64(work + W_INS + 24, R);
+    g0 = R;
+    call val_slot;
+    store64(work + W_INS + 32, R);
+    g0 = load64(work + W_INS);
+    call op_inputs;
+    w = LESS;                              call putq;
+    w = load64(work + W_INS + 32);         call putq;
+    g0 = load64(work + W_EIN);
+    call emit_operand;
+    g0 = load64(work + W_EIN + 8);
+    call emit_operand;
+    ret;
+}
+
+# ---- a construction (ConstructOption / ConstructResult) -----------------------------------------
+# g0 = the operation. The words of a CONSTRUCT: dst, width, tag_offset, tag, src, payload_offset,
+# size. The payload is the operation's target_field (the Field written into); its offset and the
+# size of its value type place the payload, the tag offset and the tag of the variant name it.
+proc emit_construct {
+    store64(work + W_INS, g0);
+    g0 = load64(work + W_INS);
+    call op_results0;
+    store64(work + W_INS + 24, R);
+    g0 = R;
+    call val_slot;
+    store64(work + W_INS + 32, R);
+    g0 = load64(work + W_INS + 24);
+    call val_width;
+    store64(work + W_INS + 40, R);
+    g0 = load64(work + W_INS);
+    call op_inputs;
+    # the payload the construction writes into, and its offset and size
+    g0 = load64(work + W_INS);
+    g1 = work + W_NAM + NX_TFIELD;
+    g2 = 12;
+    call fld;
+    store64(work + W_INS + 48, R);
+    g0 = R;
+    g1 = work + W_NAM + NX_OFFSET;
+    g2 = 6;
+    call fld;
+    store64(work + W_INS + 56, R);
+    g0 = load64(work + W_INS + 48);
+    g1 = work + W_NAM + NX_VTYPE;
+    g2 = 10;
+    call fld;
+    g0 = R;
+    call cell_of;
+    store64(work + W_INS + 64, arena_q(R + CELL_BYTES + T_SIZE));
+    # the tag of the variant the payload belongs to; the tag's own offset in the owner
+    g0 = load64(work + W_INS + 48);
+    call variant_tag;
+    store64(work + W_INS + 72, R);
+    g0 = load64(work + W_INS + 48);
+    call cell_of;
+    g0 = arena_q(R + C_PARENT);
+    g1 = work + W_NAM + NX_TAG;
+    g2 = 3;
+    call fld;
+    store64(work + W_INS + 80, 0);
+    if R != 0 {
+        if R != HANDLE_NONE {
+            g0 = R;
+            g1 = work + W_NAM + NX_OFFSET;
+            g2 = 6;
+            call fld;
+            store64(work + W_INS + 80, R);
+        }
+    }
+    w = CONSTRUCT;                         call putq;
+    w = load64(work + W_INS + 32);         call putq;
+    w = load64(work + W_INS + 40);         call putq;
+    w = load64(work + W_INS + 80);         call putq;
+    w = load64(work + W_INS + 72);         call putq;
+    g0 = load64(work + W_EIN);
+    call emit_operand;
+    w = load64(work + W_INS + 56);         call putq;
+    w = load64(work + W_INS + 64);         call putq;
+    ret;
+}
+
+# ---- a refusal map (MapRefusal) ------------------------------------------------------------------
+# g0 = the operation. The words of a MAP: dst, width, src, offset, npairs, then the (source,
+# destination) status pairs. The pairs are the RefusalMappingEntry children of the operation's
+# transform_authority, each the enum value of its source and destination status.
+proc emit_map_refusal {
+    store64(work + W_INS, g0);
+    g0 = load64(work + W_INS);
+    call op_results0;
+    store64(work + W_INS + 24, R);
+    g0 = R;
+    call val_slot;
+    store64(work + W_INS + 32, R);
+    g0 = load64(work + W_INS + 24);
+    call val_width;
+    store64(work + W_INS + 40, R);
+    g0 = load64(work + W_INS);
+    call op_inputs;
+    g0 = load64(work + W_INS);
+    g1 = work + W_NAM + NX_TFIELD;
+    g2 = 12;
+    call fld;
+    g0 = R;
+    g1 = work + W_NAM + NX_OFFSET;
+    g2 = 6;
+    call fld;
+    store64(work + W_INS + 48, R);
+    # the (source, destination) pairs of the mapping's entries
+    g0 = load64(work + W_INS);
+    g1 = work + W_NAM + NX_TAUTH;
+    g2 = 19;
+    call fld;
+    store64(work + W_INS + 56, R);
+    g0 = R;
+    g1 = work + W_NAM + NX_RME;
+    g2 = 19;
+    call children_of_named;
+    store64(work + W_INS + 64, R);
+    store64(work + W_INS + 72, 0);
+    while load64(work + W_INS + 72) < load64(work + W_INS + 64) {
+        g0 = load64(work + W_CME + (load64(work + W_INS + 72) << 3));
+        g1 = work + W_NAM + NX_SRCST;
+        g2 = 13;
+        call fld;
+        store64(work + W_CMP + (load64(work + W_INS + 72) << 4), R);
+        g0 = load64(work + W_CME + (load64(work + W_INS + 72) << 3));
+        g1 = work + W_NAM + NX_DSTST;
+        g2 = 18;
+        call fld;
+        store64(work + W_CMP + (load64(work + W_INS + 72) << 4) + 8, R);
+        store64(work + W_INS + 72, load64(work + W_INS + 72) + 1);
+    }
+    w = MAP;                               call putq;
+    w = load64(work + W_INS + 32);         call putq;
+    w = load64(work + W_INS + 40);         call putq;
+    g0 = load64(work + W_EIN);
+    call emit_operand;
+    w = load64(work + W_INS + 48);         call putq;
+    w = load64(work + W_INS + 64);         call putq;
+    store64(work + W_INS + 72, 0);
+    while load64(work + W_INS + 72) < load64(work + W_INS + 64) {
+        w = load64(work + W_CMP + (load64(work + W_INS + 72) << 4));       call putq;
+        w = load64(work + W_CMP + (load64(work + W_INS + 72) << 4) + 8);   call putq;
+        store64(work + W_INS + 72, load64(work + W_INS + 72) + 1);
+    }
+    ret;
+}
+
+# ---- one instruction of a block -------------------------------------------------------------------
+# g0 = the operation. A call when it names a callee; a move when its opcode is a ReturnValue. (Every
+# call of the composer names a callee, so the opcode is only asked of the non-calls.)
+proc emit_instruction {
+    store64(work + W_INS + 64, g0);
+    g0 = load64(work + W_INS + 64);
+    g1 = work + W_NAM + NX_CALLEE;
+    g2 = 6;
+    call fld;
+    if R != 0 {
+        if R != HANDLE_NONE {
+            g0 = load64(work + W_INS + 64);
+            call emit_call;
+            ret;
+        }
+    }
+    g0 = load64(work + W_INS + 64);
+    g1 = work + W_NAM + NX_OPCODE;
+    g2 = 6;
+    call fld;
+    store64(work + W_INS + 72, R);
+    # a move: ReturnValue, CanonicalOrder, Utf8Boundary, IterInit, IterProject, EnrichRefusal
+    if R == OP_RETURNVALUE {
+        g0 = load64(work + W_INS + 64); call emit_move; ret;
+    }
+    if R == OP_CANONICALORDER {
+        g0 = load64(work + W_INS + 64); call emit_move; ret;
+    }
+    if R == OP_UTF8BOUNDARY {
+        g0 = load64(work + W_INS + 64); call emit_move; ret;
+    }
+    if R == OP_ITERINIT {
+        g0 = load64(work + W_INS + 64); call emit_move; ret;
+    }
+    if R == OP_ITERPROJECT {
+        g0 = load64(work + W_INS + 64); call emit_move; ret;
+    }
+    if R == OP_ENRICHREFUSAL {
+        g0 = load64(work + W_INS + 64); call emit_move; ret;
+    }
+    # a field read: ReadTag, ProjectPayload
+    if R == OP_READTAG {
+        g0 = load64(work + W_INS + 64); call emit_field; ret;
+    }
+    if R == OP_PROJECTPAYLOAD {
+        g0 = load64(work + W_INS + 64); call emit_field; ret;
+    }
+    # an iterator condition of one input is a move, of two a less; an iterator advances
+    if R == OP_ITERCONDITION {
+        g0 = load64(work + W_INS + 64);
+        g1 = work + W_NAM + NX_INCOUNT;
+        g2 = 17;
+        call fld;
+        if R == 1 {
+            g0 = load64(work + W_INS + 64); call emit_move; ret;
+        }
+        g0 = load64(work + W_INS + 64); call emit_less; ret;
+    }
+    if R == OP_ITERADVANCE {
+        g0 = load64(work + W_INS + 64); call emit_increment; ret;
+    }
+    # a construction of a variant: ConstructOption, ConstructResult
+    if R == OP_CONSTRUCTOPTION {
+        g0 = load64(work + W_INS + 64); call emit_construct; ret;
+    }
+    if R == OP_CONSTRUCTRESULT {
+        g0 = load64(work + W_INS + 64); call emit_construct; ret;
+    }
+    # a refusal map
+    if R == OP_MAPREFUSAL {
+        g0 = load64(work + W_INS + 64); call emit_map_refusal; ret;
+    }
+    store64(work + W_EBAD, 0);
+    ret;
+}
+
+# ---- one edge of a terminator, with its copies ----------------------------------------------------
+# g0 = the block, g1 = the edge number. The target's pc, then the copies of the edge's arguments into
+# the parameters of the target block. The arguments are the explicit ones of the edge, with the
+# condition filling the last place when the edge still lacks one (a branch passes its condition on).
+proc emit_edge {
+    store64(work + W_EDG, g0);
+    store64(work + W_EDG + 8, g1);
+    g0 = load64(work + W_EDG);
+    g1 = work + W_NAM + NX_SUCC;
+    g2 = 9;
+    call refs_role;
+    store64(work + W_EDG + 16, load64(work + W_EREF + (load64(work + W_EDG + 8) << 4)));
+    g0 = load64(work + W_EDG + 16);
+    call block_params;
+    store64(work + W_EDG + 24, R);
+    # the explicit arguments of this edge, by the low bits of their index (the high bits name the edge)
+    g0 = load64(work + W_EDG);
+    g1 = work + W_NAM + NX_SUCCARG;
+    g2 = 17;
+    call refs_role;
+    store64(work + W_EDG + 32, R);
+    store64(work + W_EDG + 40, 0);
+    store64(work + W_EDG + 48, 0);
+    while load64(work + W_EDG + 48) < load64(work + W_EDG + 32) {
+        if edge_of(load64(work + W_EREF + (load64(work + W_EDG + 48) << 4) + 8)) == load64(work + W_EDG + 8) {
+            store64(work + W_EIN + (load64(work + W_EDG + 40) << 3), load64(work + W_EREF + (load64(work + W_EDG + 48) << 4)));
+            store64(work + W_EDG + 40, load64(work + W_EDG + 40) + 1);
+        }
+        store64(work + W_EDG + 48, load64(work + W_EDG + 48) + 1);
+    }
+    # the condition fills the argument the edge still lacks
+    g0 = load64(work + W_EDG);
+    g1 = work + W_NAM + NX_CONDVAL;
+    g2 = 15;
+    call fld;
+    if R != 0 {
+        if R != HANDLE_NONE {
+            if load64(work + W_EDG + 40) < load64(work + W_EDG + 24) {
+                if (load64(work + W_EDG + 40) + 1) == load64(work + W_EDG + 24) {
+                    store64(work + W_EIN + (load64(work + W_EDG + 40) << 3), R);
+                    store64(work + W_EDG + 40, load64(work + W_EDG + 40) + 1);
+                }
+            }
+        }
+    }
+    g0 = load64(work + W_EDG + 16);
+    call block_pc;
+    if load64(work + W_PEX) == 0 {
+        R = 0;
+    }
+    w = R;                                 call putq;
+    w = load64(work + W_EDG + 24);         call putq;
+    store64(work + W_EDG + 48, 0);
+    while load64(work + W_EDG + 48) < load64(work + W_EDG + 24) {
+        g0 = load64(work + W_EIN + (load64(work + W_EDG + 48) << 3));
+        call emit_operand;
+        g0 = load64(work + W_TMP + (load64(work + W_EDG + 48) << 3));
+        call val_slot;
+        w = R;                             call putq;
+        g0 = load64(work + W_TMP + (load64(work + W_EDG + 48) << 3));
+        call val_width;
+        w = R;                             call putq;
+        store64(work + W_EDG + 48, load64(work + W_EDG + 48) + 1);
+    }
+    ret;
+}
+
+# ---- the terminator of a block --------------------------------------------------------------------
+# g0 = the block. The terminator's words and its edge copies.
+proc emit_terminator {
+    store64(work + W_TRM, g0);
+    g0 = load64(work + W_TRM);
+    g1 = work + W_NAM + NX_TERM;
+    g2 = 10;
+    call fld;
+    store64(work + W_TRM + 8, R);
+    if R == T_GOTO {
+        w = GOTO;                        call putq;
+        g0 = load64(work + W_TRM);
+        g1 = 0;
+        call emit_edge;
+        ret;
+    }
+    if R == T_REFUSE {
+        g0 = load64(work + W_TRM);
+        g1 = work + W_NAM + NX_TERMVAL;
+        g2 = 16;
+        call fld;
+        store64(work + W_TRM + 16, R);
+        w = REFUSE;                        call putq;
+        g0 = load64(work + W_TRM + 16);
+        call emit_operand;
+        ret;
+    }
+    if R == T_RETURN {
+        g0 = load64(work + W_TRM);
+        g1 = work + W_NAM + NX_TERMVAL;
+        g2 = 16;
+        call fld;
+        store64(work + W_TRM + 16, R);
+        g0 = R;
+        call val_width;
+        store64(work + W_TRM + 24, R);
+        w = RETURN;                        call putq;
+        g0 = load64(work + W_TRM + 16);
+        call emit_operand;
+        w = load64(work + W_TRM + 24);     call putq;
+        ret;
+    }
+    if (R == T_BRANCH) | (R == T_LOOP) {
+        g0 = load64(work + W_TRM);
+        g1 = work + W_NAM + NX_CONDVAL;
+        g2 = 15;
+        call fld;
+        store64(work + W_TRM + 16, R);
+        g0 = R;
+        g1 = work + W_NAM + NX_VTYPE;
+        g2 = 10;
+        call fld;
+        g0 = R;
+        call cell_of;
+        g0 = R;
+        call name_of;
+        g0 = R;
+        g1 = work + W_NAM + NX_UINT32;
+        g2 = 8;
+        call name_eq;
+        store64(work + W_TRM + 24, MNONZERO);
+        if R == 1 {
+            store64(work + W_TRM + 24, MZERO);
+        }
+        w = BRANCH;                        call putq;
+        g0 = load64(work + W_TRM + 16);
+        call emit_operand;
+        w = load64(work + W_TRM + 24);     call putq;
+        g0 = load64(work + W_TRM);
+        g1 = 0;
+        call emit_edge;
+        g0 = load64(work + W_TRM);
+        g1 = 1;
+        call emit_edge;
+        ret;
+    }
+    if R == T_SWITCHTAG {
+        # the value the switch reads
+        g0 = load64(work + W_TRM);
+        g1 = work + W_NAM + NX_CONDVAL;
+        g2 = 15;
+        call fld;
+        store64(work + W_TRM + 16, R);
+        # the block cell, its case count and its successor count
+        g0 = load64(work + W_TRM);
+        call cell_of;
+        store64(work + W_TRM + 40, R);
+        store64(work + W_TRM + 48, arena_q(R + CELL_BYTES + B_CASE_COUNT) & 0xFFFFFFFF);
+        store64(work + W_TRM + 56, arena_q(R + CELL_BYTES + B_SUCCESSOR_COUNT) & 0xFFFFFFFF);
+        w = SWITCH;                        call putq;
+        g0 = load64(work + W_TRM + 16);
+        call emit_operand;
+        w = load64(work + W_TRM + 48);     call putq;
+        # the case tags are the data words 1..1+cases of the block
+        store64(work + W_TRM + 64, 0);
+        while load64(work + W_TRM + 64) < load64(work + W_TRM + 48) {
+            w = arena_q(load64(work + W_TRM + 40) + CELL_BYTES + B_DATA
+                        + ((load64(work + W_TRM + 64) + 1) << 3));
+            call putq;
+            store64(work + W_TRM + 64, load64(work + W_TRM + 64) + 1);
+        }
+        # each successor edge carries its copies
+        store64(work + W_TRM + 64, 0);
+        while load64(work + W_TRM + 64) < load64(work + W_TRM + 56) {
+            g0 = load64(work + W_TRM);
+            g1 = load64(work + W_TRM + 64);
+            call emit_edge;
+            store64(work + W_TRM + 64, load64(work + W_TRM + 64) + 1);
+        }
+        ret;
+    }
+    store64(work + W_EBAD, 0);
+    ret;
+}
+
+# ---- one block written ----------------------------------------------------------------------------
+# g0 = the block. Its instructions in the order the operations carry, then its terminator.
+proc emit_block {
+    store64(work + W_PEX + 56, g0);
+    g0 = load64(work + W_PEX + 56);
+    call gather_ops_ordered;
+    store64(work + W_PEX + 64, R);
+    store64(work + W_PEX + 72, 0);
+    while load64(work + W_PEX + 72) < load64(work + W_PEX + 64) {
+        g0 = load64(work + W_OPS + (load64(work + W_PEX + 72) << 3));
+        call emit_instruction;
+        store64(work + W_PEX + 72, load64(work + W_PEX + 72) + 1);
+    }
+    g0 = load64(work + W_PEX + 56);
+    call emit_terminator;
+    ret;
+}
+
+# ---- one pass over the blocks ---------------------------------------------------------------------
+# The header, then each block. The block's pc is the word index it begins at; in pass one the jump
+# targets are placeholders, so W_LPC is filled with the real addresses for pass two to use.
+proc plan_pass {
+    w = MAGIC;                             call putq;
+    w = load64(work + W_FRAME);            call putq;
+    w = load64(work + W_PEX + 8);          call putq;
+    w = load64(work + W_PEX + 16);         call putq;
+    w = load64(work + W_PEX + 24);         call putq;
+    g0 = load64(work + W_PEX + 80);
+    g1 = work + W_NAM + NX_PARAM;
+    g2 = 14;
+    call refs_role;
+    store64(work + W_PEX + 40, 0);
+    while load64(work + W_PEX + 40) < load64(work + W_PEX + 8) {
+        g0 = load64(work + W_EREF + (load64(work + W_PEX + 40) << 4));
+        call val_slot;
+        w = R;                             call putq;
+        g0 = load64(work + W_EREF + (load64(work + W_PEX + 40) << 4));
+        call val_width;
+        w = R;                             call putq;
+        store64(work + W_PEX + 40, load64(work + W_PEX + 40) + 1);
+    }
+    store64(work + W_PEX + 48, 0);
+    while load64(work + W_PEX + 48) < load64(work + W_NBLOCKS) {
+        store64(work + W_LPC + (load64(work + W_PEX + 48) << 3), ow);
+        g0 = load64(work + W_PCS + (load64(work + W_PEX + 48) << 3));
+        call emit_block;
+        store64(work + W_PEX + 48, load64(work + W_PEX + 48) + 1);
+    }
+    ret;
+}
+
+# ---- the plan, written as the words of the program -------------------------------------------------
+# g0 = the graph. The frame, the placement of every value and the order of the blocks are laid down
+# first; then two passes write the words -- the first to fill W_LPC with the block addresses, the
+# second to write them where the jumps land.
+proc plan_encode {
+    store64(work + W_PEX + 80, g0);
+    store64(work + W_EBAD, 1);
+    call names_init;
+    g0 = load64(work + W_PEX + 80);
+    call plan_types;
+    g0 = load64(work + W_PEX + 80);
+    call ordered_blocks;
+    g0 = load64(work + W_PEX + 80);
+    call place_values;
+    call gather_leaves;
+    g0 = load64(work + W_PEX + 80);
+    g1 = work + W_NAM + NX_PARAM;
+    g2 = 14;
+    call refs_role;
+    store64(work + W_PEX + 8, R);
+    store64(work + W_PEX + 16, 0);
+    store64(work + W_PEX + 40, 0);
+    while load64(work + W_PEX + 40) < load64(work + W_PEX + 8) {
+        g0 = load64(work + W_EREF + (load64(work + W_PEX + 40) << 4));
+        call val_width;
+        store64(work + W_PEX + 16, load64(work + W_PEX + 16) + wordsof(R));
+        store64(work + W_PEX + 40, load64(work + W_PEX + 40) + 1);
+    }
+    store64(work + W_PEX + 24, 5 + (load64(work + W_PEX + 8) << 1));
+    store64(work + W_PEX, 0);
+    call plan_pass;
+    ow = 0;
+    store64(work + W_PEX, 1);
+    call plan_pass;
+    ret;
+}
