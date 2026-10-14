@@ -240,9 +240,17 @@ class Client:
         )
 
     def read(self, handle: int, offset: int, count: int) -> bytes:
-        return self.call(
-            frames.READ, struct.pack("<QII", handle, offset, count)
-        ).payload
+        """The bytes of the object at offset: as many as count, a frame at a time."""
+        out = bytearray()
+        while len(out) < count:
+            take = min(frames.MAX_PAYLOAD, count - len(out))
+            part = self.call(
+                frames.READ, struct.pack("<QII", handle, offset + len(out), take)
+            ).payload
+            if not part:
+                break
+            out += part
+        return bytes(out)
 
     def payload(self, handle: int) -> bytes:
         size = self.get(handle).payload_size

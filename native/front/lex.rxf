@@ -50,7 +50,8 @@ proc lex {
             continue;
         }
         if load64(work + G_LX_C) == 35 {
-            while (load64(work + G_LX_AT) < g1) & (load8(g0 + load64(work + G_LX_AT)) != 10) {
+            while load64(work + G_LX_AT) < g1 {
+                if load8(g0 + load64(work + G_LX_AT)) == 10 { break; }
                 store64(work + G_LX_AT, load64(work + G_LX_AT) + 1);
             }
             continue;
@@ -64,8 +65,8 @@ proc lex {
                 if ((load64(work + G_LX_P) == 120) | (load64(work + G_LX_P) == 88))
                    & (hex_of(load8(g0 + load64(work + G_LX_AT) + 2)) == 1) {
                     store64(work + G_LX_I, load64(work + G_LX_AT) + 2);
-                    while (load64(work + G_LX_I) < g1)
-                          & (hex_of(load8(g0 + load64(work + G_LX_I))) == 1) {
+                    while load64(work + G_LX_I) < g1 {
+                        if hex_of(load8(g0 + load64(work + G_LX_I))) != 1 { break; }
                         store64(work + G_LX_I, load64(work + G_LX_I) + 1);
                     }
                     store64(work + G_LX_AT, load64(work + G_LX_I));
@@ -74,8 +75,8 @@ proc lex {
                 }
             }
             store64(work + G_LX_I, load64(work + G_LX_AT) + 1);
-            while (load64(work + G_LX_I) < g1)
-                  & (digit_of(load8(g0 + load64(work + G_LX_I))) == 1) {
+            while load64(work + G_LX_I) < g1 {
+                if digit_of(load8(g0 + load64(work + G_LX_I))) != 1 { break; }
                 store64(work + G_LX_I, load64(work + G_LX_I) + 1);
             }
             store64(work + G_LX_AT, load64(work + G_LX_I));
@@ -85,8 +86,8 @@ proc lex {
         if (name_start(load64(work + G_LX_C)) == 1) {
             store64(work + G_LX_KIND, K_NAME);
             store64(work + G_LX_I, load64(work + G_LX_AT) + 1);
-            while (load64(work + G_LX_I) < g1)
-                  & (name_char(load8(g0 + load64(work + G_LX_I))) == 1) {
+            while load64(work + G_LX_I) < g1 {
+                if name_char(load8(g0 + load64(work + G_LX_I))) != 1 { break; }
                 store64(work + G_LX_I, load64(work + G_LX_I) + 1);
             }
             store64(work + G_LX_AT, load64(work + G_LX_I));

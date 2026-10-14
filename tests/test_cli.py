@@ -39,7 +39,7 @@ def run(capsys, *argv):
 
 def test_the_command_tree_is_the_module_tree():
     commands = root()
-    assert set(commands) == {"binary", "core", "live", "server"}
+    assert set(commands) == {"binary", "console", "core", "live", "server"}
     assert set(commands["core"]) == {"object", "delta"}
     assert set(commands["core"]["object"]) == {"info", "check", "digest", "save"}
     assert set(commands["core"]["delta"]) == {
@@ -70,6 +70,7 @@ def test_every_command_sits_in_the_cli_file_of_what_it_operates_on():
     ) == [
         ".",
         "binary",
+        "console",
         "core/delta",
         "core/object",
         "live",

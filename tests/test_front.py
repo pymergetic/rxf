@@ -1,6 +1,7 @@
-"""The front end as a program: ``native/front/front.rxf`` run by the simulator of ``rxf_sim``,
-and what it writes for a source. Every test compiles the same source with ``tools/native/rxfc.py``
-and with the front end as a program, and holds the two to the same bytes.
+"""The front end as a program: ``native/front/front.rxf`` run by the interpreter of
+``native/graph.c`` (``rxf_native``), and what it writes for a source. Every test compiles the same
+source with ``tools/native/rxfc.py`` and with the front end as a program, and holds the two to the
+same bytes.
 
 The request is the one of ``native/front/words.rxf``: source text, the numbers the source may use
 (the ``RXF_*`` of ``native/graph.h``), and where the words of the program go.
@@ -14,12 +15,12 @@ import pytest
 import graph_header
 import rxfc
 
-from . import rxf_sim
+from . import rxf_native
 
 FRONT = Path(__file__).parents[1] / "native" / "front" / "front.rxf"
 N = graph_header.numbers()
 
-# memory of a run: the request and what it names, below the frame of rxf_sim (0x100000)
+# memory of a run: the request and what it names, below the frame of a run (0x100000)
 REQUEST_AT = 0x10000
 SOURCE_AT = 0x20000
 CONSTS_AT = 0x30000
@@ -32,14 +33,14 @@ OUT_CAPACITY = 0x400000  # 4 MB of output: the front end of native/front, compil
 WORK_CAPACITY = 0x2000000  # 32 MB of work memory
 
 
-def build_consts(memory: rxf_sim.Memory) -> int:
+def build_consts(memory: rxf_native.Memory) -> int:
     """The numbers of graph.h as rows of the request's const table. Returns how many."""
     entries = b""
     names = b""
     offset = 0
     for name, value in sorted(N.items()):
         encoded = name.encode() + b"\0"
-        entries += struct.pack("<4Q", NAMES_AT + offset, len(name), value, 0)
+        entries += struct.pack("<4Q", memory.at(NAMES_AT + offset), len(name), value, 0)
         names += encoded
         offset += len(encoded)
     memory.write(CONSTS_AT, entries)
@@ -47,14 +48,16 @@ def build_consts(memory: rxf_sim.Memory) -> int:
     return len(N)
 
 
-def write_files(memory: rxf_sim.Memory, files: dict[str, bytes]) -> int:
+def write_files(memory: rxf_native.Memory, files: dict[str, bytes]) -> int:
     """The table of the files an `include` can name: FILE_ENTRY rows of name and text. How many."""
     rows = b""
     blob = b""
     at = FILE_BYTES_AT
     for name, text in files.items():
         encoded = name.encode()
-        rows += struct.pack("<4Q", at, len(encoded), at + len(encoded), len(text))
+        rows += struct.pack(
+            "<4Q", memory.at(at), len(encoded), memory.at(at + len(encoded)), len(text)
+        )
         blob += encoded + text
         at += len(encoded) + len(text)
     memory.write(FILES_AT, rows)
@@ -62,20 +65,20 @@ def write_files(memory: rxf_sim.Memory, files: dict[str, bytes]) -> int:
     return len(files)
 
 
-def make_request(source_len: int, nconsts: int, nfiles: int = 0) -> bytes:
+def make_request(memory: rxf_native.Memory, source_len: int, nconsts: int, nfiles: int = 0) -> bytes:
     return struct.pack(
         "<12Q",
-        SOURCE_AT,
+        memory.at(SOURCE_AT),
         source_len,  # R_SOURCE, R_SOURCE_SIZE
-        OUT_AT,
+        memory.at(OUT_AT),
         OUT_CAPACITY,  # R_OUT, R_OUT_CAPACITY
-        WORK_AT,
+        memory.at(WORK_AT),
         WORK_CAPACITY,  # R_WORK, R_WORK_CAPACITY
         0,
         0,  # R_OUT_SIZE, R_AT (written by the run)
-        FILES_AT,
+        memory.at(FILES_AT),
         nfiles,  # R_FILES, R_FILE_COUNT
-        CONSTS_AT,
+        memory.at(CONSTS_AT),
         nconsts,  # R_CONSTS, R_CONST_COUNT
     )
 
@@ -93,17 +96,22 @@ def run_front(
 ) -> tuple[int, bytes, int]:
     """Run the front end as a program on ``source``: (status, output, line it stopped at)."""
     encoded = source.encode()
-    memory = rxf_sim.Memory()
+    memory = rxf_native.Memory(WORK_AT + WORK_CAPACITY)
     nconsts = build_consts(memory)
     memory.write(SOURCE_AT, encoded)
     nfiles = write_files(memory, files or {})
-    memory.write(REQUEST_AT, make_request(len(encoded), nconsts, nfiles))
-    status, _ = rxf_sim.run(front, struct.pack("<2Q", 0, REQUEST_AT), memory, limit=limit)
+    memory.write(REQUEST_AT, make_request(memory, len(encoded), nconsts, nfiles))
+    status, _ = rxf_native.run(
+        front, struct.pack("<2Q", 0, memory.at(REQUEST_AT)), memory, limit=limit
+    )
     at = memory.u64(REQUEST_AT + 56)
     if status != 0:
+        memory.close()
         return status, b"", at
     size = memory.u64(REQUEST_AT + 48)
-    return status, memory.read(OUT_AT, size), at
+    out = memory.read(OUT_AT, size)
+    memory.close()
+    return status, out, at
 
 
 def check(front: bytes, source: str) -> None:

@@ -120,9 +120,36 @@ rxf core object save   starter starter.rxfb    # .xml one delta, .rxfb bytes, el
 rxf core delta show    starter --module=pymergetic.rxf.roles
 rxf core delta apply   starter patch.xml --to=out.rxfb
 rxf server browse      starter                 # read-only inspector on http://127.0.0.1:8420
+rxf console                                    # type .rxf; the running image compiles it
+rxf console  program.rxf                       # one source file through the same path, once
+rxf console  --inspect                         # what the image has installed (read-only)
 ```
 
 A source is a module tree (directory), a `.xml` delta, or RXFB 6 bytes.
+
+### Console
+
+`rxf console` is the terminal on a running image: a program of `.rxf` ends at a blank line (or a
+line of one `.`), travels as one object of the arena through the channel, and the image's own
+front end (`native/front`) compiles it and has the Function installed — one delta, no restart.
+The outcome is the path of the Function and its ids, or the line the front end stopped at.
+`:list` shows what the image has installed, `:help` the words of the loop, `:quit` leaves.
+
+```sh
+rxf console --link=shm:rxf
+rxf> program triple(x) {
+...     return x + x + x;
+...
+installed pymergetic.rxf.selfedit.triple (id 0x4e1a69dd971cf5a3, 328 bytes)
+rxf> :quit
+```
+
+`rxf console FILE` takes one source file through the same path once; the `.rxf` sources beside the
+file (or beside the terminal) are what an `include` can name. `rxf console --inspect` only lists
+what the image has installed. `--link` is where the running image is: `shm:name`, `pty:/dev/pts/3`,
+`tty:/dev/ttyUSB0`, `fd:3`. A run is not a frame: whoever runs the image registers its machine
+(`pymergetic.rxf.console.world.register`), and the console drives compile and install over the
+live channel.
 
 ### Inspector
 
