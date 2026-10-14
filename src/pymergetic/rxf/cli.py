@@ -3,8 +3,10 @@
 Every `cli.py` below this package defines the commands of its own package: the
 public functions of `core/object/cli.py` are `rxf core object <function>`, those
 of `server/cli.py` are `rxf server <function>`. The command path is the module
-path, and a new `cli.py` is a new command group with no list to keep. Python Fire
-does the parsing; results print as JSON (text as text).
+path, and a new `cli.py` is a new command group with no list to keep. A group
+whose one command is named after the group speaks for it (`console/cli.py` is
+`rxf console`). Python Fire does the parsing; results print as JSON (text as
+text).
 
 The files are loaded from their path, not imported by name: a package whose body
 is the compiled core has no search path for its C++ directories.
@@ -77,10 +79,17 @@ def root() -> dict[str, Any]:
     tree: dict[str, Any] = {}
     for parts, path in sorted(found.items()):
         module = _load(path, ".".join((pymergetic.rxf.__name__, *parts, "cli")))
+        commands = _commands_of(module)
         group = tree
-        for part in parts:
+        for part in parts[:-1]:
             group = group.setdefault(part, {})
-        group.update(_commands_of(module))
+        if len(commands) == 1 and parts[-1] in commands:
+            # One command named after its group speaks for the group: `rxf console FILE` is the
+            # own command of `console/cli.py`, not `rxf console console FILE`.
+            group[parts[-1]] = commands[parts[-1]]
+        else:
+            group = group.setdefault(parts[-1], {})
+            group.update(commands)
     return tree
 
 

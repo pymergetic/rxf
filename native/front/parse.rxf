@@ -532,15 +532,17 @@ proc assign_statement {
     store64(work + EX_C, 59);
     call expect_op;
     if st != 0 { ret; }
-    if (ev_kind == V_SLOT) & (load8(work + W_LIVE + ev_value) == 1) {
-        if load64(work + G_NINST) > load64(work + LAST_BEFORE) {
-            if load64(load64(work + G_OUT) + (load64(work + G_LAST_START) << 3)) == CALL {
-                if load64(load64(work + G_OUT)
-                          + ((load64(work + G_LAST_START) + 3) << 3)) == ev_value {
-                    store64(load64(work + G_OUT)
-                            + ((load64(work + G_LAST_START) + 3) << 3),
-                            load64(work + AS_TARGET));
-                    ret;
+    if ev_kind == V_SLOT {
+        if load8(work + W_LIVE + ev_value) == 1 {
+            if load64(work + G_NINST) > load64(work + LAST_BEFORE) {
+                if load64(load64(work + G_OUT) + (load64(work + G_LAST_START) << 3)) == CALL {
+                    if load64(load64(work + G_OUT)
+                              + ((load64(work + G_LAST_START) + 3) << 3)) == ev_value {
+                        store64(load64(work + G_OUT)
+                                + ((load64(work + G_LAST_START) + 3) << 3),
+                                load64(work + AS_TARGET));
+                        ret;
+                    }
                 }
             }
         }

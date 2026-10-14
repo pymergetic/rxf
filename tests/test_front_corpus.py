@@ -1,7 +1,8 @@
 """The front end as a program on every program there is (docs/19).
 
 Every source of the corpus is compiled twice: by ``tools/native/rxfc.py``, and by
-``native/front/front.rxf`` run by the simulator of ``rxf_sim``. The two write the same bytes.
+``native/front/front.rxf`` run on the interpreter of ``native/graph.c`` (``rxf_native``). The two
+write the same bytes. ``tests/rxf_sim.py`` stays as a dev oracle, not as the engine of this run.
 
 The corpus is the samples of ``tests/rxfc``, the front end of ``native/front`` itself and the
 compiler of ``native/tiny`` -- the last two of many files, where an ``include`` names the files of
