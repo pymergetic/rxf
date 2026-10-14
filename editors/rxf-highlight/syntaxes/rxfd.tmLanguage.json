@@ -1,0 +1,359 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "RXF Delta",
+  "scopeName": "text.xml.rxfd",
+  "patterns": [
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#prolog"
+    },
+    {
+      "include": "#rxf-tag"
+    },
+    {
+      "include": "#tag"
+    },
+    {
+      "include": "#any-tag"
+    }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.block.xml.rxfd",
+      "begin": "<!--",
+      "end": "-->"
+    },
+    "prolog": {
+      "name": "meta.tag.prolog.rxfd",
+      "begin": "<\\?",
+      "end": "\\?>",
+      "patterns": [
+        {
+          "include": "#any-attribute"
+        }
+      ]
+    },
+    "rxf-tag": {
+      "name": "meta.tag.namespace.rxfd",
+      "begin": "(<)(/?)(?:(rxf)(:))?(delete|entry|ref|set)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.begin.rxfd"
+        },
+        "2": {
+          "name": "punctuation.definition.tag.end.rxfd"
+        },
+        "3": {
+          "name": "entity.name.namespace.rxfd"
+        },
+        "4": {
+          "name": "punctuation.separator.namespace.rxfd"
+        },
+        "5": {
+          "name": "entity.name.tag.namespace.rxfd"
+        }
+      },
+      "end": "(/?>)",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.end.rxfd"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#attributes"
+        }
+      ]
+    },
+    "tag": {
+      "name": "meta.tag.rxfd",
+      "begin": "(<)(/?)(?:(rxf)(:))?(CanonicalOrderAuthority|CapabilityRequirement|ImplementationBinding|HashStorageAuthority|RefusalMappingEntry|CompilerProvenance|RefusalEnrichment|SemanticOperation|ABIValueLocation|GenericParameter|TraitRequirement|NumericContract|AssociatedType|RefusalMapping|RefusalVariant|SemanticObject|ValueReference|HashAuthority|RuntimeTarget|SemanticBlock|SemanticGraph|SemanticValue|TaggedVariant|ABISignature|Architecture|StdlibRecord|Conformance|Environment|Enumerator|FeatureSet|RefusalSet|Parameter|Signature|Argument|Function|Template|uint32_t|Feature|Import|Module|Result|Alias|Bytes|Field|Trait|delta|entry|Call|Code|Role|Type|ABI|ref)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.begin.rxfd"
+        },
+        "2": {
+          "name": "punctuation.definition.tag.end.rxfd"
+        },
+        "3": {
+          "name": "entity.name.namespace.rxfd"
+        },
+        "4": {
+          "name": "punctuation.separator.namespace.rxfd"
+        },
+        "5": {
+          "name": "entity.name.tag.rxfd"
+        }
+      },
+      "end": "(/?>)",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.end.rxfd"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#attributes"
+        }
+      ]
+    },
+    "any-tag": {
+      "name": "meta.tag.rxfd",
+      "begin": "(<)(/?)([A-Za-z_][\\w:.-]*)",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.begin.rxfd"
+        },
+        "2": {
+          "name": "punctuation.definition.tag.end.rxfd"
+        },
+        "3": {
+          "name": "entity.name.tag.rxfd"
+        }
+      },
+      "end": "(/?>)",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.end.rxfd"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#attributes"
+        }
+      ]
+    },
+    "attributes": {
+      "patterns": [
+        {
+          "include": "#xmlns-attribute"
+        },
+        {
+          "include": "#reference-attribute"
+        },
+        {
+          "include": "#data-attribute"
+        },
+        {
+          "include": "#namespace-attribute"
+        },
+        {
+          "include": "#enum-attribute"
+        },
+        {
+          "include": "#any-attribute"
+        }
+      ]
+    },
+    "xmlns-attribute": {
+      "begin": "(xmlns)(:)(rxf)(=)(\")",
+      "beginCaptures": {
+        "1": {
+          "name": "entity.other.attribute-name.namespace.rxfd"
+        },
+        "2": {
+          "name": "punctuation.separator.namespace.rxfd"
+        },
+        "3": {
+          "name": "entity.name.namespace.rxfd"
+        },
+        "4": {
+          "name": "punctuation.separator.key-value.rxfd"
+        },
+        "5": {
+          "name": "punctuation.definition.string.begin.rxfd"
+        }
+      },
+      "end": "\"",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.end.rxfd"
+        }
+      },
+      "name": "string.quoted.double.rxfd",
+      "patterns": [
+        {
+          "match": "urn:pymergetic:rxf",
+          "name": "constant.other.urn.rxfd"
+        }
+      ]
+    },
+    "reference-attribute": {
+      "begin": "(refusal_set|rxf:parent|signature)(=)(\")",
+      "beginCaptures": {
+        "1": {
+          "name": "entity.other.attribute-name.reference.rxfd"
+        },
+        "2": {
+          "name": "punctuation.separator.key-value.rxfd"
+        },
+        "3": {
+          "name": "punctuation.definition.string.begin.rxfd"
+        }
+      },
+      "end": "\"",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.end.rxfd"
+        }
+      },
+      "name": "meta.attribute.value.reference.rxfd",
+      "patterns": [
+        {
+          "include": "#reference-value"
+        }
+      ]
+    },
+    "data-attribute": {
+      "begin": "((?:rxf)(:))?(data)(=)(\")",
+      "beginCaptures": {
+        "1": {
+          "name": "entity.other.attribute-name.namespace.rxfd"
+        },
+        "3": {
+          "name": "entity.other.attribute-name.namespace.rxfd"
+        },
+        "4": {
+          "name": "punctuation.separator.key-value.rxfd"
+        },
+        "5": {
+          "name": "punctuation.definition.string.begin.rxfd"
+        }
+      },
+      "end": "\"",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.end.rxfd"
+        }
+      },
+      "name": "string.quoted.double.rxfd",
+      "patterns": [
+        {
+          "match": "[0-9a-fA-F]+",
+          "name": "constant.numeric.hex.rxfd"
+        }
+      ]
+    },
+    "namespace-attribute": {
+      "begin": "((rxf)(:))?(generation|mobility|parent|index|owner|data|kind)(=)(\")",
+      "beginCaptures": {
+        "1": {
+          "name": "entity.other.attribute-name.namespace.rxfd"
+        },
+        "2": {
+          "name": "entity.name.namespace.rxfd"
+        },
+        "4": {
+          "name": "entity.other.attribute-name.namespace.rxfd"
+        },
+        "5": {
+          "name": "punctuation.separator.key-value.rxfd"
+        },
+        "6": {
+          "name": "punctuation.definition.string.begin.rxfd"
+        }
+      },
+      "end": "\"",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.end.rxfd"
+        }
+      },
+      "name": "string.quoted.double.rxfd",
+      "patterns": [
+        {
+          "include": "#value"
+        }
+      ]
+    },
+    "enum-attribute": {
+      "begin": "(representation_preserving|associated_type_count|tombstone_denominator|parameter_type_count|payload_field_count|successor_map_count|tombstone_numerator|transform_authority|calling_convention|destination_status|result_value_count|generation_policy|input_value_count|predecessor_count|preserve_identity|requirement_count|result_type_count|visibility_policy|destination_type|input_type_count|load_denominator|minimum_capacity|semantic_version|supertrait_count|termination_rule|terminator_value|condition_value|conforming_type|operation_count|owner_operation|parameter_count|semantic_digest|successor_count|argument_count|compiler_major|default_policy|implementation|load_numerator|location_count|owner_function|register_count|representation|runtime_target|semantic_index|binding_count|capacity_rule|recipe_digest|register_bank|related_count|source_status|target_object|variant_count|architecture|literal_size|output_class|pointee_type|probe_policy|result_count|result_index|stack_offset|status_value|target_field|association|block_count|chunk_count|class_count|entry_block|entry_count|environment|feature_set|output_type|owner_block|refusal_set|requirement|result_type|return_type|seed_policy|source_type|value_class|byte_count|case_count|endianness|terminator|value_role|value_type|algorithm|alignment|intrinsic|node_kind|object_id|operation|parameter|signature|tag_value|word_bits|category|function|effects|passing|version|callee|format|offset|opcode|parent|policy|rights|signed|source|target|align|count|flags|index|layer|trait|value|width|body|code|data|form|kind|lazy|name|path|role|seed|size|abi|via)(=)(\")",
+      "beginCaptures": {
+        "1": {
+          "name": "entity.other.attribute-name.rxfd"
+        },
+        "2": {
+          "name": "punctuation.separator.key-value.rxfd"
+        },
+        "3": {
+          "name": "punctuation.definition.string.begin.rxfd"
+        }
+      },
+      "end": "\"",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.end.rxfd"
+        }
+      },
+      "name": "string.quoted.double.rxfd",
+      "patterns": [
+        {
+          "include": "#value"
+        }
+      ]
+    },
+    "any-attribute": {
+      "match": "([A-Za-z_:][\\w:.-]*)(=)(\"[^\"]*\")",
+      "captures": {
+        "1": {
+          "name": "entity.other.attribute-name.rxfd"
+        },
+        "2": {
+          "name": "punctuation.separator.key-value.rxfd"
+        },
+        "3": {
+          "name": "string.quoted.double.rxfd"
+        }
+      }
+    },
+    "value": {
+      "patterns": [
+        {
+          "include": "#alias-marker"
+        },
+        {
+          "include": "#enum-value"
+        },
+        {
+          "include": "#number-value"
+        }
+      ]
+    },
+    "reference-value": {
+      "patterns": [
+        {
+          "include": "#alias-marker"
+        },
+        {
+          "match": "\\.",
+          "name": "punctuation.separator.path.rxfd"
+        },
+        {
+          "match": "[A-Za-z_][A-Za-z0-9_]*(?:\\[\\d+\\])?",
+          "name": "entity.name.reference.rxfd"
+        }
+      ]
+    },
+    "alias-marker": {
+      "match": "@",
+      "name": "punctuation.definition.alias.rxfd"
+    },
+    "enum-value": {
+      "match": "(?:[A-Za-z_][A-Za-z0-9_]*\\.)*(FunctionImplementation|CanonicalOrderPolicy|GenericParameterKind|TraitRequirementKind|HashRepresentation|CallingConvention|ArchitectureKind|CapabilityRights|GenerationPolicy|NumericOperation|VisibilityPolicy|EnvironmentKind|TerminationRule|CapabilityKind|ModuleCategory|AbiValueClass|AbiValueFlags|FunctionLayer|HashAlgorithm|NumericPolicy|RefusalPolicy|AbiValueRole|CapacityRule|RegisterBank|BindingKind|FeatureKind|ModuleFlags|ProbePolicy|RefusalCode|StdlibFlags|AbiPassing|AliasFlags|CodeFormat|Endianness|FieldFlags|SeedPolicy|StdlibKind|Terminator|Intrinsic|OwnerKind|TypeFlags|ValueKind|Mobility|NodeKind|AbiKind|Binding|Effects|RefKind|Opcode|Form)\\.([A-Z][A-Za-z0-9_]*(?:\\|[A-Z][A-Za-z0-9_]*)*)",
+      "captures": {
+        "1": {
+          "name": "support.type.enum.rxfd"
+        },
+        "2": {
+          "name": "constant.language.enumerator.rxfd"
+        }
+      }
+    },
+    "number-value": {
+      "match": "\\b[0-9]+\\b",
+      "name": "constant.numeric.rxfd"
+    }
+  }
+}

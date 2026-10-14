@@ -1,0 +1,1696 @@
+{
+  "about": "The meaning table of the RXF languages. This file is the one source the grammars of editors/rxf-highlight are generated from (tools/highlight/grammar_gen.py) and the one source the highlighting colors its meaning from: what every leaf of the function table is, what every operator of .rxfs lowers to, and which words and references .rxfd has. tests/test_highlight.py pins every transcribed part back to its source of truth; never edit the grammars by hand.",
+  "sources": {
+    "leaves": "native/graph.h (enum rxf_graph_leaf, shape_of): the ids are not invented here",
+    "leaf_names": "tools/native/graph_header.py (RXF_LEAF_* names lowered)",
+    "operators": "tools/native/rxfc.py (BINARY, binary(), unary()); native/front is the self-hosted mirror and names the same leaves in native/front/words.rxf",
+    "enums": "starter/pymergetic/rxf/kinds.xml: the module pymergetic.rxf.kinds that attribute values name (pymergetic.rxf.kinds.FunctionImplementation.Semantic)",
+    "ground_enums": "starter/__init__.xml: the enumerations of the ground",
+    "core_enums": "src/pymergetic/rxf/core/kinds.pyi: pymergetic.rxf.core.kinds",
+    "refusal_sets": "starter/pymergetic/rxf/foundation/__init__.xml",
+    "reference_shapes": "src/pymergetic/rxf/core/xml/xml.hpp and the deltas of starter/"
+  },
+  "leaves": {
+    "note": "the ids of the function table of the runtime context: one entry per native Function a graph calls. There is no leaf 0; the ids are 1 to 48 and a program that needs none of them is only moves and branches",
+    "classes": {
+      "arith": "the wrapping integer operations of 64 bits",
+      "checked": "the checked integer operations: the status of the call is the overflow",
+      "compare": "the comparisons: less and equal; the other comparisons are worked out of these",
+      "bitwise": "bitwise not, and, or",
+      "shift": "the shifts",
+      "divrem": "integer division and remainder, 32 and 64 bits, signed and unsigned",
+      "mem": "memory: copy, compare, fill",
+      "hash": "the hash and the hashed containers",
+      "runtime": "the runtime context: objects, transactions, borrows, text, search",
+      "platform": "the pumps of the platform: live and uart",
+      "compile": "the compiler as a leaf of the function table",
+      "safety": "the safe point of compiled code"
+    },
+    "entries": [
+      {
+        "id": 1,
+        "name": "wrapping_add_uint64_t",
+        "c_symbol": "RXF_LEAF_WRAPPING_ADD_UINT64_T",
+        "class": "arith",
+        "shape": "qqo"
+      },
+      {
+        "id": 2,
+        "name": "less_uint64_t",
+        "c_symbol": "RXF_LEAF_LESS_UINT64_T",
+        "class": "compare",
+        "shape": "qqo"
+      },
+      {
+        "id": 3,
+        "name": "bit_not_uint64_t",
+        "c_symbol": "RXF_LEAF_BIT_NOT_UINT64_T",
+        "class": "bitwise",
+        "shape": "qo"
+      },
+      {
+        "id": 4,
+        "name": "hash_u64",
+        "c_symbol": "RXF_LEAF_HASH_U64",
+        "class": "hash",
+        "shape": "qqo"
+      },
+      {
+        "id": 5,
+        "name": "runtime_hash_map_lookup",
+        "c_symbol": "RXF_LEAF_RUNTIME_HASH_MAP_LOOKUP",
+        "class": "hash",
+        "shape": "hpqqo"
+      },
+      {
+        "id": 6,
+        "name": "runtime_hash_set_lookup",
+        "c_symbol": "RXF_LEAF_RUNTIME_HASH_SET_LOOKUP",
+        "class": "hash",
+        "shape": "hpqqo"
+      },
+      {
+        "id": 7,
+        "name": "runtime_begin_private",
+        "c_symbol": "RXF_LEAF_RUNTIME_BEGIN_PRIVATE",
+        "class": "runtime",
+        "shape": "hqo"
+      },
+      {
+        "id": 8,
+        "name": "runtime_resolve",
+        "c_symbol": "RXF_LEAF_RUNTIME_RESOLVE",
+        "class": "runtime",
+        "shape": "hqo"
+      },
+      {
+        "id": 9,
+        "name": "runtime_allocate_prepare",
+        "c_symbol": "RXF_LEAF_RUNTIME_ALLOCATE_PREPARE",
+        "class": "runtime",
+        "shape": "qqqqqpo"
+      },
+      {
+        "id": 10,
+        "name": "runtime_publish",
+        "c_symbol": "RXF_LEAF_RUNTIME_PUBLISH",
+        "class": "runtime",
+        "shape": "p"
+      },
+      {
+        "id": 11,
+        "name": "runtime_rollback",
+        "c_symbol": "RXF_LEAF_RUNTIME_ROLLBACK",
+        "class": "runtime",
+        "shape": "p"
+      },
+      {
+        "id": 12,
+        "name": "runtime_borrow",
+        "c_symbol": "RXF_LEAF_RUNTIME_BORROW",
+        "class": "runtime",
+        "shape": "hq"
+      },
+      {
+        "id": 13,
+        "name": "runtime_release_borrow",
+        "c_symbol": "RXF_LEAF_RUNTIME_RELEASE_BORROW",
+        "class": "runtime",
+        "shape": "hq"
+      },
+      {
+        "id": 14,
+        "name": "runtime_pin",
+        "c_symbol": "RXF_LEAF_RUNTIME_PIN",
+        "class": "runtime",
+        "shape": "h"
+      },
+      {
+        "id": 15,
+        "name": "runtime_unpin",
+        "c_symbol": "RXF_LEAF_RUNTIME_UNPIN",
+        "class": "runtime",
+        "shape": "h"
+      },
+      {
+        "id": 16,
+        "name": "runtime_read",
+        "c_symbol": "RXF_LEAF_RUNTIME_READ",
+        "class": "runtime",
+        "shape": "hpqqo"
+      },
+      {
+        "id": 17,
+        "name": "runtime_write",
+        "c_symbol": "RXF_LEAF_RUNTIME_WRITE",
+        "class": "runtime",
+        "shape": "hpqqq"
+      },
+      {
+        "id": 18,
+        "name": "runtime_append",
+        "c_symbol": "RXF_LEAF_RUNTIME_APPEND",
+        "class": "runtime",
+        "shape": "hpqq"
+      },
+      {
+        "id": 19,
+        "name": "runtime_format_u32",
+        "c_symbol": "RXF_LEAF_RUNTIME_FORMAT_U32",
+        "class": "runtime",
+        "shape": "hpw"
+      },
+      {
+        "id": 20,
+        "name": "runtime_search",
+        "c_symbol": "RXF_LEAF_RUNTIME_SEARCH",
+        "class": "runtime",
+        "shape": "hqhqpo"
+      },
+      {
+        "id": 21,
+        "name": "runtime_cleanup",
+        "c_symbol": "RXF_LEAF_RUNTIME_CLEANUP",
+        "class": "runtime",
+        "shape": "p"
+      },
+      {
+        "id": 22,
+        "name": "checked_add_uint32_t",
+        "c_symbol": "RXF_LEAF_CHECKED_ADD_UINT32_T",
+        "class": "checked",
+        "shape": "wwo"
+      },
+      {
+        "id": 23,
+        "name": "checked_subtract_uint32_t",
+        "c_symbol": "RXF_LEAF_CHECKED_SUBTRACT_UINT32_T",
+        "class": "checked",
+        "shape": "wwo"
+      },
+      {
+        "id": 24,
+        "name": "checked_multiply_uint32_t",
+        "c_symbol": "RXF_LEAF_CHECKED_MULTIPLY_UINT32_T",
+        "class": "checked",
+        "shape": "wwo"
+      },
+      {
+        "id": 25,
+        "name": "divide_uint32_t",
+        "c_symbol": "RXF_LEAF_DIVIDE_UINT32_T",
+        "class": "divrem",
+        "shape": "wwo"
+      },
+      {
+        "id": 26,
+        "name": "memory_copy",
+        "c_symbol": "RXF_LEAF_MEMORY_COPY",
+        "class": "mem",
+        "shape": "pqpqq"
+      },
+      {
+        "id": 27,
+        "name": "memory_compare",
+        "c_symbol": "RXF_LEAF_MEMORY_COMPARE",
+        "class": "mem",
+        "shape": "pqpqqo"
+      },
+      {
+        "id": 28,
+        "name": "memory_fill",
+        "c_symbol": "RXF_LEAF_MEMORY_FILL",
+        "class": "mem",
+        "shape": "pqbq"
+      },
+      {
+        "id": 29,
+        "name": "live_pump",
+        "c_symbol": "RXF_LEAF_LIVE_PUMP",
+        "class": "platform",
+        "shape": "p"
+      },
+      {
+        "id": 30,
+        "name": "uart_pump",
+        "c_symbol": "RXF_LEAF_UART_PUMP",
+        "class": "platform",
+        "shape": "p"
+      },
+      {
+        "id": 31,
+        "name": "compile_program",
+        "c_symbol": "RXF_LEAF_COMPILE_PROGRAM",
+        "class": "compile",
+        "shape": "none"
+      },
+      {
+        "id": 32,
+        "name": "wrapping_subtract_uint64_t",
+        "c_symbol": "RXF_LEAF_WRAPPING_SUBTRACT_UINT64_T",
+        "class": "arith",
+        "shape": "qqo"
+      },
+      {
+        "id": 33,
+        "name": "bit_and_uint64_t",
+        "c_symbol": "RXF_LEAF_BIT_AND_UINT64_T",
+        "class": "bitwise",
+        "shape": "qqo"
+      },
+      {
+        "id": 34,
+        "name": "bit_or_uint64_t",
+        "c_symbol": "RXF_LEAF_BIT_OR_UINT64_T",
+        "class": "bitwise",
+        "shape": "qqo"
+      },
+      {
+        "id": 35,
+        "name": "shift_left_uint64_t",
+        "c_symbol": "RXF_LEAF_SHIFT_LEFT_UINT64_T",
+        "class": "shift",
+        "shape": "qwo"
+      },
+      {
+        "id": 36,
+        "name": "shift_right_uint64_t",
+        "c_symbol": "RXF_LEAF_SHIFT_RIGHT_UINT64_T",
+        "class": "shift",
+        "shape": "qwo"
+      },
+      {
+        "id": 37,
+        "name": "equal_uint64_t",
+        "c_symbol": "RXF_LEAF_EQUAL_UINT64_T",
+        "class": "compare",
+        "shape": "qqo"
+      },
+      {
+        "id": 38,
+        "name": "safe_point",
+        "c_symbol": "RXF_LEAF_SAFE_POINT",
+        "class": "safety",
+        "shape": "p"
+      },
+      {
+        "id": 39,
+        "name": "wrapping_multiply_uint64_t",
+        "c_symbol": "RXF_LEAF_WRAPPING_MULTIPLY_UINT64_T",
+        "class": "arith",
+        "shape": "qqo"
+      },
+      {
+        "id": 40,
+        "name": "divide_uint64_t",
+        "c_symbol": "RXF_LEAF_DIVIDE_UINT64_T",
+        "class": "divrem",
+        "shape": "qqo"
+      },
+      {
+        "id": 41,
+        "name": "remainder_uint64_t",
+        "c_symbol": "RXF_LEAF_REMAINDER_UINT64_T",
+        "class": "divrem",
+        "shape": "qqo"
+      },
+      {
+        "id": 42,
+        "name": "divide_int64_t",
+        "c_symbol": "RXF_LEAF_DIVIDE_INT64_T",
+        "class": "divrem",
+        "shape": "qqo"
+      },
+      {
+        "id": 43,
+        "name": "remainder_int64_t",
+        "c_symbol": "RXF_LEAF_REMAINDER_INT64_T",
+        "class": "divrem",
+        "shape": "qqo"
+      },
+      {
+        "id": 44,
+        "name": "checked_multiply_uint64_t",
+        "c_symbol": "RXF_LEAF_CHECKED_MULTIPLY_UINT64_T",
+        "class": "checked",
+        "shape": "qqo"
+      },
+      {
+        "id": 45,
+        "name": "checked_multiply_int64_t",
+        "c_symbol": "RXF_LEAF_CHECKED_MULTIPLY_INT64_T",
+        "class": "checked",
+        "shape": "qqo"
+      },
+      {
+        "id": 46,
+        "name": "remainder_uint32_t",
+        "c_symbol": "RXF_LEAF_REMAINDER_UINT32_T",
+        "class": "divrem",
+        "shape": "wwo"
+      },
+      {
+        "id": 47,
+        "name": "divide_int32_t",
+        "c_symbol": "RXF_LEAF_DIVIDE_INT32_T",
+        "class": "divrem",
+        "shape": "wwo"
+      },
+      {
+        "id": 48,
+        "name": "remainder_int32_t",
+        "c_symbol": "RXF_LEAF_REMAINDER_INT32_T",
+        "class": "divrem",
+        "shape": "wwo"
+      }
+    ]
+  },
+  "rxfs": {
+    "extension": ".rxfs",
+    "scope_name": "source.rxfs",
+    "note": "the program language tools/native/rxfc.py compiles: 64-bit variables, every operator is a call of a leaf. The extension is .rxfs (the final name); pymergetic.rxf is the Python package and never a file extension",
+    "keywords": [
+      {
+        "group": "directive",
+        "scope": "keyword.control.directive.rxfs",
+        "words": [
+          "include",
+          "const"
+        ]
+      },
+      {
+        "group": "function",
+        "scope": "storage.type.function.rxfs",
+        "words": [
+          "program",
+          "proc",
+          "macro",
+          "fn"
+        ],
+        "note": "a declaration: the next name is the name of the function"
+      },
+      {
+        "group": "storage",
+        "scope": "storage.type.rxfs",
+        "words": [
+          "var"
+        ]
+      },
+      {
+        "group": "flow",
+        "scope": "keyword.control.flow.rxfs",
+        "words": [
+          "if",
+          "else",
+          "while",
+          "switch",
+          "case",
+          "default",
+          "break",
+          "continue",
+          "return",
+          "refuse"
+        ]
+      },
+      {
+        "group": "proc",
+        "scope": "keyword.control.proc.rxfs",
+        "words": [
+          "call",
+          "ret"
+        ]
+      }
+    ],
+    "precedence": [
+      [
+        "|"
+      ],
+      [
+        "&"
+      ],
+      [
+        "==",
+        "!="
+      ],
+      [
+        "<",
+        "<=",
+        ">",
+        ">="
+      ],
+      [
+        "<<",
+        ">>"
+      ],
+      [
+        "+",
+        "-"
+      ],
+      [
+        "*"
+      ]
+    ],
+    "operators": [
+      {
+        "token": "+",
+        "form": "binary",
+        "class": "arith",
+        "scope": "keyword.operator.arithmetic.rxfs",
+        "mapping": "one-to-one",
+        "leaves": [
+          "wrapping_add_uint64_t"
+        ],
+        "lowering": "BINARY['+'] of tools/native/rxfc.py: one CALL to the wrapping add leaf"
+      },
+      {
+        "token": "-",
+        "form": "binary",
+        "class": "arith",
+        "scope": "keyword.operator.arithmetic.rxfs",
+        "mapping": "one-to-one",
+        "leaves": [
+          "wrapping_subtract_uint64_t"
+        ],
+        "lowering": "BINARY['-']: one CALL to the wrapping subtract leaf"
+      },
+      {
+        "token": "-",
+        "form": "prefix",
+        "class": "arith",
+        "scope": "keyword.operator.arithmetic.rxfs",
+        "mapping": "desugared",
+        "leaves": [
+          "wrapping_subtract_uint64_t"
+        ],
+        "lowering": "unary minus is 0 - x (tools/native/rxfc.py unary())"
+      },
+      {
+        "token": "*",
+        "form": "binary",
+        "class": "shift",
+        "scope": "keyword.operator.shift.desugared.rxfs",
+        "mapping": "desugared",
+        "leaves": [
+          "shift_left_uint64_t"
+        ],
+        "lowering": "x * 2^k is x << k (and 2^k * x); a multiplier that is not a constant power of two is refused (`*` takes a constant power of two); two literals fold to one"
+      },
+      {
+        "token": "&",
+        "form": "binary",
+        "class": "bitwise",
+        "scope": "keyword.operator.bitwise.rxfs",
+        "mapping": "one-to-one",
+        "leaves": [
+          "bit_and_uint64_t"
+        ],
+        "lowering": "BINARY['&']: one CALL to the bit and leaf"
+      },
+      {
+        "token": "|",
+        "form": "binary",
+        "class": "bitwise",
+        "scope": "keyword.operator.bitwise.rxfs",
+        "mapping": "one-to-one",
+        "leaves": [
+          "bit_or_uint64_t"
+        ],
+        "lowering": "BINARY['|']: one CALL to the bit or leaf"
+      },
+      {
+        "token": "<<",
+        "form": "binary",
+        "class": "shift",
+        "scope": "keyword.operator.shift.rxfs",
+        "mapping": "one-to-one",
+        "leaves": [
+          "shift_left_uint64_t"
+        ],
+        "lowering": "BINARY['<<']: one CALL to the shift left leaf"
+      },
+      {
+        "token": ">>",
+        "form": "binary",
+        "class": "shift",
+        "scope": "keyword.operator.shift.rxfs",
+        "mapping": "one-to-one",
+        "leaves": [
+          "shift_right_uint64_t"
+        ],
+        "lowering": "BINARY['>>']: one CALL to the shift right leaf"
+      },
+      {
+        "token": "==",
+        "form": "binary",
+        "class": "compare",
+        "scope": "keyword.operator.comparison.rxfs",
+        "mapping": "one-to-one",
+        "leaves": [
+          "equal_uint64_t"
+        ],
+        "lowering": "BINARY['==']: one CALL to the equal leaf"
+      },
+      {
+        "token": "<",
+        "form": "binary",
+        "class": "compare",
+        "scope": "keyword.operator.comparison.rxfs",
+        "mapping": "one-to-one",
+        "leaves": [
+          "less_uint64_t"
+        ],
+        "lowering": "BINARY['<']: one CALL to the less leaf"
+      },
+      {
+        "token": "!=",
+        "form": "binary",
+        "class": "compare",
+        "scope": "keyword.operator.comparison.desugared.rxfs",
+        "mapping": "desugared",
+        "leaves": [
+          "equal_uint64_t"
+        ],
+        "lowering": "== (a, b) and then == (that, 0): two calls to the equal leaf"
+      },
+      {
+        "token": ">",
+        "form": "binary",
+        "class": "compare",
+        "scope": "keyword.operator.comparison.desugared.rxfs",
+        "mapping": "desugared",
+        "leaves": [
+          "less_uint64_t"
+        ],
+        "lowering": "< (b, a): the operands of the less leaf are swapped"
+      },
+      {
+        "token": "<=",
+        "form": "binary",
+        "class": "compare",
+        "scope": "keyword.operator.comparison.desugared.rxfs",
+        "mapping": "desugared",
+        "leaves": [
+          "less_uint64_t",
+          "equal_uint64_t"
+        ],
+        "lowering": "== (< (b, a), 0): the less leaf and then the equal leaf"
+      },
+      {
+        "token": ">=",
+        "form": "binary",
+        "class": "compare",
+        "scope": "keyword.operator.comparison.desugared.rxfs",
+        "mapping": "desugared",
+        "leaves": [
+          "less_uint64_t",
+          "equal_uint64_t"
+        ],
+        "lowering": "== (< (a, b), 0): the less leaf and then the equal leaf"
+      },
+      {
+        "token": "!",
+        "form": "prefix",
+        "class": "compare",
+        "scope": "keyword.operator.comparison.desugared.rxfs",
+        "mapping": "desugared",
+        "leaves": [
+          "equal_uint64_t"
+        ],
+        "lowering": "== (x, 0): one call to the equal leaf"
+      },
+      {
+        "token": "~",
+        "form": "prefix",
+        "class": "arith",
+        "scope": "keyword.operator.arithmetic.desugared.rxfs",
+        "mapping": "desugared",
+        "leaves": [
+          "wrapping_subtract_uint64_t"
+        ],
+        "lowering": "MASK - x (tools/native/rxfc.py unary()). The language has no leaf for bitwise not although RXF_LEAF_BIT_NOT_UINT64_T exists in the function table: this frontend never calls it"
+      },
+      {
+        "token": "=",
+        "form": "statement",
+        "class": "assignment",
+        "scope": "keyword.operator.assignment.rxfs",
+        "mapping": "none",
+        "leaves": [],
+        "lowering": "an assignment writes a slot (MOVE); no leaf is called"
+      }
+    ],
+    "builtins": [
+      {
+        "name": "load8",
+        "form": "call",
+        "class": "mem",
+        "mapping": "desugared",
+        "leaves": [
+          "memory_copy"
+        ],
+        "lowering": "a zeroed wide slot is filled and moved: memory_copy(wide, BIG, address, BIG, width) (tools/native/rxfc.py load())"
+      },
+      {
+        "name": "load16",
+        "form": "call",
+        "class": "mem",
+        "mapping": "desugared",
+        "leaves": [
+          "memory_copy"
+        ],
+        "lowering": "a zeroed wide slot is filled and moved: memory_copy(wide, BIG, address, BIG, width) (tools/native/rxfc.py load())"
+      },
+      {
+        "name": "load32",
+        "form": "call",
+        "class": "mem",
+        "mapping": "desugared",
+        "leaves": [
+          "memory_copy"
+        ],
+        "lowering": "a zeroed wide slot is filled and moved: memory_copy(wide, BIG, address, BIG, width) (tools/native/rxfc.py load())"
+      },
+      {
+        "name": "load64",
+        "form": "call",
+        "class": "mem",
+        "mapping": "desugared",
+        "leaves": [
+          "memory_copy"
+        ],
+        "lowering": "a zeroed wide slot is filled and moved: memory_copy(wide, BIG, address, BIG, width) (tools/native/rxfc.py load())"
+      },
+      {
+        "name": "store8",
+        "form": "call",
+        "class": "mem",
+        "mapping": "desugared",
+        "leaves": [
+          "memory_copy"
+        ],
+        "lowering": "memory_copy(address, BIG, wide, BIG, width) (tools/native/rxfc.py store())"
+      },
+      {
+        "name": "store16",
+        "form": "call",
+        "class": "mem",
+        "mapping": "desugared",
+        "leaves": [
+          "memory_copy"
+        ],
+        "lowering": "memory_copy(address, BIG, wide, BIG, width) (tools/native/rxfc.py store())"
+      },
+      {
+        "name": "store32",
+        "form": "call",
+        "class": "mem",
+        "mapping": "desugared",
+        "leaves": [
+          "memory_copy"
+        ],
+        "lowering": "memory_copy(address, BIG, wide, BIG, width) (tools/native/rxfc.py store())"
+      },
+      {
+        "name": "store64",
+        "form": "call",
+        "class": "mem",
+        "mapping": "desugared",
+        "leaves": [
+          "memory_copy"
+        ],
+        "lowering": "memory_copy(address, BIG, wide, BIG, width) (tools/native/rxfc.py store())"
+      },
+      {
+        "name": "put",
+        "form": "call",
+        "class": "mem",
+        "mapping": "desugared",
+        "leaves": [
+          "memory_copy",
+          "wrapping_add_uint64_t"
+        ],
+        "lowering": "a store of n bytes, then the pointer moves on by n: wrapping_add_uint64_t(pointer, n)"
+      },
+      {
+        "name": "copy",
+        "form": "call",
+        "class": "mem",
+        "mapping": "one-to-one",
+        "leaves": [
+          "memory_copy"
+        ],
+        "lowering": "one CALL to the memory copy leaf"
+      },
+      {
+        "name": "fill",
+        "form": "call",
+        "class": "mem",
+        "mapping": "one-to-one",
+        "leaves": [
+          "memory_fill"
+        ],
+        "lowering": "one CALL to the memory fill leaf"
+      }
+    ]
+  },
+  "rxfd": {
+    "extension": ".rxfd",
+    "scope_name": "text.xml.rxfd",
+    "note": "the delta documents: element names are type names, 'name' is the name of the object, nesting is the parent, and every other unprefixed attribute is a field of the type (core/xml/xml.hpp)",
+    "namespace": {
+      "prefix": "rxf",
+      "urn": "urn:pymergetic:rxf",
+      "elements": [
+        "ref",
+        "set",
+        "delete",
+        "entry"
+      ],
+      "attributes": [
+        "parent",
+        "kind",
+        "owner",
+        "mobility",
+        "generation",
+        "index",
+        "data"
+      ]
+    },
+    "elements": [
+      "ABI",
+      "ABISignature",
+      "ABIValueLocation",
+      "Alias",
+      "Architecture",
+      "Argument",
+      "AssociatedType",
+      "Bytes",
+      "Call",
+      "CanonicalOrderAuthority",
+      "CapabilityRequirement",
+      "Code",
+      "CompilerProvenance",
+      "Conformance",
+      "Enumerator",
+      "Environment",
+      "Feature",
+      "FeatureSet",
+      "Field",
+      "Function",
+      "GenericParameter",
+      "HashAuthority",
+      "HashStorageAuthority",
+      "ImplementationBinding",
+      "Import",
+      "Module",
+      "NumericContract",
+      "Parameter",
+      "RefusalEnrichment",
+      "RefusalMapping",
+      "RefusalMappingEntry",
+      "RefusalSet",
+      "RefusalVariant",
+      "Result",
+      "Role",
+      "RuntimeTarget",
+      "SemanticBlock",
+      "SemanticGraph",
+      "SemanticObject",
+      "SemanticOperation",
+      "SemanticValue",
+      "Signature",
+      "StdlibRecord",
+      "TaggedVariant",
+      "Template",
+      "Trait",
+      "TraitRequirement",
+      "Type",
+      "ValueReference",
+      "delta",
+      "entry",
+      "ref",
+      "uint32_t"
+    ],
+    "attributes": [
+      "abi",
+      "algorithm",
+      "align",
+      "alignment",
+      "architecture",
+      "argument_count",
+      "associated_type_count",
+      "association",
+      "binding_count",
+      "block_count",
+      "body",
+      "byte_count",
+      "callee",
+      "calling_convention",
+      "capacity_rule",
+      "case_count",
+      "category",
+      "chunk_count",
+      "class_count",
+      "code",
+      "compiler_major",
+      "condition_value",
+      "conforming_type",
+      "count",
+      "data",
+      "default_policy",
+      "destination_status",
+      "destination_type",
+      "effects",
+      "endianness",
+      "entry_block",
+      "entry_count",
+      "environment",
+      "feature_set",
+      "flags",
+      "form",
+      "format",
+      "function",
+      "generation_policy",
+      "implementation",
+      "index",
+      "input_type_count",
+      "input_value_count",
+      "intrinsic",
+      "kind",
+      "layer",
+      "lazy",
+      "literal_size",
+      "load_denominator",
+      "load_numerator",
+      "location_count",
+      "minimum_capacity",
+      "name",
+      "node_kind",
+      "object_id",
+      "offset",
+      "opcode",
+      "operation",
+      "operation_count",
+      "output_class",
+      "output_type",
+      "owner_block",
+      "owner_function",
+      "owner_operation",
+      "parameter",
+      "parameter_count",
+      "parameter_type_count",
+      "parent",
+      "passing",
+      "path",
+      "payload_field_count",
+      "pointee_type",
+      "policy",
+      "predecessor_count",
+      "preserve_identity",
+      "probe_policy",
+      "recipe_digest",
+      "refusal_set",
+      "register_bank",
+      "register_count",
+      "related_count",
+      "representation",
+      "representation_preserving",
+      "requirement",
+      "requirement_count",
+      "result_count",
+      "result_index",
+      "result_type",
+      "result_type_count",
+      "result_value_count",
+      "return_type",
+      "rights",
+      "role",
+      "runtime_target",
+      "seed",
+      "seed_policy",
+      "semantic_digest",
+      "semantic_index",
+      "semantic_version",
+      "signature",
+      "signed",
+      "size",
+      "source",
+      "source_status",
+      "source_type",
+      "stack_offset",
+      "status_value",
+      "successor_count",
+      "successor_map_count",
+      "supertrait_count",
+      "tag_value",
+      "target",
+      "target_field",
+      "target_object",
+      "termination_rule",
+      "terminator",
+      "terminator_value",
+      "tombstone_denominator",
+      "tombstone_numerator",
+      "trait",
+      "transform_authority",
+      "value",
+      "value_class",
+      "value_role",
+      "value_type",
+      "variant_count",
+      "version",
+      "via",
+      "visibility_policy",
+      "width",
+      "word_bits"
+    ],
+    "enums": [
+      {
+        "type": "AbiKind",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Aapcs64": 2,
+          "Sysv": 1,
+          "Wasm": 3
+        }
+      },
+      {
+        "type": "AbiPassing",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Borrowed": 4,
+          "Direct": 1,
+          "Function": 6,
+          "Mutable": 5,
+          "Pointer": 3,
+          "Stack": 2
+        }
+      },
+      {
+        "type": "AbiValueClass",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Float": 2,
+          "Integer": 1,
+          "Pointer": 3
+        }
+      },
+      {
+        "type": "AbiValueFlags",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": true,
+        "enumerators": {
+          "CallerOwned": 4,
+          "Synthetic": 1,
+          "WritesMemory": 2
+        }
+      },
+      {
+        "type": "AbiValueRole",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Argument": 2,
+          "HiddenContext": 1,
+          "Output": 3,
+          "Status": 4
+        }
+      },
+      {
+        "type": "ArchitectureKind",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Aarch64": 2,
+          "Wasm32": 3,
+          "X8664": 1
+        }
+      },
+      {
+        "type": "BindingKind",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Function": 1,
+          "Type": 2
+        }
+      },
+      {
+        "type": "CallingConvention",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "StatusOut": 1
+        }
+      },
+      {
+        "type": "CanonicalOrderPolicy",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "AscendingSlotIndex": 1
+        }
+      },
+      {
+        "type": "CapabilityKind",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Clock": 3,
+          "Console": 1,
+          "Environment": 7,
+          "File": 2,
+          "Network": 6,
+          "Platform": 8,
+          "Random": 5,
+          "Timer": 4
+        }
+      },
+      {
+        "type": "CapabilityRights",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": true,
+        "enumerators": {
+          "ClockMonotonic": 128,
+          "ClockWall": 256,
+          "Close": 64,
+          "ConsoleLog": 1,
+          "FileList": 32,
+          "FileOpen": 2,
+          "FileRead": 4,
+          "FileStat": 16,
+          "FileWrite": 8,
+          "NetworkConnect": 4096,
+          "NetworkListen": 8192,
+          "NetworkReceive": 32768,
+          "NetworkResolve": 2048,
+          "NetworkSend": 16384,
+          "Query": 65536,
+          "RandomFill": 1024,
+          "TimerSchedule": 512
+        }
+      },
+      {
+        "type": "CapacityRule",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "PowerOfTwo": 1
+        }
+      },
+      {
+        "type": "CodeFormat",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Bytecode": 3,
+          "Machine": 1,
+          "Wasm": 2
+        }
+      },
+      {
+        "type": "Effects",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": true,
+        "enumerators": {
+          "Allocate": 4,
+          "Host": 8,
+          "Read": 1,
+          "Time": 16,
+          "Write": 2
+        }
+      },
+      {
+        "type": "Endianness",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Little": 1
+        }
+      },
+      {
+        "type": "EnvironmentKind",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Bios": 3,
+          "Linux": 1,
+          "Uefi": 2,
+          "Wasm": 4
+        }
+      },
+      {
+        "type": "FeatureKind",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Baseline": 1
+        }
+      },
+      {
+        "type": "FunctionImplementation",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Capability": 3,
+          "Control": 5,
+          "Native": 2,
+          "Semantic": 1
+        }
+      },
+      {
+        "type": "FunctionLayer",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Application": 4,
+          "Core": 2,
+          "Library": 3,
+          "Platform": 1
+        }
+      },
+      {
+        "type": "GenerationPolicy",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Monotonic": 1
+        }
+      },
+      {
+        "type": "GenericParameterKind",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Type": 1
+        }
+      },
+      {
+        "type": "HashAlgorithm",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Fnv1a64": 1
+        }
+      },
+      {
+        "type": "HashRepresentation",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "U64Le": 1
+        }
+      },
+      {
+        "type": "Intrinsic",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Break": 6,
+          "Continue": 7,
+          "If": 1,
+          "Refuse": 8,
+          "Return": 5,
+          "Sequence": 4,
+          "Switch": 3,
+          "While": 2
+        }
+      },
+      {
+        "type": "NumericOperation",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "BitAnd": 17,
+          "BitNot": 16,
+          "BitOr": 18,
+          "BitXor": 19,
+          "CheckedAbsolute": 23,
+          "CheckedAdd": 5,
+          "CheckedMultiply": 11,
+          "CheckedNegate": 22,
+          "CheckedSubtract": 8,
+          "Convert": 24,
+          "Divide": 14,
+          "Equal": 1,
+          "Less": 2,
+          "Maximum": 4,
+          "Minimum": 3,
+          "Remainder": 15,
+          "SaturatingAdd": 7,
+          "SaturatingMultiply": 13,
+          "SaturatingSubtract": 10,
+          "ShiftLeft": 20,
+          "ShiftRight": 21,
+          "WrappingAdd": 6,
+          "WrappingMultiply": 12,
+          "WrappingSubtract": 9
+        }
+      },
+      {
+        "type": "NumericPolicy",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": true,
+        "enumerators": {
+          "ArithmeticShift": 64,
+          "DividendSign": 16,
+          "IeeeInfinity": 512,
+          "IeeeNan": 256,
+          "IeeeRounding": 128,
+          "IeeeSignedZero": 1024,
+          "RefuseDivisionByZero": 8,
+          "RefuseInexact": 4096,
+          "RefuseNonFinite": 2048,
+          "RefuseOutOfRange": 8192,
+          "RefuseOverflow": 1,
+          "RefuseShiftCount": 32,
+          "Saturate": 4,
+          "Wrap": 2
+        }
+      },
+      {
+        "type": "Opcode",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Allocate": 3,
+          "AppendBytes": 28,
+          "BeginPrivate": 1,
+          "Borrow": 38,
+          "CallCallback": 19,
+          "CanonicalOrder": 43,
+          "Cleanup": 10,
+          "Compare": 21,
+          "ConstructOption": 13,
+          "ConstructResult": 14,
+          "Copy": 4,
+          "EnrichRefusal": 31,
+          "FormatInteger": 27,
+          "Hash": 23,
+          "IterAdvance": 18,
+          "IterCondition": 16,
+          "IterInit": 15,
+          "IterProject": 17,
+          "Lookup": 44,
+          "MapRefusal": 30,
+          "MoveSlot": 42,
+          "Pin": 40,
+          "ProjectPayload": 12,
+          "Publish": 8,
+          "Read": 6,
+          "ReadTag": 11,
+          "ReleaseBorrow": 39,
+          "ReturnValue": 32,
+          "Rollback": 9,
+          "Search": 29,
+          "StoreField": 35,
+          "Unpin": 41,
+          "Utf8Boundary": 26,
+          "Utf8Validate": 25,
+          "Validate": 7,
+          "Write": 5
+        }
+      },
+      {
+        "type": "ProbePolicy",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Linear": 1
+        }
+      },
+      {
+        "type": "RefusalCode",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Alignment": 7,
+          "BorrowConflict": 10,
+          "CapabilityInvalid": 14,
+          "CapabilityRefused": 12,
+          "CapabilityUnavailable": 13,
+          "DivisionByZero": 2,
+          "Inexact": 5,
+          "InvalidUtf8": 8,
+          "NonFinite": 4,
+          "OutOfMemory": 9,
+          "OutOfRange": 6,
+          "Overflow": 1,
+          "Pinned": 11,
+          "ShiftCount": 3
+        }
+      },
+      {
+        "type": "RefusalPolicy",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Propagate": 1
+        }
+      },
+      {
+        "type": "RegisterBank",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Float": 2,
+          "Integer": 1,
+          "Local": 5,
+          "Return": 4,
+          "Stack": 3
+        }
+      },
+      {
+        "type": "SeedPolicy",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Fixed": 1
+        }
+      },
+      {
+        "type": "StdlibFlags",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": true,
+        "enumerators": {
+          "Native": 128,
+          "Semantic": 64,
+          "Standard": 32
+        }
+      },
+      {
+        "type": "StdlibKind",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Algorithm": 7,
+          "Collection": 5,
+          "Flow": 8,
+          "Heap": 3,
+          "Memory": 4,
+          "Text": 6
+        }
+      },
+      {
+        "type": "TerminationRule",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "EmptySlot": 1
+        }
+      },
+      {
+        "type": "Terminator",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Branch": 2,
+          "Goto": 1,
+          "Loop": 4,
+          "Refuse": 6,
+          "Return": 5,
+          "SwitchTag": 3
+        }
+      },
+      {
+        "type": "TraitRequirementKind",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Function": 1
+        }
+      },
+      {
+        "type": "ValueKind",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Bound": 4,
+          "Literal": 2,
+          "Object": 5,
+          "OperationResult": 3,
+          "Parameter": 1
+        }
+      },
+      {
+        "type": "VisibilityPolicy",
+        "source": "starter/pymergetic/rxf/kinds.xml",
+        "flags": false,
+        "enumerators": {
+          "Published": 1
+        }
+      },
+      {
+        "type": "AliasFlags",
+        "source": "starter/__init__.xml",
+        "flags": true,
+        "enumerators": {
+          "Reexport": 1
+        }
+      },
+      {
+        "type": "ModuleCategory",
+        "source": "starter/__init__.xml",
+        "flags": false,
+        "enumerators": {
+          "Application": 3,
+          "Library": 2,
+          "Schema": 1
+        }
+      },
+      {
+        "type": "ModuleFlags",
+        "source": "starter/__init__.xml",
+        "flags": true,
+        "enumerators": {
+          "Namespace": 1
+        }
+      },
+      {
+        "type": "Binding",
+        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "flags": false,
+        "enumerators": {
+          "Mandatory": 0,
+          "Optional": 1
+        }
+      },
+      {
+        "type": "FieldFlags",
+        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "flags": true,
+        "enumerators": {
+          "Mutable": 1,
+          "Optional": 2,
+          "Repeated": 4,
+          "Ref": 8,
+          "Children": 16,
+          "Inverse": 32
+        }
+      },
+      {
+        "type": "Form",
+        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "flags": false,
+        "enumerators": {
+          "Meta": 0,
+          "Void": 1,
+          "Bool": 2,
+          "Uint": 3,
+          "Sint": 4,
+          "Float": 5,
+          "Bytes": 6,
+          "Struct": 7,
+          "Union": 8,
+          "Enum": 9,
+          "Array": 10,
+          "Ref": 11,
+          "Function": 12,
+          "Control": 13,
+          "Expression": 14,
+          "Execution": 15,
+          "Reserved16": 16,
+          "Opaque": 17
+        }
+      },
+      {
+        "type": "Mobility",
+        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "flags": false,
+        "enumerators": {
+          "Movable": 0,
+          "Pinned": 1,
+          "Relocatable": 2
+        }
+      },
+      {
+        "type": "NodeKind",
+        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "flags": false,
+        "enumerators": {
+          "Root": 0,
+          "Group": 1,
+          "Namespace": 2,
+          "Card": 3,
+          "Type": 4,
+          "Field": 5,
+          "Fn": 6,
+          "Code": 7,
+          "Data": 8,
+          "Section": 10,
+          "Limit": 11,
+          "Import": 12,
+          "Export": 13,
+          "View": 14,
+          "Tool": 15,
+          "Blob": 16,
+          "Channel": 17,
+          "Transaction": 18,
+          "Module": 19,
+          "Enumerator": 20,
+          "Alias": 21
+        }
+      },
+      {
+        "type": "OwnerKind",
+        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "flags": false,
+        "enumerators": {
+          "System": 0,
+          "User": 1,
+          "Application": 2,
+          "Build": 3,
+          "Device": 4,
+          "External": 5,
+          "Shared": 6
+        }
+      },
+      {
+        "type": "RefKind",
+        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "flags": false,
+        "enumerators": {
+          "Call": 0,
+          "Data": 1,
+          "Entry": 2,
+          "Type": 3,
+          "Import": 4,
+          "Implementation": 5,
+          "Owner": 6
+        }
+      },
+      {
+        "type": "TypeFlags",
+        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "flags": true,
+        "enumerators": {
+          "Variable": 1,
+          "Signed": 2,
+          "SelfDescribing": 4,
+          "Bitset": 8
+        }
+      }
+    ],
+    "refusal_sets": [
+      {
+        "path": "pymergetic.rxf.foundation.StdlibRefusals",
+        "name": "StdlibRefusals",
+        "module": "pymergetic.rxf.foundation",
+        "variant_count": 11,
+        "variants": [
+          {
+            "name": "overflow",
+            "target": "@foundation.overflow",
+            "code": "@kinds.RefusalCode.Overflow"
+          },
+          {
+            "name": "division_by_zero",
+            "target": "@foundation.division_by_zero",
+            "code": "@kinds.RefusalCode.DivisionByZero"
+          },
+          {
+            "name": "shift_count",
+            "target": "@foundation.shift_count",
+            "code": "@kinds.RefusalCode.ShiftCount"
+          },
+          {
+            "name": "non_finite",
+            "target": "@foundation.non_finite",
+            "code": "@kinds.RefusalCode.NonFinite"
+          },
+          {
+            "name": "inexact",
+            "target": "@foundation.inexact",
+            "code": "@kinds.RefusalCode.Inexact"
+          },
+          {
+            "name": "out_of_range",
+            "target": "@foundation.out_of_range",
+            "code": "@kinds.RefusalCode.OutOfRange"
+          },
+          {
+            "name": "alignment",
+            "target": "@foundation.alignment",
+            "code": "@kinds.RefusalCode.Alignment"
+          },
+          {
+            "name": "invalid_utf8",
+            "target": "@foundation.invalid_utf8",
+            "code": "@kinds.RefusalCode.InvalidUtf8"
+          },
+          {
+            "name": "out_of_memory",
+            "target": "@foundation.out_of_memory",
+            "code": "@kinds.RefusalCode.OutOfMemory"
+          },
+          {
+            "name": "borrow_conflict",
+            "target": "@foundation.borrow_conflict",
+            "code": "@kinds.RefusalCode.BorrowConflict"
+          },
+          {
+            "name": "pinned",
+            "target": "@foundation.pinned",
+            "code": "@kinds.RefusalCode.Pinned"
+          }
+        ]
+      }
+    ],
+    "references": [
+      {
+        "attribute": "signature",
+        "applies_to": [
+          "Code",
+          "Function"
+        ],
+        "expected_kind": "Signature",
+        "shape": "path",
+        "resolves_to": "the Signature object the named function declares: the attribute of a Function names its own Signature, the attribute of a Code names the Signature the code was made for. An absolute path or a path that starts with '@', an alias of the enclosing Module"
+      },
+      {
+        "attribute": "refusal_set",
+        "applies_to": [
+          "CapabilityRequirement",
+          "SemanticGraph",
+          "SemanticOperation",
+          "Signature"
+        ],
+        "expected_kind": "RefusalSet",
+        "shape": "path",
+        "resolves_to": "a RefusalSet object (e.g. pymergetic.rxf.foundation.StdlibRefusals); its variants are RefusalVariant objects whose code is a RefusalCode. An absolute path or an '@' path like the rest"
+      },
+      {
+        "attribute": "rxf:parent",
+        "applies_to": [
+          "*"
+        ],
+        "expected_kind": "Module",
+        "shape": "path",
+        "resolves_to": "the Module that is the parent of a top-level element; only a top-level element names one (core/xml/xml.hpp). Without it the parent is the default parent of the document (its place in the tree), and without that the root"
+      }
+    ]
+  }
+}
