@@ -6,8 +6,17 @@ import enum
 import struct
 from typing import Any
 
-from pymergetic.rxf.core.arena import HANDLE_NONE, HANDLE_ROOT
-from pymergetic.rxf.core.kinds import Binding, NodeKind, RefKind
+from pymergetic.rxf.core.arena import (
+    BLOCK_INDEX,
+    BLOCK_NAMES,
+    CELL_ALIGN,
+    CELL_SIZE,
+    HANDLE_NONE,
+    HANDLE_ROOT,
+    KIND_BLOCK,
+    KIND_DEAD,
+)
+from pymergetic.rxf.core.kinds import Binding, Mobility, NodeKind, OwnerKind, RefKind
 from pymergetic.rxf.core.object import Image
 
 
@@ -19,8 +28,29 @@ def _word(words: type[enum.IntEnum], value: int) -> str:
         return str(value)
 
 
+def _state_word(names: tuple[str, ...], value: int) -> str:
+    """The name of a state word of ground.h (the core keeps these bits unnamed); an unknown value stays a number."""
+    return names[value] if value < len(names) else str(value)
+
+
 _NONE = HANDLE_NONE
 REFERRER_LIMIT = 200
+HEX_LIMIT = 4096  # payload bytes a hex dump shows before it is truncated
+
+# The state words of ground.h, six bits: provenance 1, disposition 2, cleanliness 1, mobility 2.
+_PROVENANCE = ("Runtime", "Image")
+_DISPOSITION = ("Retain", "Transient", "Tombstone")
+_CLEANLINESS = ("Clean", "Dirty")
+
+
+def _cell_kind(cell: dict[str, Any]) -> str:
+    """What a cell of the stream is: an object kind, a block name, or Dead."""
+    kind = int(cell["kind"])
+    if kind == KIND_BLOCK:
+        return {BLOCK_INDEX: "Index", BLOCK_NAMES: "Names"}.get(int(cell["block_kind"]), "Block")
+    if kind == KIND_DEAD:
+        return "Dead"
+    return _word(NodeKind, kind)
 
 
 class Inspector:
@@ -31,6 +61,8 @@ class Inspector:
         self._referrers: dict[int, list[tuple[int, str]]] | None = None
         self._slots: dict[int, list[int]] = {}
         self._uses: tuple[dict[int, list[int]], dict[int, list[int]]] | None = None
+        self._cells: list[dict[str, Any]] | None = None
+        self._cell_by_handle: dict[int, dict[str, Any]] | None = None
 
     # ---- navigation ----------------------------------------------------------------------------
 
@@ -203,3 +235,247 @@ class Inspector:
 
     def delta(self) -> str:
         return self.image.export()
+
+    # ---- the arena ------------------------------------------------------------------------------
+
+    def header(self) -> dict[str, Any]:
+        """The arena header decoded (ground.h): sizes, region offsets, and counts."""
+        return self.image.arena_header()
+
+    def cells(self) -> list[dict[str, Any]]:
+        """Every cell of the stream in order; cached, so the memory map and the details read one walk."""
+        if self._cells is None:
+            self._cells = self.image.arena_cells()
+        return self._cells
+
+    def _cells_by_handle(self) -> dict[int, dict[str, Any]]:
+        if self._cell_by_handle is None:
+            self._cell_by_handle = {
+                int(cell["handle"]): cell for cell in self.cells() if cell["handle"] is not None
+            }
+        return self._cell_by_handle
+
+    @staticmethod
+    def _regions(header: dict[str, Any]) -> list[dict[str, Any]]:
+        """The bands of the arena outside the cell stream. The name and index blocks are cells of
+        the stream and get their own colors; these bands label the rest."""
+        return [
+            {"name": "header", "start": 0, "end": header["header_size"]},
+            {"name": "index", "start": header["index_off"], "end": header["cells_off"]},
+            {"name": "cells", "start": header["cells_off"], "end": header["body_size"]},
+        ]
+
+    def memory(self, start: int | None = None, end: int | None = None, bins: int = 256) -> dict[str, Any]:
+        """The arena as bins for the memory map.
+
+        `start`/`end` narrow the view (the zoom); `bins` is the grid size, clamped to 16..4096. Each
+        bin carries its bytes by cell kind (`kinds`, `dominant_kind`) and its `occupancy`: payload
+        bytes over bin width, so cell headers, reference rows, and dead bytes leave the fill pale. A
+        bin names the object when exactly one live object reaches it (`path`/`handle`); otherwise
+        `dominant` is the object with the most bytes in it and `objects` counts the rest.
+        """
+        header = self.header()
+        body = max(int(header["body_size"]), 1)
+        lo = 0 if start is None else max(0, min(int(start), body - 1))
+        hi = body if end is None else max(lo + 1, min(int(end), body))
+        count = max(16, min(int(bins), 4096))
+        span = hi - lo
+        regions = self._regions(header)
+
+        def region_of(offset: int) -> str:
+            for band in regions:
+                if int(band["start"]) <= offset < int(band["end"]):
+                    return str(band["name"])
+            return "cells"
+
+        rows: list[dict[str, Any]] = [
+            {
+                "start": lo + i * span // count,
+                "end": lo + (i + 1) * span // count,
+                "region": region_of(lo + i * span // count),
+                "used": 0,
+                "payload": 0,
+                "count": 0,
+                "kinds": {},
+                "owners": {},
+            }
+            for i in range(count)
+        ]
+        kinds: dict[str, int] = {}
+        for cell in self.cells():
+            offset, size = int(cell["offset"]), int(cell["size"])
+            if size <= 0 or offset + size <= lo or offset >= hi:
+                continue
+            name = _cell_kind(cell)
+            handle = cell["handle"]
+            # A dead cell's payload is garbage left until compaction; only live and block payloads count.
+            live = handle is not None or int(cell["kind"]) == KIND_BLOCK
+            payload_start = offset + CELL_SIZE
+            payload_size = (int(cell["payload_size"]) + CELL_ALIGN - 1) // CELL_ALIGN * CELL_ALIGN
+            first = max(0, (max(offset, lo) - lo) * count // span)
+            last = min(count - 1, (max(offset + size - 1, lo) - lo) * count // span)
+            for index in range(first, last + 1):
+                row = rows[index]
+                row_lo, row_hi = int(row["start"]), int(row["end"])
+                used = max(0, min(offset + size, row_hi) - max(offset, row_lo))
+                if used == 0:
+                    continue
+                row["used"] = int(row["used"]) + used
+                row["count"] = int(row["count"]) + 1
+                row["kinds"][name] = int(row["kinds"].get(name, 0)) + used
+                kinds[name] = kinds.get(name, 0) + used
+                if live:
+                    row["payload"] = int(row["payload"]) + max(
+                        0, min(payload_start + payload_size, row_hi) - max(payload_start, row_lo)
+                    )
+                if handle is not None:
+                    row["owners"][int(handle)] = int(row["owners"].get(int(handle), 0)) + used
+        by_handle = self._cells_by_handle()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            width = max(1, int(row["end"]) - int(row["start"]))
+            owners: dict[int, int] = row.pop("owners")
+            ranked = sorted(owners.items(), key=lambda item: -int(item[1]))
+            dominant: dict[str, Any] | None = None
+            if ranked:
+                top = by_handle.get(ranked[0][0], {})
+                dominant = {
+                    "handle": ranked[0][0],
+                    "path": self.image.path(ranked[0][0]),
+                    "kind": _word(NodeKind, int(top.get("kind", 0))),
+                    "payload_size": top.get("payload_size"),
+                    "ref_count": top.get("ref_count"),
+                }
+            single = ranked[0][0] if len(ranked) == 1 else None
+            alone = by_handle.get(single, {}) if single is not None else {}
+            row["occupancy"] = min(1.0, int(row["payload"]) / width)
+            row["dominant_kind"] = (
+                max(row["kinds"], key=lambda name: int(row["kinds"][name])) if row["kinds"] else None
+            )
+            row["objects"] = len(ranked)
+            row["path"] = None if single is None else self.image.path(single)
+            row["handle"] = single
+            row["payload_size"] = alone.get("payload_size")
+            row["ref_count"] = alone.get("ref_count")
+            row["dominant"] = dominant
+            out.append(row)
+        return {
+            "arena": header,
+            "regions": regions,
+            "start": lo,
+            "end": hi,
+            "bins": out,
+            "kinds": kinds,
+        }
+
+    # ---- one object, decoded ----------------------------------------------------------------------
+
+    def _hex_rows(self, payload: bytes, slots: list[int]) -> dict[str, Any]:
+        """The payload as 16-byte rows: offset, hex bytes, ASCII gutter. The bytes inside a
+        reference slot the type layout declares (one handle, 8 bytes) are highlighted. A dump
+        shows at most HEX_LIMIT bytes and says so when it truncates."""
+        highlights: set[int] = set()
+        for slot in slots:
+            if slot + 8 <= len(payload):
+                highlights.update(range(slot, slot + 8))
+        shown = payload[:HEX_LIMIT]
+        rows: list[dict[str, Any]] = []
+        for offset in range(0, len(shown), 16):
+            chunk = shown[offset : offset + 16]
+            rows.append(
+                {
+                    "offset": offset,
+                    "bytes": [f"{byte:02x}" for byte in chunk],
+                    "ascii": "".join(chr(byte) if 32 <= byte < 127 else "." for byte in chunk),
+                    "highlighted": [offset + i in highlights for i in range(len(chunk))],
+                }
+            )
+        return {
+            "size": len(payload),
+            "displayed": len(shown),
+            "truncated": len(payload) > len(shown),
+            "rows": rows,
+        }
+
+    def detail(self, path: str) -> dict[str, Any]:
+        """The introspection of one object: the decoded cell and flags, the payload hex, every
+        reference row, and who points at the object (`used_by`: reference targets and roles,
+        handles in payloads, alias uses, the children that name it parent, the objects that name
+        it type). Read-only; every link is a path."""
+        image = self.image
+        handle = self.handle(path)
+        got = image.get(handle)
+        cell = self._cells_by_handle()[handle]
+        flags = int(cell["flags"])
+        kind = int(got["kind"])
+        state = int(got["state"])
+        owner = int(got["owner_kind"])
+        payload: bytes = got["payload"]
+        refs = [
+            {
+                "target": None if target == _NONE else image.path(target),
+                "target_handle": None if target == _NONE else target,
+                "role": None if role is None else image.path(role),
+                "role_handle": role,
+                "kind": _word(RefKind, ref_kind),
+                "binding": _word(Binding, binding),
+                "index": ref_index,
+            }
+            for target, role, ref_index, ref_kind, binding in got["refs"]
+        ]
+        used = self.referrers_of(handle)
+        # The two cell header links name an object too: a child's parent field points here, and so
+        # does the type field of every object of this type.
+        used = [
+            *used,
+            *(
+                {"path": image.path(child), "how": "parent"}
+                for child in image.children(handle)
+                if child != handle
+            ),
+            *(
+                {"path": image.path(int(cell["handle"])), "how": "type"}
+                for cell in self.cells()
+                if cell["handle"] is not None
+                and int(cell["handle"]) != handle
+                and int(cell["type"]) == handle
+            ),
+        ]
+        return {
+            "path": got["path"],
+            "name": got["name"],
+            "handle": handle,
+            "generation": got["generation"],
+            "kind": _word(NodeKind, kind),
+            "kind_value": kind,
+            "parent": None if got["parent"] == _NONE else image.path(got["parent"]),
+            "parent_handle": None if got["parent"] == _NONE else int(got["parent"]),
+            "type": None if got["type"] == _NONE else image.path(got["type"]),
+            "type_handle": None if got["type"] == _NONE else int(got["type"]),
+            "flags": {
+                "raw": flags,
+                "kind": _word(NodeKind, kind),
+                "owner": _word(OwnerKind, owner),
+                "state": {
+                    "value": state,
+                    "provenance": _state_word(_PROVENANCE, state & 0x1),
+                    "disposition": _state_word(_DISPOSITION, (state >> 1) & 0x3),
+                    "cleanliness": _state_word(_CLEANLINESS, (state >> 3) & 0x1),
+                    "mobility": _word(Mobility, (state >> 4) & 0x3),
+                },
+            },
+            "cell": {
+                "offset": cell["offset"],
+                "size": cell["size"],
+                "forward": cell["forward"],
+                "name_off": cell["name_off"],
+                "index": cell["index"],
+                "flags": flags,
+                "ref_count": cell["ref_count"],
+                "payload_size": cell["payload_size"],
+            },
+            "payload": self._hex_rows(payload, self._reference_slots(got["type"])),
+            "refs": refs,
+            "used_by": used[:REFERRER_LIMIT],
+            "used_by_count": len(used),
+        }

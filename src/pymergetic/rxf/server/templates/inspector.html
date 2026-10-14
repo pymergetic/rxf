@@ -4,96 +4,416 @@
 <meta charset="utf-8">
 <title>RXF inspector</title>
 <style>
-  body { margin: 0; font: 13px/1.4 system-ui, sans-serif; display: grid; grid-template-columns: 380px 1fr; height: 100vh; }
-  #side { overflow: auto; border-right: 1px solid #ccc; padding: 8px; }
-  #main { overflow: auto; padding: 12px 16px; }
-  header { padding: 4px 0 8px; border-bottom: 1px solid #ddd; margin-bottom: 6px; }
-  input { width: 100%; box-sizing: border-box; padding: 4px; }
-  ul { list-style: none; margin: 0; padding-left: 14px; }
-  li > span { cursor: pointer; white-space: nowrap; }
-  li > span:hover { background: #eef; }
-  .t { color: #888; margin-left: 6px; }
-  .bad { color: #b00; }
-  table { border-collapse: collapse; margin: 6px 0 14px; }
-  td, th { border: 1px solid #ddd; padding: 2px 8px; text-align: left; vertical-align: top; }
-  a { color: #05c; cursor: pointer; text-decoration: none; }
+  :root { color-scheme: light; --bg: #fff; --panel: #f6f7f9; --line: #d8dce1; --text: #1c2128; --muted: #6a737d; --accent: #05c; --hot: #b8860b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.4 system-ui, sans-serif; height: 100vh; display: grid; grid-template-rows: auto 1fr; background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  header b { white-space: nowrap; }
+  header .summary { margin-left: auto; color: var(--muted); }
+  button { background: #fff; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button:disabled { color: var(--muted); cursor: default; border-color: var(--line); }
+  #panes { min-height: 0; display: grid; grid-template-columns: minmax(260px, .8fr) minmax(360px, 1.2fr) minmax(340px, 1fr); }
+  .pane { min-width: 0; min-height: 0; overflow: auto; padding: 10px; }
+  .pane + .pane { border-left: 1px solid var(--line); }
+  h2 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  h3 { margin: 14px 0 6px; font-size: 12px; }
+  input { width: 100%; box-sizing: border-box; padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; }
+  ul { list-style: none; margin: 0; padding-left: 16px; }
+  #tree { padding-left: 0; }
+  .row { display: flex; align-items: center; min-width: 0; }
+  .twisty { width: 22px; min-width: 22px; border: 0; background: transparent; padding: 2px; color: var(--muted); }
+  .label { cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 2px 6px 2px 2px; border-radius: 4px; flex: 1; min-width: 0; }
+  .label:hover { background: #eef; }
+  .label.selected { background: #fff6d8; outline: 1px solid var(--hot); }
+  .t { color: var(--muted); margin-left: 6px; }
+  .more { color: var(--muted); padding: 2px 0; }
+  a { color: var(--accent); cursor: pointer; text-decoration: none; }
   a:hover { text-decoration: underline; }
   code { font: 12px ui-monospace, monospace; word-break: break-all; }
+  table { border-collapse: collapse; margin: 4px 0 10px; width: 100%; }
+  td, th { border: 1px solid var(--line); padding: 2px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  .badge { display: inline-block; padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 11px; }
+  .card { border: 1px solid var(--line); border-radius: 6px; margin-bottom: 12px; }
+  .card > h3 { margin: 0; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .card > .body { padding: 6px 8px; }
+  .legend, .bands { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 4px 0; color: var(--muted); }
+  .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
+  .chip i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; border: 1px solid var(--line); }
+  .band { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; padding: 2px 6px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel); }
+  .canvas-wrap { position: relative; height: calc(100% - 110px); min-height: 260px; border: 1px solid var(--line); border-radius: 6px; background: #fbfcfd; }
+  canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+  .tooltip { position: absolute; pointer-events: none; display: none; max-width: calc(100% - 12px); padding: 5px 8px; background: #21262d; color: #c9d1d9; border-radius: 4px; font-size: 11px; overflow-wrap: anywhere; z-index: 2; }
+  .status { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); pointer-events: none; }
+  .hex-dump { overflow: auto; max-height: 22rem; background: #fbfcfd; border: 1px solid var(--line); border-radius: 4px; padding: 6px; font: 12px/1.6 ui-monospace, monospace; }
+  .hex-row { display: grid; grid-template-columns: 6rem minmax(24rem, 1fr) 9rem; gap: 8px; white-space: pre; }
+  .hex-offset { color: var(--muted); }
+  .hex-byte { display: inline-block; width: 1.75rem; text-align: center; }
+  .hex-byte.hot { background: #fff6d8; outline: 1px solid var(--hot); border-radius: 2px; }
+  .hex-ascii { color: var(--muted); }
+  .note { color: var(--muted); margin: 4px 0; }
+  .bad { color: #b00; }
 </style>
 </head>
 <body>
-<div id="side">
-  <header><b>RXF</b> <span id="info"></span><br><input id="q" placeholder="search names"></header>
-  <div id="results"></div>
-  <ul id="tree"></ul>
+<header>
+  <b>RXF</b> <span id="info"></span>
+  <button id="reset" title="Show the whole arena again">Reset zoom</button>
+  <span class="summary" id="summary"></span>
+</header>
+<div id="panes">
+  <section class="pane">
+    <h2>Object tree</h2>
+    <input id="q" placeholder="search names">
+    <div id="results"></div>
+    <ul id="tree"></ul>
+  </section>
+  <section class="pane">
+    <h2>Memory map — arena cells by kind</h2>
+    <div class="legend" id="legend"></div>
+    <div class="bands" id="bands"></div>
+    <div class="canvas-wrap">
+      <canvas id="memory"></canvas>
+      <div class="tooltip" id="tooltip"></div>
+      <div class="status" id="status">Loading memory map…</div>
+    </div>
+  </section>
+  <section class="pane">
+    <h2>Selected object details</h2>
+    <div id="main"><p class="note">Select an object from the tree, search, or the memory map.</p></div>
+  </section>
 </div>
-<div id="main"><p>Select an object.</p></div>
 <script>
 const $ = (id) => document.getElementById(id);
 const get = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error(await r.text()); return r.json(); };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const hex = (n) => "0x" + Number(n).toString(16);
 const link = (path) => path === null ? "none" : `<a data-path="${esc(path)}">${esc(path || "(root)")}</a>`;
 
-async function expand(li, path) {
-  if (li.dataset.open) { li.querySelector("ul").remove(); delete li.dataset.open; return; }
-  const data = await get(`/api/children?path=${encodeURIComponent(path)}&limit=300`);
-  const ul = document.createElement("ul");
-  for (const c of data.items) ul.append(node(c));
-  if (data.total > data.items.length) {
-    const more = document.createElement("li");
-    more.textContent = `... ${data.total - data.items.length} more (use search)`;
-    ul.append(more);
+// One stable hue per cell kind: the same name always draws the same color.
+function kindColor(name) {
+  if (name === "Dead") return "#9aa1a9";
+  let h = 2166136261;
+  for (const c of String(name)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }
+  return `hsl(${h % 360} 55% 52%)`;
+}
+
+const canvas = $("memory"), ctx = canvas.getContext("2d"), tooltip = $("tooltip"), status = $("status");
+let memory = null, selected = null, view = { start: 0, end: 0 };
+const details = new Map();
+
+// ---- memory map -------------------------------------------------------------------------------
+
+async function loadMemory() {
+  status.textContent = "Loading memory map…";
+  status.hidden = false;
+  const bins = Math.max(64, Math.min(2048, Math.floor(canvas.clientWidth * devicePixelRatio)));
+  const q = new URLSearchParams({ bins: String(bins) });
+  if (view.end) { q.set("start", String(view.start)); q.set("end", String(view.end)); }
+  try {
+    memory = await get(`/api/memory?${q}`);
+    view.start = memory.start;
+    view.end = memory.end;
+    $("summary").textContent = `${hex(memory.arena.body_size)} arena · ${memory.start}–${memory.end} in view`;
+    status.hidden = true;
+    renderLegend();
+    renderBands();
+    draw();
+  } catch (error) {
+    status.textContent = `Memory map unavailable: ${error.message}`;
   }
-  li.append(ul);
-  li.dataset.open = "1";
+}
+
+function renderLegend() {
+  const kinds = Object.entries(memory.kinds).sort((a, b) => b[1] - a[1]);
+  $("legend").innerHTML =
+    `<span class="chip"><i style="background:#eef0f3"></i>no cells</span>` +
+    kinds.map(([name, bytes]) =>
+      `<span class="chip"><i style="background:${kindColor(name)}"></i>${esc(name)} <small>${bytes} B</small></span>`
+    ).join("");
+}
+
+function renderBands() {
+  const bands = memory.regions
+    .map((r) => ({ name: r.name, a: Math.max(r.start, memory.start), b: Math.min(r.end, memory.end) }))
+    .filter((r) => r.b > r.a);
+  $("bands").innerHTML = bands.map((r) =>
+    `<div class="band" style="flex:${r.b - r.a} 0 0" title="${esc(r.name)} ${hex(r.a)}–${hex(r.b)}">${esc(r.name)} ${hex(r.a)}–${hex(r.b)}</div>`
+  ).join("");
+}
+
+function draw() {
+  if (!memory) return;
+  const r = canvas.getBoundingClientRect(), d = devicePixelRatio;
+  canvas.width = Math.floor(r.width * d);
+  canvas.height = Math.floor(r.height * d);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const bins = memory.bins;
+  const cols = Math.max(8, Math.floor(Math.sqrt(bins.length * canvas.width / canvas.height)));
+  const rows = Math.ceil(bins.length / cols);
+  const cw = canvas.width / cols, ch = canvas.height / rows;
+  bins.forEach((b, i) => {
+    const x = (i % cols) * cw, y = Math.floor(i / cols) * ch;
+    ctx.fillStyle = b.count ? kindColor(b.dominant_kind) : "#eef0f3";
+    ctx.globalAlpha = b.count ? 0.25 + 0.75 * b.occupancy : 1;
+    ctx.fillRect(x + .5, y + .5, Math.max(1, cw - 1), Math.max(1, ch - 1));
+    if (b.region !== "cells") {
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = "#b0b6bd";
+      ctx.lineWidth = d;
+      ctx.strokeRect(x + .5, y + .5, cw - 1, ch - 1);
+    }
+    if (selected !== null && b.path === selected) {
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = "#b8860b";
+      ctx.lineWidth = 2 * d;
+      ctx.strokeRect(x + 1, y + 1, cw - 2, ch - 2);
+    }
+  });
+  ctx.globalAlpha = 1;
+  canvas._grid = { cols, rows, cw, ch };
+}
+
+function binAt(e) {
+  if (!memory || !canvas._grid) return null;
+  const r = canvas.getBoundingClientRect(), g = canvas._grid;
+  const x = (e.clientX - r.left) * devicePixelRatio, y = (e.clientY - r.top) * devicePixelRatio;
+  const i = Math.floor(y / g.ch) * g.cols + Math.floor(x / g.cw);
+  const bin = memory.bins[i];
+  return bin ? { bin, index: i, x: e.clientX - r.left, y: e.clientY - r.top } : null;
+}
+
+function tooltipText(bin) {
+  const range = `${hex(bin.start)}–${hex(bin.end)}`;
+  if (bin.path !== null) {
+    return `${range} · ${bin.path || "(root)"} · ${bin.dominant_kind} · payload ${bin.payload_size} B · ${bin.ref_count} refs`;
+  }
+  if (bin.dominant) {
+    return `${range} · dominant ${bin.dominant.path || "(root)"} (${bin.dominant.kind}) · ${bin.count} cells · ${bin.objects} objects · ${bin.used} B`;
+  }
+  return `${range} · ${bin.region} · ${bin.count} cells · ${bin.used} B used`;
+}
+
+function positionTooltip(e) {
+  const wrap = canvas.closest(".canvas-wrap"), bounds = wrap.getBoundingClientRect();
+  const margin = 6, offset = 12;
+  const cursorX = e.clientX - bounds.left, cursorY = e.clientY - bounds.top;
+  let x = cursorX + offset, y = cursorY + offset;
+  if (x + tooltip.offsetWidth > bounds.width - margin) x = cursorX - offset - tooltip.offsetWidth;
+  if (y + tooltip.offsetHeight > bounds.height - margin) y = cursorY - offset - tooltip.offsetHeight;
+  tooltip.style.left = `${Math.max(margin, Math.min(x, bounds.width - tooltip.offsetWidth - margin))}px`;
+  tooltip.style.top = `${Math.max(margin, Math.min(y, bounds.height - tooltip.offsetHeight - margin))}px`;
+}
+
+canvas.onmousemove = (e) => {
+  const hit = binAt(e);
+  if (!hit?.bin) return;
+  tooltip.textContent = tooltipText(hit.bin);
+  tooltip.style.display = "block";
+  positionTooltip(e);
+};
+canvas.onmouseleave = () => { tooltip.style.display = "none"; };
+canvas.onclick = (e) => {
+  const hit = binAt(e);
+  if (!hit?.bin) return;
+  const target = hit.bin.path !== null ? hit.bin.path : hit.bin.dominant?.path;
+  if (target !== undefined && target !== null) show(target);
+};
+canvas.ondblclick = (e) => {
+  const hit = binAt(e);
+  if (!hit || !memory) return;
+  const span = memory.end - memory.start;
+  const center = Math.floor(memory.start + (hit.index + 0.5) * span / memory.bins.length);
+  const next = Math.max(256, Math.floor(span / 4));
+  const start = Math.max(0, center - Math.floor(next / 2));
+  view = { start, end: Math.min(memory.arena.body_size, start + next) };
+  loadMemory();
+};
+$("reset").onclick = () => { view = { start: 0, end: 0 }; loadMemory(); };
+new ResizeObserver(() => memory && draw()).observe(canvas);
+
+// ---- object tree --------------------------------------------------------------------------------
+
+async function childrenOf(path) {
+  return get(`/api/children?path=${encodeURIComponent(path)}&limit=300`);
 }
 
 function node(c) {
   const li = document.createElement("li");
-  const span = document.createElement("span");
-  span.innerHTML = `${c.children ? "&#9656; " : "&nbsp;&nbsp; "}${esc(c.name)}<span class="t">${esc(c.type || "")}</span>`;
-  span.onclick = () => { show(c.path); if (c.children) expand(li, c.path); };
-  li.append(span);
+  const row = document.createElement("div");
+  row.className = "row";
+  const twisty = document.createElement("button");
+  twisty.className = "twisty";
+  twisty.textContent = c.children ? "▸" : "·";
+  twisty.disabled = !c.children;
+  twisty.title = c.children ? `expand ${c.name}` : `${c.name} has no children`;
+  twisty.onclick = async (e) => {
+    e.stopPropagation();
+    const ul = await ensure(li, c.path);
+    const open = ul.hidden;
+    ul.hidden = !open;
+    twisty.textContent = open ? "▾" : "▸";
+  };
+  const label = document.createElement("span");
+  label.className = "label";
+  label.dataset.path = c.path;
+  label.innerHTML = `${esc(c.name)}<span class="t">${esc(c.type || "")}</span>`;
+  label.onclick = () => show(c.path);
+  row.append(twisty, label);
+  li.append(row);
   return li;
 }
 
-async function show(path) {
-  const o = await get(`/api/object?path=${encodeURIComponent(path)}`);
-  const rows = (items, f) => items.map(f).join("");
-  $("main").innerHTML = `
-    <h3>${esc(o.path || "(root)")}</h3>
-    <table>
-      <tr><th>type</th><td>${o.type_path ? link(o.type_path) : "none"}</td></tr>
-      <tr><th>kind</th><td>${esc(o.kind)}</td></tr>
-      <tr><th>parent</th><td>${o.parent === null ? "none" : link(o.parent)}</td></tr>
-      <tr><th>handle</th><td>${o.handle}</td></tr>
-      <tr><th>payload</th><td>${o.payload_size} bytes</td></tr>
-    </table>
-    <h4>fields</h4>
-    <table>${rows(o.fields, (f) => `<tr><td>${esc(f.name)}</td><td><code>${esc(f.value)}</code></td></tr>`) || "<tr><td>none</td></tr>"}</table>
-    <h4>refs</h4>
-    <table>${rows(o.refs, (r) => `<tr><td>${esc(r.kind)}</td><td>${r.role ? link(r.role) : ""}${r.index ? `[${r.index}]` : ""}</td><td>${esc(r.binding)}</td><td>${link(r.target)}</td></tr>`) || "<tr><td>none</td></tr>"}</table>
-    ${o.members.map((m) => `<h4>${esc(m.field)} (${m.count})</h4><table>${rows(m.paths, (p, i) => `<tr><td>${i}</td><td>${link(p)}</td></tr>`)}</table>`).join("")}
-    ${o.aliases.length ? `<h4>written with</h4><table>${rows(o.aliases, (a) => `<tr><td>alias</td><td>${link(a)}</td></tr>`)}</table>` : ""}
-    <h4>used by</h4>
-    <table>${rows(o.referrers, (r) => `<tr><td>${esc(r.how)}</td><td>${link(r.path)}</td></tr>`) || "<tr><td>none</td></tr>"}</table>
-    ${o.referrer_count > o.referrers.length ? `<p>... ${o.referrer_count - o.referrers.length} more</p>` : ""}`;
+async function ensure(li, path) {
+  let ul = li.querySelector(":scope > ul");
+  if (!ul) {
+    ul = document.createElement("ul");
+    ul.hidden = true;
+    li.append(ul);
+    const data = await childrenOf(path);
+    for (const c of data.items) ul.append(node(c));
+    if (data.total > data.items.length) {
+      const more = document.createElement("li");
+      more.className = "more";
+      more.textContent = `... ${data.total - data.items.length} more (use search)`;
+      ul.append(more);
+    }
+  }
+  return ul;
 }
 
-document.addEventListener("click", (e) => { const a = e.target.closest("a[data-path]"); if (a) show(a.dataset.path); });
+function rowOf(path) {
+  return document.querySelector(`#tree .label[data-path="${CSS.escape(path)}"]`);
+}
+
+function markTree(path) {
+  document.querySelectorAll("#tree .label.selected").forEach((el) => el.classList.remove("selected"));
+  const label = rowOf(path);
+  if (label) {
+    label.classList.add("selected");
+    label.scrollIntoView({ block: "nearest" });
+  }
+}
+
+// Opens every ancestor of `path` so the row is in the tree (like the old selectNode).
+async function reveal(path) {
+  const chain = [];
+  let cur = path;
+  while (cur !== null) {
+    chain.unshift(cur);
+    if (cur === "") break;
+    cur = (await detail(cur)).parent;
+  }
+  for (let i = 1; i < chain.length - 1; i++) {
+    const li = rowOf(chain[i])?.closest("li");
+    if (!li) return false;
+    (await ensure(li, chain[i])).hidden = false;
+    const twisty = li.querySelector(":scope > .row > .twisty");
+    if (twisty) twisty.textContent = "▾";
+  }
+  return rowOf(path) !== null;
+}
+
+// ---- details -------------------------------------------------------------------------------------
+
+async function detail(path) {
+  if (!details.has(path)) details.set(path, await get(`/api/detail?path=${encodeURIComponent(path)}`));
+  return details.get(path);
+}
+
+function hexDump(payload) {
+  const rows = payload.rows.map((row) => {
+    const bytes = row.bytes.map((b, i) => `<span class="hex-byte${row.highlighted[i] ? " hot" : ""}">${b}</span>`).join("");
+    return `<div class="hex-row"><span class="hex-offset">${row.offset.toString(16).padStart(8, "0")}</span><span>${bytes}</span><span class="hex-ascii">${esc(row.ascii)}</span></div>`;
+  }).join("");
+  return `
+    <div class="note">offset · hex bytes · ASCII — highlighted bytes are reference slots (handles) the type layout declares</div>
+    ${payload.truncated ? `<div class="note bad">truncated: ${payload.displayed} of ${payload.size} bytes shown</div>` : ""}
+    <div class="hex-dump">${rows || '<div class="note">empty payload</div>'}</div>`;
+}
+
+function renderDetail(d) {
+  const f = d.flags, s = f.state, c = d.cell;
+  const refs = d.refs.map((r, i) => `<tr>
+      <td>${i}</td><td>${esc(r.kind)}</td>
+      <td>${r.role === null ? "—" : link(r.role)}</td>
+      <td>${r.index}</td><td>${esc(r.binding)}</td>
+      <td>${r.target === null ? `<code>none #${r.target_handle}</code>` : link(r.target)}</td>
+    </tr>`).join("");
+  const used = d.used_by.map((u) => `<tr><td>${esc(u.how)}</td><td>${link(u.path)}</td></tr>`).join("");
+  $("main").innerHTML = `
+    <h3>${esc(d.path || "(root)")}</h3>
+    <table>
+      <tr><th>handle</th><td><code>#${d.handle}</code> · index ${d.handle} · generation ${d.generation}</td></tr>
+      <tr><th>kind</th><td><span class="badge">${esc(d.kind)}</span> (${d.kind_value})</td></tr>
+      <tr><th>name</th><td><code>${esc(d.name)}</code></td></tr>
+      <tr><th>type</th><td>${d.type === null ? "none" : link(d.type)}</td></tr>
+      <tr><th>parent</th><td>${d.parent === null ? "none" : link(d.parent)}</td></tr>
+    </table>
+    <div class="card"><h3>Flags</h3><div class="body">
+      <table>
+        <tr><th>raw</th><td><code>${hex(f.raw)}</code></td></tr>
+        <tr><th>kind</th><td>${esc(f.kind)} (${d.kind_value})</td></tr>
+        <tr><th>state</th><td>${esc(s.provenance)} · ${esc(s.disposition)} · ${esc(s.cleanliness)} · ${esc(s.mobility)} <span class="t">raw ${s.value} (${hex(s.value)})</span></td></tr>
+        <tr><th>owner</th><td>${esc(f.owner)}</td></tr>
+      </table>
+    </div></div>
+    <div class="card"><h3>Cell</h3><div class="body">
+      <table>
+        <tr><th>offset</th><td><code>${hex(c.offset)}</code></td><th>size</th><td>${c.size} B</td></tr>
+        <tr><th>payload</th><td>${c.payload_size} B</td><th>refs</th><td>${c.ref_count}</td></tr>
+        <tr><th>name at</th><td><code>${c.name_off ? hex(c.name_off) : "—"}</code></td><th>forward</th><td><code>${c.forward ? hex(c.forward) : "—"}</code></td></tr>
+        <tr><th>index</th><td>${c.index}</td><th>flags</th><td><code>${hex(c.flags)}</code></td></tr>
+      </table>
+    </div></div>
+    <div class="card"><h3>Payload — ${d.payload.size} bytes</h3><div class="body">${hexDump(d.payload)}</div></div>
+    <div class="card"><h3>References — ${d.refs.length}</h3><div class="body">
+      <table>${refs ? `<tr><th>#</th><th>kind</th><th>role</th><th>index</th><th>binding</th><th>target</th></tr>${refs}` : '<tr><td>none</td></tr>'}</table>
+    </div></div>
+    <div class="card"><h3>Used by — ${d.used_by_count}</h3><div class="body">
+      <table>${used ? `<tr><th>how</th><th>object</th></tr>${used}` : '<tr><td>none</td></tr>'}</table>
+      ${d.used_by_count > d.used_by.length ? `<p class="note">... ${d.used_by_count - d.used_by.length} more</p>` : ""}
+    </div></div>`;
+}
+
+async function show(path) {
+  let d;
+  try {
+    d = await detail(path);
+  } catch (error) {
+    $("main").innerHTML = `<div class="note bad">Could not load ${esc(path || "(root)")}\n${esc(error.message)}</div>`;
+    return;
+  }
+  selected = path;
+  renderDetail(d);
+  markTree(path);
+  reveal(path).then(() => markTree(path)).catch(() => {});
+  draw();
+}
+
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("a[data-path]");
+  if (a) show(a.dataset.path);
+});
+
+// ---- search and start ------------------------------------------------------------------------------
 
 $("q").addEventListener("input", async (e) => {
   const q = e.target.value.trim();
   if (!q) { $("results").innerHTML = ""; return; }
   const found = await get(`/api/search?q=${encodeURIComponent(q)}&limit=50`);
-  $("results").innerHTML = found.map((f) => `<div>${link(f.path)}<span class="t">${esc(f.type || "")}</span></div>`).join("");
+  $("results").innerHTML = found
+    .map((f) => `<div>${link(f.path)}<span class="t">${esc(f.type || "")}</span></div>`)
+    .join("");
 });
 
 (async () => {
   const info = await get("/api/info");
   $("info").innerHTML = `${info.objects} objects, ${info.issue_count ? `<span class="bad">${info.issue_count} problems</span>` : "links"}<br><code>${info.digest.slice(0, 16)}</code>`;
-  const root = await get("/api/children?path=");
+  const root = await childrenOf("");
   for (const c of root.items) $("tree").append(node(c));
+  loadMemory();
 })();
 </script>
 </body>

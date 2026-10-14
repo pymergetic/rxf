@@ -18,6 +18,11 @@ void bind_arena(nb::module_ &m) {
     m.attr("REF_SIZE") = sizeof(pymergetic_rxf_ref);
     m.attr("TYPE_SIZE") = sizeof(pymergetic_rxf_type);
     m.attr("FIELD_SIZE") = sizeof(pymergetic_rxf_field);
+    m.attr("KIND_BLOCK") = PYMERGETIC_RXF_KIND_BLOCK;
+    m.attr("KIND_DEAD") = PYMERGETIC_RXF_KIND_DEAD;
+    m.attr("BLOCK_INDEX") = PYMERGETIC_RXF_BLOCK_INDEX;
+    m.attr("BLOCK_NAMES") = PYMERGETIC_RXF_BLOCK_NAMES;
+    m.attr("NAME_BLOCK_PAYLOAD") = PYMERGETIC_RXF_NAME_BLOCK_PAYLOAD;
     // The constructor registers the exception type with nanobind and the module.
     [[maybe_unused]] nb::exception<ArenaError> error(m, "ArenaError", PyExc_RuntimeError);
 }

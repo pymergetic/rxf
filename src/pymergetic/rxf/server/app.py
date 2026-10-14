@@ -43,6 +43,16 @@ def create_app(image: Image) -> FastAPI:
     def obj(path: str) -> dict[str, Any]:
         return found(inspector.object, path)
 
+    def detail(path: str) -> dict[str, Any]:
+        return found(inspector.detail, path)
+
+    def memory(
+        start: int | None = None,
+        end: int | None = None,
+        bins: int = 256,
+    ) -> dict[str, Any]:
+        return inspector.memory(start, end, bins)
+
     def search(
         q: str = Query(min_length=1), limit: int = Query(100, ge=1, le=1000)
     ) -> list[dict[str, Any]]:
@@ -55,6 +65,8 @@ def create_app(image: Image) -> FastAPI:
     app.get("/api/info")(info)
     app.get("/api/children")(children)
     app.get("/api/object")(obj)
+    app.get("/api/detail")(detail)
+    app.get("/api/memory")(memory)
     app.get("/api/search")(search)
     app.get("/api/delta")(delta)
     return app
