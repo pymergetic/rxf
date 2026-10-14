@@ -43,6 +43,16 @@ OUTPUTS = frozenset(
         "shift_left_uint64_t",
         "shift_right_uint64_t",
         "equal_uint64_t",
+        "wrapping_multiply_uint64_t",
+        "checked_multiply_uint64_t",
+        "checked_multiply_int64_t",
+        "divide_uint64_t",
+        "remainder_uint64_t",
+        "divide_int64_t",
+        "remainder_int64_t",
+        "remainder_uint32_t",
+        "divide_int32_t",
+        "remainder_int32_t",
     }
 )
 

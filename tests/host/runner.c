@@ -55,6 +55,16 @@ rxf_u32 rxf_checked_add_uint32_t(rxf_u32, rxf_u32, rxf_u32 *);
 rxf_u32 rxf_checked_subtract_uint32_t(rxf_u32, rxf_u32, rxf_u32 *);
 rxf_u32 rxf_checked_multiply_uint32_t(rxf_u32, rxf_u32, rxf_u32 *);
 rxf_u32 rxf_divide_uint32_t(rxf_u32, rxf_u32, rxf_u32 *);
+rxf_u32 rxf_remainder_uint32_t(rxf_u32, rxf_u32, rxf_u32 *);
+rxf_u32 rxf_divide_int32_t(rxf_i32, rxf_i32, rxf_i32 *);
+rxf_u32 rxf_remainder_int32_t(rxf_i32, rxf_i32, rxf_i32 *);
+rxf_u32 rxf_wrapping_multiply_uint64_t(rxf_u64, rxf_u64, rxf_u64 *);
+rxf_u32 rxf_checked_multiply_uint64_t(rxf_u64, rxf_u64, rxf_u64 *);
+rxf_u32 rxf_divide_uint64_t(rxf_u64, rxf_u64, rxf_u64 *);
+rxf_u32 rxf_remainder_uint64_t(rxf_u64, rxf_u64, rxf_u64 *);
+rxf_u32 rxf_checked_multiply_int64_t(rxf_i64, rxf_i64, rxf_i64 *);
+rxf_u32 rxf_divide_int64_t(rxf_i64, rxf_i64, rxf_i64 *);
+rxf_u32 rxf_remainder_int64_t(rxf_i64, rxf_i64, rxf_i64 *);
 /* The safe point of compiled code (native/safe.c). */
 rxf_u32 rxf_safe_point(rxf_runtime_context *, void *);
 
@@ -62,7 +72,7 @@ rxf_u32 rxf_safe_point(rxf_runtime_context *, void *);
  * run at a time in a process; the tests are one run at a time. */
 static struct {
     rxf_runtime_context context;
-    rxf_native_slot functions[40];
+    rxf_native_slot functions[48];
     rxf_native_slot capabilities[1];
     rxf_object_entry objects[1];
     rxf_u8 area[RXF_HOST_AREA_BYTES];
@@ -119,6 +129,16 @@ void rxf_host_init(void) {
         {RXF_LEAF_CHECKED_SUBTRACT_UINT32_T, (void *)rxf_checked_subtract_uint32_t},
         {RXF_LEAF_CHECKED_MULTIPLY_UINT32_T, (void *)rxf_checked_multiply_uint32_t},
         {RXF_LEAF_DIVIDE_UINT32_T, (void *)rxf_divide_uint32_t},
+        {RXF_LEAF_REMAINDER_UINT32_T, (void *)rxf_remainder_uint32_t},
+        {RXF_LEAF_DIVIDE_INT32_T, (void *)rxf_divide_int32_t},
+        {RXF_LEAF_REMAINDER_INT32_T, (void *)rxf_remainder_int32_t},
+        {RXF_LEAF_WRAPPING_MULTIPLY_UINT64_T, (void *)rxf_wrapping_multiply_uint64_t},
+        {RXF_LEAF_CHECKED_MULTIPLY_UINT64_T, (void *)rxf_checked_multiply_uint64_t},
+        {RXF_LEAF_CHECKED_MULTIPLY_INT64_T, (void *)rxf_checked_multiply_int64_t},
+        {RXF_LEAF_DIVIDE_UINT64_T, (void *)rxf_divide_uint64_t},
+        {RXF_LEAF_REMAINDER_UINT64_T, (void *)rxf_remainder_uint64_t},
+        {RXF_LEAF_DIVIDE_INT64_T, (void *)rxf_divide_int64_t},
+        {RXF_LEAF_REMAINDER_INT64_T, (void *)rxf_remainder_int64_t},
         {RXF_LEAF_RUNTIME_HASH_MAP_LOOKUP, (void *)rxf_runtime_hash_map_lookup},
         {RXF_LEAF_RUNTIME_HASH_SET_LOOKUP, (void *)rxf_runtime_hash_set_lookup},
         {RXF_LEAF_RUNTIME_BEGIN_PRIVATE, (void *)rxf_runtime_begin_private},

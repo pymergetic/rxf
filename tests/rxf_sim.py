@@ -106,6 +106,92 @@ def _leaf_equal(args, memory):
 def _leaf_less(args, memory):
     return 0, int(args[0] < args[1])
 
+# The multiply, divide and remainder leaves of native/graph.h, as native/basics.c has them: a
+# division by zero refuses 2 (DIVISION_BY_ZERO), the signed forms refuse 1 (OVERFLOW) at
+# INT_MIN / -1, the checked multiplies refuse 1 where the product leaves the type, the
+# wrapping multiply wraps, and the signed division and remainder truncate toward zero.
+REFUSE_OVERFLOW = 1
+REFUSE_DIVISION_BY_ZERO = 2
+
+
+def _signed(value: int, width: int) -> int:
+    value &= (1 << width) - 1
+    return value - (1 << width) if value >> (width - 1) else value
+
+
+def _leaf_multiply_wrapping_uint64_t(args, memory):
+    return 0, (args[0] * args[1]) & MASK
+
+
+def _leaf_checked_multiply_uint64_t(args, memory):
+    product = args[0] * args[1]
+    return (REFUSE_OVERFLOW, 0) if product > MASK else (0, product)
+
+
+def _leaf_checked_multiply_int64_t(args, memory):
+    product = _signed(args[0], 64) * _signed(args[1], 64)
+    if not (-(1 << 63) <= product < (1 << 63)):
+        return REFUSE_OVERFLOW, 0
+    return 0, product & MASK
+
+
+def _divide(width: int, signed: bool, args):
+    mask = (1 << width) - 1
+    low = -(1 << (width - 1)) if signed else 0
+    a = _signed(args[0], width) if signed else args[0] & mask
+    b = _signed(args[1], width) if signed else args[1] & mask
+    if b == 0:
+        return REFUSE_DIVISION_BY_ZERO, 0
+    if signed and a == low and b == -1:
+        return REFUSE_OVERFLOW, 0
+    quotient = abs(a) // abs(b)
+    if (a < 0) != (b < 0):
+        quotient = -quotient
+    return 0, quotient & mask
+
+
+def _remainder(width: int, signed: bool, args):
+    mask = (1 << width) - 1
+    low = -(1 << (width - 1)) if signed else 0
+    a = _signed(args[0], width) if signed else args[0] & mask
+    b = _signed(args[1], width) if signed else args[1] & mask
+    if b == 0:
+        return REFUSE_DIVISION_BY_ZERO, 0
+    if signed and a == low and b == -1:
+        return REFUSE_OVERFLOW, 0
+    quotient = abs(a) // abs(b)
+    if (a < 0) != (b < 0):
+        quotient = -quotient
+    return 0, (a - quotient * b) & mask
+
+
+def _leaf_divide_uint64_t(args, memory):
+    return _divide(64, False, args)
+
+
+def _leaf_remainder_uint64_t(args, memory):
+    return _remainder(64, False, args)
+
+
+def _leaf_divide_int64_t(args, memory):
+    return _divide(64, True, args)
+
+
+def _leaf_remainder_int64_t(args, memory):
+    return _remainder(64, True, args)
+
+
+def _leaf_remainder_uint32_t(args, memory):
+    return _remainder(32, False, args)
+
+
+def _leaf_divide_int32_t(args, memory):
+    return _divide(32, True, args)
+
+
+def _leaf_remainder_int32_t(args, memory):
+    return _remainder(32, True, args)
+
 def _leaf_memory_copy(args, memory):
     dst, dst_len, src, src_len, count = args
     if count > dst_len or count > src_len:
@@ -130,6 +216,16 @@ LEAF_RUN = {
     LEAF["shift_right_uint64_t"]: _leaf_shift_right,
     LEAF["equal_uint64_t"]: _leaf_equal,
     LEAF["less_uint64_t"]: _leaf_less,
+    LEAF["wrapping_multiply_uint64_t"]: _leaf_multiply_wrapping_uint64_t,
+    LEAF["checked_multiply_uint64_t"]: _leaf_checked_multiply_uint64_t,
+    LEAF["checked_multiply_int64_t"]: _leaf_checked_multiply_int64_t,
+    LEAF["divide_uint64_t"]: _leaf_divide_uint64_t,
+    LEAF["remainder_uint64_t"]: _leaf_remainder_uint64_t,
+    LEAF["divide_int64_t"]: _leaf_divide_int64_t,
+    LEAF["remainder_int64_t"]: _leaf_remainder_int64_t,
+    LEAF["remainder_uint32_t"]: _leaf_remainder_uint32_t,
+    LEAF["divide_int32_t"]: _leaf_divide_int32_t,
+    LEAF["remainder_int32_t"]: _leaf_remainder_int32_t,
     LEAF["memory_copy"]: _leaf_memory_copy,
     LEAF["memory_fill"]: _leaf_memory_fill,
 }

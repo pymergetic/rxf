@@ -28,14 +28,14 @@ from .wasm import module_of
 BASE = scenario.BASE
 CONTEXT = BASE
 OBJECTS = BASE + 0x100
-FUNCTIONS = BASE + 0x400
 ARGS = BASE + 0x800
 OUT = BASE + 0x900
 HEAP = BASE + 0x1000
 HEAP_SIZE = 0x1000
 REQUEST = BASE + 0xB00  # what the compiler is asked
 TINY_REQUEST = BASE + 0xC00  # the compiler that is a program
-TABLE = BASE + 0x2000  # its table of the leaves
+FUNCTIONS = BASE + 0x2000  # the function table of a run
+TABLE = BASE + 0x2800  # its table of the leaves
 PROGRAM_AT = BASE + 0x4000
 PROGRAM_BYTES = 0x100000
 DATA = BASE + 0x110000
@@ -62,7 +62,7 @@ class Result:
 
 def head(program: bytes, args: bytes, slots: list[tuple[int, int]]) -> bytes:
     """Everything below ``DATA``: context, the object of the program, function table, arguments."""
-    assert len(program) <= PROGRAM_BYTES and len(slots) * 24 <= 0x400
+    assert len(program) <= PROGRAM_BYTES and len(slots) * 24 <= 0x800
     data = bytearray(DATA - BASE)
 
     def put(address: int, content: bytes) -> None:

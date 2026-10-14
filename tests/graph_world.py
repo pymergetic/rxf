@@ -50,9 +50,9 @@ HEAP = BASE + 0x6000
 HEAP_SIZE = 0x2000
 FUNCTIONS = BASE + SIZE  # behind the compared memory
 HANDLE_COPY = (
-    BASE + SIZE + 0x200
+    BASE + SIZE + 0x600
 )  # the handle a wasm caller passes by value, by address
-FRAME = BASE + SIZE + 0x400  # the frame of the reference interpreter
+FRAME = BASE + SIZE + 0x800  # the frame of the reference interpreter
 MAPPED = SIZE + 0x1000
 PROGRAM_ID = 900001
 # Behind everything above: what the compiler (docs/19, WP12) is given and writes.
@@ -81,6 +81,16 @@ NUMERIC = {
     "shift_left_uint64_t": "qdp",
     "shift_right_uint64_t": "qdp",
     "equal_uint64_t": "qqp",
+    "wrapping_multiply_uint64_t": "qqp",
+    "checked_multiply_uint64_t": "qqp",
+    "checked_multiply_int64_t": "qqp",
+    "divide_uint64_t": "qqp",
+    "remainder_uint64_t": "qqp",
+    "divide_int64_t": "qqp",
+    "remainder_int64_t": "qqp",
+    "remainder_uint32_t": "ddp",
+    "divide_int32_t": "ddp",
+    "remainder_int32_t": "ddp",
     "live_pump": "pp",  # no program calls it; tests/test_live_native.py does
     "uart_pump": "pp",  # tests/test_live_uart.py does
     "safe_point": "pp",  # compiled code calls it at an edge that goes back (tests/test_safe_points.py)
@@ -267,7 +277,7 @@ def memory(case: Case, slots: list[tuple[int, int]]) -> bytes:
             struct.pack("<3Q", identity, 1, address) for identity, address in slots
         ),
     )
-    assert len(case.program) <= PROGRAM_BYTES and len(slots) * 24 <= 0x400
+    assert len(case.program) <= PROGRAM_BYTES and len(slots) * 24 <= 0x600
     return bytes(data)
 
 

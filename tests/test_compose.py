@@ -1,6 +1,7 @@
 """The composer: the programs in the starter are what its graphs compose to."""
 
 import shutil
+import struct
 from pathlib import Path
 
 import compose
@@ -68,7 +69,7 @@ def test_the_numbers_of_the_header_are_read_whole():
     numbers = graph_header.numbers()
     assert numbers["RXF_GRAPH_MAGIC"] == int.from_bytes(b"RXG1", "little")
     assert numbers["RXF_GRAPH_NONE"] == 2**64 - 1
-    assert sorted(graph_header.leaves().values()) == list(range(1, 39))
+    assert sorted(graph_header.leaves().values()) == list(range(1, 49))
 
 
 def test_a_call_that_is_no_leaf_is_found(tmp_path: Path):
@@ -79,3 +80,45 @@ def test_a_call_that_is_no_leaf_is_found(tmp_path: Path):
     )
     with pytest.raises(compose.ComposeError, match="is not a leaf of the interpreter"):
         compose.programs(tree.load(tmp_path / "starter"))
+
+
+def test_the_composer_takes_the_new_arithmetic_leaves_for_calls(tmp_path: Path):
+    """The composer accepts a graph that calls one of the multiply, divide and remainder
+    leaves of native/graph.h (its leaf mirror reads that header whole): the only change in
+    the program it composes is the id of the leaf the call names."""
+    shutil.copytree(STARTER, tmp_path / "starter")
+    root = tmp_path / "starter" / "pymergetic" / "rxf"
+    leaves = graph_header.leaves()
+    for path, was, now, old, new in (
+        (
+            "library.xml",
+            "division.divide_uint32_t",
+            "division.remainder_uint32_t",
+            "divide_uint32_t",
+            "remainder_uint32_t",
+        ),
+        (
+            "algorithms.xml",
+            "wrapping.add_uint64_t",
+            "wrapping.multiply_uint64_t",
+            "wrapping_add_uint64_t",
+            "wrapping_multiply_uint64_t",
+        ),
+    ):
+        file = root / path
+        before = compose.programs(tree.load(tmp_path / "starter"))
+        file.write_text(file.read_text().replace(was, now))
+        after = compose.programs(tree.load(tmp_path / "starter"))
+        changed = {
+            name
+            for name in after
+            if before[name] != after[name]
+        }
+        assert changed, new
+        for name in changed:
+            old_words = struct.unpack(f"<{len(before[name]) // 8}Q", before[name])
+            new_words = struct.unpack(f"<{len(after[name]) // 8}Q", after[name])
+            moving = [(a, b) for a, b in zip(old_words, new_words, strict=True) if a != b]
+            assert moving and all(
+                a == leaves[old] and b == leaves[new] for a, b in moving
+            ), (name, new)
