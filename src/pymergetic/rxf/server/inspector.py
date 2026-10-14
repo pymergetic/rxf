@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import enum
 import struct
+from bisect import bisect_right
 from typing import Any
 
 from pymergetic.rxf.core.arena import (
@@ -301,6 +302,10 @@ class Inspector:
             }
             for i in range(count)
         ]
+        # The rows are not uniform (span is not whole in count): an index from x * count // span
+        # is not the inverse of a bound at i * span // count, and a cell can lose a byte at a
+        # boundary that way. The bounds themselves say which rows a cell reaches.
+        starts = [int(row["start"]) for row in rows]
         kinds: dict[str, int] = {}
         for cell in self.cells():
             offset, size = int(cell["offset"]), int(cell["size"])
@@ -312,8 +317,8 @@ class Inspector:
             live = handle is not None or int(cell["kind"]) == KIND_BLOCK
             payload_start = offset + CELL_SIZE
             payload_size = (int(cell["payload_size"]) + CELL_ALIGN - 1) // CELL_ALIGN * CELL_ALIGN
-            first = max(0, (max(offset, lo) - lo) * count // span)
-            last = min(count - 1, (max(offset + size - 1, lo) - lo) * count // span)
+            first = bisect_right(starts, max(offset, lo)) - 1
+            last = bisect_right(starts, min(offset + size, hi) - 1) - 1
             for index in range(first, last + 1):
                 row = rows[index]
                 row_lo, row_hi = int(row["start"]), int(row["end"])

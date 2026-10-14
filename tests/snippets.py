@@ -96,6 +96,124 @@ def values(type_name: str, rng: random.Random) -> list[int | float]:
     return pool + [rng.uniform(-1000, 1000) for _ in range(8)]
 
 
+# ---- the contract of the arithmetic leaves of native/graph.h -----------------------------------
+
+# The refusals of native/basics.h that its arithmetic returns.
+OVERFLOW = 1
+DIVISION_BY_ZERO = 2
+
+# The byte an output buffer is filled with before a snippet runs: what a leaf that refuses
+# leaves behind, visible in the differential tests.
+OUTPUT_FILL = 0xAA
+
+# The snippets behind the multiply, divide and remainder leaves of native/graph.h, by leaf name
+# (each is rxf_<name> of native/basics.c, in its module of starter/pymergetic/rxf/numeric/).
+ARITHMETIC = {
+    "wrapping_multiply_uint64_t": "pymergetic/rxf/numeric/wrapping:multiply_uint64_t",
+    "checked_multiply_uint64_t": "pymergetic/rxf/numeric/checked:multiply_uint64_t",
+    "checked_multiply_int64_t": "pymergetic/rxf/numeric/checked:multiply_int64_t",
+    "divide_uint64_t": "pymergetic/rxf/numeric/division:divide_uint64_t",
+    "remainder_uint64_t": "pymergetic/rxf/numeric/division:remainder_uint64_t",
+    "divide_int64_t": "pymergetic/rxf/numeric/division:divide_int64_t",
+    "remainder_int64_t": "pymergetic/rxf/numeric/division:remainder_int64_t",
+    "remainder_uint32_t": "pymergetic/rxf/numeric/division:remainder_uint32_t",
+    "divide_int32_t": "pymergetic/rxf/numeric/division:divide_int32_t",
+    "remainder_int32_t": "pymergetic/rxf/numeric/division:remainder_int32_t",
+}
+
+
+def width_signed(leaf: str) -> tuple[int, bool]:
+    """The width and kind the name of an arithmetic leaf names."""
+    if leaf.endswith("uint64_t"):
+        return 64, False
+    if leaf.endswith("int64_t"):
+        return 64, True
+    if leaf.endswith("uint32_t"):
+        return 32, False
+    return 32, True
+
+
+def arithmetic(leaf: str, a: int, b: int) -> tuple[int, int]:
+    """(status, value) of one arithmetic leaf's C (native/basics.c), in Python.
+
+    This is the contract the leaf comment of native/graph.h promises: a division by zero
+    refuses DIVISION_BY_ZERO; the signed forms refuse OVERFLOW at INT_MIN / -1 (both the
+    division and the remainder, which is written with it); the checked multiplies refuse
+    OVERFLOW where the product leaves the type; the wrapping multiply wraps. The C divides
+    and takes the remainder truncating toward zero.
+    """
+    width, signed = width_signed(leaf)
+    mask = (1 << width) - 1
+    low = -(1 << (width - 1)) if signed else 0
+    high = (1 << (width - 1)) - 1 if signed else mask
+
+    def view(value: int) -> int:
+        value &= mask
+        return value - (1 << width) if signed and value > high else value
+
+    a, b = view(a), view(b)
+    if leaf.startswith("wrapping_multiply"):
+        return 0, (a * b) & mask
+    if leaf.startswith("checked_multiply"):
+        product = a * b
+        return (OVERFLOW, 0) if product < low or product > high else (0, product & mask)
+    if b == 0:
+        return DIVISION_BY_ZERO, 0
+    if signed and a == low and b == -1:
+        return OVERFLOW, 0
+    quotient = abs(a) // abs(b)
+    if (a < 0) != (b < 0):
+        quotient = -quotient
+    if leaf.startswith("divide"):
+        return 0, quotient & mask
+    return 0, (a - quotient * b) & mask
+
+
+def arithmetic_seen(leaf: str, a: int, b: int) -> tuple[int, str]:
+    """The contract of one leaf as a run of its snippet sees it: the status and the output
+    bytes. A leaf that refuses writes nothing, so the output stays the fill of the buffer."""
+    status, value = arithmetic(leaf, a, b)
+    size = width_signed(leaf)[0] // 8
+    written = (
+        value.to_bytes(size, "little").hex()
+        if status == 0
+        else bytes([OUTPUT_FILL] * size).hex()
+    )
+    return status, written
+
+
+def boundary_arguments(leaf: str) -> list[tuple[int, int]]:
+    """The edge pairs every arithmetic leaf is held to: 0, 1, -1, the extremes, wrap-around."""
+    width, signed = width_signed(leaf)
+    top = 1 << (width - 1)
+    low = -top if signed else 0
+    high = top - 1 if signed else 2 * top - 1
+    pairs = [
+        (0, 0),
+        (0, 7),
+        (7, 0),  # a division by zero refuses
+        (1, 1),
+        (7, 2),
+        (low, 1),
+        (low, low),
+        (high, 1),
+        (high, 2),  # a checked multiply refuses where the product leaves the type
+        (high, high),
+    ]
+    if signed:
+        pairs += [
+            (-1, -1),
+            (-1, high),
+            (low, -1),  # INT_MIN / -1 (and INT_MIN % -1) refuses OVERFLOW
+            (high, -1),
+            (7, -2),  # the C truncates toward zero
+            (-7, 2),
+        ]
+    else:
+        pairs += [(top, 2), (top, top)]
+    return pairs
+
+
 class Machine:
     """x86_64 machine code from the starter as callable functions."""
 

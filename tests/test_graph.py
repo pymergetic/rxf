@@ -16,7 +16,8 @@ from pymergetic.rxf.core import tree
 
 from . import graph_programs as programs
 from . import graph_world as world
-from .snippets import STARTER
+from . import rxf_sim
+from .snippets import ARITHMETIC, STARTER, arithmetic, boundary_arguments
 
 # Only main reads the objects of a linked image to reach them; tests/test_image.py runs it.
 READ_FROM_OBJECTS = {
@@ -105,6 +106,71 @@ def test_the_numeric_leaves_of_a_program_compute_what_python_computes(cases, ref
     # a shift by the whole width gives 0, not the count taken modulo 64
     assert runs["bits count 64"].status == 0
     assert int.from_bytes(runs["bits count 64"].out[:8], "little") == 2**64 - 1
+
+
+def words(run, width: int, count: int) -> list[int]:
+    """The words the run returned, at the front of its out buffer."""
+    return [
+        int.from_bytes(run.out[at : at + width], "little")
+        for at in range(0, width * count, width)
+    ]
+
+
+def test_the_arithmetic_programs_compute_what_python_computes(cases, reference):
+    """The multiply, divide and remainder leaves of native/graph.h in a program against the
+    arithmetic Python computes: the signed division truncates toward zero."""
+    runs = {c.name: r for c, r in zip(cases, reference, strict=True)}
+    for name, width, want in (
+        ("products 7 6", 8, [42, 42]),
+        ("products 3 5", 8, [15, 15]),
+        ("products high 1", 8, [(1 << 63) + 1, (1 << 63) + 1]),
+        ("quotients 100 7", 8, [14, 2, 14, 2]),
+        ("quotients -7 2", 8, [(1 << 63) - 4, 1, programs.MASK64 - 2, programs.MASK64]),
+        ("quotients min 1", 8, [1 << 63, 0, 1 << 63, 0]),
+        ("word quotients 100 7", 4, [14, 2, 2]),
+        ("word quotients -7 2", 4, [0xFFFFFFFD, 0xFFFFFFFF, 1]),
+    ):
+        assert runs[name].status == 0, name
+        assert words(runs[name], width, len(want)) == want, name
+
+
+def test_the_with_overflow_composition_reaches_the_flags_python_computes(cases, reference):
+    """llvm.uadd/usub.with.overflow as a wrapping operation and its carry or borrow, and
+    llvm.sadd/ssub.with.overflow as the sign compare of the operands and the result: the four
+    flags the program returns are the four Python computes (native/graph.h, the contract the
+    importer lowers to)."""
+    runs = {c.name: r for c, r in zip(cases, reference, strict=True)}
+    for name, a, b in (
+        ("overflow flags 5 3", 5, 3),
+        ("overflow flags wrap add", programs.MASK64, 1),
+        ("overflow flags sadd", (1 << 63) - 1, 1),
+        ("overflow flags smul", 1 << 63, programs.MASK64),
+        ("overflow flags ssub", 1 << 63, 1),
+    ):
+        assert runs[name].status == 0, name
+        a_sign, b_sign = (a >> 63) & 1, (b >> 63) & 1
+        sum_sign, diff_sign = ((a + b) >> 63) & 1, ((a - b) >> 63) & 1
+        want = [
+            int((a + b) % (1 << 64) < a),
+            int(a < b),
+            int(a_sign == b_sign and sum_sign != a_sign),
+            int(a_sign != b_sign and diff_sign != a_sign),
+        ]
+        assert words(runs[name], 8, 4) == want, name
+
+
+def test_the_sim_of_an_arithmetic_leaf_computes_what_its_snippet_computes():
+    """The arithmetic leaves tests/rxf_sim.py writes in Python against the contract of their C
+    bodies (tests/snippets.py), which tests/test_native_emulated.py holds to real C."""
+    different = []
+    for leaf in ARITHMETIC:
+        run = rxf_sim.LEAF_RUN[graph_header.leaves()[leaf]]
+        for a, b in boundary_arguments(leaf):
+            have = run([a & programs.MASK64, b & programs.MASK64], None)
+            want = arithmetic(leaf, a, b)
+            if have != want:
+                different.append((leaf, (a, b), want, have))
+    assert different[:5] == []
 
 
 def test_x86_64_runs_what_the_reference_runs(code, cases, reference):

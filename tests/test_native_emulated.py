@@ -14,11 +14,21 @@ import struct
 import pytest
 
 from .emulator import Emulator, Integer, Real
-from .snippets import C_TYPES, INTEGERS, SIZES, Machine, snippets, values
+from .snippets import (
+    ARITHMETIC,
+    C_TYPES,
+    INTEGERS,
+    OUTPUT_FILL,
+    SIZES,
+    Machine,
+    arithmetic_seen,
+    boundary_arguments,
+    snippets,
+    values,
+)
 
 BUFFER = 0x20000
 PAGE = 0x1000
-OUTPUT_FILL = 0xAA
 CASES = 24
 
 
@@ -104,3 +114,63 @@ def test_the_emulator_agrees_with_the_host_on_x86_64():
 def test_the_integer_kinds_are_the_ones_the_snippets_use():
     used = {kind for snippet in snippets() for kind in snippet["kinds"]}
     assert used <= set(INTEGERS) | {"float", "double", "bool"}
+
+
+# ---- the arithmetic leaves of native/graph.h, at their boundaries -------------------------------
+
+
+def arithmetic_snippets() -> dict[str, dict]:
+    """The snippets behind the multiply, divide and remainder leaves of native/graph.h."""
+    found = {s["name"]: s for s in snippets()}
+    return {leaf: found[name] for leaf, name in ARITHMETIC.items()}
+
+
+def test_the_arithmetic_leaves_refuse_and_compute_as_the_leaf_contract_says():
+    """The bodies of the multiply, divide and remainder leaves (native/basics.c) on both
+    machines, at every boundary the contract names: 0, 1, -1, the extremes, wrap-around
+    products, a division by zero and INT_MIN / -1. Refusals are the codes of the contract
+    (OVERFLOW and DIVISION_BY_ZERO of native/basics.h)."""
+    different = []
+    for leaf, snippet in arithmetic_snippets().items():
+        size = SIZES[snippet["out"]]
+        for a, b in boundary_arguments(leaf):
+            want = arithmetic_seen(leaf, a, b)
+            for machine, key in (("x86_64", "x86"), ("aarch64", "aarch64")):
+                have = call(
+                    machine,
+                    bytes.fromhex(snippet[key]),
+                    snippet["kinds"],
+                    (a, b),
+                    size,
+                )
+                if have != want:
+                    different.append((leaf, machine, (a, b), want, have))
+    assert different[:5] == []
+
+
+@pytest.mark.skipif(platform.machine() != "x86_64", reason="needs an x86_64 host")
+def test_the_arithmetic_leaves_agree_with_the_host_on_x86_64():
+    """The same boundaries as real code of this process: the emulator against the real C."""
+    machine = Machine()
+    different = []
+    for leaf, snippet in arithmetic_snippets().items():
+        size = SIZES[snippet["out"]]
+        native = machine.function(
+            bytes.fromhex(snippet["x86"]),
+            ctypes.c_uint32,
+            [C_TYPES[k] for k in snippet["kinds"]] + [ctypes.c_void_p],
+        )
+        for a, b in boundary_arguments(leaf):
+            buffer = (ctypes.c_uint8 * 64)(*([OUTPUT_FILL] * 64))
+            status = native(
+                *[
+                    C_TYPES[k](v).value
+                    for k, v in zip(snippet["kinds"], (a, b), strict=True)
+                ],
+                ctypes.cast(buffer, ctypes.c_void_p),
+            )
+            have = (status, bytes(buffer[:size]).hex())
+            want = arithmetic_seen(leaf, a, b)
+            if have != want:
+                different.append((leaf, (a, b), want, have))
+    assert different[:5] == []

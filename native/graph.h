@@ -90,6 +90,14 @@ enum rxf_graph_opcode {
     RXF_OP_REFUSE = 12
 };
 
+/* There is no select opcode, and none should be added: a select is the two edges of one BRANCH
+ * that both take the same join, each edge copying its own value into the same slot. The copies of
+ * an edge are already the phi of a block parameter, so the format grows nothing for it and none of
+ * the readers of the format (this interpreter, the compiler of native/compile.c, the compiler that
+ * is a program of native/tiny) grows a dispatch for it. The branch shape takes 19 words where an
+ * opcode of its own would take 12; words of a program are object bytes, dispatches are forever.
+ * tools/native/rximport.py lowers a select to those two edges, and its subset contract says so. */
+
 /* The ids of the leaves in the function table: one per native Function a graph calls. */
 enum rxf_graph_leaf {
     RXF_LEAF_WRAPPING_ADD_UINT64_T = 1,
@@ -131,7 +139,26 @@ enum rxf_graph_leaf {
     RXF_LEAF_SHIFT_RIGHT_UINT64_T = 36,
     RXF_LEAF_EQUAL_UINT64_T = 37,
     /* the safe point of compiled code at an edge that goes back (native/safe.c) */
-    RXF_LEAF_SAFE_POINT = 38
+    RXF_LEAF_SAFE_POINT = 38,
+
+    /* The integer leaves of the flat profile: multiply, divide and remainder, both kinds of
+     * integer. Their refusals are the ones of native/basics.c: a division by zero refuses
+     * DIVISION_BY_ZERO; the signed forms refuse OVERFLOW where the C they are written with would
+     * not be defined (INT_MIN / -1, and INT_MIN % -1 which is written with the same division);
+     * the checked multiplies refuse OVERFLOW where the product leaves the type. The with.overflow
+     * shapes of llvm.umul/smul are one checked_multiply whose status is the overflow bit; the
+     * uadd/sadd/usub/ssub shapes are a wrapping add or subtract and the carry or sign compare,
+     * which is how tools/native/rximport.py lowers them. */
+    RXF_LEAF_WRAPPING_MULTIPLY_UINT64_T = 39,
+    RXF_LEAF_DIVIDE_UINT64_T = 40,
+    RXF_LEAF_REMAINDER_UINT64_T = 41,
+    RXF_LEAF_DIVIDE_INT64_T = 42,
+    RXF_LEAF_REMAINDER_INT64_T = 43,
+    RXF_LEAF_CHECKED_MULTIPLY_UINT64_T = 44,
+    RXF_LEAF_CHECKED_MULTIPLY_INT64_T = 45,
+    RXF_LEAF_REMAINDER_UINT32_T = 46,
+    RXF_LEAF_DIVIDE_INT32_T = 47,
+    RXF_LEAF_REMAINDER_INT32_T = 48
 };
 
 #ifndef RXF_INLINE
@@ -174,6 +201,13 @@ RXF_INLINE rxf_u32 shape_of(rxf_u64 leaf) {
     case RXF_LEAF_BIT_AND_UINT64_T:
     case RXF_LEAF_BIT_OR_UINT64_T:
     case RXF_LEAF_EQUAL_UINT64_T:
+    case RXF_LEAF_WRAPPING_MULTIPLY_UINT64_T:
+    case RXF_LEAF_DIVIDE_UINT64_T:
+    case RXF_LEAF_REMAINDER_UINT64_T:
+    case RXF_LEAF_DIVIDE_INT64_T:
+    case RXF_LEAF_REMAINDER_INT64_T:
+    case RXF_LEAF_CHECKED_MULTIPLY_UINT64_T:
+    case RXF_LEAF_CHECKED_MULTIPLY_INT64_T:
         return RXF_SHAPE_QQO;
     case RXF_LEAF_SHIFT_LEFT_UINT64_T:
     case RXF_LEAF_SHIFT_RIGHT_UINT64_T:
@@ -212,6 +246,9 @@ RXF_INLINE rxf_u32 shape_of(rxf_u64 leaf) {
     case RXF_LEAF_CHECKED_SUBTRACT_UINT32_T:
     case RXF_LEAF_CHECKED_MULTIPLY_UINT32_T:
     case RXF_LEAF_DIVIDE_UINT32_T:
+    case RXF_LEAF_REMAINDER_UINT32_T:
+    case RXF_LEAF_DIVIDE_INT32_T:
+    case RXF_LEAF_REMAINDER_INT32_T:
         return RXF_SHAPE_WWO;
     case RXF_LEAF_MEMORY_COPY:
         return RXF_SHAPE_PQPQQ;

@@ -314,6 +314,116 @@ def zero_branch() -> bytes:
     return assemble(128, [(N_, 8)], items)
 
 
+# ---- the arithmetic leaves of the flat profile: multiply, divide, remainder ---------------------
+
+# W/C are the products and Q64/R64/QI/RI the quotients and remainders of a run, Q32/R32/RU32 the
+# 32-bit ones, SA/SB/SS/SD the sign bits of operands and results, TMP/TMP2/FLIP the flags an
+# overflow computation is built from, and F0..F3 the four with.overflow flags it returns.
+W, C = 88, 96
+Q64, R64, QI, RI = 104, 112, 120, 128
+Q32, R32, RU32 = 88, 92, 96
+SA, SB, SS, SD = 120, 128, 136, 144
+TMP, TMP2, FLIP = 152, 160, 168
+F0, F1, F2, F3 = 176, 184, 192, 200
+DIFF = 208
+SIGN = 1 << 63
+MASK64 = (1 << 64) - 1
+
+
+def guarded(calls: list[tuple[str, list[list[Word]], tuple[int, int]]]) -> list[Item]:
+    """Each call with the branch that ends the run with the status it refused with: the shape
+    of a composed call (tools/native/compose.py writes the same)."""
+    items: list[Item] = []
+    for n, (leaf, operands, out) in enumerate(calls):
+        items.append(call(leaf, operands, out, ST))
+        items.append([OP["BRANCH"], *slot(ST, 4), ZERO, *edge(f"step{n}"), *edge("no")])
+        items.append(f"step{n}")
+    return items
+
+
+def products() -> bytes:
+    """The multiply leaves: the wrapping product and both checked products. The checked ones
+    are llvm.umul/smul.with.overflow: their status is the overflow bit (see native/graph.h)."""
+    items: list[Item] = guarded(
+        [
+            ("wrapping_multiply_uint64_t", [slot(N_), slot(I)], (W, 8)),
+            ("checked_multiply_int64_t", [slot(N_), slot(I)], (C, 8)),
+            ("checked_multiply_uint64_t", [slot(N_), slot(I)], (C, 8)),
+        ]
+    ) + [
+        [OP["RETURN"], *slot(W), 16],
+        "no",
+        [OP["REFUSE"], *slot(ST, 4)],
+    ]
+    return assemble(256, [(N_, 8), (I, 8)], items)
+
+
+def quotients() -> bytes:
+    """The divide and remainder leaves of 64 bits, unsigned and signed, returned as four words:
+    q and r of the unsigned division, q and r of the signed one (which truncates toward zero)."""
+    items: list[Item] = guarded(
+        [
+            ("divide_uint64_t", [slot(N_), slot(I)], (Q64, 8)),
+            ("remainder_uint64_t", [slot(N_), slot(I)], (R64, 8)),
+            ("divide_int64_t", [slot(N_), slot(I)], (QI, 8)),
+            ("remainder_int64_t", [slot(N_), slot(I)], (RI, 8)),
+        ]
+    ) + [
+        [OP["RETURN"], *slot(Q64), 32],
+        "no",
+        [OP["REFUSE"], *slot(ST, 4)],
+    ]
+    return assemble(256, [(N_, 8), (I, 8)], items)
+
+
+def word_quotients() -> bytes:
+    """The divide and remainder leaves of 32 bits: the operands are the low word of a slot.
+    The run returns three words: q and r of the signed division, r of the unsigned one."""
+    items: list[Item] = guarded(
+        [
+            ("divide_int32_t", [slot(N_, 4), slot(I, 4)], (Q32, 4)),
+            ("remainder_int32_t", [slot(N_, 4), slot(I, 4)], (R32, 4)),
+            ("remainder_uint32_t", [slot(N_, 4), slot(I, 4)], (RU32, 4)),
+        ]
+    ) + [
+        [OP["RETURN"], *slot(Q32), 12],
+        "no",
+        [OP["REFUSE"], *slot(ST, 4)],
+    ]
+    return assemble(256, [(N_, 8), (I, 8)], items)
+
+
+def overflow_flags() -> bytes:
+    """The with.overflow shapes of the adds and subtracts, as leaf and compare: the two flags
+    of llvm.uadd/usub.with.overflow are the carry and the borrow of a wrapping operation, and
+    the two of llvm.sadd/ssub.with.overflow are the sign compare of the operands and result.
+    The run returns the four flags as four words (F0 uadd, F1 usub, F2 sadd, F3 ssub)."""
+    items: list[Item] = [
+        # uadd.with.overflow: the carry of a wrapping add is its overflow bit
+        call("wrapping_add_uint64_t", [slot(N_), slot(I)], (SUM, 8)),
+        call("less_uint64_t", [slot(SUM), slot(N_)], (F0, 8)),
+        # usub.with.overflow: the borrow of a wrapping subtract is its overflow bit
+        call("wrapping_subtract_uint64_t", [slot(N_), slot(I)], (DIFF, 8)),
+        call("less_uint64_t", [slot(N_), slot(I)], (F1, 8)),
+        # sadd.with.overflow: the signs of the operands agree and the sign of the sum flips
+        call("bit_and_uint64_t", [slot(N_), lit(SIGN)], (SA, 8)),
+        call("bit_and_uint64_t", [slot(I), lit(SIGN)], (SB, 8)),
+        call("bit_and_uint64_t", [slot(SUM), lit(SIGN)], (SS, 8)),
+        call("equal_uint64_t", [slot(SA), slot(SB)], (TMP, 8)),
+        call("equal_uint64_t", [slot(SS), slot(SA)], (TMP2, 8)),
+        call("wrapping_subtract_uint64_t", [lit(1), slot(TMP2)], (FLIP, 8)),
+        call("bit_and_uint64_t", [slot(TMP), slot(FLIP)], (F2, 8)),
+        # ssub.with.overflow: the signs of the operands differ and the sign of the difference flips
+        call("bit_and_uint64_t", [slot(DIFF), lit(SIGN)], (SD, 8)),
+        call("equal_uint64_t", [slot(SD), slot(SA)], (TMP2, 8)),
+        call("wrapping_subtract_uint64_t", [lit(1), slot(TMP2)], (FLIP, 8)),
+        call("wrapping_subtract_uint64_t", [lit(1), slot(TMP)], (TMP2, 8)),
+        call("bit_and_uint64_t", [slot(TMP2), slot(FLIP)], (F3, 8)),
+        [OP["RETURN"], *slot(F0), 32],
+    ]
+    return assemble(256, [(N_, 8), (I, 8)], items)
+
+
 def wide_return() -> bytes:
     items: list[Item] = [
         [OP["CONSTRUCT"], SEL, 16, 4, 1, *slot(N_), 8, 8],
@@ -378,11 +488,58 @@ def cases_of(name: str, program: bytes, args: bytes) -> Case:
     return Case(name, program, args, {BINDING: handle(BINDING)})
 
 
+def refused_arithmetic() -> dict[str, tuple[bytes, bytes, int]]:
+    """A call of an arithmetic leaf that refuses: the program, the arguments that make the leaf
+    refuse, and the refusal the run must get (the codes of native/basics.h)."""
+    return {
+        "a product that leaves the type": (
+            products(),
+            number(MASK64) + number(MASK64),
+            1,
+        ),
+        "INT64_MIN * -1": (
+            products(),
+            number(1 << 63) + number(MASK64),
+            1,
+        ),
+        "a signed product that leaves the type where the unsigned fits": (
+            products(),
+            number(3) + number(1 << 62),
+            1,
+        ),
+        "a division by zero": (
+            quotients(),
+            number(5) + number(0),
+            2,
+        ),
+        "INT64_MIN / -1": (
+            quotients(),
+            number(1 << 63) + number(MASK64),
+            1,
+        ),
+        "a 32-bit division by zero": (
+            word_quotients(),
+            number(5) + number(0),
+            2,
+        ),
+        "INT32_MIN / -1": (
+            word_quotients(),
+            number(1 << 31) + number(0xFFFFFFFF),
+            1,
+        ),
+    }
+
+
 def refusals() -> list[tuple[Case, int]]:
-    """Each refused program as a case, with the refusal it must get."""
+    """Each refused program as a case, with the refusal it must get: the refusals of the
+    interpreter, and the refusals of the arithmetic leaves (divisions by zero, INT_MIN / -1
+    and the products that leave their type)."""
     return [
         (cases_of(f"refuses {name}", program, number(3)), status)
         for name, (program, status) in broken().items()
+    ] + [
+        (cases_of(f"refuses {name}", program, args), status)
+        for name, (program, args, status) in refused_arithmetic().items()
     ]
 
 
@@ -407,6 +564,19 @@ def synthetic() -> list[Case]:
         ("zero branch 5", zero_branch, number(5)),
         ("wide return", wide_return, number(9)),
         ("object value", object_value, b""),
+        ("products 7 6", products, number(7) + number(6)),
+        ("products 3 5", products, number(3) + number(5)),
+        ("products high 1", products, number((1 << 63) + 1) + number(1)),
+        ("quotients 100 7", quotients, number(100) + number(7)),
+        ("quotients -7 2", quotients, number(MASK64 - 6) + number(2)),
+        ("quotients min 1", quotients, number(1 << 63) + number(1)),
+        ("word quotients 100 7", word_quotients, number(100) + number(7)),
+        ("word quotients -7 2", word_quotients, number(MASK64 - 6) + number(2)),
+        ("overflow flags 5 3", overflow_flags, number(5) + number(3)),
+        ("overflow flags wrap add", overflow_flags, number(MASK64) + number(1)),
+        ("overflow flags sadd", overflow_flags, number((1 << 63) - 1) + number(1)),
+        ("overflow flags smul", overflow_flags, number(1 << 63) + number(MASK64)),
+        ("overflow flags ssub", overflow_flags, number(1 << 63) + number(1)),
     ):
         found.append(cases_of(name, build(), args))
     return found + [case for case, _ in refusals()]

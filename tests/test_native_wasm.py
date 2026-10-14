@@ -16,7 +16,18 @@ from pathlib import Path
 
 import pytest
 
-from .snippets import C_TYPES, INTEGERS, SIZES, Machine, snippets, values
+from .snippets import (
+    ARITHMETIC,
+    C_TYPES,
+    INTEGERS,
+    OUTPUT_FILL,
+    SIZES,
+    Machine,
+    arithmetic_seen,
+    boundary_arguments,
+    snippets,
+    values,
+)
 from .wasm import module_of
 
 HARNESS = Path(__file__).with_name("wasm_harness.js")
@@ -92,3 +103,62 @@ def test_a_wasm_snippet_computes_what_the_x86_64_snippet_computes():
 
 def test_the_bios_bytes_are_the_x86_64_bytes():
     assert all(s["bios"] == s["x86"] for s in snippets())
+
+
+def test_the_arithmetic_leaves_in_wasm_refuse_the_boundaries_the_same_way():
+    """The multiply, divide and remainder leaves of native/graph.h on wasm32 against the
+    real C of this process and against their contract, at every boundary: 0, 1, -1, the
+    extremes, wrap-around products, a division by zero and INT_MIN / -1."""
+    machine = Machine()
+    found = {s["name"]: s for s in snippets()}
+    chosen = [found[name] for name in ARITHMETIC.values()]
+    calls, wanted, owners, different = [], [], [], []
+    for leaf, name in ARITHMETIC.items():
+        snippet = found[name]
+        native = machine.function(
+            bytes.fromhex(snippet["x86"]),
+            ctypes.c_uint32,
+            [C_TYPES[k] for k in snippet["kinds"]] + [ctypes.c_void_p],
+        )
+        size = SIZES[snippet["out"]]
+        for a, b in boundary_arguments(leaf):
+            want = arithmetic_seen(leaf, a, b)
+            buffer = (ctypes.c_uint8 * 64)(*([OUTPUT_FILL] * 64))
+            status = native(
+                *[
+                    C_TYPES[k](v).value
+                    for k, v in zip(snippet["kinds"], (a, b), strict=True)
+                ],
+                ctypes.cast(buffer, ctypes.c_void_p),
+            )
+            have = (status, bytes(buffer[:size]).hex())
+            if have != want:
+                different.append((leaf, "x86_64", (a, b), want, have))
+            calls.append(
+                {
+                    "fn": snippet["name"],
+                    "args": [
+                        bits(k, v) for k, v in zip(snippet["kinds"], (a, b), strict=True)
+                    ],
+                    "out": size,
+                }
+            )
+            wanted.append({"status": want[0], "out": want[1]})
+            owners.append((leaf, (a, b)))
+    module = module_of(
+        [(s["name"], s["params"], bytes.fromhex(s["wasm"])) for s in chosen]
+    )
+    process = subprocess.run(
+        ["node", str(HARNESS)],
+        input=json.dumps({"module": module.hex(), "calls": calls}),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    got = json.loads(process.stdout)
+    different += [
+        (leaf, "wasm32", pair, want, have)
+        for (leaf, pair), want, have in zip(owners, wanted, got, strict=True)
+        if want != have
+    ]
+    assert different[:5] == []
