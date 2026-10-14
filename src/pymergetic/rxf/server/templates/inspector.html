@@ -13,6 +13,8 @@
   button { background: #fff; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; cursor: pointer; }
   button:hover { border-color: var(--accent); }
   button:disabled { color: var(--muted); cursor: default; border-color: var(--line); }
+  a.button { background: #fff; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; cursor: pointer; text-decoration: none; }
+  a.button:hover { border-color: var(--accent); text-decoration: none; }
   #panes { min-height: 0; display: grid; grid-template-columns: minmax(260px, .8fr) minmax(360px, 1.2fr) minmax(340px, 1fr); }
   .pane { min-width: 0; min-height: 0; overflow: auto; padding: 10px; }
   .pane + .pane { border-left: 1px solid var(--line); }
@@ -59,6 +61,7 @@
 <body>
 <header>
   <b>RXF</b> <span id="info"></span>
+  <a class="button" href="/model" title="How the run-cell machine and the object model work">Model</a>
   <button id="reset" title="Show the whole arena again">Reset zoom</button>
   <span class="summary" id="summary"></span>
 </header>
@@ -351,6 +354,14 @@ function renderDetail(d) {
       <tr><th>type</th><td>${d.type === null ? "none" : link(d.type)}</td></tr>
       <tr><th>parent</th><td>${d.parent === null ? "none" : link(d.parent)}</td></tr>
     </table>
+    <div class="card"><h3>In the model — guides for this cell</h3><div class="body">
+      <table>${d.model.map((m) => `<tr>
+        <td><a href="${esc(m.href)}">${esc(m.label)}</a></td>
+        <td><span class="t">${esc(m.why)}</span></td>
+        <td><span class="badge">${esc(m.cite)}</span></td>
+      </tr>`).join("")}</table>
+      <p class="note">Each guide opens on the Model page with this cell's real words laid over the diagrams.</p>
+    </div></div>
     <div class="card"><h3>Flags</h3><div class="body">
       <table>
         <tr><th>raw</th><td><code>${hex(f.raw)}</code></td></tr>
@@ -386,6 +397,7 @@ async function show(path) {
     return;
   }
   selected = path;
+  history.replaceState(null, "", path ? `?path=${encodeURIComponent(path)}` : location.pathname);
   renderDetail(d);
   markTree(path);
   reveal(path).then(() => markTree(path)).catch(() => {});
@@ -414,6 +426,8 @@ $("q").addEventListener("input", async (e) => {
   const root = await childrenOf("");
   for (const c of root.items) $("tree").append(node(c));
   loadMemory();
+  const start = new URLSearchParams(location.search).get("path");
+  if (start !== null) show(start);
 })();
 </script>
 </body>

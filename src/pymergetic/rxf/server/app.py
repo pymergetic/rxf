@@ -13,6 +13,7 @@ from pymergetic.rxf.core.object import Image
 from pymergetic.rxf.server.inspector import Inspector
 
 PAGE = Path(__file__).with_name("templates") / "inspector.html"
+MODEL_PAGE = Path(__file__).with_name("templates") / "model.html"
 
 
 def found[Result](call: Callable[..., Result], *args: object) -> Result:
@@ -29,6 +30,9 @@ def create_app(image: Image) -> FastAPI:
 
     def page() -> str:
         return PAGE.read_text(encoding="utf-8")
+
+    def model_page() -> str:
+        return MODEL_PAGE.read_text(encoding="utf-8")
 
     def info() -> dict[str, Any]:
         return inspector.info()
@@ -62,6 +66,7 @@ def create_app(image: Image) -> FastAPI:
         return Response(inspector.delta(), media_type="application/xml")
 
     app.get("/", response_class=HTMLResponse)(page)
+    app.get("/model", response_class=HTMLResponse)(model_page)
     app.get("/api/info")(info)
     app.get("/api/children")(children)
     app.get("/api/object")(obj)
