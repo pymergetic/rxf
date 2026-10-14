@@ -213,6 +213,12 @@ What is NOT supported (and why), for the full importer:
     frames over 1024 bytes        RXF_GRAPH_FRAME of native/graph.h; ``lower()`` refuses a frame
                                   that overflows it rather than misplace values at run time (the
                                   explicit frame-size policy is the section below)
+    edge copies over 256 bytes    RXF_GRAPH_COPY of native/graph.h: the run stages one edge's
+                                  argument copies in a 256-byte buffer (native/graph.c), so an
+                                  edge that would copy more refuses at import
+    inline copies over 48 words   the inline budget: a callee whose inlined body would add
+                                  more than 48 words to the caller's frame refuses the call
+                                  (the composer's inline path has no call to fall back on)
 
 Frame-size policy (what a MicroPython C frame maps to):
 
@@ -236,7 +242,16 @@ Frame-size policy (what a MicroPython C frame maps to):
     ("a frame of N bytes is too large") at import time -- before any words are emitted -- rather
     than misplace values at run time. Inlining is counted: an inlined callee's values add to the
     caller's frame, so a deeply inlined call chain (``wide.c``: six bodies of ~30 values each)
-    refuses (asserted in ``test_outside_the_subset_is_refused``).
+    refuses (asserted in ``test_outside_the_subset_is_refused``). Two more budgets keep the
+    counting honest: one edge may stage at most ``RXF_GRAPH_COPY`` bytes of argument copies
+    (256, native/graph.h), and one inlined callee may add at most ``INLINE_WORDS`` (48) words to
+    the caller -- past either the import refuses (``test_outside_the_subset_is_refused``).
+
+    A load of the flat space stages its bytes in a wide slot before the word is read out of it
+    (OP_MOVE reads operands, not the memory an address names). The staging is filled right
+    before it is read, so the whole graph keeps one such scratch slot, not one per load: the
+    frame counts the values a body asks for, and a slot per load is not one of them
+    (``load_scratch_of``; the qstr bodies of ``qstr.c`` are where it matters).
 
     This is the policy the MicroPython core import gives: a MicroPython C frame is not a flat
     stack block but this word-per-value layout, so the frame a function needs is sized by its
@@ -371,6 +386,11 @@ REFUSAL_SET = "pymergetic.rxf.foundation.StdlibRefusals"
 U64 = "uint64_t"
 U32 = "uint32_t"
 GRAPH_FRAME = graph_header.numbers()["RXF_GRAPH_FRAME"]  # the frame budget of a run
+GRAPH_COPY = graph_header.numbers()["RXF_GRAPH_COPY"]  # what one edge's copies may stage
+# an inlined callee may add at most these many words to the caller's frame; past it the
+# call refuses instead of inlining a body the caller's frame was never meant to hold (the
+# composer's inline path calls only leaves, so a bigger callee is a refusal, not a call)
+INLINE_WORDS = 48
 # an addressable local is 16 bytes of frame: the starter's own 16-byte array type names it
 WIDE = "pymergetic.rxf.stdlib.types.FixedArrayU8Of16"
 FULL = (1 << 64) - 1
@@ -670,7 +690,10 @@ def init_bytes(ty: str, text: str, structs: dict[str, str]) -> bytes | None:
     if shape is not None and text.startswith("[") and text.endswith("]"):
         count, element = shape
         items = split_top(text[1:-1])
-        if len(items) != count:
+        # a zero-count array is the flexible array member at a struct's tail
+        # (``qstr_pool_t``'s ``qstrs[]`` of py/qstr.h): the initializer's items are the
+        # entries the cell's payload carries past the struct's own size
+        if len(items) != count and not (count == 0 and len(items) > 0):
             return None
         out = bytearray()
         for item in items:
@@ -1267,6 +1290,12 @@ class Lowering:
         self.block_of: dict[str, LBlock] = {}
         self.incoming: dict[tuple[str, str], list[Operand]] = {}  # (successor, predecessor)
         self.op_count = 0
+        # one shared scratch wide slot per frame (every lowering of the frame sees the
+        # same one-cell holder): the staging a load of the flat space needs, made once
+        self.load_scratch: list[MOperand] = host.load_scratch if host else []
+        # the values already standing as some block's condition: the image binds one
+        # value to one field, so a second branch on the same flag takes a copy
+        self.conditions: set[str] = host.conditions if host else set()
 
     # ---- names -------------------------------------------------------------------------------
 
@@ -1468,6 +1497,7 @@ class Lowering:
 
     def lower(self) -> LGraph:
         self.lower_body()
+        self.own_terminus()
         if not self.function_results and self.has_reachable_cycle():
             # a body with no Return that the entry can reach a cycle in (an endless loop)
             # answers nothing: it stays refused rather than imported as a graph that
@@ -1484,6 +1514,21 @@ class Lowering:
                 f"{self.fn.name}: a frame of {frame} bytes is too large "
                 f"(RXF_GRAPH_FRAME is {GRAPH_FRAME})"
             )
+        widths = {value.path: value.width for value in self.values}
+        for block in self.blocks:
+            for successor, arguments in block.successors:
+                staged = sum(
+                    8 if argument[0] == "literal" else widths.get(argument[1], 8)
+                    for argument in arguments
+                )
+                if staged > GRAPH_COPY or len(arguments) > GRAPH_COPY:
+                    # the run stages one edge's copies in RXF_GRAPH_COPY bytes
+                    # (native/graph.c); an edge past it refuses rather than overflow
+                    raise Unsupported(
+                        f"{self.fn.name}: the edge {block.path} to {successor} copies "
+                        f"{staged} bytes in {len(arguments)} values "
+                        f"(RXF_GRAPH_COPY is {GRAPH_COPY})"
+                    )
         return LGraph(
             self.fn.name, self.module, self.path, self.graph, self.signature,
             self.params, self.blocks, self.function_results, self.values, self.wide,
@@ -1814,14 +1859,14 @@ class Lowering:
             self.flow_edges.setdefault(block.name, []).append(inst.if_true or "")
             self.flow_edges[block.name].append(inst.if_false or "")
             target.terminator = "Branch"
-            target.condition = self.operand(inst.c)
+            target.condition = self.own_condition(self.operand(inst.c), target)
             target.successors = [arguments(inst.if_true), arguments(inst.if_false)]
         elif inst.op == "switch":
             self.flow_edges.setdefault(block.name, []).extend(
                 [label for _, label in inst.cases] + [inst.default or ""]
             )
             target.terminator = "SwitchTag"
-            target.condition = self.operand(inst.a)
+            target.condition = self.own_condition(self.operand(inst.a), target)
             # the tags mask to the width of the switched value: an i32 case of -1 is the
             # word 0xffffffff of the subset's zero-extended narrow values, not 2^64 - 1
             mask = MASKS.get(inst.type or "")
@@ -1921,6 +1966,59 @@ class Lowering:
         )  # fmt: skip
         target.ops.append(LOp(op, len(target.ops), "ReturnValue", [source], [U64], result))
         return ("value", result.path)
+
+    def own_condition(self, condition: MOperand, target: LBlock) -> MOperand:
+        """A branch's condition as its own reference.
+
+        The image binds one value to one field (``condition_value`` is one reference), so
+        a flag that already stands as some block's condition -- a loop's exit test that
+        also picks an arm of a select, the shape clang's rotated loops make -- takes a
+        copy here. The copy is the same bits, so the branch goes the same way."""
+        if condition[0] == "value" and condition[1] in self.conditions:
+            condition = self.move_value(target, condition)
+        if condition[0] == "value":
+            self.conditions.add(condition[1])
+        return condition
+
+    def operand_path(self, operand: MOperand) -> str:
+        """The path of the value an operand names; a constant names its Literal object."""
+        return operand[1] if operand[0] == "value" else self.literals[operand[1]].path
+
+    def own_terminus(self) -> None:
+        """The condition and the answer of every block, each its own reference.
+
+        One edge, one place (the link check's rule): the ``condition_value`` and
+        ``terminator_value`` fields name a value on the block itself, so that value may
+        not also stand among the block's own references -- a parameter it takes in
+        (``BlockParameterValue``) or a value it hands a successor
+        (``SuccessorArgument``). A rotated loop's header branches on the very flag its
+        edge carries in, and a join on its own parameter; both take a copy of the same
+        bits here, as a return already does, so the branch goes the same way."""
+        for block in self.blocks:
+            held = {parameter.path for parameter in block.params}
+            for _, arguments in block.successors:
+                held.update(self.operand_path(argument) for argument in arguments)
+            if block.condition is not None and self.operand_path(block.condition) in held:
+                block.condition = self.move_value(block, block.condition)
+            if (
+                block.terminator_value is not None
+                and self.operand_path(block.terminator_value) in held
+            ):
+                block.terminator_value = self.move_value(block, block.terminator_value)
+
+    def load_scratch_of(self, target: LBlock) -> MOperand:
+        """The shared scratch wide slot a load of the flat space stages its bytes in.
+
+        OP_MOVE reads operands, not the memory an address names, so a load copies the
+        memory's bytes into a wide slot and reads the word out of the slot. The staging
+        is filled right before it is read (the copy in and the word out are adjacent
+        ops), so the whole graph shares one such slot -- one wide slot per load is frame
+        the body never asked for, and a MicroPython function of pointer walks is exactly
+        where that would push the frame past its budget."""
+        if not self.load_scratch:
+            entry = self.entry or target
+            self.load_scratch.append(self.move_value(entry, self.literal(0), width=16))
+        return self.load_scratch[0]
 
     def and_mask(self, target: LBlock, source: MOperand, mask: int) -> MOperand:
         """The low bits of a word: what a narrow (i1/i8/i16/i32) value is."""
@@ -2122,7 +2220,7 @@ class Lowering:
             arm.successors = [(join.path, [argument])]  # the arm passes its value to the join
             arms.append(arm)
         target.terminator = "Branch"
-        target.condition = cond
+        target.condition = self.own_condition(cond, target)
         # edges[0] is the taken one and takes the arm that keeps the condition true (a)
         target.successors = [(arm.path, []) for arm in arms]
         self.note(name, ("value", chosen.path))
@@ -2288,10 +2386,10 @@ class Lowering:
             # the bytes of a wide slot, through OP_MOVE
             made = self.move_value(target, source)
         elif flat and source[0] == "value":
-            # memory at an address of the flat space: the
-            # bytes are copied into a scratch wide slot first (OP_MOVE reads operands, not
-            # the memory an address names), then the word is read out of the slot
-            scratch = self.move_value(target, self.literal(0), width=16)
+            # memory at an address of the flat space: the bytes are copied into the shared
+            # scratch wide slot first (OP_MOVE reads operands, not the memory an address
+            # names), then the word is read out of the slot
+            scratch = self.load_scratch_of(target)
             self.call_void(target, "memory_copy",
                            [scratch, self.literal(16), source, self.literal(count), self.literal(count)])
             made = self.move_value(target, scratch)
@@ -2497,6 +2595,7 @@ class Lowering:
         ]
         # the blocks of the call take the count of blocks made so far as their name: two
         # calls of one function, nested or not, never number their blocks the same way
+        before = len(self.values)
         sub = Lowering(
             callee, self.module, self.functions, (*self.stack, self.fn.name),
             host=self, tag=f"call{len(self.blocks)}_",
@@ -2530,6 +2629,19 @@ class Lowering:
         # start zero, the way a frame does
         target.terminator = "Goto"
         target.successors = [(entry.path, [self.literal(0)] * len(entry.params))]
+        copied = sum(
+            value.width + -value.width % 8
+            for value in self.values[before:]
+            if value.kind not in ("Literal", "Object")
+        )
+        if copied > INLINE_WORDS * 8:
+            # the composer's inline path makes a run of the callee's blocks inside the
+            # caller's: there is no call to fall back on, so a body this big refuses the
+            # caller instead of silently becoming most of its frame
+            raise Unsupported(
+                f"{self.fn.name}: a call of {callee.name} inlines {copied // 8} words "
+                f"(the inline budget is {INLINE_WORDS} words)"
+            )
         self.note(inst.name, ("value", chosen.path))
         if inst.type == "ptr" and inst.name is not None:  # the result holds an address
             self.pointers.add(inst.name)
@@ -3019,9 +3131,15 @@ RUSTC = shutil.which("rustc") or str(Path.home() / ".cargo" / "bin" / "rustc")
 
 
 def compile_c(source: str | Path) -> str:
-    """The textual LLVM IR of a C file: ``clang-18 -S -emit-llvm -O1`` (no pip dependency)."""
+    """The textual LLVM IR of a C file: ``clang-18 -S -emit-llvm -O1`` (no pip dependency).
+
+    ``RXF_IMPORT_FACES`` is defined on this side and not on the native link of the
+    differential: a corpus may give the module IR bodies for the libc faces its verbatim
+    bodies call (the IR-shim TU of ``import_corpus/qstr_faces.c``), while the natively
+    compiled binary binds the same calls to libc.  Nothing else in the compile changes.
+    """
     done = subprocess.run(
-        [CLANG, "-S", "-emit-llvm", "-O1", str(source), "-o", "-"],
+        [CLANG, "-S", "-emit-llvm", "-O1", "-DRXF_IMPORT_FACES", str(source), "-o", "-"],
         capture_output=True,
         text=True,
     )

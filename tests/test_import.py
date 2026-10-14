@@ -245,6 +245,7 @@ CASES: dict[str, tuple[str, list[tuple[int, ...]]]] = {
     "r_uadd_ovf": ("rust_overflow.rs", PAIRS),
     "r_usub_ovf": ("rust_overflow.rs", PAIRS),
     "r_sadd_ovf": ("rust_overflow.rs", PAIRS),
+    "r_ssub_ovf": ("rust_overflow.rs", PAIRS),
     # a Rust panic path: the same answers as the native code on the inputs that do not
     # panic, and a Refuse of the run at zero (AT_RUN_REFUSED below)
     "r_panic_if_zero": ("rust_panic.rs", [(x,) for x in VALUES if x]),
@@ -253,6 +254,8 @@ CASES: dict[str, tuple[str, list[tuple[int, ...]]]] = {
     "sub_ovf_u64": ("overflow.c", PAIRS),
     "add_ovf_i32": ("overflow.c", NARROW_PAIRS),
     "sub_ovf_i32": ("overflow.c", NARROW_PAIRS),
+    "add_ovf_i64": ("overflow.c", PAIRS),
+    "sub_ovf_i64": ("overflow.c", PAIRS),
     # the multiply forms: one wrapping leaf and the overflow bit of the identity, every
     # pair comparable -- the overflowing ones where __builtin_mul_overflow answers 1 are
     # exactly the interesting ones
@@ -408,6 +411,15 @@ REFUSED = {
     # is opaque, and a body that reads or writes its bytes is refused, never guessed
     ("nlr_call.c", "nlr_abuse_read"): "nlr buffer",
     ("nlr_call.c", "nlr_abuse_write"): "nlr buffer",
+    # the interning path of MicroPython (qstr_from_str -> qstr_from_strn -> the helper):
+    # clang -O1 keeps qstr_find_strn a call (it is past the inline budget as a callee:
+    # 119-121 words), and the composer's inline path has no call to fall back on. The
+    # core the gate needs (qstr_compute_hash, qstr_find_strn, qstr_hash and the
+    # accessors of find_qstr) imports and runs below; what this refusal records as a
+    # need is call support between imported graphs
+    # (or the interning path as runtime services, the leaf table being another lane's)
+    ("qstr.c", "qstr_from_str"): "inline budget",
+    ("qstr.c", "qstr_from_strn"): "inline budget",
 }
 
 # the panic paths: the run refuses (RXF_REFUSE_UNSUPPORTED) on the path that would panic
@@ -465,6 +477,48 @@ GLOBAL_CASES: dict[str, tuple[str, tuple[tuple[str, tuple[int, ...]], ...]]] = {
 # map the cell somewhere of their own, so the shape is what matches, not the word
 GLOBAL_ADDRESSES: dict[tuple[str, str], str] = {("global_scalar.c", "counter_at"): "counter"}
 
+# the qstr core of MicroPython (py/qstr.c over the corpus's arena port): the pool cells
+# the world keeps across the calls are the statics the native library keeps between its
+# ctypes calls, and the string a case searches is bytes of the world's flat memory at
+# the address it passes. The gate of the slice is the hash/find roundtrip: what
+# qstr_find_strn answers, the stored hash qstr_hash reads back, and the hash
+# qstr_compute_hash makes of the bytes agree -- with each other and with the natively
+# compiled library (makeqstrdata's contract: every stored hash is the computed hash of
+# its string)
+QSTR_PROGRAMS = (
+    "qstr_port_boot",
+    "qstr_init",
+    "qstr_compute_hash",
+    "qstr_find_strn",
+    "qstr_hash",
+    # the accessors of find_qstr: the callers of the core that import (the interning
+    # path is refused below, REFUSED's inline budget)
+    "qstr_len",
+    "qstr_str",
+    "qstr_data",
+)
+QSTR_STRINGS = (
+    b"",
+    b"a",
+    b"ab",
+    b"print",
+    b"len",
+    b"hello",
+    b"import",
+    b"micropython",
+    b"qstr",
+    # the near misses the searches must not confuse: prefixes, extensions, an embedded
+    # NUL (the compares are length-bounded, not NUL-terminated), and strings no pool holds
+    b"b",
+    b"prin",
+    b"prints",
+    b"hell",
+    b"qstr\x00x",
+    b"micropytho",
+    b"zzzzzzzz",
+)
+QSTR_CASES: dict[str, tuple[str, ...]] = {"qstr.c": QSTR_PROGRAMS}
+
 
 @dataclass
 class World:
@@ -500,6 +554,11 @@ def link(file: Path, shared: Path) -> None:
     )  # fmt: skip
 
 
+# behind the world's memory: the room a sequence's programs are placed in (the world's
+# own program slot is 0x1800 bytes, an imported body is bigger)
+PROGRAM_ROOM = 0x40000
+
+
 class CellRun:
     """One world of the emulator seat with the arena cells of a corpus file's globals.
 
@@ -518,18 +577,25 @@ class CellRun:
         objects = graph_world.bindings(image)
         self.programs = programs
         self.emulator = Emulator("x86_64")
-        self.emulator.map(graph_world.BASE, graph_world.MAPPED)
+        self.emulator.map(graph_world.BASE, graph_world.MAPPED + PROGRAM_ROOM)
         addresses = {
             index: self.emulator.load(data) for index, data in code.leaves["x86_64"].items()
         }
-        case = graph_world.Case("cells", programs[min(programs)], b"", objects)
+        case = graph_world.Case("cells", b"", b"", objects)
         self.emulator.write(
             graph_world.BASE, graph_world.memory(case, sorted(addresses.items()))
         )
         self.run_code = self.emulator.load(code.run["x86_64"])
         self.handle = case.handle
-        # a run reads the words of its program out of the payload of its handle's object:
-        # the entry's size is patched when the sequence moves on to the next program
+        # a run reads the words of its program out of the payload of its handle's object.
+        # The starter's world leaves the program 0x1800 bytes before the arguments and
+        # writes the arguments and the out box over whatever follows on every call: fine
+        # for the starter's programs, but an imported body (a caller with its callees
+        # inlined) is tens of KiB and its words would be the arguments' bytes by the time
+        # it runs. The entry's payload moves to a room of its own behind the world, the
+        # way the harness of the world hands a run its request struct, and the entry's
+        # payload and size are patched when the sequence moves on to the next program.
+        self.program_at = graph_world.BASE + graph_world.MAPPED
         count = struct.unpack_from(
             "<Q", self.emulator.read(graph_world.CONTEXT, 144), 32
         )[0]
@@ -538,6 +604,9 @@ class CellRun:
         for index in range(count):
             if struct.unpack_from("<Q", table, index * 80)[0] == graph_world.PROGRAM_ID:
                 self.program_entry = graph_world.OBJECTS + index * 80
+        self.emulator.write(
+            self.program_entry + 24, struct.pack("<Q", self.program_at)
+        )
         self.placed: bytes | None = None
 
     def call(self, name: str, args: tuple[int, ...]) -> tuple[int, int]:
@@ -545,7 +614,7 @@ class CellRun:
         included, stays as the last call left it."""
         program = self.programs[name]
         if program is not self.placed:
-            self.emulator.write(graph_world.PROGRAM, program)
+            self.emulator.write(self.program_at, program)
             self.emulator.write(
                 self.program_entry + 32, struct.pack("<Q", len(program))
             )
@@ -578,6 +647,7 @@ def world(tmp_path_factory) -> World:
         | {home for home, _ in PAIR_MEMORY_CASES.values()}
         | {home for home, _ in AT_RUN_REFUSED.values()}
         | set(GLOBAL_CASES)
+        | set(QSTR_CASES)
     )
     for file in homes:
         source = CORPUS / file
@@ -589,6 +659,7 @@ def world(tmp_path_factory) -> World:
             | {name for name, (home, _) in AT_RUN_REFUSED.items() if home == file}
             | {name for name, _ in GLOBAL_CASES.get(file, ("", ()))[1]}
             | {name for home, name in GLOBAL_ADDRESSES if home == file}
+            | set(QSTR_CASES.get(file, ()))
         )
         imported = rximport.import_source_file(image, source, module=stem, only=wanted)
         assert set(imported) == wanted, f"{file}: imported {sorted(imported)}, not {sorted(wanted)}"
@@ -760,3 +831,176 @@ def test_global_address_is_the_cell(world: World, file: str, name: str):
     assert first == second, f"{name}: two calls answered {first:#x} and {second:#x}"
     assert first and first % 8 == 0, f"{name}: {first:#x} is no aligned address"
     assert graph_world.BASE <= first < graph_world.BASE + graph_world.MAPPED
+
+
+def test_qstr_hash_find_roundtrip_matches_native(world: World):
+    """The qstr core of MicroPython end to end (the gate of the slice): the imported
+    graphs answer the same as the natively compiled library. The sequence boots the pool
+    cells the way a port's boot fills the pointers a static initializer would carry as
+    relocations (qstr_port_boot), starts the interning state (qstr_init), and then every
+    string of QSTR_STRINGS runs the roundtrip: the hash of the bytes, the qstr the pools
+    answer for them, and the hash that qstr carries back -- the three agree with each
+    other (makeqstrdata's contract) and with the native side's statics on the same
+    bytes. The near misses stay absent on both sides: the searches are length-bounded
+    compares, not NUL-terminated ones. A found qstr then walks the accessors of
+    find_qstr (qstr_len, qstr_str, qstr_data): the numbers compare directly, the
+    addresses cannot (each side maps its cells somewhere of its own, the shape of
+    test_global_address_is_the_cell), so the strings they name compare by content."""
+    stem = "qstr"
+    run = CellRun(
+        world.image, {name: world.programs[f"{stem}.{name}"] for name in QSTR_PROGRAMS}
+    )
+    native = world.native[stem]
+    native.qstr_port_boot()
+    native.qstr_init()
+    for name, argtypes in (
+        ("qstr_compute_hash", [ctypes.c_void_p, ctypes.c_uint64]),
+        ("qstr_find_strn", [ctypes.c_void_p, ctypes.c_uint64]),
+        ("qstr_hash", [ctypes.c_uint64]),
+        ("qstr_len", [ctypes.c_uint64]),
+    ):
+        function = getattr(native, name)
+        function.argtypes = argtypes
+        function.restype = ctypes.c_uint64
+    for name, argtypes in (
+        ("qstr_str", [ctypes.c_uint64]),
+        ("qstr_data", [ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64)]),
+    ):
+        function = getattr(native, name)
+        function.argtypes = argtypes
+        function.restype = ctypes.c_void_p
+    scratch = graph_world.HEAP + 0x800  # the bytes of the world the cases search
+    lengths_at = scratch + 0x40  # the out word of qstr_data, one word past them
+    # the same boot on the emulator seat: the pools' pointer fields are the addresses
+    # qstr_port_boot stores before qstr_init starts the interning state -- one world of
+    # cells across the sequence, exactly like the native library's statics
+    for boot in ("qstr_port_boot", "qstr_init"):
+        status, _ = run.call(boot, ())
+        assert status == OK, f"{boot}: the imported graph refused the boot ({status})"
+    for text in QSTR_STRINGS:
+        raw = text + b"\0"
+        run.emulator.write(scratch, raw)
+        held = ctypes.create_string_buffer(raw)  # alive through the native calls below
+        address = ctypes.addressof(held)
+        computed = native.qstr_compute_hash(address, len(text))
+        status, value = run.call("qstr_compute_hash", (scratch, len(text)))
+        assert (status, value) == (OK, computed), (
+            f"qstr_compute_hash({text!r}): the imported graph answered "
+            f"({status}, {value:#x}), natively it is ({OK}, {computed:#x})"
+        )
+        found = native.qstr_find_strn(address, len(text))
+        status, answer = run.call("qstr_find_strn", (scratch, len(text)))
+        assert (status, answer) == (OK, found), (
+            f"qstr_find_strn({text!r}): the imported graph answered "
+            f"({status}, {answer:#x}), natively it is ({OK}, {found:#x})"
+        )
+        if found:
+            stored = native.qstr_hash(found)
+            status, read = run.call("qstr_hash", (answer,))
+            assert (status, read) == (OK, stored), (
+                f"qstr_hash({text!r}): the imported graph answered "
+                f"({status}, {read:#x}), natively it is ({OK}, {stored:#x})"
+            )
+            assert stored == computed, (
+                f"{text!r}: the pool stores hash {stored} but qstr_compute_hash "
+                f"answers {computed} -- makeqstrdata's contract is one hash of the bytes"
+            )
+            expected_len = native.qstr_len(found)
+            status, length = run.call("qstr_len", (answer,))
+            assert (status, length) == (OK, expected_len), (
+                f"qstr_len({text!r}): the imported graph answered "
+                f"({status}, {length}), natively it is ({OK}, {expected_len})"
+            )
+            assert expected_len == len(text), (
+                f"{text!r}: qstr_len answers {expected_len}, the search was of "
+                f"{len(text)} bytes"
+            )
+            expected_str = ctypes.string_at(native.qstr_str(found), expected_len)
+            status, pointed = run.call("qstr_str", (answer,))
+            assert status == OK, f"qstr_str({text!r}): the graph refused ({status})"
+            assert bytes(run.emulator.read(pointed, expected_len)) == expected_str == text, (
+                f"qstr_str({text!r}): the graph names {bytes(run.emulator.read(pointed, expected_len))!r} "
+                f"at {pointed:#x}, natively the cell holds {expected_str!r}"
+            )
+            written = ctypes.c_uint64()
+            expected_data = ctypes.string_at(
+                native.qstr_data(found, ctypes.byref(written)), written.value
+            )
+            run.emulator.write(lengths_at, bytes(8))
+            status, pointed = run.call("qstr_data", (answer, lengths_at))
+            assert status == OK, f"qstr_data({text!r}): the graph refused ({status})"
+            length = int.from_bytes(run.emulator.read(lengths_at, 8), "little")
+            assert (length, bytes(run.emulator.read(pointed, length))) == (
+                written.value,
+                expected_data,
+            ), (
+                f"qstr_data({text!r}): the graph answered {length} bytes of "
+                f"{bytes(run.emulator.read(pointed, length))!r}, natively it is "
+                f"{written.value} bytes of {expected_data!r}"
+            )
+
+
+def sign_bit(word: int) -> int:
+    return (word >> 63) & 1
+
+
+@pytest.mark.parametrize(
+    "name",
+    (
+        "add_ovf_u64",
+        "sub_ovf_u64",
+        "add_ovf_i64",
+        "sub_ovf_i64",
+        "r_uadd_ovf",
+        "r_usub_ovf",
+        "r_sadd_ovf",
+        "r_ssub_ovf",
+    ),
+)
+def test_with_overflow_bits_match_the_contract(world: World, name: str):
+    """The add/sub rows of the with.overflow contract pinned to their identities, not
+    only to the native call: a carry is ``less(sum, a)`` and a borrow ``less(a, b)`` on
+    the words (``wrapping_add_uint64_t`` / ``wrapping_subtract_uint64_t`` + the
+    compare), and the signed rows take the bit from the signs --
+    ``sign(a) == sign(b) && sign(sum) != sign(a)`` (add) or ``sign(a) != sign(b) &&
+    sign(diff) != sign(a)`` (sub). The answer is the wrapped value with the bit folded
+    into the top, exactly the shape the corpus and rust_overflow.rs return (the rust
+    twins of the rows fold the flag into the same top bit). The inputs are the edges of
+    the word that meet every identity: the pairs that carry or borrow at the top and at
+    the sign, both."""
+    row = {
+        "r_uadd_ovf": "add_ovf_u64",
+        "r_usub_ovf": "sub_ovf_u64",
+        "r_sadd_ovf": "add_ovf_i64",
+        "r_ssub_ovf": "sub_ovf_i64",
+    }.get(name, name)
+
+    def expected(row: str, a: int, b: int) -> int:
+        if row == "add_ovf_u64":
+            total, bit = (a + b) % U64, int(a + b >= U64)  # a carry: sum past the word
+        elif row == "sub_ovf_u64":
+            total, bit = (a - b) % U64, int(a < b)  # a borrow
+        elif row == "add_ovf_i64":
+            total = (a + b) % U64
+            bit = int(sign_bit(a) == sign_bit(b) and sign_bit(total) != sign_bit(a))
+        else:
+            total = (a - b) % U64
+            bit = int(sign_bit(a) != sign_bit(b) and sign_bit(total) != sign_bit(a))
+        return total ^ (bit << 63)
+
+    stem = "rust_overflow" if name.startswith("r_") else "overflow"
+    program = world.programs[f"{stem}.{name}"]
+    function = getattr(world.native[stem], name)
+    function.argtypes = [ctypes.c_uint64, ctypes.c_uint64]
+    function.restype = ctypes.c_uint64
+    edges = (0, 1, 2, (1 << 63) - 1, 1 << 63, (1 << 63) + 1, U64 - 2, U64 - 1)
+    for a in edges:
+        for b in edges:
+            want = expected(row, a, b)
+            assert function(a, b) == want, f"{name}({a:#x}, {b:#x}): natively {function(a, b):#x}, the contract says {want:#x}"
+            with rxf_native.Memory(1 << 16) as memory:
+                status, value = rxf_native.run(program, struct.pack("<2Q", a, b), memory)
+            assert (status, value) == (OK, want), (
+                f"{name}({a:#x}, {b:#x}): the imported graph answered "
+                f"({status}, {value:#x}), the contract says ({OK}, {want:#x})"
+            )
