@@ -110,6 +110,7 @@ def test_the_inspector_app_serves_the_routes(inspector):
     paths = {route.path for route in routes}
     assert {
         "/",
+        "/model",
         "/api/info",
         "/api/children",
         "/api/object",
@@ -122,6 +123,7 @@ def test_the_inspector_app_serves_the_routes(inspector):
     with pytest.raises(Exception, match="no object"):
         handlers["/api/object"]("zzz")
     assert "<title>RXF inspector</title>" in handlers["/"]()
+    assert '<a class="button" href="/model"' in handlers["/"]()
     assert PAGE.is_file()
 
 

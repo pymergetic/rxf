@@ -1,0 +1,651 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RXF model — run cells and objects</title>
+<style>
+  :root { color-scheme: light; --bg: #fff; --panel: #f6f7f9; --line: #d8dce1; --text: #1c2128; --muted: #6a737d; --accent: #05c; --hot: #b8860b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  header b { white-space: nowrap; }
+  header .summary { margin-left: auto; color: var(--muted); }
+  a { color: var(--accent); cursor: pointer; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { font: 12px ui-monospace, monospace; word-break: break-all; }
+  table { border-collapse: collapse; margin: 4px 0 10px; width: 100%; }
+  td, th { border: 1px solid var(--line); padding: 2px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  .badge { display: inline-block; padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 11px; }
+  .card { border: 1px solid var(--line); border-radius: 6px; margin-bottom: 12px; }
+  .card > h3 { margin: 0; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .card > .body { padding: 6px 8px; }
+  .note { color: var(--muted); margin: 4px 0; }
+  .bad { color: #b00; }
+  a.button, button { background: #fff; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; cursor: pointer; font: inherit; }
+  a.button:hover, button:hover { border-color: var(--accent); text-decoration: none; }
+  /* doc scaffolding: the pane language of the inspector, one column wider */
+  #doc { display: grid; grid-template-columns: minmax(220px, .55fr) minmax(0, 2fr); }
+  #toc { border-right: 1px solid var(--line); padding: 10px 12px 24px; position: sticky; top: 0; align-self: start; max-height: 100vh; overflow: auto; }
+  #toc h2 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  #toc ul { list-style: none; margin: 0; padding-left: 12px; }
+  #toc > ul { padding-left: 0; }
+  #toc a { display: block; padding: 2px 4px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #toc a:hover { background: #eef; text-decoration: none; }
+  article { padding: 10px 18px 56px; max-width: 54rem; min-width: 0; }
+  h1 { font-size: 15px; margin: 6px 0 2px; }
+  h2 { font-size: 13px; margin: 0 0 6px; }
+  h3 { font-size: 12px; margin: 14px 0 6px; }
+  .eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 26px 0 2px; }
+  .lede { color: var(--muted); margin: 0 0 10px; }
+  p { margin: 8px 0; }
+  .cite { display: inline-block; font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 8px; background: var(--panel); white-space: nowrap; }
+  .pin { font: 12px ui-monospace, monospace; background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; white-space: nowrap; }
+  .live { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 6px 8px; margin: 10px 0; }
+  .live table { margin-bottom: 4px; }
+  figure { margin: 12px 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 8px; }
+  figcaption { color: var(--muted); font-size: 11px; margin-top: 6px; }
+  figcaption b { color: var(--text); }
+  svg { width: 100%; height: auto; display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+  svg text { font: 10px system-ui, sans-serif; fill: var(--muted); }
+  svg text.lbl { fill: var(--text); }
+  svg text.off { font: 10px ui-monospace, monospace; }
+  svg rect.box, svg rect.hot { fill: var(--bg); stroke: var(--line); }
+  svg rect.hot { stroke: var(--hot); stroke-width: 1.5; }
+  svg rect.band { fill: var(--panel); stroke: var(--line); }
+  svg rect.poison { fill: var(--panel); stroke: var(--hot); stroke-dasharray: 3 2; }
+  svg line, svg path { stroke: var(--muted); fill: none; }
+  svg .flow { stroke: var(--text); }
+  details { margin: 6px 0; }
+  summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+</style>
+</head>
+<body>
+<header>
+  <b>RXF</b> <span>Model</span>
+  <a class="button" href="/">&larr; Inspector</a>
+  <span class="summary">source of truth: <code>docs/20-EXECUTION-POLICY.md</code> S1&ndash;S11 &middot; constants pinned to <code>tests/host/smp_*.h</code></span>
+</header>
+<div id="doc">
+<nav id="toc" aria-label="Sections">
+  <h2>Contents</h2>
+  <ul>
+    <li><a href="#substrate">1 &middot; The substrate: one arena of cells</a>
+      <ul>
+        <li><a href="#cell-anatomy">Cell anatomy &mdash; the 64-byte header</a></li>
+        <li><a href="#run-cells">Run cells</a></li>
+        <li><a href="#run-payload">The run-cell payload</a></li>
+        <li><a href="#object-cells">Object cells</a></li>
+        <li><a href="#named-cells">Named cells</a></li>
+      </ul>
+    </li>
+    <li><a href="#faces">2 &middot; The two object faces</a>
+      <ul>
+        <li><a href="#handles">Handles: index | generation</a></li>
+        <li><a href="#repr-a">REPR A: the Python-heap face</a></li>
+        <li><a href="#aba">Stale names and ABA</a></li>
+      </ul>
+    </li>
+    <li><a href="#step">3 &middot; The step lifecycle</a>
+      <ul>
+        <li><a href="#step-loop">The step loop</a></li>
+        <li><a href="#state-machine">The state machine</a></li>
+      </ul>
+    </li>
+    <li><a href="#suspension">4 &middot; Suspension, migration, compaction</a>
+      <ul>
+        <li><a href="#park-wake">Park and wake: the token protocol</a></li>
+        <li><a href="#migration">Migration is observed, not performed</a></li>
+        <li><a href="#compaction">Compaction under live runs</a></li>
+      </ul>
+    </li>
+    <li><a href="#micropython">5 &middot; The MicroPython seam</a>
+      <ul>
+        <li><a href="#pending-protocol">The pending protocol, exactly</a></li>
+      </ul>
+    </li>
+    <li><a href="#proof">6 &middot; What the proof pins</a></li>
+  </ul>
+</nav>
+<article>
+
+<p class="eyebrow">The model</p>
+<h1>The run-cell machine and the object model</h1>
+<p class="lede">How a suspended run, an arena cell, and a Python object are the same thing.
+Every fact on this page cites its section of <code>docs/20-EXECUTION-POLICY.md</code>
+(<span class="cite" data-section="S1">S1</span>&ndash;<span class="cite" data-section="S11">S11</span>);
+the numbers in <span class="pin">pin chips</span> are read out of the C in
+<code>tests/host/</code> and are pinned by <code>tests/test_model_doc.py</code> &mdash; change the C and
+the test fails until this page is updated.</p>
+<p>One rule runs through all of it: <b>suspension is a data property</b>. A suspended run is a
+cell in state <code>PARKED</code> <span class="cite" data-section="S2">S2</span>. No thread, stack,
+register, or future belongs to a run. What suspends is data; what resumes is any carrier that
+reads that data.</p>
+
+<!-- ============================ 1 · substrate ============================ -->
+<section id="substrate">
+<p class="eyebrow">Part 1 &middot; <span class="cite" data-section="S1">S1</span> <span class="cite" data-section="S2">S2</span> <span class="cite" data-section="S3">S3</span></p>
+<h2>The substrate: one arena of cells</h2>
+<p>Everything the machine touches is a cell in one cell stream: objects, runs, the ready-ring,
+channel frames, the named roots of the world. The arena moves cells and hands out handles; a
+claim word per slot bounds how long any address stays valid. A run <b>is</b> a cell &mdash; its
+payload is <code>smp_run_payload</code>, and nothing of the run names the thing that executes it
+<span class="cite" data-section="S1">S1</span> <span class="cite" data-section="S2">S2</span>.</p>
+
+<h3 id="cell-anatomy">Cell anatomy &mdash; the 64-byte header</h3>
+<p>This is the layout the inspector reads out of every cell you click: the same header words on
+the host arena (<code>tests/host/smp_arena.h</code>) and in the image
+(<code>core/ground.h</code>, RXFB v6 &mdash; the two agree word for word where both define a
+word). The offsets are real; the right-hand column names the live view field each word shows up
+in.</p>
+
+<figure>
+  <svg viewBox="0 0 640 216" role="img" aria-label="Cell anatomy: a 64-byte header of ten words, then the aligned payload, then 24-byte reference rows; each header word is labelled with its offset and the live view field it appears in.">
+    <title>Cell anatomy</title>
+    <desc>The 64-byte header is four rows of words: type and parent at offset 0; payload_size at 16 and generation at 24; name at 32, flags at 40, ref_count at 44; forward at 48, index at 56, reserved at 60. Below the header comes the payload, padded to 16-byte alignment, then one 24-byte reference row per reference.</desc>
+    <text class="lbl" x="56" y="14">header &mdash; 64 bytes</text>
+    <text class="off" x="8" y="40">0x00</text>
+    <text class="off" x="8" y="68">0x10</text>
+    <text class="off" x="8" y="96">0x20</text>
+    <text class="off" x="8" y="124">0x30</text>
+    <rect class="box" x="56" y="24" width="150" height="22"/><text class="lbl" x="62" y="39">type @0</text>
+    <rect class="box" x="206" y="24" width="150" height="22"/><text class="lbl" x="212" y="39">parent @8</text>
+    <text x="368" y="39">Details &rarr; type / parent</text>
+    <rect class="box" x="56" y="52" width="150" height="22"/><text class="lbl" x="62" y="67">payload_size @16</text>
+    <rect class="hot" x="206" y="52" width="150" height="22"/><text class="lbl" x="212" y="67">generation @24</text>
+    <text x="368" y="67">Details &rarr; handle &rarr; generation</text>
+    <rect class="box" x="56" y="80" width="150" height="22"/><text class="lbl" x="62" y="95">name @32</text>
+    <rect class="box" x="206" y="80" width="75" height="22"/><text class="lbl" x="212" y="95">flags @40</text>
+    <rect class="box" x="281" y="80" width="75" height="22"/><text class="lbl" x="287" y="95">refs @44</text>
+    <text x="368" y="95">Cell &rarr; name at / flags / refs</text>
+    <rect class="hot" x="56" y="108" width="150" height="22"/><text class="lbl" x="62" y="123">forward @48</text>
+    <rect class="box" x="206" y="108" width="75" height="22"/><text class="lbl" x="212" y="123">index @56</text>
+    <rect class="box" x="281" y="108" width="75" height="22"/><text class="lbl" x="287" y="123">reserved</text>
+    <text x="368" y="123">Cell &rarr; forward / index</text>
+    <text class="off" x="8" y="154">0x40</text>
+    <rect class="band" x="56" y="140" width="300" height="24"/><text class="lbl" x="62" y="156">payload &mdash; align16(payload_size) bytes</text>
+    <rect class="band" x="56" y="172" width="300" height="24"/><text class="lbl" x="62" y="188">reference rows &mdash; 24 B each &times; ref_count</text>
+    <text x="368" y="156">Payload hex dump</text>
+    <text x="368" y="188">References table</text>
+    <text x="56" y="212">cell size = 64 + align16(payload) + 24 &times; refs, rounded up to 16</text>
+  </svg>
+  <figcaption><b>Figure 1 &mdash; cell anatomy.</b> The header the tool decodes, the payload, and
+  the reference rows. Highlighted words are the two the model cares about most: the
+  <i>generation</i> that names a slot's life and the <i>forward</i> record a compaction leaves
+  behind. The table below pins every offset.</figcaption>
+  <details><summary>Text description</summary>
+    <p>A cell is a 64-byte header, a payload padded to 16-byte alignment, and one 24-byte
+    reference row per reference. Header words by offset: type 0, parent 8, payload_size 16,
+    generation 24, name 32, flags 40, ref_count 44, forward 48, index 56, reserved 60. Each word
+    appears in the live detail view as named in the right-hand column of the figure.</p>
+  </details>
+</figure>
+
+<div class="live" id="live" aria-live="polite">
+  <div class="note">No cell selected. Open a cell in the <a href="/">inspector</a> and follow its
+  <b>In the model</b> links, or append <code>?path=pymergetic.rxf</code> to this page's address.</div>
+</div>
+
+<table>
+  <tr><th>offset</th><th>word</th><th>size</th><th>live view field</th></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_TYPE" data-value="0">0</span></td><td><code>type</code></td><td>8 B</td><td>Details &rarr; type</td></tr>
+  <tr><td><span class="pin" data-pin="RXFB_C_PARENT" data-value="8">8</span></td><td><code>parent</code></td><td>8 B</td><td>Details &rarr; parent</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_PAYLOAD_SIZE" data-value="16">16</span></td><td><code>payload_size</code></td><td>8 B</td><td>Cell &rarr; payload</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_GENERATION" data-value="24">24</span></td><td><code>generation</code></td><td>8 B</td><td>Details &rarr; handle &rarr; generation</td></tr>
+  <tr><td><span class="pin" data-pin="RXFB_C_NAME" data-value="32">32</span></td><td><code>name</code></td><td>8 B</td><td>Cell &rarr; name at</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_FLAGS" data-value="40">40</span></td><td><code>flags</code></td><td>4 B</td><td>Flags &rarr; raw</td></tr>
+  <tr><td><span class="pin" data-pin="RXFB_C_REFCOUNT" data-value="44">44</span></td><td><code>ref_count</code></td><td>4 B</td><td>Cell &rarr; refs</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_FORWARD" data-value="48">48</span></td><td><code>forward</code> &mdash; <code>C_FORWARD</code></td><td>8 B</td><td>Cell &rarr; forward</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_INDEX" data-value="56">56</span></td><td><code>index</code></td><td>4 B</td><td>Cell &rarr; index</td></tr>
+  <tr><td><span class="pin" data-pin="RXFB_C_RESERVED" data-value="60">60</span></td><td><code>reserved</code></td><td>4 B</td><td>&mdash;</td></tr>
+</table>
+<p class="note">The header is <span class="pin" data-pin="RXF_SMP_CELL_BYTES" data-value="64">64</span>
+bytes (<code>RXF_SMP_CELL_BYTES</code>, <code>sizeof(pymergetic_rxf_cell)</code>); a reference row is
+<span class="pin" data-pin="RXFB_REF_BYTES" data-value="24">24</span> bytes. A cell with
+<code>flags</code> pinned stays at its source address when the arena is compacted
+(<span class="pin" data-pin="RXF_SMP_FLAG_PINNED" data-value="1">RXF_SMP_FLAG_PINNED = 1</span>).</p>
+
+<h3 id="run-cells">Run cells</h3>
+<p>A run cell is a cell whose payload is <code>smp_run_payload</code>: the state machine, the wake
+token, the handles of what the run reads, and the whole volatile state of its program between two
+safe points <span class="cite" data-section="S1">S1</span>. The proof's cells carry kinds of their
+own &mdash; every cell in the stream is one of these:</p>
+<table>
+  <tr><th>kind</th><th>value</th><th>the payload is</th></tr>
+  <tr><td><code>RXF_SMP_CELL_RUN</code></td><td><span class="pin" data-pin="RXF_SMP_CELL_RUN" data-value="1">1</span></td><td>a run: <code>smp_run_payload</code> &mdash; a run <b>is</b> a cell</td></tr>
+  <tr><td><code>RXF_SMP_CELL_DATA</code></td><td><span class="pin" data-pin="RXF_SMP_CELL_DATA" data-value="2">2</span></td><td>the data a program works on</td></tr>
+  <tr><td><code>RXF_SMP_CELL_CHANNEL</code></td><td><span class="pin" data-pin="RXF_SMP_CELL_CHANNEL" data-value="3">3</span></td><td>a channel frame &mdash; where two runs wait on each other <span class="cite" data-section="S4">S4</span></td></tr>
+  <tr><td><code>RXF_SMP_CELL_RING</code></td><td><span class="pin" data-pin="RXF_SMP_CELL_RING" data-value="4">4</span></td><td>the ready-ring itself &mdash; because everything is <span class="cite" data-section="S3">S3</span></td></tr>
+  <tr><td><code>RXF_SMP_CELL_DELTA</code></td><td><span class="pin" data-pin="RXF_SMP_CELL_DELTA" data-value="5">5</span></td><td>delta staging <span class="cite" data-section="S8">S8</span></td></tr>
+  <tr><td><code>RXF_SMP_CELL_SCRATCH</code></td><td><span class="pin" data-pin="RXF_SMP_CELL_SCRATCH" data-value="6">6</span></td><td>arena growth <span class="cite" data-section="S8">S8</span></td></tr>
+</table>
+<p>In a static image you meet a run cell's neighbours: the <i>programs</i> a run carries
+(<a href="#object-cells">Function and Code cells</a>) and the <i>channel frames</i> it parks on.
+The run cell itself appears in a live world &mdash; and even then you cannot see a thread in it,
+only data.</p>
+
+<h3 id="run-payload">The run-cell payload: three regions, and the boundary is the law</h3>
+<figure>
+  <svg viewBox="0 0 640 216" role="img" aria-label="Run-cell payload anatomy: a band of concurrent atomic words, a band of handoff metadata, a band of program state, and the FNV checksum over the program state.">
+    <title>The run-cell payload</title>
+    <desc>Region one: concurrent words (state, token, waker_run, midflight, mp_raise_slot, mp_sched_flag) are C11 atomics written by any carrier. Region two: handoff metadata, evidence written by the owner or the popper. Region three: program state, one writer between two safe points. A checksum field covers region three with FNV-1a.</desc>
+    <text class="lbl" x="16" y="14">concurrent words &mdash; atomics only; any carrier, the compactor</text>
+    <rect class="hot" x="16" y="20" width="96" height="26"/><text class="lbl" x="22" y="37">state</text>
+    <rect class="hot" x="118" y="20" width="96" height="26"/><text class="lbl" x="124" y="37">token</text>
+    <rect class="hot" x="220" y="20" width="96" height="26"/><text class="lbl" x="226" y="37">waker_run</text>
+    <rect class="hot" x="322" y="20" width="96" height="26"/><text class="lbl" x="328" y="37">midflight</text>
+    <rect class="hot" x="424" y="20" width="96" height="26"/><text class="lbl" x="430" y="37">mp_raise_slot</text>
+    <rect class="hot" x="526" y="20" width="98" height="26"/><text class="lbl" x="532" y="37">mp_sched_flag</text>
+    <text class="lbl" x="16" y="72">handoff metadata &mdash; evidence, never authority (owner or popper, S5)</text>
+    <rect class="band" x="16" y="78" width="608" height="26"/><text class="lbl" x="22" y="95">run_index &middot; kind &middot; park_carrier &middot; deferred &middot; resume_carrier &middot; last_carrier &middot; resumes &middot; migrate_refs &middot; migrate_mask</text>
+    <text class="lbl" x="16" y="130">program state &mdash; one writer between two safe points (S1, S7)</text>
+    <rect class="band" x="16" y="136" width="608" height="26"/><text class="lbl" x="22" y="153">self &middot; data &middot; channel &middot; scratch &middot; stale &middot; seed &middot; pc &middot; acc &middot; steps &middot; guards &middot; mp frame checkpoint (S11)</text>
+    <rect class="hot" x="16" y="170" width="608" height="20"/><text class="lbl" x="22" y="184">checksum &mdash; FNV-1a over the program state</text>
+    <text class="off" x="16" y="206">prime 0x100000001B3 &middot; basis 0xcbf29ce484222325</text>
+  </svg>
+  <figcaption><b>Figure 2 &mdash; the run-cell payload.</b> The three regions of
+  <code>smp_run_payload</code>. Only the concurrent words may be written while the run is not
+  owned; the program state is covered by the checksum, which is verified at the start of every
+  step and rewritten at its end <span class="cite" data-section="S1">S1</span>.</figcaption>
+  <details><summary>Text description</summary>
+    <p>The payload has three regions: concurrent words (state, token, waker_run, midflight,
+    mp_raise_slot, mp_sched_flag) written as atomics by any carrier; handoff metadata written by
+    the owner or the popper, evidence only; and the program state (self through the guards and the
+    MicroPython frame checkpoint), which exactly one carrier writes between two safe points and
+    which is covered by an FNV-1a checksum (prime 0x100000001B3, basis 0xcbf29ce484222325).</p>
+  </details>
+</figure>
+<p class="note">Checksum words, pinned to <code>tests/host/smp_sched.c</code>:
+<span class="pin" data-pin="SMP_FNV_PRIME" data-value="0x100000001B3">prime 0x100000001B3</span>,
+<span class="pin" data-pin="SMP_FNV_BASIS" data-value="0xcbf29ce484222325">basis 0xcbf29ce484222325</span>.
+A step that finds the checksum wrong counts <code>checksum_fails</code> and does not trust the
+state <span class="cite" data-section="S1">S1</span>.</p>
+
+<h3 id="object-cells">Object cells</h3>
+<p>A Python heap object <b>is</b> an arena cell &mdash; there is no second heap
+<span class="cite" data-section="S11">S11</span>. What the interpreter holds is never the cell's
+address but a <a href="#repr-a">REPR A</a> word that names it by handle and is resolved at use.
+The inspector's object detail is exactly this cell: header words, payload, and reference rows.</p>
+
+<h3 id="named-cells">Named cells</h3>
+<p>The roots of the running world are <b>named cells under the root</b>: <code>mp_state_ctx</code>
+and its globals, the qstr pools, module registries &mdash; one name, one cell, handles resolved at
+use <span class="cite" data-section="S11">S11</span>. The GC heap is not a special case: it
+<i>is</i> the arena <span class="cite" data-section="S11">S11</span>. In this inspector, the
+named cells are the objects you see directly under the root &mdash; click one and the
+<b>In the model</b> card links here.</p>
+</section>
+
+<!-- ============================ 2 · faces ============================ -->
+<section id="faces">
+<p class="eyebrow">Part 2 &middot; <span class="cite" data-section="S7">S7</span> <span class="cite" data-section="S11">S11</span></p>
+<h2>The two object faces</h2>
+<p>Two faces meet at a cell: the <b>run's face</b> (a handle: <code>index | generation</code>,
+never a raw address across a safe point) and the <b>Python-heap face</b> (REPR A: a tagged word
+that is a small int or a shifted handle). Both refuse the same thing: a name that outlived what it
+named.</p>
+
+<h3 id="handles">Handles: index | generation</h3>
+<p>A handle names a cell as slot index in the low 32 bits and the slot's generation in the high 32
+&mdash; <span class="pin" data-pin="RXF_SMP_HANDLE_SHIFT" data-value="32">generation &lt;&lt; 32</span>.
+Slots are handed out again when a cell is freed, so the generation changes on every reuse. A
+handle kept across a free is <b>stale</b>: it resolves to nothing and is refused. It never names
+the new cell of the same slot <span class="cite" data-section="S7">S7</span>. Slot 0 is never
+handed out, so the all-zero handle is invalid everywhere; it is the
+<code>HANDLE_NONE</code> of the proof.</p>
+<p>The live detail view shows the two halves on the handle row &mdash; <i>index</i> and
+<i>generation</i> &mdash; and the generation word itself sits at
+<span class="pin" data-pin="RXF_SMP_C_GENERATION" data-value="24">offset 24</span> of the
+<a href="#cell-anatomy">cell header</a>.</p>
+
+<h3 id="repr-a">REPR A: the Python-heap face</h3>
+<p>REPR A is the word a Python value is in this machine
+<span class="cite" data-section="S11">S11</span>:
+<span class="pin" data-pin="REPR_A_SMALLINT_BIT" data-value="0">bit 0</span> set is a small int and
+needs no cell; otherwise the word is
+<span class="pin" data-pin="REPR_A_HANDLE_SHIFT" data-value="1">handle &lt;&lt; 1</span>, resolved
+at use. A cached object reference across a safe point is therefore a handle twice over &mdash; and
+a raw pointer may not outlive its step.</p>
+
+<h3 id="aba">Stale names and ABA</h3>
+<p>The classic bug is a queue holding an old name for a slot that has been recycled. The machine
+refuses it structurally: the pop of the ready-ring checks each handle it takes out &mdash; a handle
+whose slot generation moved or whose slot is free is refused (<code>ring_stale_refused</code>) and
+the pop goes on to the next entry <span class="cite" data-section="S3">S3</span>. A resolve of a
+stale handle is refused the same way (<code>handle_stale_refused</code>)
+<span class="cite" data-section="S7">S7</span>.</p>
+
+<figure>
+  <svg viewBox="0 0 640 252" role="img" aria-label="ABA story: slot 7 with generation 1 holds cell A; cell A is freed and the slot's generation becomes 2 and holds cell B. The old handle 7 | 1 is refused at the pop and never names cell B; the fresh handle 7 | 2 resolves to cell B.">
+    <title>Stale handle refused, fresh sibling resolves</title>
+    <desc>A slot goes through two lives. The first life's handle carries generation 1; after the cell is freed the slot is handed out again at generation 2. The stale handle is refused at the pop and counts ring_stale_refused; the fresh handle of the second life resolves normally.</desc>
+    <rect class="box" x="30" y="16" width="180" height="34"/><text class="lbl" x="38" y="31">slot 7 &middot; gen 1 &middot; cell A</text><text x="38" y="44">first life</text>
+    <line class="flow" x1="210" y1="33" x2="266" y2="33"/><path class="flow" d="M266 33 l-8 -4 v8 z" fill="currentColor"/>
+    <text x="216" y="24">A freed &rarr; gen 2</text>
+    <rect class="box" x="272" y="16" width="180" height="34"/><text class="lbl" x="280" y="31">slot 7 &middot; gen 2 &middot; cell B</text><text x="280" y="44">second life</text>
+    <rect class="hot" x="30" y="82" width="220" height="34"/><text class="lbl" x="38" y="97">handle H = 7 | 1</text><text x="38" y="110">index | generation &lt;&lt; 32</text>
+    <text x="262" y="103">kept across the free &mdash; stale now</text>
+    <line class="flow" x1="140" y1="116" x2="140" y2="158"/><path class="flow" d="M140 158 l-4 -8 h8 z" fill="currentColor"/>
+    <line class="flow" x1="140" y1="116" x2="380" y2="158"/><path class="flow" d="M380 158 l-8 -2 l2 -6 z" fill="currentColor"/>
+    <rect class="box" x="30" y="162" width="260" height="52"/><text class="lbl" x="38" y="179">pop of H &rarr; refused (ABA)</text><text x="38" y="194">ring_stale_refused &middot; handle_stale_refused</text><text x="38" y="207">never names cell B</text>
+    <rect class="box" x="320" y="162" width="260" height="52"/><text class="lbl" x="328" y="179">fresh H&prime; = 7 | 2 &rarr; cell B</text><text x="328" y="194">the new life is named by the</text><text x="328" y="207">new generation &mdash; resolves</text>
+    <text x="30" y="240">the proof: a stale handle is refused and its fresh sibling resolves (WIT_OUT_ABA_OK)</text>
+  </svg>
+  <figcaption><b>Figure 3 &mdash; the handle/ABA story.</b> One slot, two lives, two generations.
+  The old name cannot be resumed under the new cell because the generation is part of the name
+  <span class="cite" data-section="S3">S3</span> <span class="cite" data-section="S7">S7</span>.</figcaption>
+  <details><summary>Text description</summary>
+    <p>Slot 7 first holds cell A at generation 1. Cell A is freed; the slot is handed out again
+    and now holds cell B at generation 2. A handle kept from the first life (7 | 1) is refused at
+    the ready-ring pop and at every resolve, and never names cell B. The fresh handle (7 | 2)
+    resolves to cell B.</p>
+  </details>
+</figure>
+</section>
+
+<!-- ============================ 3 · step ============================ -->
+<section id="step">
+<p class="eyebrow">Part 3 &middot; <span class="cite" data-section="S1">S1</span> <span class="cite" data-section="S3">S3</span> <span class="cite" data-section="S5">S5</span> <span class="cite" data-section="S7">S7</span></p>
+<h2>The step lifecycle</h2>
+<p>Between the <code>READY to RUNNING</code> CAS and the next safe point, one carrier owns the
+program state of the run and is the only writer of it &mdash; run ownership is the <b>only</b>
+mutex in the machine <span class="cite" data-section="S5">S5</span>. The handoff of ownership
+between carriers is the ready-ring; there is no handshake, no ack, no per-run lock.</p>
+
+<h3 id="step-loop">The step loop</h3>
+<figure>
+  <svg viewBox="0 0 640 476" role="img" aria-label="The step loop: pop from the ready-ring with an ABA check, claim with a READY-to-RUNNING compare-and-swap, resolve every handle fresh, work, rewrite the checksum, release every claim at the safe point, then yield back to the ring, park, or finish.">
+    <title>The step loop</title>
+    <desc>Six stages in a loop: pop (stale handles refused), claim (CAS READY to RUNNING; a losing CAS counts state_refused), resolve each handle fresh with a generation check, work while addresses are valid, rewrite the FNV checksum, and reach the safe point where every claim is released. The safe point answers AGAIN (back into the ring), PARK (token protocol), or DONE (TERMINAL).</desc>
+    <rect class="box" x="150" y="12" width="340" height="46"/><text class="lbl" x="158" y="30">1 &middot; pop &mdash; the ready-ring (S3)</text><text x="158" y="45">stale handle? refused (ABA) &mdash; next entry</text>
+    <line class="flow" x1="320" y1="58" x2="320" y2="78"/><path class="flow" d="M320 78 l-4 -8 h8 z" fill="currentColor"/>
+    <rect class="box" x="150" y="82" width="340" height="46"/><text class="lbl" x="158" y="100">2 &middot; claim &mdash; CAS READY &rarr; RUNNING (S1, S5)</text><text x="158" y="115">the loser was a double enqueue: state_refused</text>
+    <line class="flow" x1="320" y1="128" x2="320" y2="148"/><path class="flow" d="M320 148 l-4 -8 h8 z" fill="currentColor"/>
+    <rect class="box" x="150" y="152" width="340" height="46"/><text class="lbl" x="158" y="170">3 &middot; resolve &mdash; every handle, fresh (S7)</text><text x="158" y="185">generation checked &middot; CLAIM_MOVING &rarr; refuse, try next step</text>
+    <line class="flow" x1="320" y1="198" x2="320" y2="218"/><path class="flow" d="M320 218 l-4 -8 h8 z" fill="currentColor"/>
+    <rect class="box" x="150" y="222" width="340" height="46"/><text class="lbl" x="158" y="240">4 &middot; work &mdash; the step's own interval</text><text x="158" y="255">addresses are valid from resolve to release &mdash; no further</text>
+    <line class="flow" x1="320" y1="268" x2="320" y2="288"/><path class="flow" d="M320 288 l-4 -8 h8 z" fill="currentColor"/>
+    <rect class="box" x="150" y="292" width="340" height="46"/><text class="lbl" x="158" y="310">5 &middot; seal &mdash; rewrite the FNV checksum (S1)</text><text x="158" y="325">a run is never handed back half-written (S5)</text>
+    <line class="flow" x1="320" y1="338" x2="320" y2="358"/><path class="flow" d="M320 358 l-4 -8 h8 z" fill="currentColor"/>
+    <rect class="hot" x="150" y="362" width="340" height="46"/><text class="lbl" x="158" y="380">6 &middot; SAFE POINT &mdash; release every claim (S7)</text><text x="158" y="395">the back edge, or a channel wait &mdash; nothing is held across this</text>
+    <line class="flow" x1="320" y1="408" x2="320" y2="424"/><path class="flow" d="M320 424 l-4 -8 h8 z" fill="currentColor"/>
+    <rect class="box" x="150" y="428" width="106" height="34"/><text class="lbl" x="158" y="443">AGAIN &rarr; READY</text><text x="158" y="456">requeue (S3)</text>
+    <rect class="box" x="264" y="428" width="106" height="34"/><text class="lbl" x="272" y="443">PARK</text><text x="272" y="456">token protocol</text>
+    <rect class="box" x="378" y="428" width="112" height="34"/><text class="lbl" x="386" y="443">DONE &rarr; TERMINAL</text><text x="386" y="456">absorbing (S1)</text>
+    <path class="flow" d="M150 445 H92 V35 H144"/>
+    <path class="flow" d="M144 35 l-8 -4 v8 z" fill="currentColor"/>
+    <text x="8" y="250">the loop:</text>
+    <text x="8" y="264">every ready run</text>
+    <text x="8" y="278">goes around</text>
+    <text x="8" y="292">again</text>
+  </svg>
+  <figcaption><b>Figure 4 &mdash; the step loop.</b> One dispatched step of one run. The dispatcher
+  is the same code for every carrier; the program is one interpreter step or one safe-point
+  interval of compiled code <span class="cite" data-section="S6">S6</span>. The end of a step
+  <i>is</i> the safe point: MicroPython's <code>mp_handle_pending()</code> lands exactly on it
+  <span class="cite" data-section="S11">S11</span>.</figcaption>
+  <details><summary>Text description</summary>
+    <p>The loop runs six stages: pop from the ready-ring (refusing stale handles), claim the run
+    with a READY-to-RUNNING compare-and-swap (a losing CAS is a double enqueue and counts
+    state_refused), resolve every handle fresh with a generation check, work while the resolved
+    addresses are valid, rewrite the FNV checksum over the program state, and reach the safe point
+    where every claim is released. From the safe point the step answers AGAIN (the run goes back
+    into the ring), PARK (the token protocol), or DONE (TERMINAL).</p>
+  </details>
+</figure>
+
+<h3 id="state-machine">The state machine</h3>
+<p>Five states, each transition one CAS on the <code>state</code> word; a transition not in this
+table fails its CAS and changes nothing &mdash; the refusals are counted, not retried
+<span class="cite" data-section="S1">S1</span>. The state names are pinned here:</p>
+<table>
+  <tr><th>state</th><th>value</th><th>means</th></tr>
+  <tr><td><code>FREE</code></td><td><span class="pin" data-pin="RXF_SMP_STATE_FREE" data-value="0">0</span></td><td>the slot is not a run (yet)</td></tr>
+  <tr><td><code>READY</code></td><td><span class="pin" data-pin="RXF_SMP_STATE_READY" data-value="1">1</span></td><td>in the ready-ring, waiting to be popped</td></tr>
+  <tr><td><code>RUNNING</code></td><td><span class="pin" data-pin="RXF_SMP_STATE_RUNNING" data-value="2">2</span></td><td>owned by one carrier until its next safe point</td></tr>
+  <tr><td><code>PARKED</code></td><td><span class="pin" data-pin="RXF_SMP_STATE_PARKED" data-value="3">3</span></td><td>a cell in state PARKED &mdash; that is the whole of suspension</td></tr>
+  <tr><td><code>TERMINAL</code></td><td><span class="pin" data-pin="RXF_SMP_STATE_TERMINAL" data-value="4">4</span></td><td>the program ended &mdash; absorbing</td></tr>
+</table>
+<table>
+  <tr><th>transition</th><th>who / when</th></tr>
+  <tr><td><code>FREE &rarr; READY</code></td><td>whoever enqueues the run (the initial enqueue)</td></tr>
+  <tr><td><code>READY &rarr; RUNNING</code></td><td>the carrier that pops it; a failed CAS is a double enqueue (<code>state_refused</code>)</td></tr>
+  <tr><td><code>RUNNING &rarr; PARKED</code></td><td>the owning carrier, when the program waits</td></tr>
+  <tr><td><code>RUNNING &rarr; READY</code></td><td>the owning carrier, at a yield</td></tr>
+  <tr><td><code>RUNNING &rarr; TERMINAL</code></td><td>the owning carrier, at the end of the program</td></tr>
+  <tr><td><code>PARKED &rarr; READY</code></td><td>whoever satisfies the wait condition (the wake)</td></tr>
+  <tr><td><code>READY &rarr; PARKED</code></td><td>the waker above &mdash; only before it has enqueued the run (the wake is committed by the enqueue, not by the CAS); a run that is in the ring is never taken back</td></tr>
+</table>
+<p>A step answers the dispatcher one of four words &mdash; pinned here too:
+<span class="pin" data-pin="SMP_STEP_AGAIN" data-value="0">SMP_STEP_AGAIN = 0</span>,
+<span class="pin" data-pin="SMP_STEP_PARK" data-value="1">SMP_STEP_PARK = 1</span>,
+<span class="pin" data-pin="SMP_STEP_DONE" data-value="2">SMP_STEP_DONE = 2</span>,
+<span class="pin" data-pin="SMP_STEP_SELFWAKE" data-value="3">SMP_STEP_SELFWAKE = 3</span>.</p>
+</section>
+
+<!-- ============================ 4 · suspension ============================ -->
+<section id="suspension">
+<p class="eyebrow">Part 4 &middot; <span class="cite" data-section="S2">S2</span> <span class="cite" data-section="S4">S4</span> <span class="cite" data-section="S5">S5</span> <span class="cite" data-section="S8">S8</span></p>
+<h2>Suspension, migration, compaction</h2>
+<p>What suspends is data, what resumes is any carrier that reads it. A parked run outlives whatever
+parked it; losing a carrier loses no runs <span class="cite" data-section="S2">S2</span>.</p>
+
+<h3 id="park-wake">Park and wake: the token protocol</h3>
+<p>No wake is ever lost and no run is enqueued twice. <b>wake(run)</b>: store the waker and the
+wake token, attempt <code>PARKED to READY</code>; if the run was parked the enqueue into the ring
+is ours and the edge doorbell rings; if it was not parked the token stays for its next park and
+nothing else changes; if the ring refuses the push the wake is taken back with the one legal
+retreat (<code>READY to PARKED</code>, only before the enqueue). <b>park(run)</b>: consume the
+token first &mdash; a wake that arrived while the run ran means the run does not sleep at all
+(<code>SMP_STEP_SELFWAKE</code>) <span class="cite" data-section="S4">S4</span>.</p>
+<p>Two runs wait on each other through a <b>channel frame</b> &mdash; itself a cell, held by handle,
+resolved at the start of a step and released before any park. The frame's head/tail words are the
+release/acquire edge that makes a word visible across carriers. The edge shim may wake a run but
+may never run it; timeout liveness is an edge concern and uses the same wake as any other waker
+<span class="cite" data-section="S9">S9</span>.</p>
+
+<h3 id="migration">Migration is observed, not performed</h3>
+<p>Resuming a run is a read of its cell, not a signal to an owner &mdash; so a run stepped by
+carrier 3 and then by carrier 7 needed no protocol. The only trace is evidence:
+<code>park_carrier</code>, <code>resume_carrier</code>, <code>migrate_mask</code>
+<span class="cite" data-section="S5">S5</span>. The price is paid at safe points and only there:
+between two safe points the program state is owned and its addresses are valid; across a safe
+point nothing but handles survives <span class="cite" data-section="S7">S7</span>.</p>
+
+<h3 id="compaction">Compaction under live runs</h3>
+<p>Runs execute while the arena is edited and compacted. The pass slides cells down in offset
+order, honoring pins: it claims a cell exclusively
+(<span class="pin" data-pin="RXF_SMP_CLAIM_MOVING" data-value="0x80000000">CLAIM_MOVING = 0x80000000</span>),
+writes <code>C_FORWARD</code> into the old header <b>before</b> the copy, copies the whole cell,
+publishes the new offset, releases the claim. A dead cell
+(<span class="pin" data-pin="RXFB_KIND_DEAD" data-value="254">kind 254</span>) vanishes; a pinned
+cell keeps its source address; when the pass ends the vacated tail is filled with
+<span class="pin" data-pin="RXF_SMP_POISON" data-value="0xA5">0xA5</span> and ASAN-poisoned
+<span class="cite" data-section="S8">S8</span>.</p>
+
+<figure>
+  <svg viewBox="0 0 640 262" role="img" aria-label="Compaction slide: before the pass the cells sit after a pinned cell with a gap and a dead cell among them; after the pass they have slid down, the dead cell is gone, and the vacated tail is poisoned with 0xA5. The old place of each moved cell carries a C_FORWARD record.">
+    <title>The compaction slide</title>
+    <desc>Before: pinned cell P stays, a gap sits after it, then cells B and C, a dead cell, and cell D. After: P stays where it is, B and C slide down into the gap, the dead cell vanishes, D slides down too, and the vacated tail past the new frontier is filled with 0xA5 poison. Each moved cell's old header carries C_FORWARD with the new offset, written before the copy.</desc>
+    <text class="lbl" x="30" y="20">before</text>
+    <rect class="box" x="30" y="28" width="70" height="34"/><text class="lbl" x="36" y="43">P (pinned)</text><text x="36" y="56">stays</text>
+    <rect class="box" x="110" y="28" width="70" height="34"/><text class="lbl" x="116" y="49">A</text>
+    <rect class="poison" x="190" y="28" width="70" height="34"/><text x="196" y="49">gap</text>
+    <rect class="box" x="270" y="28" width="70" height="34"/><text class="lbl" x="276" y="49">B</text>
+    <rect class="box" x="350" y="28" width="70" height="34"/><text class="lbl" x="356" y="49">C</text>
+    <rect class="box" x="430" y="28" width="70" height="34"/><text x="436" y="43">dead</text><text x="436" y="56">kind 254</text>
+    <rect class="box" x="510" y="28" width="70" height="34"/><text class="lbl" x="516" y="49">D</text>
+    <text x="30" y="78">frontier</text>
+    <path class="flow" d="M305 62 C305 110 225 110 225 148"/><path class="flow" d="M225 148 l-4 -8 h8 z" fill="currentColor"/>
+    <path class="flow" d="M385 62 C385 110 305 110 305 148"/><path class="flow" d="M305 148 l-4 -8 h8 z" fill="currentColor"/>
+    <path class="flow" d="M545 62 C545 118 385 118 385 148"/><path class="flow" d="M385 148 l-4 -8 h8 z" fill="currentColor"/>
+    <text x="436" y="112">vanishes &mdash; slot stays free</text>
+    <text class="lbl" x="30" y="142">after &mdash; one pass, offset order, pins honored</text>
+    <rect class="box" x="30" y="150" width="70" height="34"/><text class="lbl" x="36" y="171">P</text>
+    <rect class="box" x="110" y="150" width="70" height="34"/><text class="lbl" x="116" y="171">A</text>
+    <rect class="box" x="190" y="150" width="70" height="34"/><text class="lbl" x="196" y="171">B</text>
+    <rect class="box" x="270" y="150" width="70" height="34"/><text class="lbl" x="276" y="171">C</text>
+    <rect class="box" x="350" y="150" width="70" height="34"/><text class="lbl" x="356" y="171">D</text>
+    <rect class="poison" x="430" y="150" width="150" height="34"/><text class="lbl" x="436" y="171">poison 0xA5 &rarr;</text>
+    <text x="430" y="200">vacated tail &mdash; 0xA5 + ASAN</text>
+    <text x="30" y="200">new frontier</text>
+    <line class="flow" x1="30" y1="212" x2="620" y2="212"/>
+    <text class="lbl" x="30" y="232">C_FORWARD is written into the old header before the copy and travels with the cell into its new header;</text>
+    <text class="lbl" x="30" y="248">the old place keeps the record until the geometry covers it: forward_ok + forward_lost == moved_cells.</text>
+  </svg>
+  <figcaption><b>Figure 5 &mdash; the compaction slide.</b> Runs notice nothing: they hold handles,
+  and the next step resolves again and finds the new place (<code>relocated_steps</code>). A raw
+  address into the vacated tail reads the poison and is caught &mdash; it never reads a lie
+  <span class="cite" data-section="S8">S8</span>.</figcaption>
+  <details><summary>Text description</summary>
+    <p>Before the pass, a pinned cell P is followed by a gap, cells B and C, a dead cell, and cell
+    D. After the pass, P has kept its address, B, C, and D have slid down in offset order, the
+    dead cell is gone, and everything past the new frontier is filled with 0xA5 and poisoned for
+    the sanitizer. The old header of every moved cell carries C_FORWARD, written before the copy
+    and carried into the new header; the accounting identity is forward_ok + forward_lost ==
+    moved_cells.</p>
+  </details>
+</figure>
+<p class="note">A claim is never held across a safe point, so the compactor waits at most one step
+for any cell (<code>claim_spins</code>) <span class="cite" data-section="S5">S5</span>. A cell
+moved while its run is between safe points is legal and expected &mdash; the proof counts it as
+<code>midflight_moved</code>, and the run's next step simply resolves again.</p>
+</section>
+
+<!-- ============================ 5 · micropython ============================ -->
+<section id="micropython">
+<p class="eyebrow">Part 5 &middot; <span class="cite" data-section="S11">S11</span></p>
+<h2>The MicroPython seam</h2>
+<p>MicroPython's own safe points <b>are</b> the run cell's safe points. The seam is a mapping, two
+atomic words, and one rule: no GIL &mdash; ownership of the run cell is the only mutual exclusion
+<span class="cite" data-section="S5">S5</span>.</p>
+<table>
+  <tr><th>MicroPython</th><th>the run-cell machine</th></tr>
+  <tr><td><code>mp_handle_pending()</code>, the pending-flag poll</td><td>the safe point itself: the last act of a step, where claims are released and the checksum rewritten <span class="cite" data-section="S7">S7</span></td></tr>
+  <tr><td>the VM loop's back edge</td><td>the step boundary &mdash; one VM-loop iteration is one dispatched step</td></tr>
+  <tr><td><code>mp_pending_exception</code></td><td><code>mp_raise_slot</code>: one atomic word of the run cell's concurrent words. A second raise before the poll is <b>Refused</b> and the caller decides</td></tr>
+  <tr><td><code>mp_sched_schedule</code> / <code>mp_sched_run_pending</code></td><td><code>mp_sched_flag</code>: one coalescing level bit &mdash; two deposits before a poll are one callback run</td></tr>
+  <tr><td>keyboard interrupt, an ISR at the hal</td><td>a deposit into the pending words plus a wake-token op (S4) &mdash; interrupts are data the poll finds, never a signal into the run</td></tr>
+  <tr><td><code>nlr_push</code> / <code>nlr_jump</code></td><td>the run's handler chain and frame checkpoint: legal within one step, <b>never across a safe point</b> &mdash; no longjmp crosses one</td></tr>
+  <tr><td>a blocking hal call</td><td>a park (S4) with a timed edge wake (S9)</td></tr>
+  <tr><td><code>mp_state_thread</code></td><td>per-run program state: the interpreter reads its own run's VM state with no lock and no claim</td></tr>
+  <tr><td><code>mp_state_ctx</code>, qstr pools</td><td><a href="#named-cells">named cells</a> under the root</td></tr>
+  <tr><td><code>mp_state_mem</code> &mdash; the GC heap</td><td>the arena: a Python heap object IS an arena cell (<a href="#repr-a">REPR A</a>)</td></tr>
+  <tr><td>the GIL</td><td>there is none &mdash; run ownership only (S5); the concurrent words are the only cross-run writes</td></tr>
+</table>
+
+<h3 id="pending-protocol">The pending protocol, exactly</h3>
+<figure>
+  <svg viewBox="0 0 640 218" role="img" aria-label="The pending protocol: any waker deposits a raise into the one atomic raise slot and sets the coalescing sched bit, paired with a wake; the run's own poll exchanges both words, raise first then sched, and a second raise before the poll is refused.">
+    <title>Deposits, the poll, and the Refuse path</title>
+    <desc>A waker on the left deposits into the run cell's two pending words: a raise is one compare-and-swap into the empty slot (payload plus one), the sched is a coalescing level bit. Every deposit is paired with a wake-token operation. The run's poll consumes both words atomically, raise first then sched; a second raise before the poll finds the slot taken and is refused to the caller.</desc>
+    <rect class="box" x="16" y="40" width="150" height="70"/><text class="lbl" x="22" y="58">any waker</text><text x="22" y="72">an ISR, another</text><text x="22" y="86">run, the edge</text><text x="22" y="100">(S9)</text>
+    <line class="flow" x1="166" y1="62" x2="222" y2="62"/><path class="flow" d="M222 62 l-8 -4 v8 z" fill="currentColor"/>
+    <text x="172" y="52">deposit</text>
+    <line class="flow" x1="166" y1="96" x2="222" y2="96"/><path class="flow" d="M222 96 l-8 -4 v8 z" fill="currentColor"/>
+    <text x="172" y="118">set the bit</text>
+    <rect class="hot" x="228" y="34" width="220" height="38"/><text class="lbl" x="234" y="51">mp_raise_slot</text><text x="234" y="65">one atomic word: 0 = empty, else payload + 1</text>
+    <rect class="hot" x="228" y="86" width="220" height="38"/><text class="lbl" x="234" y="103">mp_sched_flag</text><text x="234" y="117">coalescing level bit</text>
+    <line class="flow" x1="448" y1="76" x2="504" y2="76"/><path class="flow" d="M504 76 l-8 -4 v8 z" fill="currentColor"/>
+    <rect class="box" x="510" y="40" width="122" height="70"/><text class="lbl" x="516" y="58">the poll</text><text x="516" y="72">mp_handle_pending</text><text x="516" y="86">raise first, then</text><text x="516" y="100">sched &mdash; the safe point</text>
+    <text class="lbl" x="16" y="152">a second raise before the poll &rarr; Refused (the caller decides, as mp_sched_schedule answers false)</text>
+    <text class="lbl" x="16" y="170">every deposit is paired with a wake-token op (S4): a pending event wakes a VM out of a blocking call</text>
+    <text class="lbl" x="16" y="188">a deposit that lands during the poll is found at the next one &mdash; never lost, never delivered twice</text>
+    <text class="lbl" x="16" y="206">proof identities: won + refused == deposits &middot; won == delivered + pending_end &middot; unwinds == delivered</text>
+  </svg>
+  <figcaption><b>Figure 6 &mdash; the pending words of a VM run.</b> The whole seam in one picture: a
+  one-slot raise with a Refuse path, a coalescing sched bit, and the poll that is the safe point.
+  The seam's semantics are pinned on the host by <code>tests/host/smp_mpmodel.c</code> &mdash; a
+  model, never a second interpreter.</figcaption>
+  <details><summary>Text description</summary>
+    <p>A waker deposits a raise by taking the empty atomic slot with one compare-and-swap (the
+    payload rides in the word as payload plus one) and sets the sched level bit; each deposit is
+    paired with a wake-token operation. The run's poll exchanges both words atomically, raise
+    first then sched, and is the step's safe point. A second raise before the poll finds the slot
+    taken and is refused to the caller. Nothing is lost and nothing is delivered twice.</p>
+  </details>
+</figure>
+<p class="note">The pending words as the model spells them:
+<span class="pin" data-pin="SMP_MP_NONE" data-value="0">SMP_MP_NONE = 0</span>,
+<span class="pin" data-pin="SMP_MP_RAISE" data-value="1">SMP_MP_RAISE = 1</span>,
+<span class="pin" data-pin="SMP_MP_SCHED" data-value="2">SMP_MP_SCHED = 2</span>
+(<code>tests/host/smp_mpmodel.h</code>).</p>
+</section>
+
+<!-- ============================ 6 · proof ============================ -->
+<section id="proof">
+<p class="eyebrow">Part 6 &middot; <span class="cite" data-section="S9">S9</span> <span class="cite" data-section="S10">S10</span></p>
+<h2>What the proof pins</h2>
+<p>The result of a program is a function of the seed alone, whatever the interleaving
+<span class="cite" data-section="S10">S10</span>: a step reads and writes its own run cell and its
+own data cell, and never the data of any other run. The differential runs the same program at one
+carrier and at eight, with compaction, deltas, and the deferral knob on and off &mdash; and the
+result words are byte-identical every time. The interleaving decides only who executes a step and
+when; that is read back as evidence and never mixed into the answer.</p>
+<p>The harness writes <span class="pin" data-pin="WIT_OUT_WORDS" data-value="128">128</span> words
+of result and evidence (<code>WIT_OUT_*</code> of <code>tests/host/smp_witness.h</code>); words 0
+to 2 are the answer and may not vary, the rest is evidence and may. The harness itself admits at
+most <span class="pin" data-pin="RXF_SMP_MAX_CARRIERS" data-value="32">32</span> carriers
+(<code>RXF_SMP_MAX_CARRIERS</code>), and the same binary is clean under
+AddressSanitizer/UBSan and under ThreadSanitizer.</p>
+<div class="card"><h3>Anti-drift</h3><div class="body">
+<p class="note">This page is not prose alone. Every <span class="pin">pin chip</span> is checked
+against the C in <code>tests/host/smp_*.h</code>, <code>tests/host/smp_sched.c</code>, and
+<code>core/ground.h</code> by <code>tests/test_model_doc.py</code>; every
+<span class="cite">S&#8230;</span> badge is checked against the headings of
+<code>docs/20-EXECUTION-POLICY.md</code>. Change a constant or a section in the C or the policy
+and the test fails until this page is updated.</p>
+</div></div>
+</section>
+
+</article>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const get = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error(await r.text()); return r.json(); };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const hex = (n) => "0x" + Number(n).toString(16);
+
+// ---- the live cell, laid over the anatomy ---------------------------------------------------------
+
+function wordRow(offset, word, value, where) {
+  return `<tr><td><code>${offset}</code></td><td><code>${esc(word)}</code></td><td><code>${esc(value)}</code></td><td>${esc(where)}</td></tr>`;
+}
+
+async function showLive() {
+  const path = new URLSearchParams(location.search).get("path");
+  const live = $("live");
+  if (path === null) return;
+  try {
+    const d = await get(`/api/detail?path=${encodeURIComponent(path)}`);
+    const c = d.cell;
+    const rows = [
+      wordRow("0", "type", d.type === null ? "none" : d.type, "Details → type"),
+      wordRow("8", "parent", d.parent === null ? "none" : d.parent, "Details → parent"),
+      wordRow("16", "payload_size", String(c.payload_size), "Cell → payload"),
+      wordRow("24", "generation", String(d.generation), "Details → handle → generation"),
+      wordRow("32", "name", c.name_off ? hex(c.name_off) : "0", "Cell → name at"),
+      wordRow("40", "flags", hex(c.flags), "Flags → raw"),
+      wordRow("44", "ref_count", String(c.ref_count), "Cell → refs"),
+      wordRow("48", "forward", c.forward ? hex(c.forward) : "0", "Cell → forward"),
+      wordRow("56", "index", String(c.index), "Cell → index"),
+    ].join("");
+    live.innerHTML = `
+      <div class="note">The real words of <code>${esc(d.path || "(root)")}</code> — handle
+      <code>#${d.handle}</code>, cell at <code>${hex(c.offset)}</code> (${c.size} B) — laid over
+      <a href="#cell-anatomy">the anatomy above</a>.
+      <a href="/?path=${encodeURIComponent(d.path)}">Open this cell in the inspector &rarr;</a></div>
+      <table>
+        <tr><th>offset</th><th>word</th><th>this cell</th><th>live view field</th></tr>
+        ${rows}
+      </table>
+      ${d.model.map((m) => `<div class="note">→ <a href="#${esc(m.anchor)}">${esc(m.label)}</a> <span class="cite">${esc(m.cite)}</span></div>`).join("")}`;
+  } catch (error) {
+    live.innerHTML = `<div class="note bad">Could not load ${esc(path)}: ${esc(error.message)}</div>`;
+  }
+}
+
+showLive();
+</script>
+</body>
+</html>

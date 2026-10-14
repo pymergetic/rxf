@@ -6,6 +6,7 @@ import enum
 import struct
 from bisect import bisect_right
 from typing import Any
+from urllib.parse import quote
 
 from pymergetic.rxf.core.arena import (
     BLOCK_INDEX,
@@ -42,6 +43,101 @@ HEX_LIMIT = 4096  # payload bytes a hex dump shows before it is truncated
 _PROVENANCE = ("Runtime", "Image")
 _DISPOSITION = ("Retain", "Transient", "Tombstone")
 _CLEANLINESS = ("Clean", "Dirty")
+
+# The Model documentation (templates/model.html, served at /model): every anchor named here must
+# exist as an id there (tests/test_model_doc.py pins the two together).
+_MODEL = "/model"
+
+
+def _model_link(anchor: str, label: str, cite: str, why: str) -> dict[str, str]:
+    return {"anchor": anchor, "label": label, "cite": cite, "why": why}
+
+
+def _model_links(
+    path: str,
+    handle: int,
+    kind: str,
+    parent_handle: int | None,
+    generation: int,
+    forward: int,
+) -> list[dict[str, str]]:
+    """Which sections of the Model documentation explain this cell.
+
+    The first link is the cell's face in the model (run cell, object cell, named cell, channel
+    frame); the rest follow from the cell's words (a nonzero generation is a stale name waiting to
+    happen, a nonzero `forward` is a compaction record). Every link carries the docs/20 section
+    it is grounded in."""
+    here = f"{_MODEL}?path={quote(path, safe='')}#"
+    if kind in ("Fn", "Code"):
+        face = _model_link(
+            "run-cells",
+            "Run cell face — the program a run cell carries",
+            "S1 · S6",
+            "a Function or Code cell is what a run cell executes between two safe points",
+        )
+    elif handle == HANDLE_ROOT or parent_handle == HANDLE_ROOT or kind in ("Module", "Namespace"):
+        face = _model_link(
+            "named-cells",
+            "Named cell — one name under the root",
+            "S3 · S11",
+            "names under the root are the named cells (mp_state_ctx, qstr pools, the heap)",
+        )
+    elif kind == "Channel":
+        face = _model_link(
+            "park-wake",
+            "Channel frame — where two runs wait on each other",
+            "S4",
+            "a channel frame is a cell the pair resolves and releases around every park",
+        )
+    else:
+        face = _model_link(
+            "object-cells",
+            "Object cell — REPR A and the Python-heap face",
+            "S11",
+            "a heap object is an arena cell named by handle, never by address",
+        )
+    links = [
+        face,
+        _model_link(
+            "cell-anatomy",
+            "Cell anatomy — the 64-byte header behind these words",
+            "docs/17",
+            "each row of the Cell card is one header word at its real offset",
+        ),
+        _model_link(
+            "handles",
+            f"How this cell is named — index {int(handle)} | generation {int(generation)}",
+            "S7",
+            "runs hold handles; an address is valid for exactly one claim window",
+        ),
+        _model_link(
+            "step-loop",
+            "Run cells at work — the step that touches this cell",
+            "S1 · S5",
+            "resolve, work, rewrite the checksum, release — then the safe point",
+        ),
+    ]
+    if int(generation) > 0:
+        links.append(
+            _model_link(
+                "aba",
+                f"Generation {int(generation)} — this slot has had earlier lives",
+                "S3 · S7",
+                "a stale handle is refused at the pop and never names the slot's new cell",
+            )
+        )
+    if int(forward):
+        links.append(
+            _model_link(
+                "compaction",
+                "C_FORWARD — this cell slid and its old place records where",
+                "S8",
+                "the forwarding word is written before the copy and travels with the cell",
+            )
+        )
+    for entry in links:
+        entry["href"] = here + str(entry["anchor"])
+    return links
 
 
 def _cell_kind(cell: dict[str, Any]) -> str:
@@ -406,7 +502,8 @@ class Inspector:
         """The introspection of one object: the decoded cell and flags, the payload hex, every
         reference row, and who points at the object (`used_by`: reference targets and roles,
         handles in payloads, alias uses, the children that name it parent, the objects that name
-        it type). Read-only; every link is a path."""
+        it type). Read-only; every link is a path. `model` names the sections of the Model
+        documentation (/model) that explain this cell's face and its words."""
         image = self.image
         handle = self.handle(path)
         got = image.get(handle)
@@ -483,4 +580,12 @@ class Inspector:
             "refs": refs,
             "used_by": used[:REFERRER_LIMIT],
             "used_by_count": len(used),
+            "model": _model_links(
+                got["path"],
+                handle,
+                _word(NodeKind, kind),
+                None if got["parent"] == _NONE else int(got["parent"]),
+                int(got["generation"]),
+                int(cell["forward"]),
+            ),
         }

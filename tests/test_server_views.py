@@ -229,6 +229,25 @@ def test_the_root_has_no_parent_and_no_type(inspector: Inspector):
         inspector.detail("nothing.here")
 
 
+def test_detail_links_into_the_model_documentation(inspector: Inspector):
+    """Every detail names the Model sections that explain the cell it shows: its face
+    (run cell / object cell / named cell / channel frame), its header, its handle, and the
+    step that touches it — plus ABA and compaction guides when the cell's words say so."""
+    module = inspector.detail("pymergetic.rxf")
+    model = module["model"]
+    assert model[0]["anchor"] == "named-cells"  # a Module under the root
+    hrefs = {entry["anchor"]: entry["href"] for entry in model}
+    assert hrefs["cell-anatomy"] == "/model?path=pymergetic.rxf#cell-anatomy"
+    assert {"handles", "step-loop"} <= set(hrefs)
+    for entry in model:
+        assert entry["label"] and entry["cite"] and entry["why"]
+    # a nested object is an object cell (the REPR A face), not a named one
+    alias = inspector.detail("pymergetic.rxf.numeric.numeric")
+    assert alias["model"][0]["anchor"] == "object-cells"
+    # the root is the named cell of named cells
+    assert inspector.detail("")["model"][0]["anchor"] == "named-cells"
+
+
 def test_a_payload_hex_dump_truncates():
     image = Image.empty()
     image.add(HANDLE_ROOT, "big", kind=NodeKind.Data, payload=bytes(range(256)) * 40)
