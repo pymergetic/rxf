@@ -86,6 +86,7 @@ Read in order:
 17. [The unified web interface](21-UNIFIED-WEB-INTERFACE.md)
 18. [Documentation and intent](22-DOCUMENTATION-AND-INTENT.md)
 19. [MicroPython on RXF](23-MICROPYTHON-EXPANSION.md)
+20. [Memory: linked AI memories as graph cells](24-MEMORY-SYSTEM.md)
 
 These documents specify RXF independently of any runtime provider. The optional Metal binding
 is described separately in [`integrations/metal.md`](integrations/metal.md).
