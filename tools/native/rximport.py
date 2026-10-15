@@ -313,21 +313,34 @@ no card for, and this pass never lowers them to words that would run wrong. A ca
 a function word is no longer one of them where the import makes memory carry the words (the
 unary_op slot dispatch of ``lower_indirect``); the rest of that class stays refused with the
 reason the pass gives it.
+
+The source beside the IR is read for more than its bodies (docs/22): every comment of the
+file is lifted to a Doc object of the image -- a task marker its own managed kind -- and the
+run's ``--provenance`` claim cites each file it compiles (one origin record, one citation per
+file with its locator). A run that claims nothing still lifts its comments and says
+``provenance: none``; a run that claims an anonymous word is refused at the floor.
 """
 
 from __future__ import annotations
 
+import argparse
 import hashlib
+import os
 import re
 import shutil
 import struct
 import subprocess
+import sys
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
 import graph_header
+
+from pymergetic.rxf.core import tree
+from pymergetic.rxf.core.kinds import DocKind, DocRole
 
 # ---- the leaves of the interpreter the importer wires -----------------------------------------
 
@@ -3828,9 +3841,342 @@ def graphs_of(
     return {name: found[name] for name in sorted(found)}
 
 
+# ---- the source beside the IR: comment capture and the provenance claim (docs/22) -------------
+
+# The comment marks of the entrance languages: ``;`` is the LLVM IR's line comment, ``//`` the
+# C family's (and Rust's), and ``/* */`` is a block comment of both. A ``#`` line of a C source
+# is a preprocessor directive, never a comment: nothing lifts it.
+COMMENT_MARKS = {".ll": (";",), ".c": ("//",), ".cpp": ("//",), ".rs": ("//",)}
+
+# The task markers whose comments import as their own managed kind (docs/22): a TODO is a fact
+# with a state, not a comment that rots.
+TASK_MARKER = re.compile(r"\s*(TODO|FIXME|XXX)\b")
+
+# A C character literal (``'x'``, ``'\n'``): consumed as one token so its quote cannot open a
+# string. A Rust lifetime (``&'a``) matches nothing here and stays an ordinary character.
+_CHAR_LITERAL = re.compile(r"'(?:\\.|[^\\'])'")
+
+
+@dataclass(frozen=True)
+class Comment:
+    """One comment of a source file: the lines it occupies (1-based), its text, its task marker."""
+
+    first_line: int
+    last_line: int
+    text: str
+    todo: bool
+
+
+def _comment(first: int, last: int, raw: str) -> Comment | None:
+    """The comment as a fact: its stars stripped, its task marker seen. An empty comment is
+    not a fact and is left out (nothing to say is nothing to lift)."""
+    body = "\n".join(re.sub(r"^\s*\* ?", "", part) for part in raw.splitlines()).strip()
+    if not body:
+        return None
+    return Comment(first, last, body, TASK_MARKER.match(body) is not None)
+
+
+def scan_comments(src: str, marks: Sequence[str] = ("//", ";")) -> list[Comment]:
+    """Every comment of ``src``, with the line span it occupies.
+
+    The scanner reads the file the way ``_strip_comment`` reads one IR line: a mark inside a
+    string is a string. A ``/* */`` block carries the newlines it contains (its span is the
+    line it opens on through the line it closes on); a line comment ends at its newline.
+    """
+    out: list[Comment] = []
+    line = 1
+    i = 0
+    n = len(src)
+    while i < n:
+        ch = src[i]
+        if ch == "\n":
+            line += 1
+            i += 1
+        elif ch == '"':
+            i += 1
+            while i < n and src[i] != '"':
+                if src[i] == "\\":
+                    i += 1
+                elif src[i] == "\n":
+                    line += 1
+                i += 1
+            i += 1
+        elif src.startswith("/*", i):
+            first = line
+            body = i + 2
+            i = body
+            while i + 1 < n and src[i : i + 2] != "*/":
+                if src[i] == "\n":
+                    line += 1
+                i += 1
+            comment = _comment(first, line, src[body:i])
+            if comment is not None:
+                out.append(comment)
+            i += 2
+        else:
+            literal = _CHAR_LITERAL.match(src, i)
+            if literal is not None:
+                i = literal.end()
+                continue
+            mark = next((mark for mark in marks if src.startswith(mark, i)), None)
+            if mark is None:
+                i += 1
+                continue
+            body = i + len(mark)
+            end = src.find("\n", body)
+            end = n if end < 0 else end
+            comment = _comment(line, line, src[body:end])
+            if comment is not None:
+                out.append(comment)
+            i = end
+    return out
+
+
+def comment_targets(src: str, comments: Sequence[Comment], names: Sequence[str]) -> list[str]:
+    """The function each comment introduces, or ``""`` for the module it documents.
+
+    A comment rides on the definition it directly introduces (docs/22): the next line that is
+    neither blank nor comment names exactly one imported function at its declarator -- the
+    ``define ... @name(`` of the entrance format or the C form above a body. Anything else --
+    a comment another comment speaks after, one inside a body, one before a line no definition
+    matches -- is free-floating and documents the module. This is an editorial placement; the
+    locator a comment is cited with is the file's, never a guess at a finer one.
+    """
+    lines = src.splitlines()
+    inside = {number for comment in comments for number in range(comment.first_line, comment.last_line + 1)}
+    out: list[str] = []
+    for comment in comments:
+        name = ""
+        for number in range(comment.last_line + 1, len(lines) + 1):
+            if number in inside:
+                break  # another comment speaks first: this one is free-floating
+            line = lines[number - 1].strip()
+            if not line:
+                continue
+            matched = [
+                fn for fn in names if re.match(rf"^[\w\s\*@]*\b{re.escape(fn)}\s*\(", line)
+            ]
+            name = matched[0] if len(matched) == 1 else ""
+            break
+        out.append(name)
+    return out
+
+
+def relative(path: str | Path) -> str:
+    """The path a locator names: relative to the run's working directory when it is under it
+    (docs/22: ``path=py/obj.c``), the path as given when it is not."""
+    text = str(path)
+    if not text:
+        return text
+    rel = os.path.relpath(text, os.getcwd())
+    return rel if not rel.startswith("..") else text
+
+
+@dataclass
+class Provenance:
+    """One import run's claim (docs/22): the tier it declares and the origin facts behind it.
+
+    The ``--provenance`` flag is one spec -- ``tier,repository=...,commit=...,license=...``:
+    the tier word first (``cite`` when it is left out) and the facts after it as ``key=value``
+    (``upstream`` defaults to the repository, ``importer`` to this pass). The three facts a
+    claim stands on -- the repository, the commit taken, the license -- are required; at
+    ``hash`` the facts are refused (hash is identity without location). ``tier=None`` is the
+    run that claims nothing (no flag at all): it lifts the comments and the report says
+    ``provenance: none``.
+    """
+
+    tier: str | None = "cite"
+    repository: str = ""
+    commit: str = ""
+    license: str = ""
+    upstream: str = ""
+    importer: str = "rximport"
+    origin_name: str = "origin"
+    files: list[dict] = field(default_factory=list)
+    _origin: int | None = field(default=None, compare=False)
+
+    @classmethod
+    def parse(cls, spec: "Provenance | str | Sequence[str]") -> "Provenance":
+        """The flag's spec as a run: ``full,repository=...,commit=...,license=...`` (or words)."""
+        if isinstance(spec, Provenance):
+            return spec
+        words = spec.split(",") if isinstance(spec, str) else list(spec)
+        facts: dict[str, str] = {}
+        tiers: list[str] = []
+        for word in words:
+            key, sep, value = word.strip().partition("=")
+            if sep:
+                if key not in ("repository", "upstream", "commit", "license", "importer"):
+                    raise ValueError(f"--provenance has no {key!r} fact")
+                facts[key] = value
+            else:
+                tiers.append(key)
+        if len(tiers) > 1:
+            raise ValueError(f"--provenance takes one tier word, not {len(tiers)}")
+        tier = tiers[0] if tiers else ("cite" if facts else "")
+        if tier not in ("full", "cite", "hash"):
+            # The floor speaks first (docs/22): an anonymous or unknown word is refused by
+            # the image itself at the first record -- no fact list buys past it.
+            return cls(tier=tier, **facts)
+        if tier == "hash":
+            if facts:
+                raise ValueError(
+                    "the hash tier is identity without location: it takes no origin facts"
+                )
+            return cls(tier=tier)
+        missing = [key for key in ("repository", "commit", "license") if not facts.get(key)]
+        if missing:
+            raise ValueError(f"--provenance is missing its {missing[0]!r} fact")
+        return cls(
+            tier=tier,
+            repository=facts["repository"],
+            commit=facts["commit"],
+            license=facts["license"],
+            upstream=facts.get("upstream", facts["repository"]),
+            importer=facts.get("importer", "rximport"),
+        )
+
+    def open(self, image) -> None:
+        """The run's first write: its origin record (cite and up), before anything is imported.
+
+        This is where the floor speaks (docs/22): a tier word below hash is refused here by
+        the image -- ``the provenance floor is hash: the importer takes no anonymous input`` --
+        and the run stops with the image as it was. At ``hash`` there is no origin record
+        (hash is identity without location); the file's hash record is written per file.
+        """
+        if self.tier is None or self.tier == "hash":
+            return
+        if self._origin is None:
+            self._origin = image.doc_origin(
+                0,
+                self.origin_name,
+                self.tier,
+                upstream=self.upstream,
+                repository=self.repository,
+                commit=self.commit,
+                license=self.license,
+                importer=self.importer,
+            )
+
+    def record(
+        self,
+        image,
+        module: str,
+        mapping: dict[str, str],
+        path: str,
+        text: str,
+        comments: Sequence[tuple[Comment, str]],
+    ) -> None:
+        """One file's claim (docs/22): its citation (cite up) or its hash record (hash), and
+        every captured comment lifted and cited through the file's citation.
+
+        The citation spans the whole file -- 1 through its last line -- because the whole file
+        is what the pass read and what the sha256 hashes; a finer locator would need the debug
+        info this subset's compiles do not carry, and the importer never guesses. Each comment
+        rides on the citation as a ``placed_on`` document, so every quoted line keeps the
+        locator (path/lines/sha256) and the permalink ``doc_permalink`` derives from it.
+        """
+        stem = Path(path).stem
+        sha256 = hashlib.sha256(text.encode()).hexdigest()
+        record = {
+            "path": path,
+            "sha256": sha256,
+            "module": module,
+            "functions": sorted(mapping),
+            "citation": None,
+            "hash": None,
+            "locator": None,
+            "permalink": None,
+            "comments": [],
+        }
+        self.files.append(record)
+        lifted: list[int] = []
+        for comment, target in comments:
+            owner = image.handle(f"{module}.{target}") if target else image.handle(module)
+            name = f"comment_{comment.first_line}_{comment.last_line}"
+            taken = image.resolve(f"{image.path(owner)}.{name}")
+            if taken is not None:  # two marks opening on one line: each fact keeps its name
+                name = f"{name}_{len(lifted)}"
+            doc = image.lift_comment(
+                owner,
+                name,
+                comment.text,
+                int(DocKind.Todo) if comment.todo else int(DocKind.Narrates),
+                role=int(DocRole.Narrates),
+            )
+            lifted.append(doc)
+            record["comments"].append(
+                {
+                    "name": image.path(doc),
+                    "first_line": comment.first_line,
+                    "last_line": comment.last_line,
+                    "kind": "DocKind.Todo" if comment.todo else "DocKind.Narrates",
+                    "target": image.path(owner),
+                }
+            )
+        if self.tier is None:
+            return
+        if self.tier == "hash":
+            record["hash"] = image.path(image.doc_hash(0, f"{stem}_sha", "hash", sha256))
+            return
+        origin = self._origin
+        stored = None
+        if self.tier == "full":
+            stored = image.doc_source(0, f"{stem}_source", "full", text, origin=origin)
+            for owner in [image.handle(module), *(image.handle(p) for p in mapping.values())]:
+                image.doc_place(owner, stored, int(DocRole.References))
+        citation = image.doc_cite(
+            0,
+            f"{stem}_cite",
+            self.tier,
+            [image.handle(module), *(image.handle(p) for p in mapping.values()), *lifted],
+            [origin] if stored is None else [origin, stored],
+            path=path,
+            first_line=1,
+            last_line=len(text.splitlines()),
+            sha256=sha256,
+        )
+        record["citation"] = image.path(citation)
+        record["locator"] = image.doc_locator(citation)
+        record["permalink"] = image.doc_permalink(citation)
+
+    def report(self) -> str:
+        """What the run claimed, fact by fact; the first line names the tier.
+
+        The locator and the permalink it derives are read back out of the image -- the report
+        says what is recorded, never what was meant.
+        """
+        out = [f"provenance: {'none' if self.tier is None else self.tier}"]
+        if self._origin is not None:
+            out.append(
+                f"origin: {self.origin_name} repository={self.repository}"
+                f" upstream={self.upstream} commit={self.commit}"
+                f" license={self.license} importer={self.importer}"
+            )
+        for record in self.files:
+            out.append(f"file: {record['path']} sha256={record['sha256']}")
+            if record.get("hash"):
+                out.append(f"hash: {record['hash']}")
+            if record["locator"] is not None:
+                locator = record["locator"]
+                out.append(
+                    f"cite: {record['citation']}"
+                    f" lines={locator['first_line']}-{locator['last_line']}"
+                    f" {record['permalink']}"
+                )
+            for comment in record["comments"]:
+                out.append(
+                    f"comment: {comment['name']}"
+                    f" lines={comment['first_line']}-{comment['last_line']}"
+                    f" kind={comment['kind']} target={comment['target']}"
+                )
+        return "\n".join(out) + "\n"
+
+
 def import_into(
     image, text: str, module: str = "imported", only: set[str] | None = None,
-    known: dict[str, str] | None = None,
+    known: dict[str, str] | None = None, provenance=None,
+    source: tuple[str, str] | None = None,
 ) -> dict[str, str]:
     """One delta onto the image; the C name of every imported function to its Function path.
 
@@ -3840,24 +4186,123 @@ def import_into(
     image) to the Function path it is at, so a call of one of them becomes a call card
     naming that path. The mapping this returns is the shape to pass as ``known`` to a
     later import of a module that calls these.
+
+    ``source`` is the source beside the IR (docs/22): ``(path, text)`` of the file the IR
+    came from (the ``.ll`` itself at the entrance format). Its comments are lifted into the
+    image whatever the run claims. ``provenance`` is the run's claim -- a ``Provenance`` or
+    its ``--provenance`` spec: one citation per source file, its lifted comments placed on
+    it. Without a claim the comments are lifted and nothing cites them (the report says
+    ``provenance: none``). A claim needs ``source``: a citation names the file it came from
+    (the importer takes no anonymous input).
     """
     graphs = list(graphs_of(text, module, only, known=known).values())
     if not graphs:
         return {}
+    if provenance is not None and source is None:
+        raise ValueError("a claim names its file: import the source, not its IR text alone")
+    prov = (
+        Provenance.parse(provenance) if provenance is not None else Provenance(tier=None)
+    )
+    if source is not None:
+        path, src = source
+        comments = scan_comments(src, COMMENT_MARKS.get(Path(path).suffix, ("//",)))
+        targets = comment_targets(src, comments, [graph.name for graph in graphs])
+        claimed = list(zip(comments, targets))
+    else:
+        path, src, claimed = "", "", []
+    prov.open(image)  # the claim's first write: the floor speaks before anything is imported
     image.apply(emit_delta(graphs, module))
-    return {graph.name: graph.path for graph in graphs}
+    mapping = {graph.name: graph.path for graph in graphs}
+    if source is not None:
+        prov.record(image, module, mapping, relative(path), src, claimed)
+    return mapping
 
 
 def import_c_file(
-    image, source: str | Path, module: str = "imported", only: set[str] | None = None
+    image, source: str | Path, module: str = "imported", only: set[str] | None = None,
+    provenance=None,
 ) -> dict[str, str]:
-    """Compile a C file and import its functions."""
-    return import_into(image, compile_c(source), module, only)
+    """Compile a C file and import its functions (its comments lifted beside the IR)."""
+    return import_into(
+        image, compile_c(source), module, only,
+        provenance=provenance, source=(str(source), Path(source).read_text()),
+    )
 
 
 def import_source_file(
-    image, source: str | Path, module: str = "imported", only: set[str] | None = None
+    image, source: str | Path, module: str = "imported", only: set[str] | None = None,
+    known: dict[str, str] | None = None, provenance=None,
 ) -> dict[str, str]:
     """Read a ``.ll`` (the entrance format, as-is) or compile a C, C++ or Rust file (by its
-    suffix) and import its functions."""
-    return import_into(image, compile_source(source), module, only)
+    suffix) and import its functions (its comments lifted beside the IR)."""
+    return import_into(
+        image, compile_source(source), module, only, known=known,
+        provenance=provenance, source=(str(source), Path(source).read_text()),
+    )
+
+
+def import_run(
+    image, sources: Sequence[str | Path], module: str | None = None,
+    only: set[str] | None = None, known: dict[str, str] | None = None, provenance=None,
+) -> str:
+    """One import run over every source (docs/22): one origin record, one citation per file
+    compiled, every comment of every file lifted and cited. The run answers its report.
+
+    ``provenance`` is the run's claim -- the ``--provenance`` spec
+    (``full,repository=...,commit=...,license=...``) or a ``Provenance``. Without it the run
+    claims nothing: the comments are still lifted and the report says ``provenance: none``.
+    """
+    prov = Provenance.parse(provenance) if provenance is not None else Provenance(tier=None)
+    paths = [Path(source) for source in sources]
+    if not paths:
+        raise ValueError("an import run compiles at least one source file")
+    stems = [path.stem for path in paths]
+    if len(set(stems)) != len(stems):
+        raise ValueError(f"the sources of one run need distinct names: {', '.join(sorted(stems))}")
+    if module is not None and len(paths) > 1:
+        raise ValueError("one module is one source: a run names each module after its file")
+    known = dict(known or {})
+    for path in paths:
+        imported = import_source_file(
+            image, path, module=module or path.stem, only=only, known=known, provenance=prov,
+        )
+        known.update(imported)
+    return prov.report()
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """The command line of the import lane: compile the sources, import them, print the report.
+
+    ``rximport.py source.c --provenance full,repository=...,commit=...,license=...`` -- the one
+    flag carries the run's tier and its origin facts (docs/22); without it the report says
+    ``provenance: none`` and the comments are still lifted.
+    """
+    parser = argparse.ArgumentParser(
+        prog="rximport",
+        description="Import .ll/.c/.cpp/.rs sources into an RXF image; the report says what "
+        "the run claimed.",
+    )
+    parser.add_argument(
+        "sources", nargs="+", metavar="SOURCE", help="a .ll (as-is), .c, .cpp or .rs file",
+    )
+    parser.add_argument(
+        "--module", help="the module the one source imports to (default: its name)",
+    )
+    parser.add_argument(
+        "--provenance", metavar="SPEC",
+        help="tier,repository=...,commit=...,license=...[,upstream=...][,importer=...] -- "
+        "the run's claim (docs/22); without it the run says 'provenance: none'",
+    )
+    parser.add_argument(
+        "--starter", default=str(Path(__file__).resolve().parents[2] / "starter"),
+        help="the starter directory the run begins from (the leaves the graphs call)",
+    )
+    parser.add_argument(
+        "--output", "-o", metavar="DELTA", help="where the imported image's delta is written",
+    )
+    args = parser.parse_args(argv)
+    image = tree.load(args.starter)
+    sys.stdout.write(import_run(image, args.sources, module=args.module, provenance=args.provenance))
+    if args.output:
+        Path(args.output).write_text(image.export())
+    return 0
