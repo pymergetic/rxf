@@ -26,10 +26,12 @@
                   index words), the REPR A tag macros of obj.h verbatim, and the slot
                   macros of obj.h verbatim (MP_OBJ_TYPE_HAS_SLOT and friends)
      the heap     m_malloc of py/misc.h over a bounded arena of one global buffer
-                  (256 bytes: the arena is a cell of the image and the world's
+                  (224 bytes: the arena is a cell of the image and the world's
                   payload room is 3840 bytes whose starter cells leave 528 -- the
-                  class's cells take 424 of them and this arena the rest; the gate
-                  bumps five 24-byte objects, 160 bytes of the arena)
+                  class's cells take 280 of them (the five types and three ROM
+                  objects of the face, the four marker classes' header words, the
+                  bump's counter) and this arena the rest; the gate bumps five
+                  24-byte objects, 160 bytes of the arena)
                   -- the qstr corpus's port allocator
      the qstrs    the name of a type is a qstr; the corpus's enum stands in for
                   genhdr's (nothing of the class reads it -- mp_obj_get_type_str, the
@@ -50,6 +52,7 @@
    none -- the runtime dispatch of slices 4-5 owns the calls and the function words
    behind them), floats, and the objint face behind mp_obj_get_int_maybe. */
 
+#include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -70,6 +73,16 @@
 #define MICROPY_ENABLE_FINALISER (0)
 #define MICROPY_DEBUG_MP_OBJ_SENTINELS (0)
 
+/* the error reporting of py/mpconfig.h: NORMAL keeps the full raise paths of the
+   bodies (the %q of a unary op's method name, the type name of its argument) */
+#define MICROPY_ERROR_REPORTING_TERSE (1)
+#define MICROPY_ERROR_REPORTING_NORMAL (2)
+#define MICROPY_ERROR_REPORTING_DETAILED (3)
+#define MICROPY_ERROR_REPORTING (MICROPY_ERROR_REPORTING_TERSE)
+#define MICROPY_PY_ALL_SPECIAL_METHODS (1)
+#define MICROPY_PY_SYS_GETSIZEOF (0)
+#define MICROPY_PY_BUILTINS_STR_UNICODE (0)
+
 #define MICROPY_WRAP_MP_OBJ_GET_TYPE(f) (f)
 #define MP_NOINLINE __attribute__((noinline))
 
@@ -87,7 +100,9 @@ typedef struct _mp_obj_base_t {
 } mp_obj_base_t;
 
 /* the type of py/obj.h: the header of an object, then the flags and the name (a
-   qstr), then the slot index words, then the variable slots[] the class never calls */
+   qstr), then the slot index words, then the slots the class calls through (the
+   slots[] of obj.h is variable; this port gives it the two words its own types
+   wire -- the unary route of the class and the str type's binary_op word) */
 struct _mp_obj_type_t {
     mp_obj_base_t base;
     uint16_t flags;
@@ -104,7 +119,7 @@ struct _mp_obj_type_t {
     uint8_t slot_index_protocol;
     uint8_t slot_index_parent;
     uint8_t slot_index_locals_dict;
-    const void *slots[];
+    const void *slots[2];
 };
 
 /* the operator words of py/runtime0.h, verbatim */
@@ -128,10 +143,12 @@ typedef enum {
 } mp_unary_op_t;
 
 typedef mp_obj_t (*mp_unary_op_fun_t)(mp_unary_op_t op, mp_obj_t);
+typedef mp_obj_t (*mp_obj_binary_op_fun_t)(mp_obj_t, mp_obj_t, int);
 
 /* the slot macros of py/obj.h, verbatim */
 #define MP_OBJ_TYPE_HAS_SLOT(t, f) ((t)->slot_index_##f)
 #define _MP_OBJ_TYPE_SLOT_TYPE_unary_op (mp_unary_op_fun_t)
+#define _MP_OBJ_TYPE_SLOT_TYPE_binary_op (mp_obj_binary_op_fun_t)
 #define MP_OBJ_TYPE_GET_SLOT(t, f) (_MP_OBJ_TYPE_SLOT_TYPE_##f(t)->slots[(t)->slot_index_##f - 1])
 #define MP_OBJ_TYPE_GET_SLOT_OR_NULL(t, f) (_MP_OBJ_TYPE_SLOT_TYPE_##f(MP_OBJ_TYPE_HAS_SLOT(t, f) ? MP_OBJ_TYPE_GET_SLOT(t, f) : NULL))
 
@@ -150,7 +167,7 @@ static inline bool mp_obj_is_qstr(mp_const_obj_t o) {
 #define MP_OBJ_QSTR_VALUE(o) (((mp_uint_t)(o)) >> 3)
 #define MP_OBJ_NEW_QSTR(qst) ((mp_obj_t)((((mp_uint_t)(qst)) << 3) | 2))
 
-static inline bool mp_obj_is_immediate_obj(mp_const_obj_t o) {
+static inline __attribute__((unused)) bool mp_obj_is_immediate_obj(mp_const_obj_t o) {
     return (((mp_int_t)(o)) & 7) == 6;
 }
 #define MP_OBJ_IMMEDIATE_OBJ_VALUE(o) (((mp_uint_t)(o)) >> 3)
@@ -181,9 +198,90 @@ typedef struct _mp_obj_bool_t {
 #define mp_const_false (MP_OBJ_FROM_PTR(&mp_const_false_obj))
 #define mp_const_true (MP_OBJ_FROM_PTR(&mp_const_true_obj))
 
+/* ---- the unary route: the small ints, the slots and the strings the bodies read ---- */
+
+/* the small-int words of py/smallint.h, verbatim (the 63-bit REPR A small int) */
+#define MP_OBJ_WORD_MSBIT_HIGH (((mp_uint_t)1) << (sizeof(mp_uint_t) * 8 - 1))
+#define MP_SMALL_INT_MIN ((mp_int_t)(((mp_int_t)MP_OBJ_WORD_MSBIT_HIGH) >> 1))
+#define MP_SMALL_INT_FITS(n) ((((n) ^ ((mp_uint_t)(n) << 1)) & MP_OBJ_WORD_MSBIT_HIGH) == 0)
+#define MP_SMALL_INT_POSITIVE_MASK ~(MP_OBJ_WORD_MSBIT_HIGH | (MP_OBJ_WORD_MSBIT_HIGH >> 1))
+
+/* the operator counts of py/runtime0.h, verbatim */
+#define MP_UNARY_OP_NUM_BYTECODE (MP_UNARY_OP_NOT + 1)
+#define MP_UNARY_OP_NUM_RUNTIME (MP_UNARY_OP_SIZEOF + 1)
+
+/* the error words of py/runtime.h and the debug print of py/vm.c's dispatch */
+typedef const char *mp_rom_error_text_t;
+#define MP_ERROR_TEXT(s) (s)
+#define DEBUG_OP_printf(...) (void)0
+
+/* the type tests of py/obj.h, verbatim (the asserts of the debug build are the
+   words the bodies see: the test of the header against one named type) */
+#define mp_obj_is_type(o, t) (mp_obj_is_exact_type(o, t))
+#define mp_obj_is_str(o) (mp_obj_is_qstr(o) || mp_obj_is_exact_type(o, &mp_type_str))
+// https://github.com/micropython/micropython/issues/19048
+#define mp_obj_is_str_or_bytes(o) \
+    (mp_obj_is_qstr(o) || (mp_obj_is_obj(o) && \
+        MP_OBJ_TYPE_GET_SLOT_OR_NULL(((mp_obj_base_t *)MP_OBJ_TO_PTR(o))->type, binary_op) == mp_obj_str_binary_op))
+
+extern mp_obj_none_t mp_const_none_obj;
+extern mp_obj_bool_t mp_const_false_obj;
+extern mp_obj_bool_t mp_const_true_obj;
+
+static inline mp_obj_t mp_obj_new_bool(mp_int_t x) {
+    return x ? mp_const_true : mp_const_false;
+}
+
+/* the strings of py/objstr.h (the non-immediate REPR A form), verbatim */
+typedef unsigned char byte;
+
+typedef struct _mp_obj_str_t {
+    mp_obj_base_t base;
+    size_t hash;
+    // len == number of bytes used in data, alloc = len + 1 because (at the moment) we
+    // also append a null byte
+    size_t len;
+    const byte *data;
+} mp_obj_str_t;
+
+#define MP_STATIC_ASSERT_STR_ARRAY_COMPATIBLE ((void)0)
+
+// use this macro to extract the string hash
+#define GET_STR_HASH(str_obj_in, str_hash) \
+    size_t str_hash; \
+    if (mp_obj_is_qstr(str_obj_in)) { \
+        str_hash = qstr_hash(MP_OBJ_QSTR_VALUE(str_obj_in)); \
+    } else { \
+        str_hash = ((mp_obj_str_t *)MP_OBJ_TO_PTR(str_obj_in))->hash; \
+    }
+
+// use this macro to extract the string length
+#define GET_STR_LEN(str_obj_in, str_len) \
+    size_t str_len; \
+    if (mp_obj_is_qstr(str_obj_in)) { \
+        str_len = qstr_len(MP_OBJ_QSTR_VALUE(str_obj_in)); \
+    } else { \
+        str_len = ((mp_obj_str_t *)MP_OBJ_TO_PTR(str_obj_in))->len; \
+    }
+
+// use this macro to extract the string data and length
+#define GET_STR_DATA_LEN(str_obj_in, str_data, str_len) \
+    const byte *str_data; \
+    size_t str_len; \
+    if (mp_obj_is_qstr(str_obj_in)) { \
+        str_data = qstr_data(MP_OBJ_QSTR_VALUE(str_obj_in), &str_len); \
+    } else { \
+        MP_STATIC_ASSERT_STR_ARRAY_COMPATIBLE; \
+        str_len = ((mp_obj_str_t *)MP_OBJ_TO_PTR(str_obj_in))->len; \
+        str_data = ((mp_obj_str_t *)MP_OBJ_TO_PTR(str_obj_in))->data; \
+    }
+
+/* the value read of py/objbool.c, verbatim (the non-immediate form) */
+#define BOOL_VALUE(o) (((mp_obj_bool_t *)MP_OBJ_TO_PTR(o))->value)
+
 /* ---- the port's heap: one bounded arena, the m_malloc of py/misc.h over it ---- */
 
-#define ARENA_BYTES 256
+#define ARENA_BYTES 224
 static unsigned char m_arena[ARENA_BYTES];
 static size_t m_arena_used; /* the bump: everything below is handed out */
 
@@ -219,6 +317,18 @@ enum {
     MP_QSTR_str = 3,
     MP_QSTR_bool = 4,
     MP_QSTR_NoneType = 5,
+    MP_QSTR_TypeError = 6,
+    MP_QSTR_OverflowError = 7,
+    MP_QSTR_ValueError = 8,
+    MP_QSTR___bool__ = 9,
+    MP_QSTR___len__ = 10,
+    MP_QSTR___hash__ = 11,
+    MP_QSTR___int__ = 12,
+    MP_QSTR___pos__ = 13,
+    MP_QSTR___neg__ = 14,
+    MP_QSTR___invert__ = 15,
+    MP_QSTR___abs__ = 16,
+    MP_QSTR_bytes = 17,
 };
 
 /* ---- the @mp_type_* globals: static const data as cells of literal bytes ----
@@ -269,22 +379,54 @@ mp_obj_type_t mp_type_NoneType = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 };
 
+/* the marker classes: a type this class only compares by address (the bytes check of
+   the length path, the classes the raise paths name -- the cells of py/objexcept.c
+   are another class's) carries its header word alone. The flat profile gives it no
+   name or slot word of its own, and no body of this class reads one: the identity is
+   the cell's address. */
+mp_obj_base_t mp_type_bytes = {NULL};
+mp_obj_base_t mp_type_TypeError = {NULL};
+mp_obj_base_t mp_type_OverflowError = {NULL};
+mp_obj_base_t mp_type_ValueError = {NULL};
+
 mp_obj_none_t mp_const_none_obj = {{NULL}};
 mp_obj_bool_t mp_const_false_obj = {{NULL}, false};
 mp_obj_bool_t mp_const_true_obj = {{NULL}, true};
 
+/* the per-type unary bodies and the str type's binary_op word (their bodies are
+   verbatim below; the boot wires the words into the type cells' slots) */
+mp_obj_t mp_obj_int_unary_op(mp_unary_op_t op, mp_obj_t o_in);
+mp_obj_t bool_unary_op(mp_unary_op_t op, mp_obj_t o_in);
+mp_obj_t uni_unary_op(mp_unary_op_t op, mp_obj_t self_in);
+mp_obj_t mp_obj_str_binary_op(mp_obj_t o1, mp_obj_t o2, int op);
+
 /* the port's boot: the addresses the static const initializers of objtype.c,
    objbool.c and objnone.c would carry as relocations, stored into the cells before
-   any body runs */
+   any body runs.  It wires the slots too: the unary_op slot of each type carries the
+   function word of its per-type body (objtype.c/objbool.c/objstrunicode.c's), and the
+   words of those stores are what a call through a register dispatches on (the
+   route of lower_indirect in the importer -- mp_unary_op calls the slot) */
 void obj_port_boot(void) {
     mp_type_type.base.type = &mp_type_type;
     mp_type_int.base.type = &mp_type_type;
     mp_type_str.base.type = &mp_type_type;
     mp_type_bool.base.type = &mp_type_type;
     mp_type_NoneType.base.type = &mp_type_type;
+    mp_type_bytes.type = &mp_type_type;
+    mp_type_TypeError.type = &mp_type_type;
+    mp_type_OverflowError.type = &mp_type_type;
+    mp_type_ValueError.type = &mp_type_type;
     mp_const_none_obj.base.type = &mp_type_NoneType;
     mp_const_false_obj.base.type = &mp_type_bool;
     mp_const_true_obj.base.type = &mp_type_bool;
+    mp_type_int.slot_index_unary_op = 1;
+    mp_type_int.slots[0] = (const void *)&mp_obj_int_unary_op;
+    mp_type_bool.slot_index_unary_op = 1;
+    mp_type_bool.slots[0] = (const void *)&bool_unary_op;
+    mp_type_str.slot_index_unary_op = 1;
+    mp_type_str.slots[0] = (const void *)&uni_unary_op;
+    mp_type_str.slot_index_binary_op = 2;
+    mp_type_str.slots[1] = (const void *)&mp_obj_str_binary_op;
 }
 
 /* the addresses the differential names the cells by: what a run resolves an Object
@@ -309,8 +451,22 @@ const void *obj_arena_at(void) { return &m_arena[0]; }
 
 typedef size_t qstr;
 const char *qstr_str(qstr q);
-mp_obj_t mp_obj_len_maybe(mp_obj_t o_in);
+/* the qstr corpus's accessors (py/qstr.c): the GET_STR_* macros above read through
+   them -- imported where the qstr corpus is linked in (known of test_import.py), a
+   face that aborts where it is not */
+size_t qstr_hash(qstr q);
+qstr qstr_compute_hash(const byte *data, size_t len);
+const byte *qstr_data(qstr q, size_t *len);
+size_t qstr_len(qstr q);
 mp_int_t mp_obj_int_get_checked(mp_const_obj_t o);
+/* the raise faces of py/runtime.c: the nlr machine behind them is not this class's
+   (nlr_call.c's rule: the raise path diverges and the run refuses there) */
+_Noreturn void mp_raise_msg(const mp_obj_type_t *exc_type, mp_rom_error_text_t msg);
+_Noreturn void mp_raise_msg_varg(const mp_obj_type_t *exc_type, mp_rom_error_text_t fmt, ...);
+#define mp_raise_TypeError(msg) \
+    mp_raise_msg((const mp_obj_type_t *)&mp_type_TypeError, msg)
+/* the unary route: these bodies are this TU's own now (the verbatim section below) */
+mp_obj_t mp_obj_len_maybe(mp_obj_t o_in);
 mp_obj_t mp_unary_op(mp_unary_op_t op, mp_obj_t o);
 
 /* ---- the bodies of py/obj.c, verbatim ---- */
@@ -438,4 +594,186 @@ bool mp_obj_get_int_maybe(mp_const_obj_t arg, mp_int_t *value) {
         }
     }
     return true;
+}
+
+/* ---- the unary route: py/runtime.c's mp_unary_op and the per-type slot bodies of
+   objint.c, objbool.c and objstrunicode.c, verbatim (the bodies the boot's slot words
+   name; the call through the slot is the dispatch the importer routes on those words) */
+
+/* the op names of py/objtype.c, verbatim (the %q of a raise's message) */
+const byte mp_unary_op_method_name[MP_UNARY_OP_NUM_RUNTIME] = {
+    [MP_UNARY_OP_BOOL] = MP_QSTR___bool__,
+    [MP_UNARY_OP_LEN] = MP_QSTR___len__,
+    [MP_UNARY_OP_HASH] = MP_QSTR___hash__,
+    [MP_UNARY_OP_INT_MAYBE] = MP_QSTR___int__,
+    #if MICROPY_PY_ALL_SPECIAL_METHODS
+    [MP_UNARY_OP_POSITIVE] = MP_QSTR___pos__,
+    [MP_UNARY_OP_NEGATIVE] = MP_QSTR___neg__,
+    [MP_UNARY_OP_INVERT] = MP_QSTR___invert__,
+    [MP_UNARY_OP_ABS] = MP_QSTR___abs__,
+    #endif
+};
+
+// This is called when an integer larger than a SMALL_INT is needed (although val might still fit in a SMALL_INT)
+mp_obj_t mp_obj_new_int_from_ll(long long val) {
+    (void)val;
+    mp_raise_msg((const mp_obj_type_t *)&mp_type_OverflowError, MP_ERROR_TEXT("small int overflow"));
+    return mp_const_none;
+}
+
+mp_obj_t mp_obj_new_int(mp_int_t value) {
+    if (MP_SMALL_INT_FITS(value)) {
+        return MP_OBJ_NEW_SMALL_INT(value);
+    }
+    mp_raise_msg((const mp_obj_type_t *)&mp_type_OverflowError, MP_ERROR_TEXT("small int overflow"));
+    return mp_const_none;
+}
+
+// py/objint.c, verbatim
+mp_obj_t mp_obj_int_unary_op(mp_unary_op_t op, mp_obj_t o_in) {
+    (void)op;
+    (void)o_in;
+    return MP_OBJ_NULL; // op not supported
+}
+
+// py/objbool.c, verbatim (its static slot body, named here so the boot's word is a
+// body of the run: the bool type's unary_op slot carries it)
+mp_obj_t bool_unary_op(mp_unary_op_t op, mp_obj_t o_in) {
+    if (op == MP_UNARY_OP_LEN) {
+        return MP_OBJ_NULL;
+    }
+    bool value = BOOL_VALUE(o_in);
+    return mp_unary_op(op, MP_OBJ_NEW_SMALL_INT(value));
+}
+
+/* py/unicode.c's utf8_charlen and its UTF8_IS_CONT of py/unicode.h, verbatim */
+#define UTF8_IS_CONT(c) (((c) & 0xc0) == 0x80)
+
+size_t utf8_charlen(const byte *str, size_t len) {
+    size_t charlen = 0;
+    for (const byte *top = str + len; str < top; ++str) {
+        if (!UTF8_IS_CONT(*str)) {
+            ++charlen;
+        }
+    }
+    return charlen;
+}
+
+// py/objstrunicode.c, verbatim (the str type's unary_op slot body)
+mp_obj_t uni_unary_op(mp_unary_op_t op, mp_obj_t self_in) {
+    GET_STR_DATA_LEN(self_in, str_data, str_len);
+    switch (op) {
+        case MP_UNARY_OP_BOOL:
+            return mp_obj_new_bool(str_len != 0);
+        case MP_UNARY_OP_LEN:
+            return MP_OBJ_NEW_SMALL_INT(utf8_charlen(str_data, str_len));
+        default:
+            return MP_OBJ_NULL; // op not supported
+    }
+}
+
+// may return MP_OBJ_NULL
+// py/obj.c, verbatim
+mp_obj_t mp_obj_len_maybe(mp_obj_t o_in) {
+    if (
+        #if !MICROPY_PY_BUILTINS_STR_UNICODE
+        // It's simple - unicode is slow, non-unicode is fast
+        mp_obj_is_str(o_in) ||
+        #endif
+        mp_obj_is_type(o_in, (const mp_obj_type_t *)&mp_type_bytes)) {
+        GET_STR_LEN(o_in, l);
+        return MP_OBJ_NEW_SMALL_INT(l);
+    } else {
+        const mp_obj_type_t *type = mp_obj_get_type(o_in);
+        if (MP_OBJ_TYPE_HAS_SLOT(type, unary_op)) {
+            return MP_OBJ_TYPE_GET_SLOT(type, unary_op)(MP_UNARY_OP_LEN, o_in);
+        } else {
+            return MP_OBJ_NULL;
+        }
+    }
+}
+
+// py/runtime.c, verbatim: the unary dispatch of the class -- the fast paths of the
+// immediate words, then the type's unary_op slot (the words the boot wires route the
+// call through it to the per-type body)
+mp_obj_t mp_unary_op(mp_unary_op_t op, mp_obj_t arg) {
+    DEBUG_OP_printf("unary " UINT_FMT " %q %p\n", op, mp_unary_op_method_name[op], arg);
+
+    if (op == MP_UNARY_OP_NOT) {
+        // "not x" is the negative of whether "x" is true per Python semantics
+        return mp_obj_new_bool(mp_obj_is_true(arg) == 0);
+    } else if (mp_obj_is_small_int(arg)) {
+        mp_int_t val = MP_OBJ_SMALL_INT_VALUE(arg);
+        switch (op) {
+            case MP_UNARY_OP_BOOL:
+                return mp_obj_new_bool(val != 0);
+            case MP_UNARY_OP_HASH:
+                return arg;
+            case MP_UNARY_OP_POSITIVE:
+            case MP_UNARY_OP_INT_MAYBE:
+                return arg;
+            case MP_UNARY_OP_NEGATIVE:
+                // check for overflow
+                if (val == MP_SMALL_INT_MIN) {
+                    return mp_obj_new_int(-val);
+                } else {
+                    return MP_OBJ_NEW_SMALL_INT(-val);
+                }
+            case MP_UNARY_OP_ABS:
+                if (val >= 0) {
+                    return arg;
+                } else if (val == MP_SMALL_INT_MIN) {
+                    // check for overflow
+                    return mp_obj_new_int(-val);
+                } else {
+                    return MP_OBJ_NEW_SMALL_INT(-val);
+                }
+            default:
+                assert(op == MP_UNARY_OP_INVERT);
+                return MP_OBJ_NEW_SMALL_INT(~val);
+        }
+    } else if (op == MP_UNARY_OP_HASH && mp_obj_is_str_or_bytes(arg)) {
+        // fast path for hashing str/bytes
+        GET_STR_HASH(arg, h);
+        if (h == 0) {
+            GET_STR_DATA_LEN(arg, data, len);
+            h = qstr_compute_hash(data, len);
+        }
+        return MP_OBJ_NEW_SMALL_INT(h);
+    } else {
+        const mp_obj_type_t *type = mp_obj_get_type(arg);
+        if (MP_OBJ_TYPE_HAS_SLOT(type, unary_op)) {
+            mp_obj_t result = MP_OBJ_TYPE_GET_SLOT(type, unary_op)(op, arg);
+            if (result != MP_OBJ_NULL) {
+                return result;
+            }
+        } else if (op == MP_UNARY_OP_HASH) {
+            // Type doesn't have unary_op so use hash of object instance.
+            return MP_OBJ_NEW_SMALL_INT((mp_uint_t)arg);
+        }
+        if (op == MP_UNARY_OP_BOOL) {
+            // Type doesn't have unary_op (or didn't handle MP_UNARY_OP_BOOL),
+            // so is implicitly True as this code path is impossible to reach
+            // if arg==mp_const_none.
+            return mp_const_true;
+        }
+        if (op == MP_UNARY_OP_INT_MAYBE
+            #if MICROPY_PY_BUILTINS_FLOAT
+            || op == MP_UNARY_OP_FLOAT_MAYBE
+            #if MICROPY_PY_BUILTINS_COMPLEX
+            || op == MP_UNARY_OP_COMPLEX_MAYBE
+            #endif
+            #endif
+            ) {
+            // These operators may return MP_OBJ_NULL if they are not supported by the type.
+            return MP_OBJ_NULL;
+        }
+        #if MICROPY_ERROR_REPORTING <= MICROPY_ERROR_REPORTING_TERSE
+        mp_raise_TypeError(MP_ERROR_TEXT("unsupported type for operator"));
+        #else
+        mp_raise_msg_varg((const mp_obj_type_t *)&mp_type_TypeError,
+            MP_ERROR_TEXT("unsupported type for %q: '%s'"),
+            mp_unary_op_method_name[op], mp_obj_get_type_str(arg));
+        #endif
+    }
 }
