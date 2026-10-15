@@ -281,6 +281,20 @@ class Front:
         self._send(_install_delta(self._module, name, words, source, parameters))
         return self._report(f"{self._module}.{name}")
 
+    # -- the mirror the deltas are staged against -----------------------------------------------
+
+    def rebase(self) -> None:
+        """The mirror onto the image the channel has now.
+
+        `_send` stages every delta against the mirror and the image refuses a base that is not
+        it. A change that lands through the channel outside `_send` (the editor's cell poke) has
+        moved the image past the mirror, so the caller rebases it here: the poke is part of the
+        image state the next compile or install is staged against. Nothing is laundered by this
+        — a base nothing rebased onto is refused exactly as it always was ("the base digest is
+        not the digest of the image")."""
+        self._state = Image.from_bytes(self._client.emit()[0])
+        self._live = None
+
     # -- the memory of the machine ----------------------------------------------------------
 
     def place(self, path: str) -> int:
@@ -349,10 +363,11 @@ class Front:
 
     def _send(self, text: str) -> None:
         """One delta over the rings: compiled against the state the host mirrors, and accepted
-        as the image agrees with it."""
+        as the image agrees with it. The mirror replays it with ``links=False``, the image's own
+        policy — the image checks that the result links when it takes the delta."""
         state = self._image()
         compiled = physical.from_xml(Image.from_bytes(state.to_bytes()), ("delta.xml", text))
-        state.apply(text)
+        state.apply(text, links=False)
         digest = self._client.apply(compiled.data)
         if digest != state.digest():
             raise RuntimeError("the image and its mirror disagree")

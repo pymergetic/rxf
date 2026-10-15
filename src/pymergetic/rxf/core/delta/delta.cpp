@@ -58,7 +58,7 @@ Status make_image(uint64_t limit, uint64_t index_capacity, std::unique_ptr<Image
 
 /* The replay itself, on the image that is given: the caller has begun a transaction and
  * rolls it back when this does not answer Ok. */
-static Status replay(Image &image, const Delta &delta, Failure *failure) {
+static Status replay(Image &image, const Delta &delta, Failure *failure, bool links) {
     Image *work = &image;
     Status status = Status::Ok;
     bool log_full = false; // a patch of a forward reference found no room in the undo log
@@ -347,25 +347,27 @@ static Status replay(Image &image, const Delta &delta, Failure *failure) {
     }
     types.invalidate();
 
-    std::vector<meta::Issue> issues = meta::check(types);
-    if (!issues.empty()) {
-        if (failure != nullptr) {
-            failure->op = static_cast<size_t>(-1);
-            failure->status = Status::BadImage;
-            failure->message = std::to_string(issues.size()) + " problems after the last operation";
-            failure->issues = std::move(issues);
+    if (links) {
+        std::vector<meta::Issue> issues = meta::check(types);
+        if (!issues.empty()) {
+            if (failure != nullptr) {
+                failure->op = static_cast<size_t>(-1);
+                failure->status = Status::BadImage;
+                failure->message = std::to_string(issues.size()) + " problems after the last operation";
+                failure->issues = std::move(issues);
+            }
+            return Status::BadImage;
         }
-        return Status::BadImage;
     }
     status = work->verify();
     if (status != Status::Ok) return fail(failure, static_cast<size_t>(-1), status, "the image does not verify");
     return Status::Ok;
 }
 
-Status apply(Image &image, const Delta &delta, Failure *failure) {
+Status apply(Image &image, const Delta &delta, Failure *failure, bool links) {
     Status status = image.begin();
     if (status != Status::Ok) return fail(failure, static_cast<size_t>(-1), status, "cannot begin a transaction");
-    status = replay(image, delta, failure);
+    status = replay(image, delta, failure, links);
     if (status == Status::Ok) return image.commit();
     const Status undone = image.rollback();
     if (undone != Status::Ok) return fail(failure, static_cast<size_t>(-1), undone, "cannot roll back");

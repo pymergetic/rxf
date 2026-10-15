@@ -170,6 +170,9 @@ def create_app(image: Image, *, session: Session | None = None) -> FastAPI:
             # (`live/front.py`: "the base of a delta that is not the image is refused"). What runs
             # has moved on from the inspected snapshot (the boot of the front end, the image's own
             # writes), so the poke is compiled against the running image, read through the seam.
+            # `world.front` is the front end of that same image: `editor.poke` rebases its mirror
+            # around the apply (the poke is part of the image state), or the next compile or
+            # install on this session would be refused a stale base.
             running = Image.from_bytes(world.client.emit()[0])
             return editor.poke(
                 world.client,
@@ -178,6 +181,7 @@ def create_app(image: Image, *, session: Session | None = None) -> FastAPI:
                 body.field,
                 body.value,
                 body.offset,
+                front=world.front,
             )
 
         with session.transaction():  # emit → compile → apply is one transaction (session.py)

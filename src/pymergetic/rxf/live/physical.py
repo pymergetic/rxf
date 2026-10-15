@@ -245,9 +245,14 @@ def digest_of(data: bytes) -> str:
 
 
 def from_xml(base: Image, *texts: tuple[str, str], check_base: bool = True) -> Compiled:
-    """The physical delta of text deltas (name, XML): they are applied to a copy of the base, the difference is compiled."""
+    """The physical delta of text deltas (name, XML): they are applied to a copy of the base, the difference is compiled.
+
+    The copy is replayed with `links=False`: the operations must hold, but the result is not
+    required to link. The physical form says what is there afterwards, whatever left the image
+    in that state (text, UI, a poke) — the image checks that it links when it takes the delta.
+    """
     result = Image.from_bytes(base.to_bytes())
-    result.apply_all(list(texts))
+    result.apply_all(list(texts), links=False)
     return compile(base, result, check_base=check_base)
 
 
