@@ -10,8 +10,10 @@ This document is the execution half of that rule. It specifies the run-cell stat
 the ready-ring protocol (S3), park and wake on channel frames (S4), ownership and the handoff (S5),
 the programs a run cell carries (S6), the handle discipline and the refusal of stale addresses
 (S7), concurrent delta and compaction under live runs (S8), the edge shim that projects all of this
-onto pthreads, asyncio, or Metal (S9), and the determinism the whole design buys (S10). The proof
-is C2: `tests/host/smp_*.c` (an N-carrier harness on a real arena) and `tests/test_smp.py`, run
+onto pthreads, asyncio, or Metal (S9), the determinism the whole design buys (S10), and the
+MicroPython seam — where the interpreter may suspend, and which of its words are cells (S11). The
+proof
+is C2 and C3: `tests/host/smp_*.c` (an N-carrier harness on a real arena) and `tests/test_smp.py`, run
 under ThreadSanitizer and AddressSanitizer/UBSan.
 
 The core of the policy is one file, `tests/host/smp_sched.c`: the state machine, the ring, and the
@@ -50,6 +52,8 @@ typedef struct {
     _Atomic(uint32_t) token;     /* the wake token (S4) */
     _Atomic(uint32_t) waker_run; /* who woke this run last (evidence, not protocol) */
     _Atomic(uint32_t) midflight; /* bumped when the compactor moves this run while it runs */
+    _Atomic(uint64_t) mp_raise_slot; /* the seam's pending pair (S11): deposited by any waker, */
+    _Atomic(uint32_t) mp_sched_flag; /* consumed at the run's own poll */
     /* handoff metadata and evidence */
     uint32_t run_index, kind;
     uint32_t park_carrier, deferred;
@@ -58,13 +62,17 @@ typedef struct {
     rxf_smp_handle self, data, channel, scratch, stale;
     uint64_t seed, pc, acc_sum, acc_xor, sent, rx_seen, data_offset, steps, target_steps;
     uint32_t ok, verify_bad, relocated, ring_refused, stale_refused;
+    uint64_t mp_frame_sum, mp_frame_xor; /* the VM's frame checkpoint the nlr jump restores (S11) */
+    uint32_t mp_block, mp_iter, mp_polls, mp_unwinds;
+    uint32_t mp_raise_seen, mp_sched_seen, mp_events, mp_raise_events, mp_won, mp_refused;
+    uint32_t mp_deposits;
     uint32_t guard1[2], guard2[2];
     uint64_t checksum;
 } smp_run_payload;
 ```
 
-- The four `_Atomic` words are written concurrently (any carrier, the compactor) and nothing else
-  may be written concurrently.
+- The `_Atomic` words are written concurrently (any carrier, the compactor) and nothing else may
+  be written concurrently: the machine's four, and the seam's pending pair of S11.
 - The handoff metadata is written by the owner or by the popper under the state machine and the
   ring lock (S5). It is evidence about the run, never authority over it.
 - The program state — every field from `self` to `guard2` — is written by exactly one carrier
@@ -142,6 +150,15 @@ A wake is a token protocol so that no wake is ever lost and no run is enqueued t
   run makes `RUNNING to PARKED` and sleeps. The park answers the dispatcher which of the three
   happened, and the answers are `SMP_STEP_PARK`, `SMP_STEP_SELFWAKE`, and `SMP_STEP_AGAIN`.
 
+  The park is the step's own handoff (S5), so it seals the cell first: the step's closing duty,
+  the step count and the checksum are final **before** the `RUNNING to PARKED` CAS, because a
+  waker may requeue a `PARKED` run the moment that CAS lands and the next owner may step the cell
+  at once. A seal after the transition leaves a run cell still being written by its old owner
+  while its new owner verifies and steps it — a torn cell is never seen, but the check races the
+  seal and reports one. The same rule shapes the dispatcher's own requeue at a yield: seal, then
+  the state CAS, then the push. The state CAS (or the enqueue that follows it) is the last thing
+  that happens to the cell; after it, the old owner writes no program word again.
+
 Channel frames are how two runs wait on each other (the channel frame of docs/10, as a cell): a
 sender fills a word in the frame and wakes the receiver; a receiver with nothing to read parks on
 the frame. The frame is a cell like any other — the pair holds its handle, resolves it at the start
@@ -188,7 +205,11 @@ under the same rules:
   traffic;
 - **channel**: a pair over one channel frame — park, send, wake, cross resume (S4);
 - **stale**: resolves a handle whose slot generation moved — it must be refused and must never
-  resolve to the new cell of the slot (the ABA program of S3, S7).
+  resolve to the new cell of the slot (the ABA program of S3, S7);
+- **mpvm**: the MicroPython shape (S11) — a pair where one run plays an interrupt source
+  (deposits raises and scheduled callbacks into its partner's pending words and wakes it) and the
+  other a VM run (frame iterations with the poll at every back edge, nlr-shaped unwinds, and
+  blocking-call parks).
 
 ## S7. Handles, claims, and no raw address across a safe point
 
@@ -284,7 +305,8 @@ No pthread, asyncio, or Metal symbol appears in the core. The projections:
 
 The rule in every projection: the shim may wake a run but may never run it, may delay a carrier
 but may never own a run. Timeout liveness is an edge concern (the proof's watchdog, a host timer,
-wakes parked workers that have no partner); it uses the same wake as any other waker and is
+wakes parked workers that have no partner and VM runs in blocking calls, S11); it uses the same
+wake as any other waker and is
 counted separately (`watchdog_wakes`), so the run-to-run wake of S4 is never polluted by the shim.
 A parked run that the shim wakes goes through `PARKED to READY` and the ring like any other run;
 the shim has no private path into the machine (S1).
@@ -304,11 +326,124 @@ byte-identical result words (`digest`, `sum`, `xor` — words 0 to 2 of the evid
 word is evidence about the interleaving and is allowed to vary; the words that must not vary are
 the ones that carry the answer.
 
-## The proof (C2)
+## S11. The MicroPython seam (C3: no GIL)
 
-`tests/host/` builds one harness from four files: `smp_arena.c` (handles, claims, sliding
-compaction), `smp_sched.c` (S1 to S5), `smp_witness.c` (S6 to S9: the programs, the mutator, the
-watchdog, the evidence), and `smp_prove.c` (one JSON door). `tests/test_smp.py` drives it:
+MicroPython's own safe points are the run cell's safe points. The seam between the two machines is
+small, and this section fixes it: the mapping of the interpreter's suspension points onto S1 to S9
+(the mapping table), the words of the pending flag and the protocol around them, the ownership of
+`mp_state_ctx` and friends as cells (which fields need no lock at all), the nlr rule, and the needs
+list — what the MicroPython import must provide for the real integration. The needs list is
+recorded here, not implemented. The model that pins the seam's semantics on the host is
+`tests/host/smp_mpmodel.c` (a standalone C model of the two words and the poll, not MicroPython,
+and not a second implementation of anything the import lane owns), and the witness program that
+plays the shape is `WIT_PROGRAM_MPVM` in `tests/host/smp_witness.c`.
+
+### The mapping table
+
+| MicroPython | the run-cell machine |
+|---|---|
+| `mp_handle_pending()` — the pending-flag poll | the safe point itself: the last act of a step, where the claims are released and the checksum rewritten (S7). A bytecode run's step is the interval between two polls |
+| the VM loop's periodic check (the back edge of the bytecode loop) | the step boundary: one VM-loop iteration is one dispatched step; the model runs four back-edge polls to one frame (`WIT_MP_BLOCK`) |
+| `mp_pending_exception` — the single pending-raise slot | `mp_raise_slot`, one atomic word in the run cell's concurrent words (S1). Written by any waker, consumed at the run's own poll. A second raise before the poll is refused and the caller decides, as `mp_sched_schedule` answers false when its queue is full |
+| `mp_sched_schedule` / `mp_sched_run_pending` | `mp_sched_flag`, one coalescing level bit of the run cell: two deposits before a poll are one callback run (the shape of a one-deep queue) |
+| `mp_sched_keyboard_interrupt`, `mp_keyboard_interrupt`, an ISR at the hal | a deposit into the pending words plus a wake-token op on the run cell (S4) — never a signal into the run. Interrupts are data the poll finds |
+| `nlr_push` / `nlr_pop` | the run's handler chain: per-run program state, checksummed. Legal within one step, never across a safe point |
+| `nlr_jump` — the unwind | the restore of the run's frame checkpoint inside one step: the interpreter's heap frame chain (`mp_code_state_t`) is rewound and re-entered, and the retried frame computes the same bytes. No longjmp crosses a safe point (the `lower_nlr` soundness boundary: the frame is lowered, the unwinding machine is not) |
+| `mp_raise_*` — the raise leaf | the Refuse leaf: the guarded call diverges and the run refuses (the importer's existing rule) |
+| a blocking hal call (`mp_hal_delay_ms`, stdin read) | a park (S4) with a timed edge wake (S9): the watchdog timer is the hal's timer |
+| `mp_state_thread` (`nlr_top`, `dict_locals`, `dict_globals`, the frame chain) | per-run program state (the table below): the interpreter reads its own run's VM state with no lock and no claim |
+| `mp_state_ctx` — the root of the globals | named cells under root (the landed import model: one named cell per global, handles resolved at use) |
+| `mp_state_mem` — the GC heap | the arena (docs/03): a Python heap object IS an arena cell. REPR A as decided: bit 0 set is a small int (no cell); otherwise `handle << 1`, resolved at use |
+| the GIL | there is none. Ownership of the run cell is the only mutual exclusion (S5), and the concurrent words are the only cross-run writes |
+
+### The pending protocol, exactly
+
+- **The raise slot.** One atomic word per run: 0 is empty, otherwise the payload plus one (the top
+  bit of the payload is masked so the word is never the empty encoding). A deposit is one CAS from
+  empty and answers 1 when the raise landed, 0 when a raise was already pending — the Refuse path,
+  with the caller deciding what to do with the refusal. The payload rides in the slot word itself,
+  so a deposit writes nothing else and needs no second synchronization.
+- **The sched bit.** One atomic level bit per run: set by a scheduler, coalescing. The poll
+  consumes it and runs the callback inside the step.
+- **The poll.** `mp_handle_pending` is one exchange of each word, raise first, then the sched,
+  both acq_rel. Delivery is inside the step. A deposit that lands during either exchange is found
+  at the next poll: never lost, never delivered twice. The proof pins this as an identity — every
+  raise that won the slot is delivered at exactly one poll or is still pending when the run ended
+  (`WIT_OUT_MP_RAISE_WON == WIT_OUT_MP_DELIVERED + WIT_OUT_MP_PENDING_END`).
+- **The wake.** Every deposit is paired with a wake-token op on the target run (S4): a pending
+  event wakes a VM out of a blocking call, and the token protocol keeps a deposit that lands just
+  before a park from being lost. The wake of a `TERMINAL` run is refused by the state machine and
+  enqueues nothing (S1).
+- **Deposits at teardown.** A source may outlive its VM; a deposit into the slot of a run that
+  will never poll again is the reentrant case the import must expect. The first deposit may win
+  and the rest are refused — guaranteed, since nothing consumes the slot again — and the caller
+  sees the refusal. The proof's exit burst exercises exactly this (`WIT_OUT_MP_RAISE_REFUSED`).
+
+### The ownership of `mp_state_ctx` (which fields need no lock)
+
+| field group | owner | rule |
+|---|---|---|
+| `mp_state_thread`: `nlr_top`, `dict_locals`, `dict_globals`, the frame chain | the run | program state (S1): the interpreter reads and writes its own run's VM state with no lock and no claim, and the checksum covers it |
+| `mp_pending_exception` and its payload | the run (concurrent words) | one atomic slot, written by any waker, consumed at the poll (above) |
+| `mp_state_vm.mp_kbd_exception` (the exception object) | shared, immutable | a REPR A immediate or a read-claimed cell; never written after init |
+| `mp_state_vm.sched_state`, `sched_queue` | shared | named cells under claim discipline (the ready-ring's rule, S3, S7): resolve, work, release |
+| `mp_state_mem` (the GC heap) | the arena | allocation under the allocator's discipline; objects are cells (REPR A); a cached object reference across a safe point is a handle, never an address |
+| module registries, `sys.path`, qstr pools | shared, immutable after init | read claims only; modules are module cells under root |
+
+The consequence in one line: between two safe points a run needs nothing but its own cell and the
+claims it took inside the step, and the only words another run may touch are the concurrent words
+(the wake token and the pending pair) — exactly the rule of S1.
+
+### What the MicroPython import must provide (the needs list — recorded, not implemented)
+
+1. **`mp_handle_pending` as a safe-point leaf.** Lowered to the safe point of the run cell: the
+   poll becomes the end of a step — release the claims, rewrite the checksum, optionally park. A
+   bytecode run's step is one VM-loop interval, between two back-edge polls.
+2. **The pending-flag word as per-run cell words.** Split `mp_state_vm`'s pending exception and
+   sched-pending state onto the run cell's concurrent words: the single-slot raise with its
+   documented refusal, the sched flag with its coalescing. Nothing a second VM would write may
+   stay global.
+3. **`mp_sched_schedule` as a wake-token op.** The deposit is a CAS on the target run's slot (or
+   a set of its sched bit) plus the wake of the target run cell; the false answer is the Refuse
+   path and must reach the caller.
+4. **Interrupts are deposits, never signals.** `mp_keyboard_interrupt` and friends write the
+   pending word and wake; no signal handler may touch a run.
+5. **nlr and runs.** `nlr_push`/`nlr_jump` stay legal within one safe-point interval (the
+   importer's `lower_nlr` boundary). No longjmp may cross a safe point: a raise delivered at a
+   poll unwinds the run's heap frame chain (`mp_code_state_t`) and the frame is re-entered from
+   its checkpoint — the carrier's C stack is empty at every safe point (S7), and the run cell is
+   never torn by an unwind (the checksum is rewritten before any requeue).
+6. **REPR A handles.** Bit 0 set is a small int and needs no cell; otherwise `handle << 1`,
+   resolved at use (S7). Every cached object reference across a safe point is a handle; a raw
+   pointer may not outlive its step.
+7. **Blocking hal calls as parks.** `mp_hal_delay_ms`, stdin reads and friends park the run (S4)
+   with a timed edge wake (S9) instead of blocking the carrier.
+8. **The memory area as the arena.** `mp_state_mem`'s heap is the arena (docs/03): an allocation
+   is an arena alloc under the allocator's discipline, and collection moves cells (the sliding
+   pass of S8) — anything caching an object across a collection must hold a handle.
+
+### What the proof shows (C3)
+
+The MPVM programs run the shape above on the machine of C2 — N carriers, a real arena, compaction
+and deltas under live runs — and the differential covers them: the seam's result words are part of
+words 0 to 2 and are byte-identical at every carrier count and flag set (S10). The seam's
+accounting identities hold in every configuration:
+
+- `won + refused == deposits` (every deposit is landed or refused, exactly once);
+- `won == delivered + pending_end` (a raise is delivered at exactly one poll, or never);
+- `unwinds == delivered` (every delivery lands after work and rewinds its frame; the retry
+  computes the same bytes, so the answer never depends on where the raise landed).
+
+The pending pair is concurrent words of the run cell and the whole traffic runs under
+ThreadSanitizer; and what the interpreter side sees is exactly the ownership rule above: a VM
+run's poll touches only its own cell.
+
+## The proof (C2, C3)
+
+`tests/host/` builds one harness from five files: `smp_arena.c` (handles, claims, sliding
+compaction), `smp_sched.c` (S1 to S5), `smp_mpmodel.c` (the model of the MicroPython seam, S11),
+`smp_witness.c` (S6 to S9 and S11: the programs, the mutator, the watchdog, the
+evidence), and `smp_prove.c` (one JSON door). `tests/test_smp.py` drives it:
 
 - the differential of S10 across carrier counts 1, 2, 4, 8 and flag sets 0 to 15 (compaction,
   delta, deferral), byte-identical result words every time;
@@ -318,6 +453,11 @@ watchdog, the evidence), and `smp_prove.c` (one JSON door). `tests/test_smp.py` 
 - concurrent delta and compaction with sliding (`C_FORWARD`), the accounting identity
   `forward_ok + forward_lost == moved_cells`, relocated steps under live runs, the poison tail
   intact (`poison_ok`), and byte-identical results against the single-carrier reference;
+- the MicroPython seam of S11 (the MPVM programs over the model of `smp_mpmodel.c`): the
+  `mp_handle_pending` poll is the safe point, pending raises and callbacks are wake-token ops
+  between runs with the Refuse path exercised at teardown, and the identities
+  `won + refused == deposits`, `won == delivered + pending_end`, `unwinds == delivered` hold under
+  full churn;
 - the same binary under AddressSanitizer/UBSan and under ThreadSanitizer, clean both ways.
 
 The build is `-std=c11 -Wall -Wextra -Werror -Wimplicit-function-declaration`; the evidence words

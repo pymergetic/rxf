@@ -13,7 +13,11 @@ under ThreadSanitizer and AddressSanitizer/UBSan, and drives the runs the policy
 - the ABA refusal of S3 and S7: the stale handle is refused and its fresh sibling resolves;
 - the compaction accounting of S8: every moved cell is read back at its old place or covered by
   the geometry (forward_ok + forward_lost == moved_cells), the vacated tail stays poison, and no
-  step ever finds a torn run cell or a wrong data cell.
+  step ever finds a torn run cell or a wrong data cell;
+- the MicroPython seam of S11 (smp_mpmodel.c, the MPVM programs): the mp_handle_pending poll is
+  the safe point, pending raises and scheduled callbacks are wake-token ops between runs, and the
+  seam's accounting identities hold — won == delivered + pending_end, unwinds == delivered, and
+  won + refused == raise events.
 """
 
 import hashlib
@@ -29,7 +33,7 @@ HERE = Path(__file__).parent
 HOST = HERE / "host"
 BUILD = HOST / "build"
 SOURCES = [HOST / name for name in (
-    "smp_prove.c", "smp_witness.c", "smp_sched.c", "smp_arena.c",
+    "smp_prove.c", "smp_witness.c", "smp_sched.c", "smp_arena.c", "smp_mpmodel.c",
 )]
 
 # The flags of smp_witness.h: 2 compaction, 4 delta, 8 force cross-carrier resume.
@@ -52,6 +56,10 @@ CARRIER_STEPS, CARRIER_POPS = 40, 72
 ABA_OK, PAIR_PARK, PAIR_RESUME, PAIR_WAKER = 104, 105, 106, 113
 VERIFY_BAD, POISON_BAD, STALLED = 107, 109, 110
 FORWARD_LOST = 114
+# The MicroPython seam (S11).
+MP_EVENTS, MP_RAISE_EVENTS, MP_RAISE_WON, MP_RAISE_REFUSED = 115, 116, 117, 118
+MP_DELIVERED, MP_PENDING_END, MP_SCHED, MP_UNWINDS, MP_POLLS = 119, 120, 121, 122, 123
+MP_RAISE_DEPOSITS = 124
 
 
 def _compiler() -> str:
@@ -202,6 +210,40 @@ def test_the_watchdog_wakes_parked_workers_so_no_run_depends_on_its_partner():
     clean(report)
     assert out(report, PARKS) > 0
     assert out(report, WATCHDOG_WAKES) > 0  # the shim woke parked workers with the same wake
+
+
+def test_the_micropython_seam_parks_and_wakes_like_run_cells():
+    """S11: the mp_handle_pending poll is the safe point of a bytecode run.
+
+    The MPVM pairs play the MicroPython shape against the run-cell machine (smp_mpmodel.c is the
+    standalone C model of the seam, not MicroPython): VM-loop iterations with the poll at every
+    back edge, raises and scheduled callbacks deposited by the partner run (wake-token ops, never
+    signals into the run), an nlr-shaped unwind to the frame checkpoint on every raise, and
+    blocking calls that park. The identities are the seam's contract:
+
+    - won + refused == deposits (the single pending slot and its Refuse path, exercised
+      guaranteed by the exit burst: two deposits at a run that will never poll again);
+    - won == delivered + pending_end (a raise is delivered exactly once or is still pending when
+      the VM run ended);
+    - unwinds == delivered (a raise always lands after work and rewinds its frame).
+
+    The ready-ring order makes a source's first event precede its VM's first step, so a raise is
+    delivered and a callback consumed in every configuration. The result words of these runs are
+    part of the differential above: the seam never leaks timing into the answer (S10).
+    """
+    report, _ = prove(runs=32, carriers=4, seed=17, steps=1000, messages=8, flags=ALL_FLAGS)
+    clean(report)
+    assert out(report, MP_POLLS) > 0
+    assert out(report, MP_RAISE_WON) >= 1
+    assert out(report, MP_RAISE_WON) == out(report, MP_DELIVERED) + out(report, MP_PENDING_END)
+    assert out(report, MP_UNWINDS) == out(report, MP_DELIVERED)
+    assert out(report, MP_DELIVERED) >= 1
+    assert out(report, MP_SCHED) >= 1
+    assert out(report, MP_RAISE_WON) + out(report, MP_RAISE_REFUSED) == out(report, MP_RAISE_DEPOSITS)
+    assert out(report, MP_RAISE_REFUSED) >= 1  # the exit burst: a deposit refused at teardown
+    assert out(report, MP_RAISE_DEPOSITS) > out(report, MP_RAISE_EVENTS)  # the burst deposits more
+    assert out(report, MP_RAISE_EVENTS) * 2 == out(report, MP_EVENTS)  # raises and callbacks
+    assert out(report, WAKES) > 0  # a pending event is a wake of the VM run (S4)
 
 
 @pytest.mark.parametrize("mode", ["tsan", "asan"])
