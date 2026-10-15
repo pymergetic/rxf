@@ -263,11 +263,26 @@ path inside it — 186 instructions -> 195 frame values, 1608 bytes, a frame one
 program of its own, and `qstr_from_str`'s call of it as the genuine call card (`RXF_GRAPH_CALL`),
 past the inline budget rather than past any wall
 (`tests/test_import.py`'s `test_the_interning_path_lowers_with_variable_frames` runs both against
-the natively compiled corpus). What the refusal tables keep is what cannot lower by any other rule
-— the `a pointer to a value` write-through rule, the function-word dispatch rule, recursion, the
-C++ ABI shapes and runtimes — exactly as before, unblurred. And the run still enforces the cell
+the natively compiled corpus). What the refusal tables keep is what cannot lower by any other
+rule — the old text, kept as history: *"the `a pointer to a value` write-through rule, the
+function-word dispatch rule, recursion, the C++ ABI shapes and runtimes — exactly as before,
+unblurred."* The dispatch and out-cell lane has flipped the two named rules (below); recursion,
+the C++ ABI shapes and runtimes stay refused, byte-exact. And the run still enforces the cell
 budget on the chain: a sum of frames past the cell is refused `RXF_REFUSE_CELL_BUDGET`, with a
 status.
+
+**The dispatch and out-cell flips.** `mp_obj_is_true`'s indirect call through the runtime type
+word was REFUSED `function word`; it lowers now as an i3 slot-lookup program — a branch cascade
+over the words `function_wiring` sees stored across every body (the boot's slot fills included),
+each arm the call card of the body its word names. `mp_obj_get_int_maybe` was REFUSED
+`function word` with the secondary `a pointer to a value`; it dispatches the same way, and its
+`mp_int_t *value` write becomes an i2 out-cell: the caller's Object handle (identity, offset at
+run-entry; the generation is the cell's own) written through `memory_copy` into the caller's
+out-word. Both flips are honest in both directions: the function-word rule flips **only where a
+store wires the word**, so `dispatch.c`'s `call_a_word` and `cpp_refuse.cpp`'s `vcall` stay
+refused byte-exact. One seam stays pinned — a call that both dispatches and carries out-cells
+returns status 16 (`test_the_out_param_callee_is_a_call_card`, xfail; the lowering is pinned
+green on its own, `test_the_out_param_callee_lowers_as_a_call_card`).
 
 ## S7. Handles, claims, and no raw address across a safe point
 
