@@ -632,6 +632,12 @@ So: no rump discussion needed for the build. It is listed here as the named alte
 fill; if a hosted seat ever wants it, it fills `cap.net.socket`, passes the same suite, and the
 body never learns which provider answered.
 
+**The interface is the truth.** Whatever a seat sees — `netif` in, socket contract out — is the
+same face on every seat, and what runs beneath it is a fill and nothing more: lwIP's imported
+graph today, rump's BSD stack on a hosted seat tomorrow, a bare driver on firmware. Rump is
+exactly that — a driver provider. It may sit under the interface and nowhere else; the moment it
+grew a face of its own it would be the second stack this system refuses.
+
 ## 19. Open questions
 
 - WireGuard source of record: boringtun (BSD-3, RS) as pinned import vs. protocol core composed
