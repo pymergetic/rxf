@@ -15,16 +15,18 @@ typedef unsigned long rxf_uptr;
 
 /* One frame of the run cell: the words of a program's run, and (past the entry's) the
  * link that goes back to the call above it -- (return program, return word offset) and
- * the caller's destination words. The links are the run's own state; the code pointer is
- * refreshed from the object id at every safe point (no raw pointer outlives a step). */
+ * the caller's destination words. A frame is a variable-length cell of the run cell's
+ * payload: its link is (base, size), where it is carved and the exact frame bytes the
+ * program declared. The links are the run's own state; the code pointer is refreshed
+ * from the object id at every safe point (no raw pointer outlives a step). */
 typedef struct {
     rxf_u64 object_id;
     rxf_u64 generation;
     rxf_u64 offset;
     const rxf_u64 *code;
     rxf_u64 count;
-    rxf_u8 *frame;
-    rxf_u64 frame_bytes;
+    rxf_u64 base;        /* the frame link: where the frame is in the run cell's payload */
+    rxf_u64 frame_bytes; /* ... and its size -- the exact bytes the program declared */
     rxf_u64 pc;       /* the return link: the caller's word offset after its call step */
     rxf_u64 out_slot; /* the caller's destination words (RXF_GRAPH_NONE: none) */
     rxf_u64 out_width;
@@ -37,7 +39,8 @@ typedef struct {
     rxf_u64 count;
     rxf_u8 *frame;
     rxf_u64 frame_bytes;
-    rxf_u8 *cell; /* the run cell: one RXF_GRAPH_FRAME region per level of depth */
+    rxf_u8 *cell;       /* the run cell: the frames of the chain, (base, size) each */
+    rxf_u64 cell_bytes; /* its capacity: the sum of the active frames must fit it */
     rxf_u64 depth;
     rxf_call_frame frames[RXF_GRAPH_CALL_DEPTH];
 } rxf_graph;
@@ -240,27 +243,29 @@ RXF_INLINE rxf_u32 frame_in(const rxf_call_frame *f, rxf_u64 offset, rxf_u64 wid
  * call's status slot, and the caller goes on after its call step. A refusal with no
  * status slot to catch it ends the run with it (the uncaught shape). `bytes` is what the
  * callee's Return answers (0 when it refused): the rest of the destination word was
- * zeroed when the call was made. Only called with a call above (depth > 0). */
+ * zeroed when the call was made. Only called with a call above (depth > 0). The callee's
+ * region of the run cell ends here: the cell shrinks back to the caller's link. */
 RXF_INLINE rxf_u32 answer(rxf_graph *g, rxf_u32 result, const rxf_u8 *bytes, rxf_u64 width,
                           rxf_u64 *next) {
     rxf_call_frame *top = &g->frames[g->depth];
     rxf_call_frame *caller = &g->frames[g->depth - 1];
+    rxf_u8 *frame = g->cell + caller->base;
     if (bytes && top->out_slot != RXF_GRAPH_NONE) {
         if (width > top->out_width || !frame_in(caller, top->out_slot, top->out_width))
             return RXF_REFUSE_OUT_OF_RANGE;
-        copy_bytes(caller->frame + top->out_slot, bytes, width);
+        copy_bytes(frame + top->out_slot, bytes, width);
     }
     if (top->status_slot != RXF_GRAPH_NONE) {
         if (!frame_in(caller, top->status_slot, 4))
             return RXF_REFUSE_OUT_OF_RANGE;
-        write_bytes(caller->frame + top->status_slot, 4, result);
+        write_bytes(frame + top->status_slot, 4, result);
     } else if (result) {
         return result;
     }
     g->depth--;
     g->code = caller->code;
     g->count = caller->count;
-    g->frame = caller->frame;
+    g->frame = frame;
     g->frame_bytes = caller->frame_bytes;
     *next = top->pc;
     return RXF_OK;
@@ -268,8 +273,10 @@ RXF_INLINE rxf_u32 answer(rxf_graph *g, rxf_u32 result, const rxf_u8 *bytes, rxf
 
 /* A call of a program: word 1 is RXF_GRAPH_CALL, then the callee's program operand
  * (an Object handle of the callee's program words) and the arguments. The callee gets
- * the next frame region of the run cell, its parameters bound from the caller's words,
- * and the run goes on at its entry (the interpreter iterates; depth costs words). */
+ * the next variable-length cell of the run cell -- carved (base, size) at the end of the
+ * chain that is open, its size the frame bytes the callee declares -- its parameters
+ * bound from the caller's words, and the run goes on at its entry (the interpreter
+ * iterates; depth costs words). */
 RXF_INLINE rxf_u32 call_program(rxf_graph *g, rxf_u64 at, rxf_u64 *next) {
     const rxf_u64 *w = g->code + at;
     if (!have(g, at, RXF_CALL_HEADER + RXF_OPERAND_WORDS))
@@ -299,9 +306,17 @@ RXF_INLINE rxf_u32 call_program(rxf_graph *g, rxf_u64 at, rxf_u64 *next) {
         RXF_SLOT_WORDS + parameters * 2 > frame->count)
         return RXF_REFUSE_OUT_OF_RANGE;
     frame->frame_bytes = frame->code[1];
-    if (frame->frame_bytes > RXF_GRAPH_FRAME || (frame->frame_bytes & 7))
+    if (frame->frame_bytes & 7)
         return RXF_REFUSE_OUT_OF_RANGE;
-    rxf_u8 *dst = g->cell + (g->depth + 1) * RXF_GRAPH_FRAME;
+    /* The frame is the next variable-length cell of the run cell: carved (base, size)
+       from its payload at the end of the chain that is open -- the cell grows by the
+       declared frame bytes here and shrinks back at the answer. No spilling and no
+       splitting: a chain whose frames do not fit the cell is refused the budget. */
+    rxf_u64 base = g->frames[g->depth].base + g->frames[g->depth].frame_bytes;
+    if (base > g->cell_bytes || frame->frame_bytes > g->cell_bytes - base)
+        return RXF_REFUSE_CELL_BUDGET;
+    frame->base = base;
+    rxf_u8 *dst = g->cell + base;
     zero_bytes(dst, frame->frame_bytes);
     for (rxf_u64 i = 0; i < parameters; i++) {
         rxf_u64 slot = frame->code[RXF_SLOT_WORDS + 2 * i];
@@ -325,7 +340,6 @@ RXF_INLINE rxf_u32 call_program(rxf_graph *g, rxf_u64 at, rxf_u64 *next) {
     frame->out_slot = out_slot;
     frame->out_width = out_width;
     frame->status_slot = w[5];
-    frame->frame = dst;
     g->depth++;
     g->code = frame->code;
     g->count = frame->count;
@@ -520,7 +534,8 @@ RXF_INLINE rxf_u32 safe_point(const rxf_graph *g) {
 }
 
 /* The program object of a run: its words, or why it cannot be run. The entry's frame is
- * the first of the run cell; a call above it takes the next one (call_program). */
+ * the first variable-length cell of the run cell (base 0); a call above it carves the
+ * next one (call_program). */
 RXF_INLINE rxf_u32 bind(rxf_graph *g, rxf_object_handle program) {
     rxf_object_entry *e = entry(g->c, program.object_id);
     if (!e)
@@ -537,7 +552,7 @@ RXF_INLINE rxf_u32 bind(rxf_graph *g, rxf_object_handle program) {
     frame->offset = program.offset;
     frame->code = (const rxf_u64 *)(rxf_uptr)(e->payload + program.offset);
     frame->count = (e->size - program.offset) / 8;
-    frame->frame = g->cell;
+    frame->base = 0;
     frame->out_slot = RXF_GRAPH_NONE;
     frame->status_slot = RXF_GRAPH_NONE;
     g->code = frame->code;
@@ -547,15 +562,18 @@ RXF_INLINE rxf_u32 bind(rxf_graph *g, rxf_object_handle program) {
 
 RXF_FUNCTION rxf_u32 rxf_graph_run(rxf_runtime_context *c, rxf_object_handle program, rxf_u64 args,
                                    rxf_u64 argc, rxf_u64 *out) {
-    /* the run cell: one RXF_GRAPH_FRAME region per level of call depth -- depth costs
-       these words, never native stack (the interpreter iterates over frame links) */
-    rxf_u8 cell[RXF_GRAPH_CALL_DEPTH * RXF_GRAPH_FRAME];
+    /* the run cell: one variable-length cell whose payload carries the frames of the
+       active call chain -- (base, size) per level, the declared frame bytes exact and
+       their sum bounded by RXF_GRAPH_CELL_BYTES. Depth costs these bytes and these
+       links, never native stack (the interpreter iterates over frame links) */
+    rxf_u8 cell[RXF_GRAPH_CELL_BYTES];
     rxf_graph g;
     rxf_u8 *frame = cell;
     if (!valid(c) || !out)
         return RXF_REFUSE_UNBOUND;
     g.c = c;
     g.cell = cell;
+    g.cell_bytes = sizeof(cell);
     g.frame = cell;
     g.frame_bytes = 0;
     g.depth = 0;
@@ -567,9 +585,11 @@ RXF_FUNCTION rxf_u32 rxf_graph_run(rxf_runtime_context *c, rxf_object_handle pro
     g.frame_bytes = g.code[1];
     g.frames[0].frame_bytes = g.frame_bytes;
     rxf_u64 parameters = g.code[2], words = g.code[3], pc = g.code[4];
-    if (g.frame_bytes > RXF_GRAPH_FRAME || (g.frame_bytes & 7) || words != argc ||
+    if ((g.frame_bytes & 7) || words != argc ||
         parameters > g.count || !have(&g, RXF_SLOT_WORDS, parameters * 2))
         return RXF_REFUSE_OUT_OF_RANGE;
+    if (g.frame_bytes > g.cell_bytes) /* the chain of one must fit the cell too */
+        return RXF_REFUSE_CELL_BUDGET;
     zero_bytes(cell, g.frame_bytes);
     rxf_u64 used = 0;
     for (rxf_u64 i = 0; i < parameters; i++) {

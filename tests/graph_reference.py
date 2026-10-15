@@ -89,9 +89,14 @@ class Reference:
         self.refuse_range = 6
         self.refuse_unbound = 13
         self.refuse_type = 14
+        self.refuse_depth = numbers["RXF_REFUSE_CALL_DEPTH"]
         self.calls: list[tuple[str, int]] = []  # each leaf called, with its status
         self.words: Sequence[int] = ()
         self.frame_bytes = 0
+        self.depth = 0  # the call frames of a run: each costs words of the cell, not stack
+        self.frames: list[tuple[Sequence[int], int, int, int, int, int, int]] = []
+        # a saved frame: (the caller's words, its frame bytes, the pc to go on at, its
+        # frame address, the call's out slot, its width, its status slot)
 
     # ---- memory ---------------------------------------------------------------------------------
 
@@ -213,6 +218,8 @@ class Reference:
         w = self.words
         self.need(self.have(at, 6))
         leaf, count, out_slot, out_width = w[at + 1], w[at + 2], w[at + 3], w[at + 4]
+        if leaf == self.n["RXF_GRAPH_CALL"]:
+            return self.call_program(at)
         name = self.names.get(leaf)
         if name is None:
             raise Done(self.refuse_range)
@@ -248,6 +255,88 @@ class Reference:
         if w[at + 5] != self.n["RXF_GRAPH_NONE"]:
             self.put(w[at + 5], status.to_bytes(4, "little"))
         return at + 6 + count * 3
+
+    def call_program(self, at: int) -> int:
+        """A call card: word 1 is RXF_GRAPH_CALL, then the callee's program operand
+        (an Object handle of the callee's program words) and the arguments. The callee
+        gets the next frame region of the run cell (one RXF_GRAPH_FRAME per level, at
+        most RXF_GRAPH_CALL_DEPTH of them), its parameters bound from the caller's
+        words (a scalar one word, a handle its three), and the run goes on at its entry.
+        The interpreter iterates over the frames it saves: depth costs words of the
+        cell, never native stack (graph.c's ``call_program``)."""
+        w, n = self.words, self.n
+        self.need(self.have(at, 6 + 3))
+        count, out_slot, out_width = w[at + 2], w[at + 3], w[at + 4]
+        kind, named, zero = self.operand(at + 6)
+        if kind != n["RXF_OPERAND_OBJECT"] or zero != 0:
+            raise Done(self.refuse_range)
+        self.need(self.have(at, 9 + count * 3))
+        if self.depth + 1 >= n["RXF_GRAPH_CALL_DEPTH"]:  # the entry's frame is one of the budget
+            raise Done(self.refuse_depth)
+        found = self.entry(named)
+        if found is None:
+            raise Done(self.refuse_unbound)
+        payload, size = found[0], found[1]
+        if payload & 7:
+            raise Done(self.refuse_range)
+        words = [
+            little(self.emulator.read(payload + 8 * index, 8))
+            for index in range(size // 8)
+        ]
+        if len(words) < 5 or words[0] != n["RXF_GRAPH_MAGIC"]:
+            raise Done(self.refuse_type)
+        callee_frame, parameters = words[1], words[2]
+        entry = words[4]
+        if (
+            parameters != count
+            or parameters > len(words)
+            or 5 + parameters * 2 > len(words)
+            or callee_frame > n["RXF_GRAPH_FRAME"]
+            or callee_frame & 7
+        ):
+            raise Done(self.refuse_range)
+        dst = self.frame + n["RXF_GRAPH_FRAME"]  # the next region of the run cell
+        self.emulator.write(dst, bytes(callee_frame))
+        for index in range(parameters):
+            slot, width = words[5 + 2 * index], words[6 + 2 * index]
+            if width > callee_frame or slot > callee_frame - width:
+                raise Done(self.refuse_range)
+            where = at + 9 + index * 3
+            operand_kind, a, b = self.operand(where)
+            present = min(b, width)
+            data = self.read(operand_kind, a, b, present)
+            self.emulator.write(dst + slot, data)  # the rest of the slot was zeroed
+        if out_slot != n["RXF_GRAPH_NONE"]:
+            self.need(self.in_frame(out_slot, out_width))
+            self.emulator.write(self.frame + out_slot, bytes(out_width))
+        self.frames.append(
+            (self.words, self.frame_bytes, at + 9 + count * 3, self.frame,
+             out_slot, out_width, w[at + 5])
+        )  # fmt: skip
+        self.words, self.frame_bytes, self.frame = words, callee_frame, dst
+        self.depth += 1
+        return entry
+
+    def answer(self, status: int, data: bytes | None, width: int) -> int:
+        """The end of a callee: its out word to the caller-named destination word, its
+        status to the call's status slot, and the caller goes on after its call step. A
+        refusal with no status slot to catch it ends the run with it (only called with
+        a call above: depth 0 answers the run)."""
+        self.words, self.frame_bytes, pc, self.frame, out_slot, out_width, status_slot = (
+            self.frames.pop()
+        )
+        self.depth -= 1
+        if data is not None and out_slot != self.n["RXF_GRAPH_NONE"]:
+            if width > out_width:
+                raise Done(self.refuse_range)
+            self.need(self.in_frame(out_slot, out_width))
+            self.emulator.write(self.frame + out_slot, data[:width])
+        if status_slot != self.n["RXF_GRAPH_NONE"]:
+            self.need(self.in_frame(status_slot, 4))
+            self.emulator.write(self.frame + status_slot, status.to_bytes(4, "little"))
+        elif status:
+            raise Done(status)
+        return pc
 
     # ---- a run ----------------------------------------------------------------------------------
 
@@ -377,13 +466,23 @@ class Reference:
             width = w[pc + 4]
             if width > 8:
                 kind, a, b = self.operand(pc + 1)
-                out[:width] = self.read(kind, a, b, width)
+                data = self.read(kind, a, b, width)
             else:
-                out[:8] = self.value(pc + 1).to_bytes(8, "little")
-            raise Done(0)
+                data, width = self.value(pc + 1).to_bytes(8, "little"), 8
+            if self.depth == 0:
+                out[:width] = data
+                raise Done(0)
+            # a callee's out words to the caller-named destination words, and the
+            # caller goes on after its call step
+            return self.answer(0, data, width)
         if op == n["RXF_OP_REFUSE"]:
             self.need(self.have(pc, 4))
-            raise Done(self.value(pc + 1) & 0xFFFFFFFF)
+            status = self.value(pc + 1) & 0xFFFFFFFF
+            if self.depth == 0:
+                raise Done(status)
+            # the call gets its status; with no status slot to catch it, the run ends
+            # with the refusal (the uncaught shape)
+            return self.answer(status, None, 0)
         raise Done(self.refuse_range)
 
     def copy_field(self, slot: int, size: int, at: int, offset: int) -> None:

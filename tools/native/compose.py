@@ -178,6 +178,65 @@ class Composer:
                 return self.layout.leaves[option]
         raise ComposeError(f"{callee} is not a leaf of the interpreter")
 
+    def callee_program(self, callee: str) -> int | None:
+        """The Function of a callee that is a program of its own (the call card names
+        its words by object id), else None -- a callee None here is a leaf.
+
+        A Function is a program when a SemanticGraph answers to it (the shape the
+        importer writes: ``<Function implementation="Semantic"><SemanticGraph
+        function="..."/></Function>``) or when it carries a body of its own. What
+        resolves first is the callee's own path; a leaf keeps its leaf (the leaf
+        table answers before any name search); a bare name that is no leaf is the
+        one program function of that name -- two answer it is a refusal, not a guess.
+        """
+        found = self.image.resolve(callee) if callee else None
+        if found is not None and self.is_program(found):
+            return found
+        try:
+            self.leaf_id(callee)
+            return None  # the leaf table answers this callee
+        except ComposeError:
+            pass
+        name = callee.rsplit(".", 1)[-1]
+        if not hasattr(self, "_programs_of"):
+            self._programs_of = {
+                self.fields(graph).get("function")
+                for graph in range(self.image.handle_count)
+                if self.image.live(graph)
+                and self.image.type_name(graph) == "SemanticGraph"
+            }
+        matches = [
+            handle
+            for handle in range(self.image.handle_count)
+            if self.image.live(handle)
+            and self.image.type_name(handle) == "Function"
+            and word(self.image.path(handle)) == name
+            and self.is_program(handle)
+        ]
+        if len(matches) > 1:
+            raise ComposeError(
+                f"{callee}: {len(matches)} functions of the image answer that name"
+            )
+        return matches[0] if matches else None
+
+    def is_program(self, handle: int) -> bool:
+        """Whether this Function is a program of its own (a call card names its words)."""
+        if self.image.type_name(handle) != "Function":
+            return False
+        values = self.fields(handle)
+        if word(values.get("implementation")) != "Semantic":
+            return False
+        if values.get("body") is not None:
+            return True
+        if not hasattr(self, "_programs_of"):
+            self._programs_of = {
+                self.fields(graph).get("function")
+                for graph in range(self.image.handle_count)
+                if self.image.live(graph)
+                and self.image.type_name(graph) == "SemanticGraph"
+            }
+        return self.image.path(handle) in self._programs_of
+
     def program(self, graph: int) -> bytes:
         """The program of one SemanticGraph."""
         plan = Plan(self, graph)
@@ -313,17 +372,27 @@ class Plan:
             return results[0]
 
         if opcode in CALLS:
-            leaf = c.leaf_id(fields.get("callee", ""))
+            callee = fields.get("callee", "")
             out = (results[0].slot, results[0].width) if results else (NONE, 0)
             assert out[0] is not None
-            words = [
-                layout["OP_CALL"],
-                leaf,
-                len(inputs),
-                out[0],
-                out[1],
-                self.status(op),
-            ]
+            program = c.callee_program(callee)
+            if program is not None:
+                # the call card: the callee is a program of its own, named by the
+                # object id of its words (graph.h's RXF_GRAPH_CALL shape)
+                words = [
+                    layout["OP_CALL"], layout["GRAPH_CALL"], len(inputs),
+                    out[0], out[1], self.status(op),
+                    layout["OPERAND_OBJECT"], object_id(c.image, program), 0,
+                ]  # fmt: skip
+            else:
+                words = [
+                    layout["OP_CALL"],
+                    c.leaf_id(callee),
+                    len(inputs),
+                    out[0],
+                    out[1],
+                    self.status(op),
+                ]
             for operand in inputs:
                 words += operand.words()
             return words
@@ -665,7 +734,9 @@ class Expression:
         if implementation == "Semantic":
             body = c.target(c.fields(callee)["body"])
             if c.image.type_name(body) != "Call":
-                raise ComposeError(f"{c.image.path(callee)} is called, and has a graph")
+                # the call card: the callee has a graph of its own -- a program the
+                # call names by the object id of its words, not an inlined body
+                return self.card(callee, given)
             formal = {v.handle: v for v in self.parameters(callee)}
             names = {
                 self.c.target(c.fields(v.handle)["target"]): given[i]
@@ -704,6 +775,37 @@ class Expression:
             )
         self.results[key] = result
         return result
+
+    def card(self, callee: int, given: list[Operand]) -> Operand:
+        """A call of a program: the call card of ``graph.h`` -- the callee's words named
+        by their object id, its parameters the caller's words, its Return the out word
+        of the call. The status is checked the way a leaf call's is."""
+        c, layout = self.c, self.c.layout
+        signature = c.fields(callee).get("signature")
+        results = c.children(c.target(signature), "Result") if signature else []
+        width = c.size_of(c.fields(results[0])["value_type"]) if results else 8
+        out = self.allocate(width)
+        words = [
+            layout["OP_CALL"], layout["GRAPH_CALL"], len(given), out, width,
+            self.status, layout["OPERAND_OBJECT"], object_id(c.image, callee), 0,
+        ]  # fmt: skip
+        for operand in given:
+            words += operand.words()
+        self.words.append(words)
+        self.words.append(
+            [
+                layout["OP_BRANCH"],
+                layout["OPERAND_SLOT"],
+                self.status,
+                4,
+                layout["MODE_ZERO"],
+                -2,
+                0,
+                -1,
+                0,
+            ]
+        )
+        return Operand(layout["OPERAND_SLOT"], out, width)
 
     def program(self) -> bytes:
         c, layout = self.c, self.c.layout
@@ -784,3 +886,17 @@ def programs(image: Image, layout: Layout | None = None) -> dict[str, bytes]:
 def describe(program: bytes) -> Sequence[int]:
     """The words of a program."""
     return struct.unpack(f"<{len(program) // 8}Q", program)
+
+
+def program_objects(image: Image, programs: Mapping[str, bytes]) -> dict[int, bytes]:
+    """The programs as an object table carries them: every program's words at the id
+    its call card names -- the object id of its Function (the same number the callee's
+    operand holds), so a run resolves the callee's words by the handle the call gives.
+    """
+    found: dict[int, bytes] = {}
+    for path, words in programs.items():
+        handle = image.resolve(path)
+        if handle is None:
+            raise ComposeError(f"{path}: no function of the image answers that path")
+        found[object_id(image, handle)] = words
+    return dict(sorted(found.items()))

@@ -206,12 +206,13 @@ enum {
     PYMERGETIC_RXF_REF_TYPE = 3,
     PYMERGETIC_RXF_REF_IMPORT = 4,
     PYMERGETIC_RXF_REF_IMPLEMENTATION = 5, /* Function to its Code objects */
-    PYMERGETIC_RXF_REF_OWNER = 6           /* optional: the object that owns this one */
+    PYMERGETIC_RXF_REF_OWNER = 6,          /* optional: the object that owns this one */
+    PYMERGETIC_RXF_REF_DOC = 7             /* editorial: a placement of one Doc object (docs/22) */
 };
 enum { PYMERGETIC_RXF_BINDING_MANDATORY = 0, PYMERGETIC_RXF_BINDING_OPTIONAL = 1 };
 
 /* cell size = 64 + align16(payload_size) + 24 * ref_count, rounded up to 16 */
-static inline uint64_t pymergetic_rxf_cell_size(const pymergetic_rxf_cell *cell) {
+static inline __attribute__((unused)) uint64_t pymergetic_rxf_cell_size(const pymergetic_rxf_cell *cell) {
     const uint64_t raw = (uint64_t)sizeof(pymergetic_rxf_cell) + ((cell->payload_size + 15ULL) & ~15ULL) +
                          (uint64_t)cell->ref_count * (uint64_t)sizeof(pymergetic_rxf_ref);
     return (raw + 15ULL) & ~15ULL;
@@ -283,6 +284,47 @@ PYMERGETIC_RXF_PIN(pymergetic_rxf_field, value_type, 16, 8);
 PYMERGETIC_RXF_PIN(pymergetic_rxf_field, offset, 24, 8);
 PYMERGETIC_RXF_PIN(pymergetic_rxf_field, count, 32, 8);
 PYMERGETIC_RXF_PIN(pymergetic_rxf_field, via, 40, 8);
+
+/* ---- Doc payload: the text of documentation (docs/22) ------------------ */
+/* A Doc object holds text. The payload opens with these words, and the rest of
+ * it is that text in the codec the flag names. Placements of the doc are
+ * PYMERGETIC_RXF_REF_DOC references, never a runtime ref. */
+
+/* Kinds of doc. */
+enum {
+    PYMERGETIC_RXF_DOC_KIND_NARRATES = 0, /* the text of an object, its subject */
+    PYMERGETIC_RXF_DOC_KIND_TOPIC = 1,    /* a named topic of the documentation */
+    PYMERGETIC_RXF_DOC_KIND_TODO = 2      /* an intent to change the image */
+};
+
+/* The status word of a todo: open or resolved. */
+enum { PYMERGETIC_RXF_DOC_STATUS_OPEN = 0, PYMERGETIC_RXF_DOC_STATUS_RESOLVED = 1 };
+
+/* The codec of the text behind the payload. LZ4 is the default where it pays;
+ * RAW keeps the text as it was written. */
+enum { PYMERGETIC_RXF_DOC_CODEC_LZ4 = 0, PYMERGETIC_RXF_DOC_CODEC_RAW = 1 };
+
+/* The role of a doc edge: why the doc sits on the object or topic. A placement
+ * narrates, attaches, or references its source; a topic carries parent
+ * (acyclic containment) and related (see-also) to the topics around it. */
+enum {
+    PYMERGETIC_RXF_DOC_ROLE_NARRATES = 0,
+    PYMERGETIC_RXF_DOC_ROLE_ATTACHES = 1,
+    PYMERGETIC_RXF_DOC_ROLE_REFERENCES = 2,
+    PYMERGETIC_RXF_DOC_ROLE_PARENT = 3,
+    PYMERGETIC_RXF_DOC_ROLE_RELATED = 4
+};
+
+typedef struct pymergetic_rxf_doc {
+    uint32_t kind;   /* PYMERGETIC_RXF_DOC_KIND_* */
+    uint32_t status; /* PYMERGETIC_RXF_DOC_STATUS_* */
+    uint32_t codec;  /* PYMERGETIC_RXF_DOC_CODEC_* */
+} pymergetic_rxf_doc;
+
+PYMERGETIC_RXF_GROUND_ASSERT(sizeof(pymergetic_rxf_doc) == 12, "doc payload words are 12 bytes");
+PYMERGETIC_RXF_PIN(pymergetic_rxf_doc, kind, 0, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_doc, status, 4, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_doc, codec, 8, 4);
 
 #ifdef __cplusplus
 }

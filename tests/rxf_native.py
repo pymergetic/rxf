@@ -99,6 +99,12 @@ def _load() -> ctypes.CDLL:
         ctypes.POINTER(ctypes.c_uint64),
     ]
     library.rxf_host_run.restype = ctypes.c_uint32
+    library.rxf_host_bind.argtypes = [
+        ctypes.c_uint64,
+        ctypes.c_uint64,
+        ctypes.c_uint64,
+    ]
+    library.rxf_host_bind.restype = ctypes.c_uint32
     return library
 
 
@@ -142,20 +148,39 @@ class Memory:
 
 
 def run(
-    program: bytes, args: bytes, memory: Memory, limit: int | None = 50_000_000
+    program: bytes, args: bytes, memory: Memory, limit: int | None = 50_000_000,
+    objects: dict[int, bytes | bytearray] | None = None,
 ) -> tuple[int, int]:
     """(status, value) of a run of the program on arguments of whole words.
 
     What ``rxf_sim.run`` computes, on the interpreter of ``native/graph.c``. ``limit`` is its
     step budget: the run is stopped and ``RuntimeError`` is raised when the program does not end
-    (``None`` lets the run go on). One run at a time in a process, like the tests run them.
+    (``None`` lets the run go on). ``objects`` are the secondary objects of the run, by the
+    object id that names them: the programs a call card calls (the callee is a program of
+    its own, bound at the id the card's handle carries) and the cells an Object handle
+    resolves. A ``bytes`` payload is the read-only words of a program (copied for the
+    run); a ``bytearray`` is the live cell: the run writes through it and the bytes stay
+    for the next run of the same cell -- the boot calls of the qstr corpus store the
+    addresses of their pools into a cell this way. One run at a time in a process, like
+    the tests run them.
     """
     assert len(program) % 8 == 0 and len(program) >= 40
     magic, frame_bytes, parameters, words, _pc = struct.unpack_from("<5Q", program)
     assert magic == MAGIC
     assert len(args) == words * 8
     code = (ctypes.c_uint64 * (len(program) // 8)).from_buffer_copy(program)
-    given = (ctypes.c_uint8 * max(len(args), 1)).from_buffer_copy(args)
+    given = (ctypes.c_uint8 * max(len(args), 1)).from_buffer_copy(args or b"\0")
+
+    def held_of(payload: bytes | bytearray) -> ctypes.Array[ctypes.c_uint8]:
+        room = max(len(payload), 1)
+        if isinstance(payload, bytearray) and payload:
+            return (ctypes.c_uint8 * room).from_buffer(payload)
+        return (ctypes.c_uint8 * room).from_buffer_copy(payload or b"\0")
+
+    ordered = sorted((objects or {}).items())
+    held = [held_of(payload) for _, payload in ordered]
+    for (identity, payload), block in zip(ordered, held):
+        assert _lib.rxf_host_bind(identity, ctypes.addressof(block), len(payload)) == 0
     out = ctypes.c_uint64()
     status = _lib.rxf_host_run(
         code,

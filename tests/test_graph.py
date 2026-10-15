@@ -16,7 +16,7 @@ from pymergetic.rxf.core import tree
 
 from . import graph_programs as programs
 from . import graph_world as world
-from . import rxf_sim
+from . import rxf_native, rxf_sim
 from .snippets import ARITHMETIC, STARTER, arithmetic, boundary_arguments
 
 # Only main reads the objects of a linked image to reach them; tests/test_image.py runs it.
@@ -209,3 +209,36 @@ def test_a_program_that_is_not_found_is_refused_by_every_machine(code):
     if shutil.which("node"):
         found = world.in_node(code, [case for case, _ in looked])
         assert [o.status for o in found] == [status for _, status in looked]
+
+
+# ---- the run cell's variable-length frames, on the host runner ---------------------------------
+
+
+def host_run(case: world.Case) -> tuple[int, int]:
+    """A case on the real interpreter of native/graph.c: tests/host/runner.c compiles it per
+    checkout, so this is the interpreter as it stands, not the bytes an image carries."""
+    with rxf_native.Memory(1 << 16) as memory:
+        return rxf_native.run(
+            case.program,
+            case.args,
+            memory,
+            objects=dict[int, bytes | bytearray](case.objects),
+        )
+
+
+def test_a_frame_well_over_1024_bytes_runs_as_it_declares():
+    """The variable-length cells of the run cell (graph.h): a program declares its exact
+    frame bytes and the frames of the active call chain are carved (base, size) from the
+    cell's payload. A frame of 1608 bytes runs as it declares -- alone, five deep, and as a
+    callee under a small entry -- and produces the right result."""
+    for case, status, out in programs.frame_cases():
+        assert host_run(case) == (status, out), case.name
+
+
+def test_a_call_chain_past_the_cell_budget_is_refused_honestly():
+    """Budget = cell bytes: the sum of the active call chain's frames must fit the run cell,
+    and a chain past it answers RXF_REFUSE_CELL_BUDGET -- a status code, never silent, never
+    spilled and never split. The depth-8 bound stays intact beside it as a link bound of its
+    own (RXF_REFUSE_CALL_DEPTH), not a byte wall."""
+    for case, status, out in programs.budget_cases():
+        assert host_run(case) == (status, out), case.name
