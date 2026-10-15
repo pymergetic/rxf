@@ -13,6 +13,8 @@ The thesis of this document: **the system needs no new engine and no second grap
 It is a vocabulary on the cells that already exist:
 
 - **A memory is a cell.** One identity, one cell — the same invariant as everywhere.
+- **An identity is a cell too** (§9): people, teams, companies, and AI agents are nodes of
+  the same graph, so an agent can be an author exactly like a user — no special case.
 - **A link is a reified edge cell** — not a fleeting pointer `a → b`, but its own cell
   with `src`/`dst` references. Only an edge that is a cell can *carry facts* (the
   link-fact decision of docs/23 §6). A pointer-graph would need a side table for edge
@@ -169,7 +171,96 @@ fills may differ: persistence of `Trace` cells on firmware may be a bounded ring
 the host keeps everything. A missing fill is a stub that fails the prove, not a dark
 port.
 
-## 9. Decisions and open questions
+## 9. Identity, authorship, and change tracking
+
+The combined system: identities live in the same cell world as memories, so **authors of
+thoughts and participants in changes are nodes too** — a person, a team, a company, or
+an AI agent. An agent is not a special case bolted onto "users"; it is an identity of
+kind `AGENT` with the same faces.
+
+### The identity types
+
+```python
+IdentityId = MemoryId   # an identity IS a cell
+
+class IdentityKind(StrEnum):
+    PERSON  = "person"
+    TEAM    = "team"
+    COMPANY = "company"
+    AGENT   = "agent"      # an AI author, exactly like a user
+    SYSTEM  = "system"     # the machinery itself (consolidate, decay write too)
+
+class RelationKind(StrEnum):
+    AUTHORED_BY = "authored_by"   # a thought/change came from
+    MEMBER_OF   = "member_of"     # person/agent -> team -> company
+    OPERATED_BY = "operated_by"   # agent -> whoever runs it
+    SPEAKS_FOR  = "speaks_for"    # delegation of voice
+    REVIEWED_BY = "reviewed_by"
+
+@dataclass(frozen=True)
+class Identity:
+    id: IdentityId
+    kind: IdentityKind
+    names: tuple[str, ...]        # display names over time (history in facts)
+    created: Time
+    provenance: Provenance        # how we know this identity is who it claims
+
+@dataclass(frozen=True)
+class AgentSpec:                  # payload of an AGENT identity
+    model: str                    # e.g. "xiaomi/mimo-v2.6-pro-ultraspeed"
+    version: str
+    operator: IdentityId          # who runs it (OPERATED_BY link)
+
+@dataclass(frozen=True)
+class Change:                     # a VIEW over the delta chain, not a new store
+    id: MemoryId                  # the delta/successor cell
+    subject: MemoryId             # what changed (a memory or a link)
+    by: IdentityId                # who
+    at: Time
+    why: bytes | None             # a fact on the change
+```
+
+### Two different attributions, kept apart
+
+1. **Intellectual authorship** — whose thought this is. A claim, carried by an
+   `AUTHORED_BY` link cell: multiple authors are natural, disputes are honest (two
+   conflicting `AUTHORED_BY` links with their own validity intervals), and the claim's
+   own provenance tier (docs/22) says how well it is established.
+2. **Change attribution** — who physically wrote which delta. Factual, not a claim: the
+   storage already is a delta chain (docs: successors are produced by deterministic,
+   non-mutating copying compaction in path order). Every delta cell gains `by`
+   (identity), `at` (time), and an optional `why` fact. **Change tracking is the delta
+   chain plus attribution — not a second history engine.**
+
+The history of a thought is then a single readable structure: the supersession chain
+(§6) with an `AUTHORED_BY` link at each step and each step's delta attributed — who
+thought what, who changed it, when, and why.
+
+### Identity mapping
+
+| concept | graph form |
+|---|---|
+| identity | a named cell (`*.id.<name>`) with an `Identity`/`AgentSpec` payload |
+| authorship | `AUTHORED_BY` link cell, facts: `at`, `role`, `weight` |
+| membership | `MEMBER_OF` link cells (person/agent → team → company) |
+| agent provenance | `AgentSpec` payload + `OPERATED_BY` link to its operator |
+| change | existing delta/successor cells + `by`/`at`/`why` attribution |
+| change history of a thought | supersession chain + per-step attribution |
+
+Collective authorship needs no new machinery: the author is a person or agent, the
+collective appears through `MEMBER_OF`; "who speaks for this team" is a `SPEAKS_FOR`
+link with its own interval, so delegation expires instead of haunting.
+
+### Honest refusals (identity layer)
+
+| Refused | Why |
+|---|---|
+| cryptographic signing / non-repudiation | a later card; until then authorship is a *claim* with a provenance tier, and the tier says so |
+| impersonation or anomaly detection | refused — we record claims, we do not police them |
+| reputation or trust scores | refused for now; a scoring policy would belong in a docs/20-style statement first |
+| mutable identity records | the floor holds here first: a renamed person is a new `names` fact and an interval, never an overwrite |
+
+## 10. Decisions and open questions
 
 Decided 2026-10-15:
 
@@ -179,6 +270,11 @@ Decided 2026-10-15:
 - **Recall is a run cell** with a trace; decay reads traces.
 - **The core type set is embedding-free** — semantic similarity is a later card.
 - **`pymergetic.memory` / `pm_memory_*`**, distinct from the `util.mem` arena.
+- **Identities are cells** (§9): person, team, company, agent — one kind space, and an
+  AI agent is an author exactly like a user.
+- **Authorship is a link** (`AUTHORED_BY`, a claim with a provenance tier); **change
+  attribution is a fact on the existing delta chain** (`by`/`at`/`why`). Two different
+  things, kept apart; `Change` is a view, not a store.
 
 Open:
 
@@ -190,4 +286,8 @@ Open:
   is declared);
 - the working-memory budget: the run-cell budget (`RXF_GRAPH_CELL_BYTES`) vs a
   dedicated working arena;
-- temporal query shape (`around=` semantics: overlap, containment, or nearest).
+- temporal query shape (`around=` semantics: overlap, containment, or nearest);
+- identity-layer open points: how agent identities are minted and retired (lifecycle of
+  an `AGENT` cell), whether `Change` stays a view or gets a materialized cell for
+  audit export, team consensus semantics behind `SPEAKS_FOR`, and when the signing
+  card arrives (what it replaces in the provenance tiers).
