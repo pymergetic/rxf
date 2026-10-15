@@ -4,12 +4,17 @@ The main suite reads the `starter/` module tree, a real image of the format; the
 cases (truncation, an empty reference list) build their own image.
 """
 
+import asyncio
+import io
 import json
 import re
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
+from pymergetic.rxf.console import world
+from pymergetic.rxf.console.session import Console
 from pymergetic.rxf.core import tree
 from pymergetic.rxf.core.arena import (
     CELL_ALIGN,
@@ -21,6 +26,9 @@ from pymergetic.rxf.core.arena import (
 from pymergetic.rxf.core.kinds import Binding, Mobility, NodeKind, OwnerKind, RefKind
 from pymergetic.rxf.core.object import Image
 from pymergetic.rxf.server.inspector import Inspector
+from pymergetic.rxf.server.live import Session
+
+from .test_console import MACHINES, MODULE, TRIPLE, Seat, booted, seat_of
 
 STARTER = Path(__file__).parents[1] / "starter"
 
@@ -288,3 +296,67 @@ def test_the_app_serves_memory_and_detail(inspector: Inspector):
     json.dumps(detail)
     with pytest.raises(Exception, match="no object"):
         handlers["/api/detail"]("nothing.here")
+
+
+# ---- the serve instance: the world of the running image ------------------------------------------
+
+
+@pytest.fixture
+def solo(image: Image) -> Iterator[Seat]:
+    """One machine of the harness: what the serve instance runs its image on."""
+    made = seat_of(image, MACHINES[0])
+    try:
+        yield made
+    finally:
+        made.machine.close()
+
+
+def test_the_serve_instance_registers_the_world_while_it_serves(image: Image, solo: Seat):
+    """What `rxf serve` runs: while the app serves, the world of the image is registered at its
+    link — the console attaches the channel and the front end of the running image — and shutting
+    down takes the registration with it."""
+    from pymergetic.rxf.server.app import create_app
+
+    booted(solo)  # what the image's own `rxf live` group boots before a console attaches
+    session = Session("shm:serve-runs", solo.channel.client, solo.front)
+    app = create_app(image, session=session)
+
+    async def serving() -> None:
+        async with app.router.lifespan_context(app):
+            attached = world.attach("shm:serve-runs")
+            assert attached is session.world
+            assert attached.client.ping(b"the channel") == b"the channel"
+            assert attached.client.resolve("") == HANDLE_ROOT
+            assert attached.client.digest() == solo.channel.loaded().digest()
+            outcome = Console(attached.front, io.StringIO()).submit(TRIPLE)
+            assert outcome["ok"] is True
+            assert outcome["path"] == f"{MODULE}.triple"
+
+    asyncio.run(serving())
+    with pytest.raises(world.ConsoleError, match="gives no runner"):
+        world.attach("shm:serve-runs")
+    fresh = Session("shm:serve-runs", solo.channel.client, solo.front).open()
+    assert world.attach("shm:serve-runs") is fresh.world
+    fresh.close()
+
+
+def test_the_serve_instance_surfaces_a_taken_link_honestly(image: Image, solo: Seat):
+    """A link whose image already runs refuses a second registration with the seam's own refusal
+    — typed, and naming the link — and the runner that is there keeps it."""
+    from pymergetic.rxf.server.app import create_app
+
+    first = Session("shm:taken-link", solo.channel.client, solo.front).open()
+    try:
+        app = create_app(
+            image, session=Session("shm:taken-link", solo.channel.client, solo.front)
+        )
+
+        async def serving() -> None:
+            async with app.router.lifespan_context(app):
+                raise AssertionError("the serve instance must not come up on a taken link")
+
+        with pytest.raises(world.WorldIsRegistered, match="shm:taken-link"):
+            asyncio.run(serving())
+        assert world.attach("shm:taken-link") is first.world
+    finally:
+        first.close()

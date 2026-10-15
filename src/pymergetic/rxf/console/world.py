@@ -22,6 +22,10 @@ class ConsoleError(LinkError):
     """The console cannot reach a running image."""
 
 
+class WorldIsRegistered(ConsoleError):
+    """The spec already has a runner: one link has one image, and a second one is refused."""
+
+
 def _nothing() -> None:
     """The channel of a world that the console does not own."""
 
@@ -42,7 +46,14 @@ def register(spec: str, build: Builder) -> None:
     """Attach the world of the image at SPEC: whoever runs the image builds it here.
 
     `build(spec, timeout)` connects the channel and wraps the machine of the host in a `Front`.
+    A spec whose image already runs is refused, not stolen (`WorldIsRegistered`): the runner that
+    registered first keeps its link until it forgets it.
     """
+    if spec in _BUILDERS:
+        raise WorldIsRegistered(
+            f"{spec} already has a runner: whoever runs the image registered its machine first "
+            "(one link has one image)"
+        )
     _BUILDERS[spec] = build
 
 
