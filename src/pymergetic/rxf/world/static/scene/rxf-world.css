@@ -1,7 +1,10 @@
 /* The chrome of the world page: HUD bars, minimap slot, and the theme.
- * The scene is dark tactical ground; the HUD chrome is flat and theme-aware through the same
+ * The scene is dark tactical ground and the chrome is its ONE dark theme, through the same
  * custom properties the inspector uses (--bg, --panel, --line, --text, --muted, --accent, --hot),
- * so a later stage can share one theme between the two pages. */
+ * so a later stage can share one theme between the two pages. There is deliberately no light
+ * scheme: the arena is always a dark scene, and a white chrome (or a white datasheet pane)
+ * around it is the bug this file must never allow back. Nothing here may fall back to the
+ * browser's white default — every pane element names its palette color explicitly. */
 
 :root {
   color-scheme: dark;
@@ -14,20 +17,16 @@
   --hot: #ffb454;
   --seam: #5b6b78;
   --bar-h: 44px;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    color-scheme: light;
-    --bg: #f6f7f9;
-    --panel: #ffffff;
-    --line: #d8dce1;
-    --text: #1c2128;
-    --muted: #6a737d;
-    --accent: #05c;
-    --hot: #b8860b;
-    --seam: #a2acb5;
-  }
+  /* the datasheet's semantic value hues (the scene palette, text-bright): one hue per meaning,
+   * matching the band signs and floor roles the 3D view draws (rxf-world.js) */
+  --v-kind: #8fc4dc; /* kind/family words — the steel of the index band signs */
+  --v-data: #9fb4e8; /* byte bands and numbers, always mono — the header band hue */
+  --v-prov: #b095d8; /* provenance words */
+  --v-good: #4fd6a0; /* the good hue: retain */
+  --v-clean: #55d69b; /* the good hue: clean (a visibly distinct green beside retain) */
+  --v-warn: #d8bf8a; /* in-between state words (transient) */
+  --v-bad: #ff5f4e; /* the bad hue: poisoned / refused / dirty / tombstone */
+  --v-move: #e0b45c; /* mobility words — the generation gold */
 }
 
 * {
@@ -206,7 +205,10 @@ body {
   background: var(--muted);
 }
 
-/* ---- the datasheet side pane: the clicked cell, spelled out ------------------------------ */
+/* ---- the datasheet side pane: the clicked cell, spelled out ------------------------------
+ * The pane is opaque dark on every scheme and in every element: panel, head, rows, borders,
+ * the close button and the scrollbar all name their palette color, so nothing in the pane can
+ * ever render as the browser's white default on the dark scene. */
 
 .hud-datasheet {
   position: absolute;
@@ -218,13 +220,26 @@ body {
   flex-direction: column;
   border: 1px solid var(--line);
   border-radius: 4px;
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  background: var(--panel); /* solid: the dark scene never bleeds through the table */
+  color: var(--text);
+  color-scheme: dark;
   backdrop-filter: blur(6px);
   overflow: hidden;
 }
 
 .hud-datasheet.open {
   display: flex;
+}
+
+/* any control the pane ever grows (inputs, selects, buttons) stays dark, never the UA white */
+.hud-datasheet input,
+.hud-datasheet select,
+.hud-datasheet textarea,
+.hud-datasheet button {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  font: inherit;
 }
 
 .datasheet-head {
@@ -234,6 +249,7 @@ body {
   gap: 8px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--line);
+  background: var(--panel);
 }
 
 .datasheet-title {
@@ -247,7 +263,7 @@ body {
 
 .datasheet-close {
   border: 1px solid var(--line);
-  background: transparent;
+  background: var(--bg);
   color: var(--muted);
   border-radius: 3px;
   font-size: 11px;
@@ -264,15 +280,36 @@ body {
 .datasheet-body {
   padding: 8px 10px 10px;
   overflow-y: auto;
+  background: var(--panel);
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) var(--panel);
+}
+
+.datasheet-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.datasheet-body::-webkit-scrollbar-track {
+  background: var(--panel);
+}
+
+.datasheet-body::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 4px;
 }
 
 .datasheet-row {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 2px 0;
+  padding: 2px 4px;
   font-size: 11px;
+  background: var(--panel);
   border-bottom: 1px dotted color-mix(in srgb, var(--line) 60%, transparent);
+}
+
+.datasheet-row:nth-child(even) {
+  background: color-mix(in srgb, var(--line) 22%, var(--panel)); /* dark rows, zebra-lit */
 }
 
 .datasheet-row:last-child {
@@ -295,4 +332,94 @@ body {
 
 .datasheet-row.seam .datasheet-value {
   color: var(--seam); /* a seam shows "—", never a lie */
+}
+
+/* the semantic value colors: what kind of fact the value is, at a glance */
+.datasheet-value.v-accent {
+  color: var(--accent); /* the object's identity: path, handle, refs, cables */
+}
+
+.datasheet-value.v-kind {
+  color: var(--v-kind); /* kind/family/type words */
+}
+
+.datasheet-value.v-data {
+  color: var(--v-data); /* byte bands and numbers: their own hue, in mono */
+  font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.datasheet-value.v-prov {
+  color: var(--v-prov);
+}
+
+.datasheet-value.v-good {
+  color: var(--v-good);
+}
+
+.datasheet-value.v-clean {
+  color: var(--v-clean);
+}
+
+.datasheet-value.v-warn {
+  color: var(--v-warn);
+}
+
+.datasheet-value.v-bad {
+  color: var(--v-bad); /* poisoned / refused / dirty / tombstone */
+}
+
+.datasheet-value.v-move {
+  color: var(--v-move);
+}
+
+/* the bottom status bar reads the same way: identity in the accent, kind words in steel,
+ * numbers in the data hue (mono) — the labels stay muted */
+.slot i[data-selection] {
+  color: var(--accent);
+}
+
+.slot i[data-cell-field="id"],
+.slot i[data-cell-field="handle"],
+.slot i[data-cell-field="edges"] {
+  color: var(--accent);
+}
+
+.slot i[data-cell-field="kind"],
+.slot i[data-cell-field="family"] {
+  color: var(--v-kind);
+}
+
+.slot i[data-cell-field="generation"],
+.slot i[data-cell-field="offset"],
+.slot i[data-cell-field="payload"],
+.slot i[data-cell-field="forward"],
+.slot i[data-cell-field="claim"],
+.slot i[data-cell-field="checksum"] {
+  color: var(--v-data);
+  font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.slot i .v-prov {
+  color: var(--v-prov);
+}
+
+.slot i .v-good {
+  color: var(--v-good);
+}
+
+.slot i .v-clean {
+  color: var(--v-clean);
+}
+
+.slot i .v-warn {
+  color: var(--v-warn);
+}
+
+.slot i .v-bad {
+  color: var(--v-bad);
+}
+
+.slot i .v-move {
+  color: var(--v-move);
 }

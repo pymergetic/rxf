@@ -8,7 +8,7 @@
        locally (vendored Babylon under static/vendor) — no remote references, no network at runtime.
        The page is one surface of the ONE shell (docs/21): same service, same nav, same live slot. -->
   <link rel="stylesheet" href="/static/ui/ui.css">
-  <link rel="stylesheet" href="static/scene/rxf-world.css?v=20261015">
+  <link rel="stylesheet" href="static/scene/rxf-world.css?v=20261015b">
   <style>
     /* the shell chrome above the full-bleed scene: one column, the world takes what the bar and
        the face note leave. rxf-world.css sizes body/#rxf-world to the full height on its own;
@@ -110,11 +110,11 @@
 
   <!-- where the scene comes from: the served scene, falling back to the checked-in demo world -->
   <script type="application/json" id="rxf-world-config">
-    {"sceneUrl": "scene.json?v=20261015", "fallbackUrl": "static/scene/demo-scene.json?v=20261015", "pose": "overview"}
+    {"sceneUrl": "scene.json?v=20261015b", "fallbackUrl": "static/scene/demo-scene.json?v=20261015b", "pose": "overview"}
   </script>
-  <script src="static/vendor/babylon/babylon.js?v=20261015"></script>
-  <script src="static/scene/rxf-world-hud.js?v=20261015"></script>
-  <script src="static/scene/rxf-world.js?v=20261015"></script>
+  <script src="static/vendor/babylon/babylon.js?v=20261015b"></script>
+  <script src="static/scene/rxf-world-hud.js?v=20261015b"></script>
+  <script src="static/scene/rxf-world.js?v=20261015b"></script>
   <script src="/static/ui/ui.js"></script>
 </body>
 </html>

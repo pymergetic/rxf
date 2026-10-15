@@ -94,6 +94,12 @@
   var FORWARD_HOT = "#e0663c";
   var CABLE_FRESH = "#37e0c4";
   var CABLE_STALE = "#ff5040";
+  /* the ready-ring is the map's landmark: its paint must read at a glance against the ground
+   * AND against the muted local streets (those stay dark). All of it is flat paint on the
+   * ground — the round-5 law stands: no curb lips, no side walls, no street shadows. */
+  var RING_ASPHALT = "#2b4256"; /* the boulevard's asphalt: a clear step up from street #141c25 */
+  var RING_MARK = "#bfe6f2"; /* the bright edge marking painted along both boundaries */
+  var RING_DASH = "#8fc4dc"; /* the centerline dashes, a legible step up from street #33505c */
   /* district floor tints: two variants per band family, blended per district — neighboring
    * districts must read as different plots, never as one slab */
   var TILE_TINT = {
@@ -842,6 +848,7 @@
 
     /* ---- the ready-ring: the ring road of the document, with lanes and tram units --------- */
     var ringRoad = null;
+    var ringMarkings = []; /* the bright edge lines: flat paint along both band boundaries */
     var dashMesh = null;
     var tramMesh = null;
     var trams = [];
@@ -881,8 +888,44 @@
         { pathArray: [leftEdge, rightEdge], closePath: true, sideOrientation: BABYLON.Mesh.DOUBLESIDE },
         scene
       );
-      ringRoad.material = flatPaint("ring-asphalt", "#16202a", 0.66);
+      ringRoad.material = flatPaint("ring-asphalt", RING_ASPHALT, 0.92);
       ringRoad.isPickable = false;
+
+      /* the edge markings: bright flat paint along both boundaries of the band. The ring is
+       * the landmark of the map — the asphalt alone (muted, like the streets) reads as a shade
+       * off the background, so the paint carries edge lines that stay FLAT ground markings:
+       * ribbons lifted 8 mm over the asphalt, never curbs, walls or shadows. */
+      function markingLip(edge, other, width, y) {
+        /* the boundary pulled `width` toward the road's middle line: the band's inner lip */
+        var line = [];
+        for (var i = 0; i < edge.length; i++) {
+          var toward = other[i];
+          var dx = toward.x - edge[i].x;
+          var dz = toward.z - edge[i].z;
+          var span = Math.hypot(dx, dz) || 1;
+          line.push(new BABYLON.Vector3(edge[i].x + (dx / span) * width, y, edge[i].z + (dz / span) * width));
+        }
+        return line;
+      }
+      function markingLift(edge, y) {
+        return edge.map(function (point) {
+          return new BABYLON.Vector3(point.x, y, point.z);
+        });
+      }
+      var markingY = 0.224;
+      for (var markingSides of [
+        [markingLift(leftEdge, markingY), markingLip(leftEdge, rightEdge, 0.5, markingY)],
+        [markingLift(rightEdge, markingY), markingLip(rightEdge, leftEdge, 0.5, markingY)]
+      ]) {
+        var marking = BABYLON.MeshBuilder.CreateRibbon(
+          "ring-edge-" + ringMarkings.length,
+          { pathArray: markingSides, closePath: true, sideOrientation: BABYLON.Mesh.DOUBLESIDE },
+          scene
+        );
+        marking.material = flatPaint("ring-edge-material", RING_MARK, 0.95);
+        marking.isPickable = false;
+        ringMarkings.push(marking);
+      }
 
       /* the lane markings: flat paint at an even arc-length rhythm along the whole loop */
       var dashMatrices = [];
@@ -897,7 +940,7 @@
         );
       }
       dashMesh = BABYLON.MeshBuilder.CreateBox("lanes", { size: 1 }, scene);
-      dashMesh.material = flatPaint("dash-material", "#33505c", 0.85);
+      dashMesh.material = flatPaint("dash-material", RING_DASH, 0.95);
       dashMesh.isPickable = false;
       dashMesh.alwaysSelectAsActiveMesh = true;
       dashMesh.thinInstanceSetBuffer("matrix", matrixBuffer(dashMatrices), 16, true);
@@ -1117,6 +1160,9 @@
 
     var districtPlanes = []; /* district signs: name + byte band, above every plot */
     var wayfindPlanes = []; /* street name plates along the main roads (L1 and closer) */
+    /* the signage hues separate by voice so the eye sorts them at a glance: district signs in
+     * the per-band pastels, street plates in warm sand (the only warm wayfinding hue), object
+     * labels in cyan (towers) and gold (monuments), checksum displays in the checksum teal */
     var bandAccent = { header: "#9fb4e8", index: "#8fc4dc", cells: "#9fd8c8" };
     for (var signRegion of doc.regions) {
       var signPlot = signRegion.plot;
@@ -1150,7 +1196,7 @@
           ),
           6.5,
           1.3,
-          "#8fb8c4",
+          "#e2c07c", /* warm sand: the wayfinding voice, never mistaken for a district sign */
           0
         )
       );
@@ -1172,7 +1218,7 @@
             new BABYLON.Vector3(named.plot.x, named.height + 1.9, named.plot.z),
             8,
             1.6,
-            "#8fd8ff"
+            "#a2e8ff" /* object-label cyan: distinct from the district band pastels */
           )
         );
         detailPlanes.push(
@@ -1219,6 +1265,7 @@
     blockBaseMesh.parent = districts;
     massMesh.parent = massing;
     if (ringRoad) ringRoad.parent = districts;
+    for (var ringMarking of ringMarkings) ringMarking.parent = districts;
     for (var role of Object.keys(roleMeshes)) roleMeshes[role].parent = buildings;
     beaconMesh.parent = buildings;
     crownMesh.parent = buildings;
@@ -1239,35 +1286,72 @@
     built.signs = signPlanes;
     built.detailLabels = detailPlanes;
 
-    /* selection: a glowing plate and an edge box on the picked building */
+    /* selection: UNMISTAKABLE — a bright edge box on the building volume plus a footprint
+     * mark painted on the ground under it. Hover stays the weaker cue (thin outline + the
+     * pointer); the selection is clearly the stronger one: wider, brighter, and it glows. */
     var selection = new BABYLON.TransformNode("selection", scene);
-    var halo = BABYLON.MeshBuilder.CreateTorus(
-      "selection-halo",
-      { diameter: 4, thickness: 0.3, tessellation: 4 },
-      scene
-    );
-    var haloMaterial = new BABYLON.PBRMaterial("selection-halo-material", scene);
-    haloMaterial.albedoColor = new BABYLON.Color3(1, 0.82, 0.35);
-    haloMaterial.emissiveColor = new BABYLON.Color3(1, 0.72, 0.22);
-    haloMaterial.metallic = 0;
-    haloMaterial.roughness = 0.4;
-    halo.material = haloMaterial;
-    halo.scaling.y = 0.16;
-    halo.position.y = 0.42;
-    halo.parent = selection;
     var box = BABYLON.MeshBuilder.CreateBox("selection-box", { size: 1 }, scene);
     box.enableEdgesRendering();
-    box.edgesColor = new BABYLON.Color4(1, 0.82, 0.35, 1);
-    box.edgesWidth = 4;
+    box.edgesColor = new BABYLON.Color4(1, 0.86, 0.55, 1); /* bright, warm, against the cool city */
+    box.edgesWidth = 7;
     var boxMaterial = new BABYLON.PBRMaterial("selection-box-material", scene);
     boxMaterial.albedoColor = new BABYLON.Color3(1, 0.82, 0.35);
-    boxMaterial.alpha = 0.06;
+    boxMaterial.alpha = 0.12;
     box.material = boxMaterial;
     box.parent = selection;
-    glow.addIncludedOnlyMesh(halo);
+
+    /* the footprint mark: flat paint on the ground under the picked building (the streets'
+     * law — flat paint, never a curb, wall or shadow): a soft warm glow, a crisp frame and
+     * heavy corner brackets, so the pick reads even in the wide tactical view */
+    var footprintTexture = new BABYLON.DynamicTexture(
+      "selection-footprint-texture",
+      { width: 256, height: 256 },
+      scene,
+      true
+    );
+    var foot = footprintTexture.getContext();
+    foot.clearRect(0, 0, 256, 256);
+    var spill = foot.createRadialGradient(128, 128, 16, 128, 128, 126);
+    spill.addColorStop(0, "rgba(255, 180, 84, 0.5)");
+    spill.addColorStop(0.55, "rgba(255, 180, 84, 0.18)");
+    spill.addColorStop(1, "rgba(255, 180, 84, 0)");
+    foot.fillStyle = spill;
+    foot.fillRect(0, 0, 256, 256);
+    foot.strokeStyle = "#ffd27a";
+    foot.lineWidth = 7;
+    foot.strokeRect(24, 24, 208, 208);
+    foot.lineWidth = 17; /* the corner brackets double down on the frame */
+    foot.beginPath();
+    for (var bracket of [
+      [24, 74, 24, 24, 74, 24],
+      [182, 24, 232, 24, 232, 74],
+      [232, 182, 232, 232, 182, 232],
+      [74, 232, 24, 232, 24, 182]
+    ]) {
+      foot.moveTo(bracket[0], bracket[1]);
+      foot.lineTo(bracket[2], bracket[3]);
+      foot.lineTo(bracket[4], bracket[5]);
+    }
+    foot.stroke();
+    footprintTexture.hasAlpha = true;
+    footprintTexture.update(false);
+    var footprintMaterial = new BABYLON.StandardMaterial("selection-footprint-material", scene);
+    footprintMaterial.diffuseTexture = footprintTexture;
+    footprintMaterial.emissiveTexture = footprintTexture;
+    footprintMaterial.emissiveColor = new BABYLON.Color3(1, 1, 1);
+    footprintMaterial.useAlphaFromDiffuseTexture = true;
+    footprintMaterial.disableLighting = true;
+    footprintMaterial.specularColor = new BABYLON.Color3(0, 0, 0);
+    footprintMaterial.backFaceCulling = false;
+    var footprint = BABYLON.MeshBuilder.CreateGround("selection-footprint", { width: 1, height: 1 }, scene);
+    footprint.material = footprintMaterial;
+    footprint.position.y = 0.38; /* flat over the street paint: still just paint on the ground */
+    footprint.isPickable = false;
+    footprint.parent = selection;
+    glow.addIncludedOnlyMesh(footprint);
     selection.setEnabled(false);
     built.selection = selection;
-    built.halo = halo;
+    built.footprint = footprint;
     built.box = box;
 
     /* hover: the quiet outline that pairs with the pointer cursor (click then selects) */
@@ -1376,7 +1460,7 @@
           world.selection.setEnabled(true);
           world.selection.position.x = cell.plot.x;
           world.selection.position.z = cell.plot.z;
-          world.halo.scaling.x = world.halo.scaling.z = Math.max(1, cell.footprint + 1.2);
+          world.footprint.scaling.x = world.footprint.scaling.z = Math.max(1.8, cell.footprint + 1.5);
           world.box.scaling.x = world.box.scaling.z = Math.max(1, cell.footprint + 0.6);
           world.box.scaling.y = cell.height + 0.4;
           world.box.position.y = cell.height / 2;
@@ -1660,9 +1744,14 @@
         }
         /* overlapping signs are culled nearest-first (name signs before checksum displays):
          * every label that draws must read cleanly, never over the ghost of another */
-        if (motion && tramsMoving()) {
-          clock += dt;
-          updateTrams();
+        if (motion) {
+          clock += dt; /* the scene's one clock: the trams and the selection's gentle breathe */
+          if (tramsMoving()) updateTrams();
+        }
+        if (world.selection.isEnabled()) {
+          /* the footprint mark breathes gently (no strobe); motion-off freezes it at phase 0,
+           * so the deterministic screenshot frames stay byte-stable */
+          world.footprint.material.alpha = 0.86 + 0.12 * Math.sin(clock * 1.8);
         }
         var level = rig.lod();
         world.groups.buildings.setEnabled(level !== LOD_LEVELS[0]);

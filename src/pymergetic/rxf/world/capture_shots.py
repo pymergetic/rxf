@@ -149,7 +149,9 @@ def capture(out_dir: Path, colors: int) -> list[Path]:
                     "--enable-unsafe-swiftshader",
                 ]
             )
-            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            # the world page is ONE dark theme (the scene is always dark ground); shoot it in
+            # the dark scheme so the chrome and the datasheet pane read as they are designed
+            page = browser.new_page(viewport={"width": 1440, "height": 900}, color_scheme="dark")
             page.goto(f"http://127.0.0.1:{port}/static/scene/index.html")
             page.wait_for_function("window.RXFWorld && window.RXFWorld.api", timeout=30000)
             page.evaluate("RXFWorld.api.setMotion(false)")  # frozen trams: byte-stable frames
