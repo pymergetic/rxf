@@ -136,6 +136,14 @@
     return data;
   }
 
+  function placed(x, y, z, w, h, d) {
+    /* A unit box scaled, then moved to its place. The order is the law here: Babylon takes
+     * row vectors (v' = v * M), so the matrix is Scaling * Translation -- the translation is
+     * applied last and stays raw. Translating first (Translation.multiply(Scaling)) would
+     * multiply the position by the box size and scatter the city by its own footprints. */
+    return BABYLON.Matrix.Scaling(w, h, d).multiply(BABYLON.Matrix.Translation(x, y, z));
+  }
+
   /* ---- the camera rig: one camera, ortho <-> perspective, camera-relative movement ---------- */
   function Rig(camera, canvas) {
     this.camera = camera;
@@ -510,11 +518,7 @@
       var plot = region.plot;
       var raster = region.tiles;
       var bandName = tileMatrices[region.band] ? region.band : "cells";
-      baseMatrices.push(
-        BABYLON.Matrix.Translation(plot.x + plot.w / 2, 0.05, plot.z + plot.d / 2).multiply(
-          BABYLON.Matrix.Scaling(plot.w, 0.1, plot.d)
-        )
-      );
+      baseMatrices.push(placed(plot.x + plot.w / 2, 0.05, plot.z + plot.d / 2, plot.w, 0.1, plot.d));
       /* the district's own tint: one band family, one district — the floor reads as districts */
       var district = tintOf(bandName, region.start + plot.x * 16 + plot.z);
       var lit = region.empty ? 0.55 : 1;
@@ -525,9 +529,7 @@
           var tileX = plot.x + (col + 0.5) * raster.step_x;
           var tileZ = plot.z + (row + 0.5) * raster.step_z;
           tileMatrices[bandName].push(
-            BABYLON.Matrix.Translation(tileX, 0.13, tileZ).multiply(
-              BABYLON.Matrix.Scaling(raster.step_x - inset, 0.14, raster.step_z - inset)
-            )
+            placed(tileX, 0.13, tileZ, raster.step_x - inset, 0.14, raster.step_z - inset)
           );
           var vary = 0.96 + 0.08 * hash(col * 31 + row * 17 + Math.round(plot.x * 7));
           tileColors[bandName].push(
@@ -549,11 +551,7 @@
         [plot.x + plot.w - edge / 2, rimY, plot.z + plot.d / 2, edge, 0.22, plot.d - edge]
       ];
       for (var side of rimSides) {
-        rimMatrices.push(
-          BABYLON.Matrix.Translation(side[0], side[1], side[2]).multiply(
-            BABYLON.Matrix.Scaling(side[3], side[4], side[5])
-          )
-        );
+        rimMatrices.push(placed(side[0], side[1], side[2], side[3], side[4], side[5]));
         rimColors.push(rimTint.r, rimTint.g, rimTint.b, 1);
       }
     }
@@ -617,9 +615,7 @@
         var floorHeight = raws[floor] * shrink;
         roleMesh(floorRole);
         roleMatrices[floorRole].push(
-          BABYLON.Matrix.Translation(cell.plot.x, y + floorHeight / 2, cell.plot.z).multiply(
-            BABYLON.Matrix.Scaling(width, floorHeight, width)
-          )
+          placed(cell.plot.x, y + floorHeight / 2, cell.plot.z, width, floorHeight, width)
         );
         var tint = floorColor(floorRole, cell);
         roleColors[floorRole].push(tint.r, tint.g, tint.b, 1);
@@ -648,15 +644,11 @@
     for (var capped of built.cellList) {
       if (capped.family === "tower") {
         beaconMatrices.push(
-          BABYLON.Matrix.Translation(capped.plot.x, capped.height + 0.45, capped.plot.z).multiply(
-            BABYLON.Matrix.Scaling(0.34, 0.9, 0.34)
-          )
+          placed(capped.plot.x, capped.height + 0.45, capped.plot.z, 0.34, 0.9, 0.34)
         );
       } else if (capped.family === "monument") {
         crownMatrices.push(
-          BABYLON.Matrix.Translation(capped.plot.x, capped.height + 0.12, capped.plot.z).multiply(
-            BABYLON.Matrix.Scaling(capped.footprint * 0.92, 0.24, capped.footprint * 0.92)
-          )
+          placed(capped.plot.x, capped.height + 0.12, capped.plot.z, capped.footprint * 0.92, 0.24, capped.footprint * 0.92)
         );
       }
     }
@@ -674,9 +666,7 @@
     var voidMatrices = [];
     for (var tile of doc.voids) {
       voidMatrices.push(
-        BABYLON.Matrix.Translation(tile.plot.x, 0.16, tile.plot.z).multiply(
-          BABYLON.Matrix.Scaling(tile.footprint, 0.22, tile.footprint)
-        )
+        placed(tile.plot.x, 0.16, tile.plot.z, tile.footprint, 0.22, tile.footprint)
       );
     }
     voidMesh.thinInstanceSetBuffer("matrix", matrixBuffer(voidMatrices), 16, true);
@@ -742,9 +732,7 @@
     var padColors = [];
     function padAt(x, z, fresh) {
       /* every trace plugs into something: a pad at each endpoint, never a naked line */
-      padMatrices.push(
-        BABYLON.Matrix.Translation(x, 0.40, z).multiply(BABYLON.Matrix.Scaling(1.6, 0.34, 1.6))
-      );
+      padMatrices.push(placed(x, 0.40, z, 1.6, 0.34, 1.6));
       var padTint = color(fresh ? CABLE_FRESH : CABLE_STALE, 0.6);
       padColors.push(padTint.r, padTint.g, padTint.b, 1);
     }
@@ -773,9 +761,7 @@
         };
       }
       if (!target) {
-        graveMatrices.push(
-          BABYLON.Matrix.Translation(end.x, 0.34, end.z).multiply(BABYLON.Matrix.Scaling(0.8, 0.6, 0.8))
-        );
+        graveMatrices.push(placed(end.x, 0.34, end.z, 0.8, 0.6, 0.8));
       }
       padAt(start.x, start.z, edge.fresh);
       padAt(end.x, end.z, edge.fresh);
@@ -926,32 +912,32 @@
       var centerX = alongX ? (street.from + street.to) / 2 : street.at;
       var centerZ = alongX ? street.at : (street.from + street.to) / 2;
       streetRoadMatrices.push(
-        BABYLON.Matrix.Translation(centerX, 0.16, centerZ).multiply(
-          BABYLON.Matrix.Scaling(alongX ? length : street.width, 0.1, alongX ? street.width : length)
-        )
+        placed(centerX, 0.16, centerZ, alongX ? length : street.width, 0.1, alongX ? street.width : length)
       );
       for (var side of [-1, 1]) {
         /* the curb: a thin glowing strip along each street edge, the ring's road language */
         var curbOffset = side * (street.width / 2 - 0.15);
         streetCurbMatrices.push(
-          BABYLON.Matrix.Translation(
+          placed(
             centerX + (alongX ? 0 : curbOffset),
             0.265,
-            centerZ + (alongX ? curbOffset : 0)
-          ).multiply(
-            BABYLON.Matrix.Scaling(alongX ? length : 0.2, 0.06, alongX ? 0.2 : length)
+            centerZ + (alongX ? curbOffset : 0),
+            alongX ? length : 0.2,
+            0.06,
+            alongX ? 0.2 : length
           )
         );
       }
       for (var dashAt = 3; dashAt < length - 3; dashAt += 7) {
         var dashT = street.from + dashAt;
         streetDashMatrices.push(
-          BABYLON.Matrix.Translation(
+          placed(
             alongX ? dashT : centerX,
             0.275,
-            alongX ? centerZ : dashT
-          ).multiply(
-            BABYLON.Matrix.Scaling(alongX ? 2.2 : 0.32, 0.07, alongX ? 0.32 : 2.2)
+            alongX ? centerZ : dashT,
+            alongX ? 2.2 : 0.32,
+            0.07,
+            alongX ? 0.32 : 2.2
           )
         );
       }
@@ -984,22 +970,28 @@
       var blockPlot = cityBlock.plot;
       var blockTint = color(FAMILY_COLORS[cityBlock.family] || FAMILY_COLORS.block, 0.5);
       blockMatrices.push(
-        BABYLON.Matrix.Translation(
+        placed(
           blockPlot.x + blockPlot.w / 2,
           0.45,
-          blockPlot.z + blockPlot.d / 2
-        ).multiply(BABYLON.Matrix.Scaling(blockPlot.w, 0.9, blockPlot.d))
+          blockPlot.z + blockPlot.d / 2,
+          blockPlot.w,
+          0.9,
+          blockPlot.d
+        )
       );
       blockColors.push(blockTint.r, blockTint.g, blockTint.b, 1);
       /* the aggregate massing: the block's shaded volume, visible where buildings are dots */
       var massHeight = cityBlock.height * 0.55 + 1.2;
       var massTint = color(FAMILY_COLORS[cityBlock.family] || FAMILY_COLORS.block, 0.82);
       massMatrices.push(
-        BABYLON.Matrix.Translation(
+        placed(
           blockPlot.x + blockPlot.w / 2,
           0.9 + massHeight / 2,
-          blockPlot.z + blockPlot.d / 2
-        ).multiply(BABYLON.Matrix.Scaling(blockPlot.w * 0.82, massHeight, blockPlot.d * 0.82))
+          blockPlot.z + blockPlot.d / 2,
+          blockPlot.w * 0.82,
+          massHeight,
+          blockPlot.d * 0.82
+        )
       );
       massColors.push(massTint.r, massTint.g, massTint.b, 1);
     }
@@ -1542,6 +1534,11 @@
       engine.runRenderLoop(function () {
         var dt = Math.min(0.1, engine.getDeltaTime() / 1000);
         rig.step(dt);
+        /* the fog is camera-relative: it fades the far ground at street level, but thins as the
+         * camera pulls up. EXP2 fog works on camera distance alone — at a zoomed-out altitude
+         * every pixel sits past the fog wall and the whole city drowns in the (near black) fog
+         * color, which reads as "the scene goes dark when I scroll out". */
+        scene.fogDensity = 0.0022 * Math.min(1, 70 / Math.max(70, rig.state.altitude));
         /* labels are screen-aligned signage: they take the camera's own rotation, so their
          * text is upright and unmirrored from every pitch and yaw the rig can reach. The
          * 180° turn about the plane's own Y points the plane's readable face (CreatePlane
