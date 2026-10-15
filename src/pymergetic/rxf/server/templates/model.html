@@ -3,69 +3,53 @@
 <head>
 <meta charset="utf-8">
 <title>RXF model — run cells and objects</title>
+<link rel="stylesheet" href="/static/ui/ui.css">
+<script src="/static/ui/ui.js" defer></script>
 <style>
-  :root { color-scheme: light; --bg: #fff; --panel: #f6f7f9; --line: #d8dce1; --text: #1c2128; --muted: #6a737d; --accent: #05c; --hot: #b8860b; }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 13px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--text); }
-  header { display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
-  header b { white-space: nowrap; }
-  header .summary { margin-left: auto; color: var(--muted); }
-  a { color: var(--accent); cursor: pointer; text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  code { font: 12px ui-monospace, monospace; word-break: break-all; }
-  table { border-collapse: collapse; margin: 4px 0 10px; width: 100%; }
-  td, th { border: 1px solid var(--line); padding: 2px 8px; text-align: left; vertical-align: top; }
-  th { color: var(--muted); font-weight: 600; }
-  .badge { display: inline-block; padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 11px; }
-  .card { border: 1px solid var(--line); border-radius: 6px; margin-bottom: 12px; }
-  .card > h3 { margin: 0; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
-  .card > .body { padding: 6px 8px; }
-  .note { color: var(--muted); margin: 4px 0; }
-  .bad { color: #b00; }
-  a.button, button { background: #fff; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; cursor: pointer; font: inherit; }
-  a.button:hover, button:hover { border-color: var(--accent); text-decoration: none; }
-  /* doc scaffolding: the pane language of the inspector, one column wider */
+  /* Page layout only — colors, type, and chrome come from /static/ui/ui.css (docs/21). */
   #doc { display: grid; grid-template-columns: minmax(220px, .55fr) minmax(0, 2fr); }
   #toc { border-right: 1px solid var(--line); padding: 10px 12px 24px; position: sticky; top: 0; align-self: start; max-height: 100vh; overflow: auto; }
-  #toc h2 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  #toc h2 { margin: 0 0 8px; }
   #toc ul { list-style: none; margin: 0; padding-left: 12px; }
   #toc > ul { padding-left: 0; }
   #toc a { display: block; padding: 2px 4px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #toc a:hover { background: #eef; text-decoration: none; }
+  #toc a:hover { background: var(--panel-2); text-decoration: none; }
   article { padding: 10px 18px 56px; max-width: 54rem; min-width: 0; }
-  h1 { font-size: 15px; margin: 6px 0 2px; }
-  h2 { font-size: 13px; margin: 0 0 6px; }
-  h3 { font-size: 12px; margin: 14px 0 6px; }
-  .eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 26px 0 2px; }
-  .lede { color: var(--muted); margin: 0 0 10px; }
-  p { margin: 8px 0; }
-  .cite { display: inline-block; font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 8px; background: var(--panel); white-space: nowrap; }
-  .pin { font: 12px ui-monospace, monospace; background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; white-space: nowrap; }
-  .live { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 6px 8px; margin: 10px 0; }
-  .live table { margin-bottom: 4px; }
-  figure { margin: 12px 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 8px; }
+  h1 { margin: 6px 0 2px; }
+  h2 { margin-top: 0; }
+  h3 { margin: 14px 0 6px; }
+  .eyebrow { margin: 26px 0 2px; }
+  figure { margin: 12px 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 8px; }
   figcaption { color: var(--muted); font-size: 11px; margin-top: 6px; }
   figcaption b { color: var(--text); }
-  svg { width: 100%; height: auto; display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
-  svg text { font: 10px system-ui, sans-serif; fill: var(--muted); }
-  svg text.lbl { fill: var(--text); }
-  svg text.off { font: 10px ui-monospace, monospace; }
-  svg rect.box, svg rect.hot { fill: var(--bg); stroke: var(--line); }
-  svg rect.hot { stroke: var(--hot); stroke-width: 1.5; }
-  svg rect.band { fill: var(--panel); stroke: var(--line); }
-  svg rect.poison { fill: var(--panel); stroke: var(--hot); stroke-dasharray: 3 2; }
-  svg line, svg path { stroke: var(--muted); fill: none; }
-  svg .flow { stroke: var(--text); }
   details { margin: 6px 0; }
   summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+  #live { padding: 6px 8px; margin: 10px 0; }
+  #live .header-row { grid-template-columns: 3.25rem 1fr 1fr minmax(11rem, 1.3fr); }
 </style>
 </head>
 <body>
-<header>
-  <b>RXF</b> <span>Model</span>
-  <a class="button" href="/">&larr; Inspector</a>
-  <span class="summary">source of truth: <code>docs/20-EXECUTION-POLICY.md</code> S1&ndash;S11 &middot; constants pinned to <code>tests/host/smp_*.h</code></span>
+<!-- ui:shell:begin — the one shell of docs/21 (source of truth: server/static/ui/shell.html).
+     Every page inlines this block verbatim between the ui:shell markers; the page's own nav entry
+     is the ONE allowed rewrite: inactive entries are <a class="button" href="...">Label</a>, the
+     active entry is <a href="..." class="active" aria-current="page">Label</a>. The live slot
+     reads exactly `no image` until something better is known (docs/21: the attached session or
+     `no image`); server-side fills and static/ui/ui.js only ever replace that default.
+     tests/test_unified_ui.py pins every copy of this block to this file. -->
+<header class="shell">
+  <span class="mark">RXF</span>
+  <nav aria-label="Surfaces">
+    <a class="button" href="/">Inspector</a>
+    <a href="/model" class="active" aria-current="page">Model</a>
+    <a class="button" href="/editor">Editor</a>
+    <a class="button" href="/tutor">Tutor</a>
+    <a class="button" href="/world">World</a>
+  </nav>
+  <div class="live" id="live-slot">no image</div>
 </header>
+<!-- ui:shell:end -->
+<p class="face-note">Model = explain &middot; one face of the link (docs/21): Inspector reads, Editor edits, Tutor teaches, World renders.</p>
+<p class="note">source of truth: <code>docs/20-EXECUTION-POLICY.md</code> S1&ndash;S11 &middot; constants pinned to <code>tests/host/smp_*.h</code></p>
 <div id="doc">
 <nav id="toc" aria-label="Sections">
   <h2>Contents</h2>
@@ -181,7 +165,7 @@ in.</p>
   </details>
 </figure>
 
-<div class="live" id="live" aria-live="polite">
+<div class="card" id="live" aria-live="polite">
   <div class="note">No cell selected. Open a cell in the <a href="/">inspector</a> and follow its
   <b>In the model</b> links, or append <code>?path=pymergetic.rxf</code> to this page's address.</div>
 </div>
@@ -609,7 +593,7 @@ const hex = (n) => "0x" + Number(n).toString(16);
 // ---- the live cell, laid over the anatomy ---------------------------------------------------------
 
 function wordRow(offset, word, value, where) {
-  return `<tr><td><code>${offset}</code></td><td><code>${esc(word)}</code></td><td><code>${esc(value)}</code></td><td>${esc(where)}</td></tr>`;
+  return `<div class="header-row"><span><code>${offset}</code></span><span><code>${esc(word)}</code></span><span><code>${esc(value)}</code></span><span class="muted">${esc(where)}</span></div>`;
 }
 
 async function showLive() {
@@ -635,10 +619,8 @@ async function showLive() {
       <code>#${d.handle}</code>, cell at <code>${hex(c.offset)}</code> (${c.size} B) — laid over
       <a href="#cell-anatomy">the anatomy above</a>.
       <a href="/?path=${encodeURIComponent(d.path)}">Open this cell in the inspector &rarr;</a></div>
-      <table>
-        <tr><th>offset</th><th>word</th><th>this cell</th><th>live view field</th></tr>
-        ${rows}
-      </table>
+      <div class="header-row head"><span>offset</span><span>word</span><span>this cell</span><span>live view field</span></div>
+      ${rows}
       ${d.model.map((m) => `<div class="note">→ <a href="#${esc(m.anchor)}">${esc(m.label)}</a> <span class="cite">${esc(m.cite)}</span></div>`).join("")}`;
   } catch (error) {
     live.innerHTML = `<div class="note bad">Could not load ${esc(path)}: ${esc(error.message)}</div>`;

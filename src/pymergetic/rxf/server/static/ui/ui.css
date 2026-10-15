@@ -1,0 +1,286 @@
+/* ui.css — the ONE stylesheet of the RXF web surface (docs/21, the unified web interface).
+ *
+ * This file is the only place the design tokens are defined. Every page links it and carries the
+ * one shell (server/static/ui/shell.html); per-page <style> blocks hold layout only, never
+ * colors, type, or chrome. Semantic mapping is fixed across surfaces:
+ * teal (--accent) = live/ok · gold (--hot) = attention/generation · red (--bad) = refusal,
+ * poison, race. Component vocabulary lives here; new components extend this file, they do not
+ * invent parallel ones. tests/test_unified_ui.py pins the tokens to docs/21 and keeps every
+ * template on this file.
+ */
+:root {
+  color-scheme: dark;
+  --bg:        #0f151c;   /* page ground (the world's arena floor) */
+  --panel:     #16202b;   /* cards, headers, toolbars */
+  --panel-2:   #1c2834;   /* nested panels, table stripes */
+  --line:      #2b3b4c;   /* borders, dividers */
+  --text:      #cfe4ef;   /* primary text */
+  --muted:     #7d94a6;   /* secondary text, labels */
+  --accent:    #2fd9c0;   /* links, live state (checksum teal) */
+  --hot:       #d9a13a;   /* attention (generation gold) */
+  --bad:       #e0525f;   /* refusals, poison, races (poison red) */
+  --mono:      ui-monospace, "Cascadia Mono", Menlo, monospace;
+  --radius:    6px;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 13px/1.5 system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+code, pre, .mono { font-family: var(--mono); }
+code { word-break: break-all; }
+pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
+a { color: var(--accent); cursor: pointer; text-decoration: none; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+h1 { font-size: 16px; margin: 8px 0 2px; }
+h2 { font-size: 13px; margin: 18px 0 6px; }
+h3 { font-size: 12px; margin: 12px 0 4px; }
+p { margin: 8px 0; }
+
+/* ---- type and small vocabulary -------------------------------------------------------------- */
+.eyebrow {  /* the 11px uppercase label — the one label style (letter-spacing .06em) */
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+}
+.lede, .note, .muted { color: var(--muted); }
+.lede { margin: 0 0 10px; }
+.note { margin: 4px 0; font-size: 12px; }
+.muted { font-size: 12px; }
+.ok { color: var(--accent); }
+.hot { color: var(--hot); }
+.bad { color: var(--bad); }
+.push { margin-left: auto; }
+
+/* ---- the shell (docs/21): one header bar, one nav, one live slot ----------------------------- */
+.shell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  flex-wrap: wrap;
+}
+.shell .mark { font-weight: 700; letter-spacing: .08em; }
+.shell nav { display: flex; gap: 6px; }
+.shell nav a {
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  color: var(--muted);
+}
+.shell nav a:hover { color: var(--text); border-color: var(--accent); text-decoration: none; }
+.shell nav a.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  border-bottom-width: 2px;
+}
+.shell .live {
+  margin-left: auto;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.shell .live .ok { color: var(--accent); }
+.shell .live .bad { color: var(--bad); }
+.face-note { color: var(--muted); font-size: 11px; margin: 2px 12px 0; }
+
+/* ---- controls: flat, --panel-2 on --line, accent on hover; no gradients ---------------------- */
+button, .button, a.button {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: none;
+}
+button:hover, .button:hover, a.button:hover { border-color: var(--accent); text-decoration: none; }
+button:disabled { color: var(--muted); cursor: default; opacity: .6; }
+button.primary, .primary { border-color: var(--accent); color: var(--accent); }
+button.warn, .warn { border-color: var(--hot); color: var(--hot); }
+button.on { border-color: var(--accent); color: var(--accent); }
+input, select, textarea {
+  font: inherit;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  color: var(--text);
+}
+input::placeholder, textarea::placeholder { color: var(--muted); }
+input[type="range"] { accent-color: var(--accent); }
+label { font-size: 12px; color: var(--muted); }
+
+/* ---- the component vocabulary ---------------------------------------------------------------- */
+.card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  margin-bottom: 12px;
+  background: var(--panel);
+}
+.card > h3 {
+  margin: 0;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+}
+.card > .body { padding: 6px 8px; }
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  font-size: 11px;
+  color: var(--muted);
+}
+.badge.ok { color: var(--accent); border-color: var(--accent); }
+.badge.bad { color: var(--bad); border-color: var(--bad); }
+.badge.hot { color: var(--hot); border-color: var(--hot); }
+table { border-collapse: collapse; margin: 4px 0 10px; width: 100%; font-size: 12px; }
+th, td { border: 1px solid var(--line); padding: 2px 8px; text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; background: var(--panel-2); }
+.grid { display: grid; gap: .35rem .7rem; align-items: center; }
+/* the cell-header-word row (offset · role · value): one style everywhere (docs/21) */
+.header-row {
+  display: grid;
+  grid-template-columns: 52px 1fr 1fr;
+  gap: 8px;
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.header-row span:first-child { color: var(--hot); }
+.header-row.head span:first-child { color: var(--muted); }
+.header-row.head { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.refusal {
+  border: 1px solid var(--bad);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  padding: 6px 8px;
+  margin: 6px 0;
+  color: var(--text);
+}
+.refusal b { color: var(--bad); }
+.okbox {
+  border: 1px solid var(--accent);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  padding: 6px 8px;
+  margin: 6px 0;
+  color: var(--text);
+}
+.okbox b { color: var(--accent); }
+/* .tabs — the tab bar (docs/21 component vocabulary; shared since the tutor joined the system).
+   One component serves both levels: the parts of a page and the second-level rows inside a long
+   part (.tabs.sub). Behavior contract (wireTabs in static/tutor/tutor.js): each
+   .tabs > button.tab[data-tab="<panel-id>"] names its panel by id, the active tab is .tab.active
+   plus aria-selected="true", panels stay in the DOM and are hidden via the hidden attribute, and
+   the location hash is the deep link in both directions. */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  border-bottom: 1px solid var(--line);
+  margin: 14px 0 12px;
+}
+.tabs .tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius) var(--radius) 0 0;
+  color: var(--muted);
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.tabs .tab:hover { color: var(--text); border-color: var(--line); }
+.tabs .tab.active {
+  color: var(--accent);
+  border-color: var(--line);
+  border-bottom: 2px solid var(--accent);
+  margin-bottom: -1px;
+}
+.tabs.sub { margin: 10px 0 8px; }
+.tabs.sub .tab { font-size: 11px; padding: 3px 8px; }
+.pin {
+  font-family: var(--mono);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+.cite {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--hot);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 8px;
+  background: var(--panel);
+  white-space: nowrap;
+}
+.toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  flex-wrap: wrap;
+}
+.tooltip {
+  position: absolute;
+  pointer-events: none;
+  max-width: calc(100% - 12px);
+  padding: 5px 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  z-index: 2;
+}
+
+/* ---- diagrams (inline svg on any surface): one palette --------------------------------------- */
+svg { width: 100%; height: auto; display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+svg text { font: 10px system-ui, sans-serif; fill: var(--muted); }
+svg text.lbl { fill: var(--text); }
+svg text.off { font: 10px var(--mono); }
+svg rect.box, svg rect.hot { fill: var(--bg); stroke: var(--line); }
+svg rect.hot { stroke: var(--hot); stroke-width: 1.5; }
+svg rect.band { fill: var(--panel); stroke: var(--line); }
+svg rect.poison { fill: var(--panel); stroke: var(--hot); stroke-dasharray: 3 2; }
+svg line, svg path { stroke: var(--muted); fill: none; }
+svg .flow { stroke: var(--text); }
+
+/* ---- the code mirror (the editor's meaning-table mirror): one palette, no private colors ------ */
+.wrap textarea, .wrap pre { font-family: var(--mono); font-size: 13px; line-height: 20px; }
+.wrap textarea { color: transparent; caret-color: var(--text); }
+.wrap .m-ok { border-bottom: 2px solid var(--accent); }
+.wrap .m-bad {
+  border-bottom: 2px wavy var(--bad);
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+  color: var(--bad);
+}
+.wrap .m-keyword { color: var(--accent); font-weight: 600; }
+.wrap .m-builtin { color: var(--hot); }
+.wrap .m-operator { color: var(--muted); }
+.wrap .m-number { color: var(--text); }
+.wrap .m-comment { color: var(--muted); font-style: italic; }

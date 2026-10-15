@@ -1,0 +1,19 @@
+<!-- ui:shell:begin — the one shell of docs/21 (source of truth: server/static/ui/shell.html).
+     Every page inlines this block verbatim between the ui:shell markers; the page's own nav entry
+     is the ONE allowed rewrite: inactive entries are <a class="button" href="...">Label</a>, the
+     active entry is <a href="..." class="active" aria-current="page">Label</a>. The live slot
+     reads exactly `no image` until something better is known (docs/21: the attached session or
+     `no image`); server-side fills and static/ui/ui.js only ever replace that default.
+     tests/test_unified_ui.py pins every copy of this block to this file. -->
+<header class="shell">
+  <span class="mark">RXF</span>
+  <nav aria-label="Surfaces">
+    <a class="button" href="/">Inspector</a>
+    <a class="button" href="/model">Model</a>
+    <a class="button" href="/editor">Editor</a>
+    <a class="button" href="/tutor">Tutor</a>
+    <a class="button" href="/world">World</a>
+  </nav>
+  <div class="live" id="live-slot">no image</div>
+</header>
+<!-- ui:shell:end -->

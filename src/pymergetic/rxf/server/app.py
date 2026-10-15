@@ -14,12 +14,15 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from pymergetic.rxf.core.object import Image
 from pymergetic.rxf.server import editor
+from pymergetic.rxf.server import tutor as tutor_page
 from pymergetic.rxf.server.inspector import Inspector
 from pymergetic.rxf.server.live.session import Session
+from pymergetic.rxf.world import attach_world
 
 PAGE = Path(__file__).with_name("templates") / "inspector.html"
 MODEL_PAGE = Path(__file__).with_name("templates") / "model.html"
@@ -78,6 +81,10 @@ def create_app(image: Image, *, session: Session | None = None) -> FastAPI:
 
     def model_page() -> str:
         return MODEL_PAGE.read_text(encoding="utf-8")
+
+    def tutor_page_html() -> str:
+        """The tutor (docs/21): the run-cell machine stepped by hand, with the one live slot."""
+        return tutor_page.render(image, session)
 
     def info() -> dict[str, Any]:
         return inspector.info()
@@ -160,6 +167,9 @@ def create_app(image: Image, *, session: Session | None = None) -> FastAPI:
 
     app.get("/", response_class=HTMLResponse)(page)
     app.get("/model", response_class=HTMLResponse)(model_page)
+    app.get("/tutor", response_class=HTMLResponse)(tutor_page_html)
+    app.mount("/tutor/static", StaticFiles(directory=tutor_page.STATIC))
+    app.mount("/static", StaticFiles(directory=Path(__file__).with_name("static")))
     app.get("/editor", response_class=HTMLResponse)(editor_page)
     app.get("/api/info")(info)
     app.get("/api/children")(children)
@@ -175,6 +185,9 @@ def create_app(image: Image, *, session: Session | None = None) -> FastAPI:
     app.post("/api/editor/compile")(editor_compile)
     app.post("/api/editor/install")(editor_install)
     app.post("/api/editor/poke")(editor_poke)
+    # The 3D world of the SAME image the app inspects (world/__init__.py): its exported scene
+    # at /world/scene.json, never the demo scene — one image, one truth.
+    attach_world(app, inspector)
     return app
 
 

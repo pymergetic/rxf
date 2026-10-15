@@ -1,0 +1,143 @@
+/* The tutor's page CSS (docs/21, the unified web interface).
+ *
+ * The design tokens are defined exactly once, in /static/ui/ui.css (docs/21: one token file);
+ * this sheet defines none. The :root block below is prose only — the reference copy that
+ * tests/test_tutor.py pins against the spec of docs/21 (its `:root` grep keeps the retrofit a
+ * drop-in). It is commented out and defines nothing. What remains live is layout only — no
+ * private colors, type, or chrome; the shell, controls, and the shared component vocabulary
+ * (tabs included) come from ui.css. Semantic mapping is the spec's: teal = live/ok,
+ * gold = attention/generation, red = refusal / poison / race.
+
+:root {
+  color-scheme: dark;
+  --bg: #0f151c;
+  --panel: #16202b;
+  --panel-2: #1c2834;
+  --line: #2b3b4c;
+  --text: #cfe4ef;
+  --muted: #7d94a6;
+  --accent: #2fd9c0;
+  --hot: #d9a13a;
+  --bad: #e0525f;
+  --mono: ui-monospace, "Cascadia Mono", Menlo, monospace;
+  --radius: 6px;
+}
+ */
+
+/* ---- the spec's component vocabulary (shared with ui.css; .refusal and .header-row stay    ---- */
+.card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  margin-bottom: 12px;
+  background: var(--panel);
+}
+.card > h3 {
+  margin: 0;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+}
+.card > .body { padding: 6px 8px; }
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  font-size: 11px;
+  color: var(--muted);
+}
+/* the cell-header-word row (offset · role · value): one style everywhere (docs/21) */
+.header-row {
+  display: grid;
+  grid-template-columns: 52px 1fr 1fr;
+  gap: 8px;
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.header-row span:first-child { color: var(--hot); }
+.refusal {
+  border: 1px solid var(--bad);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  padding: 6px 8px;
+  margin: 6px 0;
+  color: var(--text);
+}
+.refusal b { color: var(--bad); }
+
+/* ---- tutor layout ---------------------------------------------------------------------------- */
+main { padding: 10px 18px 56px; max-width: 68rem; margin: 0 auto; }
+h1 { font-size: 16px; margin: 8px 0 2px; }
+h2 { font-size: 13px; margin: 22px 0 6px; }
+.eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 26px 0 2px; }
+.lede { color: var(--muted); margin: 0 0 10px; }
+.cite {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--hot);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 8px;
+  background: var(--panel);
+  white-space: nowrap;
+}
+.pin {
+  font-family: var(--mono);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+.note { color: var(--muted); margin: 4px 0; }
+
+/* the simulator stage: arena + carriers side by side, the event log under them */
+.stage { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 8px; margin: 10px 0; }
+.stage .controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.stage .columns { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 8px; }
+.arena-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; }
+.arena-cell {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  padding: 4px;
+}
+.arena-cell.running { border-color: var(--hot); }
+.arena-cell.parked { border-color: var(--muted); }
+.arena-cell.moving { border-color: var(--bad); border-style: dashed; }
+.arena-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
+/* the engine's mount points (tutor.js fills each of these): the arena strip's wrapper, the
+   carrier cards, and one fact panel per reference tab — block-level containers, named here so
+   every class the page uses has exactly one definition (docs/21, one vocabulary) */
+.arena, .carriers, .fact { display: block; }
+.log {
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  padding: 4px;
+  font-size: 12px;
+}
+.log-line { padding: 1px 2px; border-bottom: 1px solid var(--line); }
+.log-line.bad, .log-line.race { color: var(--bad); }
+.log-line.seal, .log-line.verify { color: var(--accent); }
+.log-line.cas, .log-line.claim, .log-line.wake { color: var(--hot); }
+.log-line.muted, .log-line.plain { color: var(--muted); }
+.log-line.plain { color: var(--text); }
+.counters { margin: 6px 0; }
+.muted { color: var(--muted); }
+.ok { color: var(--accent); }
+
+/* exercises */
+.exercise { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 8px; margin: 10px 0; }
+.exercise h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.exercise label { display: block; padding: 2px 0; }
+.exercise .seq { margin: 4px 0; }
