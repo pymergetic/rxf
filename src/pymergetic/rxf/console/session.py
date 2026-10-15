@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -63,7 +64,14 @@ def refusal(verdict: Verdict, table: Mapping[str, int]) -> dict[str, Any]:
 
 
 class Console:
-    """The terminal on one running image: type `.rxf`, the image compiles and installs it."""
+    """The terminal on one running image: type `.rxf`, the image compiles and installs it.
+
+    Every operation of the terminal runs inside the gate of the channel it speaks on — the
+    transaction that travels with its front (`console/world.py` `World.front`) — so an editor
+    install, a feed read or a second console never lands in the middle of one: not between the
+    compile and the install, not inside a request. A front that shares its channel with nobody
+    has no gate and needs none.
+    """
 
     def __init__(
         self,
@@ -74,6 +82,7 @@ class Console:
         self._front = front
         self._out = out
         self._files = dict(files or {})
+        self._transaction = getattr(front, "transaction", nullcontext)
 
     def submit(
         self,
@@ -83,15 +92,17 @@ class Console:
     ) -> dict[str, Any]:
         """One program through the image: compiled by its front end and installed as a Function,
         or refused with the line it stopped at. FILES is what an `include` of the program can
-        name."""
+        name. The whole compile-then-install is one operation on the channel: it holds the gate
+        (`World.transaction`) around both, so nothing lands between them."""
         wanted = name or name_of(source)
         if wanted is None:
             return {"ok": False, "message": NO_NAME}
         data = source.encode()
-        verdict = self._front.compile(data, self._files if files is None else files)
-        if not verdict.ok:
-            return refusal(verdict, self._front.numbers())
-        return report(self._front.install(wanted, verdict.words, data))
+        with self._transaction():
+            verdict = self._front.compile(data, self._files if files is None else files)
+            if not verdict.ok:
+                return refusal(verdict, self._front.numbers())
+            return report(self._front.install(wanted, verdict.words, data))
 
     def one_shot(self, path: str | Path, name: str | None = None) -> dict[str, Any]:
         """One source file through the same path the loop takes. The `.rxf` sources beside the
@@ -103,10 +114,12 @@ class Console:
 
     def listed(self) -> dict[str, Any]:
         """What the image has installed (read-only facts)."""
+        with self._transaction():
+            entries = self._front.installed()
         return {
             "installed": [
                 {"path": entry.path, "identity": f"0x{entry.identity:016x}"}
-                for entry in self._front.installed()
+                for entry in entries
             ]
         }
 
@@ -158,7 +171,9 @@ class Console:
         if word in (":quit", ":q"):
             return True
         if word == ":list":
-            for entry in self._front.installed():
+            with self._transaction():
+                entries = self._front.installed()
+            for entry in entries:
                 self._out.write(f"{entry.path} (id 0x{entry.identity:016x})\n")
             return False
         if word == ":help":
