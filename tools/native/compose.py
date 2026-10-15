@@ -14,6 +14,13 @@ module reads its numbers from there.
              object (a durable binding) is an operand and has no slot
     blocks   laid out with the entry first; every jump is a word index
     edges    the copies of the arguments of a block, done in parallel
+
+The import lane's provenance (docs/22) never reaches this module: a run's origin record, its
+citations and its lifted comments are Doc objects -- editorial placements that make zero
+runtime refs -- and the programs a graph composes read the same words with or without them
+(``tests/test_provenance.py`` pins that). The composer composes code and claims no facts about
+it; if this module ever gains a face that records facts, that face takes the same tier and
+floor the importer's claim does.
 """
 
 from __future__ import annotations

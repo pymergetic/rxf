@@ -181,6 +181,26 @@ its handle. The import lane pairs each lifted comment with the citation of the r
 chooses the tier; at `cite` and `hash` it lifts only what it can cite or hash — the image stores
 what it is given and the tier gate polices provenance facts, not editorial text.
 
+### The call site: the import lane (`rximport`)
+
+`tools/native/rximport.py` takes the claim as one optional flag carrying the run's tier and its
+origin facts — `--provenance full,repository=...,commit=...,license=...` (`upstream` and
+`importer` have their defaults). One run writes **one origin record** (`doc_origin`, at `cite`
+and up) and **one citation per source file** it compiles (`doc_cite`), the file's
+path/lines/sha256 in its locator. The citation spans the whole file — the file is what the pass
+read and what the hash hashes; a finer locator waits on the debug-info source map of the import
+path above, and the importer never guesses. Every comment the source carries is lifted
+(`lift_comment`, `DocKind.Todo` for a task marker) and lands as `placed_on` of its file's
+citation, so each quoted line keeps the locator and the permalink `doc_permalink` derives from
+it. At `hash` the run writes the file's hash record (`doc_hash`) and cites nothing — identity
+without location; at `full` the source payload (`doc_source`) rides along and is cited with it.
+
+A run with no flag lifts its comments and claims nothing (`provenance: none`, said so in the
+run's report). A flag whose tier word is anonymous (`none`, `off`, ...) is refused at the floor
+before anything is imported. The composer (`tools/native/compose.py`) mirrors none of this: the
+program words of a graph are the same with or without a run's claim — docs are editorial and
+make zero runtime refs — and `tests/test_provenance.py` pins that byte identity.
+
 ## Policy is documentation: S1–S11 are topics
 
 The execution policy (docs/20, S1–S11) is currently text: markdown headings, C constants in
