@@ -50,14 +50,14 @@
     { name: "strategic", mode: "ortho", pitch: 90, yaw: 0, framing: "world", target: "world-center" },
     { name: "operational", mode: "ortho", pitch: 90, yaw: 0, altitude: 120, target: "world-center" },
     { name: "tactical", mode: "ortho", pitch: 82, yaw: 25, altitude: 30, target: "first-tower" },
-    { name: "fly-ne", mode: "perspective", pitch: 52, yaw: 45, altitude: 110, target: "world-center" },
+    { name: "fly-ne", mode: "perspective", pitch: 52, yaw: 45, framing: "world", target: "world-center" },
     { name: "inspect", mode: "perspective", pitch: 68, yaw: 20, altitude: 26, target: "selection" }
   ];
 
   /* ---- LOD: continuous zoom through the levels --------------------------------------------- */
   var LOD_LEVELS = [
-    { name: "L0 strategic", above: 130, shows: "districts + aggregate massing" },
-    { name: "L1 operational", above: 55, shows: "buildings + ground traces" },
+    { name: "L0 strategic", above: 200, shows: "districts + aggregate massing" },
+    { name: "L1 operational", above: 55, shows: "buildings + name signs + ground traces" },
     { name: "L2 tactical", above: 12, shows: "cell anatomy (block view, checksum displays)" },
     { name: "L3 byte view", above: -1, shows: "later stage (editor)" }
   ];
@@ -68,7 +68,7 @@
     monument: "#c2a163",
     block: "#6b7783",
     utility: "#4c5a66",
-    rubble: "#453b33"
+    rubble: "#5c2f2c" /* dead cells read as dead: red-brown, not neutral */
   };
   var ROLE_COLORS = {
     type: "#55677a",
@@ -93,7 +93,13 @@
   var FORWARD_HOT = "#e0663c";
   var CABLE_FRESH = "#37e0c4";
   var CABLE_STALE = "#ff5040";
-  var TILE_TINT = { header: "#33455a", index: "#385063", cells: "#2e4254" };
+  /* district floor tints: two variants per band family, blended per district — neighboring
+   * districts must read as different plots, never as one slab */
+  var TILE_TINT = {
+    header: ["#3a4472", "#474c82"],
+    index: ["#33506b", "#3d5f7a"],
+    cells: ["#2c5058", "#37625e"]
+  };
 
   function hash(value) {
     /* a deterministic 0..1 from an integer (no randomness anywhere in this file) */
@@ -107,6 +113,20 @@
 
   function color(hex, variation) {
     return global.BABYLON.Color3.FromHexString(hex).scale(variation);
+  }
+
+  function tintOf(band, seed) {
+    /* one district's tint inside its band family: deterministic, distinct from its neighbors */
+    var pair = TILE_TINT[band] || TILE_TINT.cells;
+    var t = hash(Math.round(seed * 131) + 7);
+    var lift = 0.82 + 0.46 * hash(Math.round(seed * 57) + 3); /* per-district lightness */
+    var a = global.BABYLON.Color3.FromHexString(pair[0]);
+    var b = global.BABYLON.Color3.FromHexString(pair[1]);
+    return new global.BABYLON.Color3(
+      (a.r + (b.r - a.r) * t) * lift,
+      (a.g + (b.g - a.g) * t) * lift,
+      (a.b + (b.b - a.b) * t) * lift
+    );
   }
 
   function matrixBuffer(matrices) {
@@ -187,19 +207,83 @@
     }
   };
 
-  Rig.prototype.fitRect = function (rect, pitch, yaw) {
-    /* the altitude at which the ground rectangle `rect` (center x/z, size w/d) fills the frame:
-     * its corners projected on the screen axes at this yaw, depth compressed by sin(pitch),
-     * width and height fitted together. Deterministic per document and pose. */
+  Rig.prototype.fitRect = function (rect, target, pitch, yaw, mode) {
+    /* the altitude at which the content box `rect` (world coords, x/z rectangle plus the
+     * buildings' `top`) fills the frame around `target`: project its corners through the same
+     * camera model `apply()` uses and bisect until every corner sits inside the frame.
+     * Perspective magnifies the near edge and the tall tops — the parallel formula alone lets
+     * the city spill out of the frame edge. Deterministic per document and pose. */
     var half = Math.tan(this.fov / 2);
+    var aspect = Math.max(0.5, this.aspect());
     var yawRad = (yaw * Math.PI) / 180;
+    var pitchRad = (pitch * Math.PI) / 180;
+    var margin = 1.13;
     var halfW = rect.w / 2;
     var halfD = rect.d / 2;
-    var hr = Math.abs(halfW * Math.cos(yawRad)) + Math.abs(halfD * Math.sin(yawRad));
-    var hu = Math.abs(halfW * Math.sin(yawRad)) + Math.abs(halfD * Math.cos(yawRad));
-    var slant = Math.max(0.4, Math.sin((pitch * Math.PI) / 180));
-    var need = Math.max(hu * slant, hr / Math.max(0.5, this.aspect())) * 1.06;
-    return clamp(need / half, 24, 600);
+    var top = rect.top || 0;
+    var corners = [];
+    for (var level of [0, top]) {
+      for (var corner of [
+        { x: rect.x - halfW, z: rect.z - halfD },
+        { x: rect.x + halfW, z: rect.z - halfD },
+        { x: rect.x - halfW, z: rect.z + halfD },
+        { x: rect.x + halfW, z: rect.z + halfD }
+      ]) {
+        corners.push({ x: corner.x, y: level, z: corner.z });
+      }
+    }
+
+    function fits(altitude) {
+      /* the camera `apply()` builds: orbiting `target` at this pitch and yaw */
+      var cx = target.x + altitude * Math.cos(pitchRad) * Math.sin(yawRad);
+      var cy = altitude * Math.sin(pitchRad);
+      var cz = target.z + altitude * Math.cos(pitchRad) * Math.cos(yawRad);
+      var ux = -Math.sin(yawRad) * Math.sin(pitchRad); /* the up vector apply() sets */
+      var uy = Math.cos(pitchRad);
+      var uz = -Math.cos(yawRad) * Math.sin(pitchRad);
+      var fx = target.x - cx;
+      var fy = -cy;
+      var fz = target.z - cz;
+      var fl = Math.hypot(fx, fy, fz) || 1;
+      fx /= fl;
+      fy /= fl;
+      fz /= fl;
+      var rx = fy * uz - fz * uy;
+      var ry = fz * ux - fx * uz;
+      var rz = fx * uy - fy * ux;
+      var rl = Math.hypot(rx, ry, rz) || 1;
+      rx /= rl;
+      ry /= rl;
+      rz /= rl;
+      for (var corner of corners) {
+        var dx = corner.x - cx;
+        var dy = corner.y - cy;
+        var dz = corner.z - cz;
+        var sx;
+        var sy;
+        if (mode === "ortho") {
+          sx = (dx * rx + dy * ry + dz * rz) / (altitude * half * aspect);
+          sy = (dx * ux + dy * uy + dz * uz) / (altitude * half);
+        } else {
+          var depth = dx * fx + dy * fy + dz * fz; /* distance along the view ray (f = to target) */
+          if (depth <= 0.001) return false;
+          sx = (dx * rx + dy * ry + dz * rz) / (depth * half * aspect);
+          sy = (dx * ux + dy * uy + dz * uz) / (depth * half);
+        }
+        if (Math.abs(sx) * margin > 1 || Math.abs(sy) * margin > 1) return false;
+      }
+      return true;
+    }
+
+    var low = 12;
+    var high = 600;
+    if (!fits(high)) return 600;
+    for (var iteration = 0; iteration < 32; iteration++) {
+      var mid = (low + high) / 2;
+      if (fits(mid)) high = mid;
+      else low = mid;
+    }
+    return high;
   };
 
   Rig.prototype.lod = function () {
@@ -252,7 +336,8 @@
       return material;
     }
 
-    /* the world bounds: what the whole-arena poses frame (the plots and the ring road) */
+    /* the world bounds: the arena's platform (the plots and the ring road) — the plinth and
+     * the minimap use it; the camera poses frame the content bounds below */
     var minX = 0;
     var maxX = 1;
     var minZ = 0;
@@ -278,26 +363,98 @@
       d: maxZ - minZ
     };
 
-    /* the outer ground: dark, faintly gridded, the arena's floor */
-    var groundMaterial = pbr("ground", "#0f151c", 0.05, 1.0);
-    var grid = new BABYLON.DynamicTexture("ground-grid", { width: 1024, height: 1024 }, scene, true);
-    var brush = grid.getContext();
-    brush.fillStyle = "#0f151c";
-    brush.fillRect(0, 0, 1024, 1024);
-    for (var step = 0; step <= 1024; step += 64) {
-      brush.strokeStyle = step % 256 === 0 ? "#182029" : "#131a22";
-      brush.lineWidth = 1;
-      brush.beginPath();
-      brush.moveTo(step, 0);
-      brush.lineTo(step, 1024);
-      brush.moveTo(0, step);
-      brush.lineTo(1024, step);
-      brush.stroke();
+    /* the content bounds and the content centroid: what the whole-arena poses frame and where
+     * they look. The ring road is context; the content is the district plots and the cell lots
+     * with their footprints. The centroid is the mass of the city (lots and void pits weighted
+     * by their area) — empty districts stay in the frame as floor but never pull the camera
+     * into a dead corner */
+    var cMinX = Infinity;
+    var cMaxX = -Infinity;
+    var cMinZ = Infinity;
+    var cMaxZ = -Infinity;
+    var mass = 0;
+    var massX = 0;
+    var massZ = 0;
+    function addContent(x, z, halfW, halfD, weight) {
+      cMinX = Math.min(cMinX, x - halfW);
+      cMaxX = Math.max(cMaxX, x + halfW);
+      cMinZ = Math.min(cMinZ, z - halfD);
+      cMaxZ = Math.max(cMaxZ, z + halfD);
+      mass += weight;
+      massX += x * weight;
+      massZ += z * weight;
     }
-    grid.update(false);
-    grid.wrapU = BABYLON.Texture.WRAP_ADDRESSMODE;
-    grid.wrapV = BABYLON.Texture.WRAP_ADDRESSMODE;
-    groundMaterial.albedoTexture = grid;
+    for (var contentRegion of doc.regions) {
+      var contentPlot = contentRegion.plot;
+      addContent(
+        contentPlot.x + contentPlot.w / 2,
+        contentPlot.z + contentPlot.d / 2,
+        contentPlot.w / 2,
+        contentPlot.d / 2,
+        0
+      );
+    }
+    for (var contentCell of doc.cells) {
+      var lot = contentCell.footprint / 2;
+      addContent(contentCell.plot.x, contentCell.plot.z, lot, lot, contentCell.footprint * contentCell.footprint);
+    }
+    for (var contentVoid of doc.voids) {
+      var pit = contentVoid.footprint / 2;
+      addContent(contentVoid.plot.x, contentVoid.plot.z, pit, pit, contentVoid.footprint * contentVoid.footprint * 2);
+    }
+    built.content = {
+      x: (cMinX + cMaxX) / 2,
+      z: (cMinZ + cMaxZ) / 2,
+      w: cMaxX - cMinX,
+      d: cMaxZ - cMinZ
+    };
+    var contentTop = 0;
+    for (var heightCell of doc.cells) {
+      contentTop = Math.max(contentTop, Number(heightCell.height) || 0);
+    }
+    built.content.top = contentTop + 5; /* the buildings' height, with the labels' headroom */
+    built.centroid =
+      mass > 0
+        ? { x: massX / mass, z: massZ / mass }
+        : { x: built.content.x, z: built.content.z };
+
+    /* the outer ground and the arena plinth share one grid language: world-sized cells
+     * (grid.step per cell) with real line contrast — the floor must read as tiles at any zoom */
+    var gridStep = (doc.grid && doc.grid.step) || 3.4;
+    function gridTexture(name, sizeWu, depthWu, base, minor, major) {
+      var texture = new BABYLON.DynamicTexture(name, { width: 1024, height: 1024 }, scene, true);
+      var brush = texture.getContext();
+      brush.fillStyle = base;
+      brush.fillRect(0, 0, 1024, 1024);
+      for (var line = 0; line <= 1024; line += 128) {
+        var thick = line % 512 === 0;
+        brush.strokeStyle = thick ? major : minor;
+        brush.lineWidth = thick ? 3 : 1.5;
+        brush.beginPath();
+        brush.moveTo(line, 0);
+        brush.lineTo(line, 1024);
+        brush.moveTo(0, line);
+        brush.lineTo(1024, line);
+        brush.stroke();
+      }
+      texture.update(false);
+      texture.wrapU = BABYLON.Texture.WRAP_ADDRESSMODE;
+      texture.wrapV = BABYLON.Texture.WRAP_ADDRESSMODE;
+      texture.uScale = sizeWu / (8 * gridStep); /* one texture = 8 placement-grid cells */
+      texture.vScale = depthWu / (8 * gridStep);
+      return texture;
+    }
+
+    /* the outer ground: dark, gridded, the arena's floor */
+    var groundMaterial = pbr("ground", "#ffffff", 0.05, 1.0); /* the texture carries the color */
+    groundMaterial.albedoTexture = gridTexture(
+      "ground-grid",
+      4000,
+      4000,
+      "#0e141b",
+      "#1b2530",
+      "#2b3a49"
+    );
 
     var ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 4000, height: 4000 }, scene);
     ground.material = groundMaterial;
@@ -305,9 +462,18 @@
     ground.isPickable = false;
 
     /* the arena plinth: the platform the world stands on, inside the ring road — the seam
-     * between the arena and the void beyond it */
+     * between the arena and the void beyond it, on the same placement grid */
     var plinth = BABYLON.MeshBuilder.CreateBox("arena-plinth", { size: 1 }, scene);
-    plinth.material = pbr("arena-plinth-material", "#141c25", 0.06, 0.95);
+    var plinthMaterial = pbr("arena-plinth-material", "#ffffff", 0.06, 0.95);
+    plinthMaterial.albedoTexture = gridTexture(
+      "plinth-grid",
+      built.bounds.w + 8,
+      built.bounds.d + 8,
+      "#141c25",
+      "#223040",
+      "#31435a"
+    );
+    plinth.material = plinthMaterial;
     plinth.isPickable = false;
     plinth.position = new BABYLON.Vector3(built.bounds.x, 0.02, built.bounds.z);
     plinth.scaling = new BABYLON.Vector3(built.bounds.w + 8, 0.12, built.bounds.d + 8);
@@ -326,11 +492,19 @@
       tileMeshes[band] = mesh;
     }
     var baseMesh = BABYLON.MeshBuilder.CreateBox("plot-bases", { size: 1 }, scene);
-    baseMesh.material = pbr("plot-base", "#222c38", 0.1, 0.9);
+    baseMesh.material = pbr("plot-base", "#10161d", 0.1, 0.9); /* the dark street between tiles */
     baseMesh.isPickable = false;
     baseMesh.alwaysSelectAsActiveMesh = true;
     baseMesh.thinInstanceSetBuffer("matrix", matrixBuffer([]), 16, true);
     var baseMatrices = [];
+    var rimMesh = BABYLON.MeshBuilder.CreateBox("plot-rims", { size: 1 }, scene);
+    rimMesh.material = roleMaterial("plot-rims-material", "#ffffff", 0.1);
+    rimMesh.isPickable = false;
+    rimMesh.alwaysSelectAsActiveMesh = true;
+    rimMesh.thinInstanceSetBuffer("matrix", matrixBuffer([]), 16, true);
+    rimMesh.thinInstanceSetBuffer("color", [], 4, true);
+    var rimMatrices = [];
+    var rimColors = [];
 
     for (var region of doc.regions) {
       var plot = region.plot;
@@ -341,8 +515,11 @@
           BABYLON.Matrix.Scaling(plot.w, 0.1, plot.d)
         )
       );
-      /* every tile of the district's raster: a floor plate with grid lines in the gaps */
-      var inset = 0.12;
+      /* the district's own tint: one band family, one district — the floor reads as districts */
+      var district = tintOf(bandName, region.start + plot.x * 16 + plot.z);
+      var lit = region.empty ? 0.55 : 1;
+      /* every tile of the district's raster: a floor plate with street-dark gaps */
+      var inset = 0.3;
       for (var row = 0; row < raster.rows; row++) {
         for (var col = 0; col < raster.cols; col++) {
           var tileX = plot.x + (col + 0.5) * raster.step_x;
@@ -352,11 +529,32 @@
               BABYLON.Matrix.Scaling(raster.step_x - inset, 0.14, raster.step_z - inset)
             )
           );
-          var lit = region.empty ? 0.72 : 1;
-          var vary = 0.94 + 0.12 * hash(col * 31 + row * 17 + Math.round(plot.x * 7));
-          var tint = color(TILE_TINT[bandName], lit * vary);
-          tileColors[bandName].push(tint.r, tint.g, tint.b, 1);
+          var vary = 0.96 + 0.08 * hash(col * 31 + row * 17 + Math.round(plot.x * 7));
+          tileColors[bandName].push(
+            district.r * lit * vary,
+            district.g * lit * vary,
+            district.b * lit * vary,
+            1
+          );
         }
+      }
+      /* the district's edge: a legible rim on all four sides, at every zoom */
+      var edge = 0.3;
+      var rimTint = district.scale(region.empty ? 1.35 : 2.1);
+      var rimY = 0.14;
+      var rimSides = [
+        [plot.x + plot.w / 2, rimY, plot.z + edge / 2, plot.w + edge, 0.22, edge],
+        [plot.x + plot.w / 2, rimY, plot.z + plot.d - edge / 2, plot.w + edge, 0.22, edge],
+        [plot.x + edge / 2, rimY, plot.z + plot.d / 2, edge, 0.22, plot.d - edge],
+        [plot.x + plot.w - edge / 2, rimY, plot.z + plot.d / 2, edge, 0.22, plot.d - edge]
+      ];
+      for (var side of rimSides) {
+        rimMatrices.push(
+          BABYLON.Matrix.Translation(side[0], side[1], side[2]).multiply(
+            BABYLON.Matrix.Scaling(side[3], side[4], side[5])
+          )
+        );
+        rimColors.push(rimTint.r, rimTint.g, rimTint.b, 1);
       }
     }
     for (var bandKey of ["header", "index", "cells"]) {
@@ -364,6 +562,8 @@
       tileMeshes[bandKey].thinInstanceSetBuffer("color", tileColors[bandKey], 4, true);
     }
     baseMesh.thinInstanceSetBuffer("matrix", matrixBuffer(baseMatrices), 16, true);
+    rimMesh.thinInstanceSetBuffer("matrix", matrixBuffer(rimMatrices), 16, true);
+    rimMesh.thinInstanceSetBuffer("color", rimColors, 4, true);
 
     /* ---- buildings: one block stack per cell, floors = the cell anatomy -------------------- */
     var roleMeshes = {};
@@ -463,9 +663,9 @@
     beaconMesh.thinInstanceSetBuffer("matrix", matrixBuffer(beaconMatrices), 16, true);
     crownMesh.thinInstanceSetBuffer("matrix", matrixBuffer(crownMatrices), 16, true);
 
-    /* ---- void tiles: poison pits --------------------------------------------------------- */
-    var voidMaterial = pbr("void", "#160d10", 0.1, 0.98);
-    voidMaterial.emissiveColor = new BABYLON.Color3(0.22, 0.02, 0.03);
+    /* ---- void tiles: poison pits, clearly red ------------------------------------------------ */
+    var voidMaterial = pbr("void", "#4a1416", 0.1, 0.98);
+    voidMaterial.emissiveColor = new BABYLON.Color3(0.62, 0.08, 0.07);
     var voidMesh = BABYLON.MeshBuilder.CreateBox("voids", { size: 1 }, scene);
     voidMesh.material = voidMaterial;
     voidMesh.isPickable = false;
@@ -482,7 +682,6 @@
     voidMesh.thinInstanceSetBuffer("matrix", matrixBuffer(voidMatrices), 16, true);
 
     /* ---- cables: ground traces on the tile grid (circuit board, not cable car) ------------ */
-    var gridStep = (doc.grid && doc.grid.step) || 3.4;
     function snap(value) {
       return Math.round(value / gridStep) * gridStep;
     }
@@ -531,7 +730,7 @@
         var matrix = BABYLON.Matrix.Compose(
           new BABYLON.Vector3(width, height, length),
           BABYLON.Quaternion.FromEulerAngles(0, angle, 0),
-          new BABYLON.Vector3((a.x + b.x) / 2, height / 2 + 0.16, (a.z + b.z) / 2)
+          new BABYLON.Vector3((a.x + b.x) / 2, height / 2 + 0.26, (a.z + b.z) / 2)
         );
         if (core) (fresh ? traceCore.fresh : traceCore.stale).push(matrix);
         else traceBase.matrices.push(matrix);
@@ -539,12 +738,31 @@
     }
 
     var graveMatrices = [];
+    var padMatrices = [];
+    var padColors = [];
+    function padAt(x, z, fresh) {
+      /* every trace plugs into something: a pad at each endpoint, never a naked line */
+      padMatrices.push(
+        BABYLON.Matrix.Translation(x, 0.40, z).multiply(BABYLON.Matrix.Scaling(1.6, 0.34, 1.6))
+      );
+      var padTint = color(fresh ? CABLE_FRESH : CABLE_STALE, 0.6);
+      padColors.push(padTint.r, padTint.g, padTint.b, 1);
+    }
     for (var edge of doc.edges) {
       var source = built.cellsById[edge.from];
       if (!source) continue;
       var target = edge.to ? built.cellsById[edge.to] : null;
+      /* the exporter routes every cable along the street network (``route``): out of the source's
+       * lot, the lanes and avenues across the city, into the target's lot — never across a
+       * building volume. The local Manhattan run is the fallback for scenes without routes. */
+      var edgeRoute = edge.route && edge.route.length >= 2 ? edge.route : null;
+      var start = edgeRoute
+        ? { x: edgeRoute[0].x, z: edgeRoute[0].z }
+        : { x: source.plot.x, z: source.plot.z };
       var end;
-      if (target) {
+      if (edgeRoute) {
+        end = { x: edgeRoute[edgeRoute.length - 1].x, z: edgeRoute[edgeRoute.length - 1].z };
+      } else if (target) {
         end = { x: target.plot.x, z: target.plot.z };
       } else {
         /* the grave of a stale handle: a deterministic stub beside its source */
@@ -553,11 +771,15 @@
           x: source.plot.x + Math.cos(graveAngle) * 3.4,
           z: source.plot.z + Math.sin(graveAngle) * 3.4
         };
+      }
+      if (!target) {
         graveMatrices.push(
-          BABYLON.Matrix.Translation(end.x, 0.3, end.z).multiply(BABYLON.Matrix.Scaling(0.8, 0.6, 0.8))
+          BABYLON.Matrix.Translation(end.x, 0.34, end.z).multiply(BABYLON.Matrix.Scaling(0.8, 0.6, 0.8))
         );
       }
-      var points = route({ x: source.plot.x, z: source.plot.z }, end);
+      padAt(start.x, start.z, edge.fresh);
+      padAt(end.x, end.z, edge.fresh);
+      var points = edgeRoute || route(start, end);
       var lift = 0.05 + (edge.index === null ? 0 : edge.index % 3) * 0.05; /* crossings step over */
       traceSegments(points, lift, 0.75, false, edge.fresh);
       traceSegments(points, lift + 0.06, 0.24, true, edge.fresh);
@@ -587,6 +809,13 @@
     graveMesh.isPickable = false;
     graveMesh.alwaysSelectAsActiveMesh = true;
     graveMesh.thinInstanceSetBuffer("matrix", matrixBuffer(graveMatrices), 16, true);
+
+    var padMesh = BABYLON.MeshBuilder.CreateBox("trace-pads", { size: 1 }, scene);
+    padMesh.material = roleMaterial("trace-pads-material", "#ffffff", 0.5);
+    padMesh.isPickable = false;
+    padMesh.alwaysSelectAsActiveMesh = true;
+    padMesh.thinInstanceSetBuffer("matrix", matrixBuffer(padMatrices), 16, true);
+    padMesh.thinInstanceSetBuffer("color", padColors, 4, true);
 
     glow.addIncludedOnlyMesh(freshTraces);
     glow.addIncludedOnlyMesh(staleTraces);
@@ -618,9 +847,9 @@
         var heading = Math.atan2(b.x - a.x, b.z - a.z);
         roadMatrices.push(
           BABYLON.Matrix.Compose(
-            new BABYLON.Vector3(laneWidth, 0.12, length),
+            new BABYLON.Vector3(laneWidth, 0.1, length),
             BABYLON.Quaternion.FromEulerAngles(0, heading, 0),
-            new BABYLON.Vector3((a.x + b.x) / 2, 0.17, (a.z + b.z) / 2)
+            new BABYLON.Vector3((a.x + b.x) / 2, 0.24, (a.z + b.z) / 2)
           )
         );
         for (var side of [-1, 1]) {
@@ -632,7 +861,7 @@
               BABYLON.Quaternion.FromEulerAngles(0, heading, 0),
               new BABYLON.Vector3(
                 (a.x + b.x) / 2 + Math.cos(heading) * curbOffset,
-                0.27,
+                0.30,
                 (a.z + b.z) / 2 - Math.sin(heading) * curbOffset
               )
             )
@@ -644,7 +873,7 @@
             BABYLON.Matrix.Compose(
               new BABYLON.Vector3(2.2, 0.08, 0.34),
               BABYLON.Quaternion.FromEulerAngles(0, heading, 0),
-              new BABYLON.Vector3(a.x + (b.x - a.x) * t, 0.26, a.z + (b.z - a.z) * t)
+              new BABYLON.Vector3(a.x + (b.x - a.x) * t, 0.315, a.z + (b.z - a.z) * t)
             )
           );
         }
@@ -686,6 +915,109 @@
       built.tramMesh = tramMesh;
       built.tramMatrices = tramMatrices;
     }
+
+    /* ---- streets: the grid that connects every district to the ring road ------------------ */
+    var streetRoadMatrices = [];
+    var streetDashMatrices = [];
+    var streetCurbMatrices = [];
+    for (var street of doc.streets || []) {
+      var alongX = street.axis === "x";
+      var length = street.to - street.from;
+      var centerX = alongX ? (street.from + street.to) / 2 : street.at;
+      var centerZ = alongX ? street.at : (street.from + street.to) / 2;
+      streetRoadMatrices.push(
+        BABYLON.Matrix.Translation(centerX, 0.16, centerZ).multiply(
+          BABYLON.Matrix.Scaling(alongX ? length : street.width, 0.1, alongX ? street.width : length)
+        )
+      );
+      for (var side of [-1, 1]) {
+        /* the curb: a thin glowing strip along each street edge, the ring's road language */
+        var curbOffset = side * (street.width / 2 - 0.15);
+        streetCurbMatrices.push(
+          BABYLON.Matrix.Translation(
+            centerX + (alongX ? 0 : curbOffset),
+            0.265,
+            centerZ + (alongX ? curbOffset : 0)
+          ).multiply(
+            BABYLON.Matrix.Scaling(alongX ? length : 0.2, 0.06, alongX ? 0.2 : length)
+          )
+        );
+      }
+      for (var dashAt = 3; dashAt < length - 3; dashAt += 7) {
+        var dashT = street.from + dashAt;
+        streetDashMatrices.push(
+          BABYLON.Matrix.Translation(
+            alongX ? dashT : centerX,
+            0.275,
+            alongX ? centerZ : dashT
+          ).multiply(
+            BABYLON.Matrix.Scaling(alongX ? 2.2 : 0.32, 0.07, alongX ? 0.32 : 2.2)
+          )
+        );
+      }
+    }
+    var streetRoad = BABYLON.MeshBuilder.CreateBox("streets", { size: 1 }, scene);
+    streetRoad.material = pbr("street-asphalt", "#242e39", 0.2, 0.85);
+    streetRoad.isPickable = false;
+    streetRoad.alwaysSelectAsActiveMesh = true;
+    streetRoad.receiveShadows = true;
+    streetRoad.thinInstanceSetBuffer("matrix", matrixBuffer(streetRoadMatrices), 16, true);
+
+    var streetDash = BABYLON.MeshBuilder.CreateBox("street-lanes", { size: 1 }, scene);
+    streetDash.material = roleMaterial("street-dash-material", "#5c7482", 0.3);
+    streetDash.isPickable = false;
+    streetDash.alwaysSelectAsActiveMesh = true;
+    streetDash.thinInstanceSetBuffer("matrix", matrixBuffer(streetDashMatrices), 16, true);
+
+    var streetCurb = BABYLON.MeshBuilder.CreateBox("street-curbs", { size: 1 }, scene);
+    streetCurb.material = roleMaterial("street-curb-material", CABLE_FRESH, 0.22);
+    streetCurb.isPickable = false;
+    streetCurb.alwaysSelectAsActiveMesh = true;
+    streetCurb.thinInstanceSetBuffer("matrix", matrixBuffer(streetCurbMatrices), 16, true);
+
+    /* ---- city blocks: the massing the wide views read (block > building > floors) -------- */
+    var blockMatrices = [];
+    var blockColors = [];
+    var massMatrices = [];
+    var massColors = [];
+    for (var cityBlock of doc.blocks || []) {
+      var blockPlot = cityBlock.plot;
+      var blockTint = color(FAMILY_COLORS[cityBlock.family] || FAMILY_COLORS.block, 0.5);
+      blockMatrices.push(
+        BABYLON.Matrix.Translation(
+          blockPlot.x + blockPlot.w / 2,
+          0.45,
+          blockPlot.z + blockPlot.d / 2
+        ).multiply(BABYLON.Matrix.Scaling(blockPlot.w, 0.9, blockPlot.d))
+      );
+      blockColors.push(blockTint.r, blockTint.g, blockTint.b, 1);
+      /* the aggregate massing: the block's shaded volume, visible where buildings are dots */
+      var massHeight = cityBlock.height * 0.55 + 1.2;
+      var massTint = color(FAMILY_COLORS[cityBlock.family] || FAMILY_COLORS.block, 0.82);
+      massMatrices.push(
+        BABYLON.Matrix.Translation(
+          blockPlot.x + blockPlot.w / 2,
+          0.9 + massHeight / 2,
+          blockPlot.z + blockPlot.d / 2
+        ).multiply(BABYLON.Matrix.Scaling(blockPlot.w * 0.82, massHeight, blockPlot.d * 0.82))
+      );
+      massColors.push(massTint.r, massTint.g, massTint.b, 1);
+    }
+    var blockBaseMesh = BABYLON.MeshBuilder.CreateBox("block-bases", { size: 1 }, scene);
+    blockBaseMesh.material = roleMaterial("block-base-material");
+    blockBaseMesh.isPickable = false;
+    blockBaseMesh.alwaysSelectAsActiveMesh = true;
+    blockBaseMesh.receiveShadows = true;
+    blockBaseMesh.thinInstanceSetBuffer("matrix", matrixBuffer(blockMatrices), 16, true);
+    blockBaseMesh.thinInstanceSetBuffer("color", blockColors, 4, true);
+
+    var massMesh = BABYLON.MeshBuilder.CreateBox("massing-blocks", { size: 1 }, scene);
+    massMesh.material = roleMaterial("massing-blocks-material");
+    massMesh.isPickable = false;
+    massMesh.alwaysSelectAsActiveMesh = true;
+    massMesh.receiveShadows = true;
+    massMesh.thinInstanceSetBuffer("matrix", matrixBuffer(massMatrices), 16, true);
+    massMesh.thinInstanceSetBuffer("color", massColors, 4, true);
 
     function makeLoop(points) {
       /* a closed polyline with arc-length parameterization: where a tram is at fraction t */
@@ -741,7 +1073,7 @@
 
     /* ---- L2 details: name labels and the towers' checksum displays ------------------------ */
     var labelMeshes = [];
-    function label(text, position, width, height, accent) {
+    function label(text, position, width, height, accent, priority) {
       if (labelMeshes.length > 140) return null;
       var plane = BABYLON.MeshBuilder.CreatePlane(
         "label-" + labelMeshes.length,
@@ -754,10 +1086,8 @@
         scene,
         true
       );
-      texture.hasAlpha = true;
       var brush = texture.getContext();
-      brush.clearRect(0, 0, 256, 64);
-      brush.fillStyle = "rgba(10, 15, 20, 0.8)";
+      brush.fillStyle = "#0e141c"; /* opaque plate: overlapping signs never ghost through */
       brush.fillRect(0, 0, 256, 64);
       brush.strokeStyle = accent || "rgba(120, 150, 170, 0.6)";
       brush.lineWidth = 3;
@@ -769,18 +1099,31 @@
       brush.fillText(text.slice(0, 26), 128, 33, 244);
       texture.update(false);
       var material = new BABYLON.StandardMaterial("label-" + labelMeshes.length + "-material", scene);
+      /* the opaque plate lives in the texture, so the texture is the surface *and* the light:
+       * put it on diffuse (the dark plate + accent + text is the face) and on emissive at full
+       * white (self-lit signage that reads at every LOD and under any rig light). An
+       * emissive-only material whose emissiveColor is left at its default black renders the
+       * sign black — invisible on the dark arena floor — which is how the signs vanished. */
+      material.diffuseTexture = texture;
       material.emissiveTexture = texture;
-      material.opacityTexture = texture;
-      material.backFaceCulling = false;
+      material.emissiveColor = new BABYLON.Color3(1, 1, 1);
+      material.specularColor = new BABYLON.Color3(0, 0, 0);
+      material.backFaceCulling = true; /* the back is the mirrored text — it must never show */
       material.disableLighting = true;
       plane.material = material;
       plane.position = position;
-      plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y;
+      /* screen-aligned signage: the render loop aims every label at the camera with the
+       * camera's own screen axes, so the text is upright and unmirrored at every pitch/yaw
+       * (a Y-billboard alone reads backwards from steep angles) */
+      plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
       plane.isPickable = false;
+      plane.metadata = { halfW: width / 2, halfH: height / 2, priority: priority || 0 };
       labelMeshes.push(plane);
       return plane;
     }
 
+    var signPlanes = []; /* name signage: shown from L1 up (the city's signs) */
+    var detailPlanes = []; /* checksum displays: L2 anatomy detail */
     var important = built.cellList
       .filter(function (cell) {
         return cell.family === "tower" || cell.family === "monument";
@@ -789,27 +1132,34 @@
     for (var named of important) {
       var name = named.path || named.name || named.id;
       if (named.family === "tower") {
-        label(
-          name,
-          new BABYLON.Vector3(named.plot.x, named.height + 1.9, named.plot.z),
-          8,
-          1.6,
-          "#8fd8ff"
+        signPlanes.push(
+          label(
+            name,
+            new BABYLON.Vector3(named.plot.x, named.height + 1.9, named.plot.z),
+            8,
+            1.6,
+            "#8fd8ff"
+          )
         );
-        label(
-          named.checksum ? String(named.checksum) : "checksum —",
-          new BABYLON.Vector3(named.plot.x, named.height + 0.9, named.plot.z),
-          5.4,
-          1.2,
-          named.checksum ? "#2fd9c0" : "#5b6b78"
+        detailPlanes.push(
+          label(
+            named.checksum ? String(named.checksum) : "checksum —",
+            new BABYLON.Vector3(named.plot.x, named.height + 0.9, named.plot.z),
+            5.4,
+            1.2,
+            named.checksum ? "#2fd9c0" : "#5b6b78",
+            1
+          )
         );
       } else {
-        label(
-          name,
-          new BABYLON.Vector3(named.plot.x, named.height + 1.3, named.plot.z),
-          8,
-          1.6,
-          "#d8bf8a"
+        signPlanes.push(
+          label(
+            name,
+            new BABYLON.Vector3(named.plot.x, named.height + 1.3, named.plot.z),
+            8,
+            1.6,
+            "#d8bf8a"
+          )
         );
       }
     }
@@ -822,24 +1172,36 @@
     }
     var districts = group("districts");
     var buildings = group("buildings");
+    var massing = group("massing");
     var cables = group("cables");
+    var labels = group("labels");
     var details = group("details");
     for (var tileBand of ["header", "index", "cells"]) tileMeshes[tileBand].parent = districts;
     baseMesh.parent = districts;
+    rimMesh.parent = districts;
+    streetRoad.parent = districts;
+    streetDash.parent = districts;
+    streetCurb.parent = districts;
+    blockBaseMesh.parent = districts;
+    massMesh.parent = massing;
     if (ringRoad) ringRoad.parent = districts;
     for (var role of Object.keys(roleMeshes)) roleMeshes[role].parent = buildings;
     beaconMesh.parent = buildings;
     crownMesh.parent = buildings;
     voidMesh.parent = buildings;
     graveMesh.parent = buildings;
-    if (tramMesh) tramMesh.parent = buildings;
-    if (dashMesh) dashMesh.parent = buildings;
-    if (curbMesh) curbMesh.parent = buildings;
+    if (tramMesh) tramMesh.parent = districts;
+    if (dashMesh) dashMesh.parent = districts;
+    if (curbMesh) curbMesh.parent = districts;
     baseTraces.parent = cables;
     freshTraces.parent = cables;
     staleTraces.parent = cables;
-    for (var plane of labelMeshes) plane.parent = details;
+    padMesh.parent = cables;
+    for (var plane of signPlanes) plane.parent = labels;
+    for (var plane of detailPlanes) plane.parent = details;
     built.labels = labelMeshes;
+    built.signs = signPlanes;
+    built.detailLabels = detailPlanes;
 
     /* selection: a glowing plate and an edge box on the picked building */
     var selection = new BABYLON.TransformNode("selection", scene);
@@ -911,8 +1273,8 @@
       scene.fogDensity = 0.0022;
       scene.fogColor = new BABYLON.Color3(0.03, 0.04, 0.055);
 
-      var glow = new BABYLON.GlowLayer("glow", scene, { mainTextureFixedSize: 512, blurKernelSize: 42 });
-      glow.intensity = 0.8;
+      var glow = new BABYLON.GlowLayer("glow", scene, { mainTextureFixedSize: 512, blurKernelSize: 28 });
+      glow.intensity = 0.45;
 
       var fill = new BABYLON.HemisphericLight("fill", new BABYLON.Vector3(0.35, 1, -0.25), scene);
       fill.intensity = 0.9;
@@ -923,11 +1285,22 @@
       var shadows = new BABYLON.ShadowGenerator(2048, key);
       shadows.useBlurExponentialShadowMap = true;
       shadows.blurKernel = 24;
-      shadows.setDarkness(0.35);
+      shadows.setDarkness(0.5); /* real side shading and base shadows: the city must have depth */
 
       var world = buildWorld(scene, doc, glow);
       for (var mesh of scene.meshes) {
-        if (mesh.name.indexOf("floors-") === 0) shadows.addShadowCaster(mesh);
+        /* every volume casts: buildings, caps, and the L0 block massing */
+        if (
+          mesh.name.indexOf("floors-") === 0 ||
+          mesh.name === "beacons" ||
+          mesh.name === "crowns" ||
+          mesh.name === "massing-blocks"
+        ) {
+          shadows.addShadowCaster(mesh);
+        }
+        if (mesh.name.indexOf("tiles-") === 0 || mesh.name === "plot-bases" || mesh.name === "plot-rims") {
+          mesh.receiveShadows = true;
+        }
       }
 
       var camera = new BABYLON.UniversalCamera("rig", new BABYLON.Vector3(0, 170, 0), scene);
@@ -935,9 +1308,8 @@
       camera.minZ = 0.5;
       camera.maxZ = 6000;
       var rig = new Rig(camera, canvas);
-      var bounds = world.bounds;
-      rig.state.x = rig.goal.x = bounds.x;
-      rig.state.z = rig.goal.z = bounds.z;
+      rig.state.x = rig.goal.x = world.centroid.x;
+      rig.state.z = rig.goal.z = world.centroid.z;
       rig.apply();
 
       var listeners = [];
@@ -974,7 +1346,8 @@
       }
 
       function targetOf(pose) {
-        var target = { x: bounds.x, z: bounds.z };
+        /* "world-center" is the content centroid: the city, never a dead corner */
+        var target = { x: world.centroid.x, z: world.centroid.z };
         if (pose.target === "first-tower") {
           var tower = world.cellList.find(function (cell) {
             return cell.family === "tower";
@@ -1005,7 +1378,7 @@
           var target = targetOf(pose);
           var altitude =
             pose.framing === "world"
-              ? rig.fitRect(bounds, pose.pitch, pose.yaw)
+              ? rig.fitRect(world.content, target, pose.pitch, pose.yaw, pose.mode)
               : pose.altitude;
           rig.go(
             {
@@ -1017,6 +1390,20 @@
               mode: pose.mode
             },
             instant !== false
+          );
+        },
+        setView: function (view) {
+          /* a raw camera view: the deterministic tool for proof captures at extreme angles */
+          rig.go(
+            {
+              x: view.x === undefined ? world.centroid.x : view.x,
+              z: view.z === undefined ? world.centroid.z : view.z,
+              altitude: view.altitude === undefined ? 60 : view.altitude,
+              pitch: view.pitch === undefined ? 55 : view.pitch,
+              yaw: view.yaw === undefined ? 40 : view.yaw,
+              mode: view.mode || "perspective"
+            },
+            true
           );
         },
         setMotion: function (on) {
@@ -1155,6 +1542,17 @@
       engine.runRenderLoop(function () {
         var dt = Math.min(0.1, engine.getDeltaTime() / 1000);
         rig.step(dt);
+        /* labels are screen-aligned signage: they take the camera's own rotation, so their
+         * text is upright and unmirrored from every pitch and yaw the rig can reach. The
+         * 180° turn about the plane's own Y points the plane's readable face (CreatePlane
+         * draws its texture for the +Z face) at the camera — the camera's own +Z is its view
+         * direction, so a bare camera rotation always shows the mirrored back face. */
+        var cameraRotation = camera.getWorldMatrix().clone();
+        cameraRotation.setTranslationFromFloats(0, 0, 0);
+        var labelFacing = global.BABYLON.Quaternion.FromRotationMatrix(cameraRotation).multiply(
+          global.BABYLON.Quaternion.RotationAxis(global.BABYLON.Axis.Y, Math.PI)
+        );
+        for (var labelPlane of world.labels) labelPlane.rotationQuaternion = labelFacing;
         /* labels hold their screen size through the zoom: one scale for the whole LOD range */
         var labelScale = clamp(rig.state.altitude / 46, 0.42, 1.5);
         if (Math.abs(labelScale - lastLabelScale) > 0.01) {
@@ -1163,14 +1561,22 @@
             labelPlane.scaling.x = labelPlane.scaling.y = labelScale;
           }
         }
+        /* overlapping signs are culled nearest-first (name signs before checksum displays):
+         * every label that draws must read cleanly, never over the ghost of another */
         if (motion && tramsMoving()) {
           clock += dt;
           updateTrams();
         }
         var level = rig.lod();
-        world.groups.buildings.setEnabled(true);
+        world.groups.buildings.setEnabled(level !== LOD_LEVELS[0]);
+        world.groups.massing.setEnabled(level === LOD_LEVELS[0]);
         world.groups.cables.setEnabled(level !== LOD_LEVELS[0]);
+        /* name signage is the city's identity: it reads at every level and every pitch/yaw
+         * (the billboard keeps it upright), so the L0 massing overview carries the names too —
+         * the round-3 hero shows shaded massing *and* the floating signs together */
+        world.groups.labels.setEnabled(true);
         world.groups.details.setEnabled(level === LOD_LEVELS[2] || level === LOD_LEVELS[3]);
+        updateLabels(labelScale);
         if (level.name !== lastLevel) {
           lastLevel = level.name;
           if (global.RXFWorldHud) global.RXFWorldHud.lod(level);
@@ -1181,10 +1587,56 @@
         }
       });
 
+      function updateLabels(scale) {
+        /* projection-based overlap culling: screen rectangles in priority then distance order */
+        var renderWidth = engine.getRenderWidth() || 1;
+        var renderHeight = engine.getRenderHeight() || 1;
+        var transform = scene.getTransformMatrix();
+        var viewport = camera.viewport.toGlobal(renderWidth, renderHeight);
+        var ordered = world.labels.slice().sort(function (a, b) {
+          if (a.metadata.priority !== b.metadata.priority) return a.metadata.priority - b.metadata.priority;
+          var da = a.position.subtract(camera.position).lengthSquared();
+          var db = b.position.subtract(camera.position).lengthSquared();
+          return da - db;
+        });
+        var taken = [];
+        for (var plane of ordered) {
+          if (!world.groups.labels.isEnabled() && !world.groups.details.isEnabled()) {
+            plane.setEnabled(false);
+            continue;
+          }
+          if (plane.parent && !plane.parent.isEnabled()) {
+            plane.setEnabled(false);
+            continue;
+          }
+          var screen = global.BABYLON.Vector3.Project(
+            plane.position,
+            global.BABYLON.Matrix.Identity(),
+            transform,
+            viewport
+          );
+          var distance = plane.position.subtract(camera.position).length() || 1;
+          var pixelPerUnit = renderHeight / (2 * distance * Math.tan(FOV / 2));
+          var halfW = plane.metadata.halfW * scale * pixelPerUnit;
+          var halfH = plane.metadata.halfH * scale * pixelPerUnit;
+          var rect = [screen.x - halfW, screen.y - halfH, screen.x + halfW, screen.y + halfH];
+          var hidden = screen.z < 0 || screen.z > 1;
+          if (!hidden) {
+            for (var other of taken) {
+              if (rect[0] < other[2] && rect[2] > other[0] && rect[1] < other[3] && rect[3] > other[1]) {
+                hidden = true;
+                break;
+              }
+            }
+          }
+          plane.setEnabled(!hidden);
+          if (!hidden) taken.push(rect);
+        }
+      }
+
       function tramsMoving() {
         return Boolean(world.tramMesh && world.trams && world.trams.length);
-      }
-      function updateTrams() {
+      }      function updateTrams() {
         /* the tram units ride the ring road: one lap per TRAM_LAP seconds, formation intact */
         world.tramMesh.thinInstanceSetBuffer(
           "matrix",
