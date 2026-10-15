@@ -65,6 +65,8 @@ class RefKind(enum.IntEnum):
 
     Owner = 6
 
+    Doc = 7
+
 class Binding(enum.IntEnum):
     """Whether a reference must be set."""
 
@@ -162,3 +164,39 @@ class FieldFlags(enum.Flag):
     Children = 16
 
     Inverse = 32
+
+class DocKind(enum.IntEnum):
+    """What a doc is: a docstring, a topic, a todo."""
+
+    Narrates = 0
+
+    Topic = 1
+
+    Todo = 2
+
+class DocStatus(enum.IntEnum):
+    """The state word of a todo."""
+
+    Open = 0
+
+    Resolved = 1
+
+class DocCodec(enum.IntEnum):
+    """The codec of the text of a doc."""
+
+    Lz4 = 0
+
+    Raw = 1
+
+class DocRole(enum.IntEnum):
+    """Why a doc sits on an object or topic."""
+
+    Narrates = 0
+
+    Attaches = 1
+
+    References = 2
+
+    Parent = 3
+
+    Related = 4

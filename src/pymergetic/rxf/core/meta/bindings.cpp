@@ -80,6 +80,16 @@ void bind_meta(nb::module_ &, nb::class_<Image> &image) {
                 return out;
             },
             nb::arg("handle"), "The fields of an object as (name, text); zero and unset values are left out.")
+        .def(
+            "doc_text",
+            [](const Image &self, uint64_t handle) {
+                meta::Types types(&self);
+                std::string out, error;
+                if (self.arena().cell(handle) == nullptr) throw ArenaError("BadHandle");
+                if (meta::doc_text(types, handle, &out, &error) != object::Status::Ok) throw DeltaError(error);
+                return out;
+            },
+            nb::arg("handle"), "The text of a Doc object, decompressed on demand (docs/22).")
         .def("type_name",
              [](const Image &self, uint64_t handle) -> std::optional<std::string> {
                  meta::Types types(&self);

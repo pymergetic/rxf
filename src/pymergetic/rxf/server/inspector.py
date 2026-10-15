@@ -333,6 +333,95 @@ class Inspector:
     def delta(self) -> str:
         return self.image.export()
 
+    # ---- documentation (docs/22) ----------------------------------------------------------------
+
+    def _doc_row(self, handle: int, role: int | None, source: int | None) -> dict[str, Any]:
+        """One doc edge: the doc it names, the role it carries, and the doc's text face."""
+        image = self.image
+        fields = dict(image.fields(handle))
+        return {
+            "doc": image.path(handle),
+            "doc_handle": handle,
+            "role": None if role is None else image.path(role),
+            "source": None if source is None else image.path(source),
+            "kind": fields.get("kind", "DocKind.Narrates"),
+            "status": fields.get("status", "DocStatus.Open"),
+            "codec": fields.get("codec", "DocCodec.Lz4"),
+            "text": image.doc_text(handle),
+        }
+
+    def docs(self, path: str) -> list[dict[str, Any]]:
+        """The docs an object carries: its RefKind.Doc placements, with the text of each doc
+        decompressed on demand. The text face reads; it never writes (see `set_doc_text`)."""
+        image = self.image
+        handle = self.handle(path)
+        got = image.get(handle)
+        return [
+            self._doc_row(target, role, handle)
+            for target, role, _, kind, _ in got["refs"]
+            if kind == int(RefKind.Doc) and target != _NONE and image.live(target)
+        ]
+
+    def placements(self, path: str) -> list[dict[str, Any]]:
+        """The placements of a doc or topic: every RefKind.Doc reference that names it, with the
+        object or topic it sits on and the role that says why (docs/22)."""
+        image = self.image
+        handle = self.handle(path)
+        found: list[dict[str, Any]] = []
+        for source in range(image.handle_count):
+            if not image.live(source) or source == HANDLE_ROOT:
+                continue
+            for target, role, _, kind, _ in image.get(source)["refs"]:
+                if kind == int(RefKind.Doc) and target == handle:
+                    found.append(
+                        {
+                            "source": image.path(source),
+                            "role": None if role is None else image.path(role),
+                        }
+                    )
+        return found
+
+    def todos(self) -> list[dict[str, Any]]:
+        """Every open DocKind.Todo across the image, with its text and where it is placed. A todo
+        is a fact with a state: resolving one is a mutation of the image, not an edit here."""
+        image = self.image
+        out: list[dict[str, Any]] = []
+        for handle in range(image.handle_count):
+            if not image.live(handle) or image.type_name(handle) != "Doc":
+                continue
+            fields = dict(image.fields(handle))
+            if fields.get("kind", "DocKind.Narrates") != "DocKind.Todo":
+                continue
+            status = fields.get("status", "DocStatus.Open")
+            if status != "DocStatus.Open":
+                continue
+            out.append(
+                {
+                    "path": image.path(handle),
+                    "status": status,
+                    "text": image.doc_text(handle),
+                    "placed_on": [
+                        image.path(source)
+                        for source in range(image.handle_count)
+                        if image.live(source)
+                        and source != HANDLE_ROOT
+                        and any(
+                            kind == int(RefKind.Doc) and target == handle
+                            for target, _, _, kind, _ in image.get(source)["refs"]
+                        )
+                    ],
+                }
+            )
+        return out
+
+    def set_doc_text(self, path: str, text: str) -> None:
+        """Docs are edited where every fact is edited: by a delta applied to the image. The
+        inspector reads and refuses to write (docs/22: "a wrong docstring is a wrong fact")."""
+        raise NotImplementedError(
+            f"the inspector is read-only: edit the text of {path} with a delta "
+            "(<rxf:set> of the doc payload, or the editor's doc face)"
+        )
+
     # ---- the arena ------------------------------------------------------------------------------
 
     def header(self) -> dict[str, Any]:

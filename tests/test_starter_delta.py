@@ -13,9 +13,9 @@ from .support import resolved
 STARTER = Path(__file__).parents[1] / "starter"
 
 # Bump these two together with the files in starter/, never one alone.
-DIGEST = "2aabe7f701b3904efb83559bd54c04e418e1863eb7583e493f9b2f2a5f2f1cf8"
+DIGEST = "d7a919571f0975c022eb75b31ebf3fe41865096db48458331d43d3e8cd97fcfb"
 DELTA_DIGEST = "65cc1edb6a7ac4cef25c295158d0b4a2a89ffa102ea97cfeea8ce21fabed497b"
-OBJECTS = 17842
+OBJECTS = 17863
 
 
 def test_the_starter_replays_and_checks_clean(capsys):
@@ -99,8 +99,9 @@ def test_the_starter_shortens_paths_with_aliases():
 
 
 def test_the_root_holds_only_what_a_module_needs_to_exist():
-    # The ground (made by the core), the two object kinds of the module system (`Module`,
-    # `Alias`) with the enumerations of their fields, the primitive types, and the first module.
+    # The ground (made by the core), the object kinds of the module system (`Module`, `Alias`)
+    # and of the documentation (`Doc`) with the enumerations of their fields, the primitive
+    # types, and the first module.
     image = tree.load(STARTER)
     names = {image.path(h) for h in image.children(0)}
     assert names == {
@@ -108,6 +109,7 @@ def test_the_root_holds_only_what_a_module_needs_to_exist():
         "NodeKind", "RefKind", "Binding", "OwnerKind", "Mobility",
         "Form", "TypeFlags", "FieldFlags",
         "Alias", "AliasFlags", "Module", "ModuleCategory", "ModuleFlags", "pymergetic",
+        "Doc", "DocKind", "DocStatus", "DocCodec", "DocRole",
         "bool", "void", "uint8_t", "uint16_t", "int8_t", "int16_t", "int32_t", "int64_t",
         "float", "double", "Role",
     }  # fmt: skip

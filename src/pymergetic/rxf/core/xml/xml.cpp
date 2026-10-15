@@ -6,6 +6,7 @@
 
 #include <pugixml.hpp>
 
+#include <pymergetic/rxf/core/doc/codec.hpp>
 #include <pymergetic/rxf/core/kinds/kinds.hpp>
 
 namespace pymergetic::rxf::core::xml {
@@ -140,19 +141,32 @@ private:
 
     bool object(const pugi::xml_node &e, const std::string &parent, bool top, int depth) {
         if (depth > kMaxDepth) return fail(e, "elements nest too deeply");
+        // <rxf:doc> is the docstring of a Doc object: its text is its content, its role says
+        // where it is placed (docs/22). The type name <Doc> says the same thing. Everything
+        // else is an ordinary object element.
+        const bool is_doc = std::string(e.name()) == "rxf:doc" || std::string(e.name()) == kinds::kDocType;
         Create op;
-        op.type = e.name();
+        op.type = is_doc ? kinds::kDocType : e.name();
         op.parent = top && default_parent_ != nullptr ? *default_parent_ : parent;
-        if (is_format(op.type) || meta::is_reserved_element(op.type) || op.type.find(':') != std::string::npos)
+        if (!is_doc && (is_format(op.type) || meta::is_reserved_element(op.type) || op.type.find(':') != std::string::npos))
             return fail(e, "unknown element <" + op.type + ">");
         std::vector<std::pair<std::string, std::string>> attrs;
         if (!attributes(e, &attrs)) return false;
         bool named = false;
+        uint32_t codec = PYMERGETIC_RXF_DOC_CODEC_LZ4;
+        std::string body;
         for (const auto &a : attrs) {
             const std::string &k = a.first;
             if (k == "name") {
                 op.name = a.second;
                 named = true;
+            } else if (is_doc && k == "role") {
+                // The placement is written on the object that holds the doc; see the children below.
+                if (top) return fail(e, "a role places a doc on the object that holds it; nest <rxf:doc> in that object");
+            } else if (is_doc && k == "codec") {
+                if (!by_path(kinds::kDocCodecType, kinds::doc_codecs, a.second, &codec)) return fail(e, "unknown codec " + a.second);
+            } else if (is_doc && k == "rxf:data") {
+                return fail(e, "the text of a doc is its content, not rxf:data");
             } else if (k == "rxf:parent") {
                 if (!top) return fail(e, "rxf:parent is only for top-level elements");
                 op.parent = a.second;
@@ -183,15 +197,50 @@ private:
         if (!named) return fail(e, "<" + op.type + "> needs a name");
         const std::string path = op.parent.empty() ? op.name : op.parent + "." + op.name;
         std::vector<pugi::xml_node> nested;
+        std::vector<RefSpec> placements;
         for (pugi::xml_node c : e.children()) {
+            if (c.type() == pugi::node_pcdata) {
+                if (!is_doc) return fail(e, "text is not allowed here");
+                body += c.value();
+                continue;
+            }
             if (!content(c)) return false;
-            if (std::string(c.name()) == "rxf:ref") {
+            const std::string name = c.name();
+            if (name == "rxf:ref") {
                 RefSpec r;
                 if (!ref(c, &r)) return false;
                 op.refs.push_back(std::move(r));
+            } else if (name == "rxf:doc" || name == kinds::kDocType) {
+                // A doc nested in an object is placed on it when it carries a role: one edge,
+                // written on the child, said once on the parent as a RefKind.Doc reference.
+                const pugi::xml_attribute role = c.attribute("role");
+                if (role && role.value()[0] != '\0') {
+                    const char *placed = c.attribute("name").value();
+                    if (placed[0] == '\0') return fail(c, "<rxf:doc> needs a name");
+                    RefSpec r;
+                    r.kind = PYMERGETIC_RXF_REF_DOC;
+                    r.role = role.value();
+                    r.target = path + "." + placed;
+                    placements.push_back(std::move(r));
+                }
+                nested.push_back(c);
             } else {
                 nested.push_back(c);
             }
+        }
+        op.refs.insert(op.refs.begin(), placements.begin(), placements.end());
+        if (is_doc) {
+            // The pin (docs/22): a doc with an empty body is not written in DocCodec.Raw;
+            // the import refuses it rather than storing a degenerate payload.
+            if (codec == PYMERGETIC_RXF_DOC_CODEC_RAW && body.empty())
+                return fail(e, "a doc with an empty body is not written in DocCodec.Raw");
+            const doc::Stored stored = doc::store(codec, body);
+            if (stored.codec != PYMERGETIC_RXF_DOC_CODEC_LZ4) {
+                const std::string word = kinds::path_of(kinds::kDocCodecType, kinds::doc_codecs, stored.codec);
+                if (word.empty()) return fail(e, "the text of the doc is stored in an unknown codec");
+                op.attrs.push_back({"codec", word});
+            }
+            op.attrs.push_back({meta::kDataAttr, meta::hex_of(stored.bytes.data(), stored.bytes.size())});
         }
         out_->ops.push_back(std::move(op));
         for (const pugi::xml_node &c : nested)
@@ -374,8 +423,28 @@ private:
         if (c.parent.empty()) keep = 0;
         open_.resize(keep);
         const bool nested = !open_.empty();
-        pugi::xml_node n = nested ? open_.back().node.append_child(c.type.c_str()) : root_.append_child(c.type.c_str());
+        const std::string path = c.parent.empty() ? c.name : c.parent + "." + c.name;
+        const bool is_doc = c.type == kinds::kDocType;
+        // A doc is written as <rxf:doc>: its text is its content (docs/22), the one object
+        // element that is not spelled with its type name.
+        const char *element = is_doc ? "rxf:doc" : c.type.c_str();
+        pugi::xml_node n = nested ? open_.back().node.append_child(element) : root_.append_child(element);
         if (!attribute(n, "name", c.name)) return false;
+        std::string body;
+        if (is_doc) {
+            // The text of a doc is its content, decoded from the tail its codec words name.
+            uint32_t codec = PYMERGETIC_RXF_DOC_CODEC_LZ4;
+            std::vector<uint8_t> tail;
+            for (const Attr &a : c.attrs) {
+                if (a.name == "codec" && !by_path(kinds::kDocCodecType, kinds::doc_codecs, a.value, &codec))
+                    return bad("the doc " + c.name + " is written in an unknown codec " + a.value);
+                if (a.name == meta::kDataAttr && !meta::from_hex(a.value, &tail)) return bad("the text of the doc " + c.name + " is not hexadecimal");
+            }
+            std::string problem;
+            if (!doc::unstore(codec, tail.data(), tail.size(), &body, &problem)) return bad("the text of the doc " + c.name + " does not decode: " + problem);
+            if (body.find('\0') != std::string::npos) return bad("a value contains a NUL byte");
+            if (nested && !fold(n, path)) return false;
+        }
         if (!nested) {
             if (default_parent_ != nullptr && c.parent != *default_parent_) return bad(c.name + " sits in " + c.parent + ", not in " + *default_parent_);
             if (default_parent_ == nullptr && !c.parent.empty() && !attribute(n, "rxf:parent", c.parent)) return false;
@@ -397,10 +466,29 @@ private:
             if (k.empty()) return bad(c.name + " has the unknown mobility " + std::to_string(c.mobility));
             n.append_attribute("rxf:mobility") = k.c_str();
         }
-        for (const Attr &a : c.attrs)
+        for (const Attr &a : c.attrs) {
+            if (is_doc && a.name == meta::kDataAttr) continue; // the text is the content of <rxf:doc>
             if (!field(n, a, c.type)) return false;
+        }
+        if (is_doc && !body.empty()) n.append_child(pugi::node_pcdata).set_value(body.c_str());
         if (!write_refs(n, c.refs)) return false;
-        open_.push_back({c.parent.empty() ? c.name : c.parent + "." + c.name, n});
+        open_.push_back({path, n});
+        return true;
+    }
+
+    /* The placement of a doc child is written as its role attribute: one edge, said once.
+     * The placement is the first reference of the object that holds the doc; a placement that
+     * this cannot say that way (its index or binding says more) stays a <rxf:ref>. */
+    bool fold(pugi::xml_node n, const std::string &path) {
+        pugi::xml_node holder = open_.back().node;
+        pugi::xml_node first = holder.child("rxf:ref");
+        if (!first) return true;
+        const char *role = first.attribute("role").value();
+        if (role[0] == '\0' || first.attribute("index") || first.attribute("binding")) return true;
+        if (std::string(first.attribute("kind").value()) != kinds::path_of(kinds::kRefKindType, kinds::ref_kinds, PYMERGETIC_RXF_REF_DOC)) return true;
+        if (std::string(first.attribute("target").value()) != path) return true;
+        if (!attribute(n, "role", role)) return false;
+        holder.remove_child(first);
         return true;
     }
 

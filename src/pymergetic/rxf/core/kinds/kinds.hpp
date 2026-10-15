@@ -33,6 +33,10 @@ extern const Table mobilities;
 extern const Table forms;
 extern const Table type_flags;
 extern const Table field_flags;
+extern const Table doc_kinds;
+extern const Table doc_statuses;
+extern const Table doc_codecs;
+extern const Table doc_roles;
 
 /* The name of a value, nullptr when the table has none. */
 const char *name_of(Table table, uint32_t value);
@@ -48,6 +52,13 @@ inline constexpr const char *kMobilityType = "Mobility";
 inline constexpr const char *kFormType = "Form";
 inline constexpr const char *kTypeFlagsType = "TypeFlags";
 inline constexpr const char *kFieldFlagsType = "FieldFlags";
+inline constexpr const char *kDocKindType = "DocKind";
+inline constexpr const char *kDocStatusType = "DocStatus";
+inline constexpr const char *kDocCodecType = "DocCodec";
+inline constexpr const char *kDocRoleType = "DocRole";
+
+/* The built-in type of a doc: its text, with the codec of that text (docs/22). */
+inline constexpr const char *kDocType = "Doc";
 
 /* An enumeration the ground carries as a Type object, so that Type and Field payloads are written by name. */
 struct GroundEnum {

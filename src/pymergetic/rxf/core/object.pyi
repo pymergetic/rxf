@@ -134,6 +134,9 @@ class Image:
         The fields of an object as (name, text); zero and unset values are left out.
         """
 
+    def doc_text(self, handle: int) -> str:
+        """The text of a Doc object, decompressed on demand (docs/22)."""
+
     def type_name(self, arg: int, /) -> str | None: ...
 
     def layout(self, type: int) -> dict[str, Any]:

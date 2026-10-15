@@ -36,6 +36,7 @@ constexpr Name kRefKinds[] = {
     {"Import", PYMERGETIC_RXF_REF_IMPORT},
     {"Implementation", PYMERGETIC_RXF_REF_IMPLEMENTATION},
     {"Owner", PYMERGETIC_RXF_REF_OWNER},
+    {"Doc", PYMERGETIC_RXF_REF_DOC},
 };
 
 constexpr Name kBindings[] = {
@@ -84,6 +85,30 @@ constexpr Name kFieldFlags[] = {
     {"Inverse", PYMERGETIC_RXF_FIELD_FLAG_INVERSE},
 };
 
+constexpr Name kDocKinds[] = {
+    {"Narrates", PYMERGETIC_RXF_DOC_KIND_NARRATES},
+    {"Topic", PYMERGETIC_RXF_DOC_KIND_TOPIC},
+    {"Todo", PYMERGETIC_RXF_DOC_KIND_TODO},
+};
+
+constexpr Name kDocStatuses[] = {
+    {"Open", PYMERGETIC_RXF_DOC_STATUS_OPEN},
+    {"Resolved", PYMERGETIC_RXF_DOC_STATUS_RESOLVED},
+};
+
+constexpr Name kDocCodecs[] = {
+    {"Lz4", PYMERGETIC_RXF_DOC_CODEC_LZ4},
+    {"Raw", PYMERGETIC_RXF_DOC_CODEC_RAW},
+};
+
+constexpr Name kDocRoles[] = {
+    {"Narrates", PYMERGETIC_RXF_DOC_ROLE_NARRATES},
+    {"Attaches", PYMERGETIC_RXF_DOC_ROLE_ATTACHES},
+    {"References", PYMERGETIC_RXF_DOC_ROLE_REFERENCES},
+    {"Parent", PYMERGETIC_RXF_DOC_ROLE_PARENT},
+    {"Related", PYMERGETIC_RXF_DOC_ROLE_RELATED},
+};
+
 constexpr GroundEnum kGroundEnums[] = {
     {kNodeKindType, Table(kNodeKinds), false},
     {kRefKindType, Table(kRefKinds), false},
@@ -93,6 +118,10 @@ constexpr GroundEnum kGroundEnums[] = {
     {kFormType, Table(kForms), false},
     {kTypeFlagsType, Table(kTypeFlags), true},
     {kFieldFlagsType, Table(kFieldFlags), true},
+    {kDocKindType, Table(kDocKinds), false},
+    {kDocStatusType, Table(kDocStatuses), false},
+    {kDocCodecType, Table(kDocCodecs), false},
+    {kDocRoleType, Table(kDocRoles), false},
 };
 
 } // namespace
@@ -105,6 +134,10 @@ const Table mobilities = kMobilities;
 const Table forms = kForms;
 const Table type_flags = kTypeFlags;
 const Table field_flags = kFieldFlags;
+const Table doc_kinds = kDocKinds;
+const Table doc_statuses = kDocStatuses;
+const Table doc_codecs = kDocCodecs;
+const Table doc_roles = kDocRoles;
 
 const char *name_of(Table table, uint32_t value) {
     for (const Name &entry : table)
@@ -135,7 +168,7 @@ bool value_of_path(const char *type, Table table, std::string_view text, uint32_
 }
 
 bool is_ground_name(std::string_view name) {
-    if (name == "uint32_t" || name == "uint64_t" || name == "Enumerator") return true;
+    if (name == "uint32_t" || name == "uint64_t" || name == "Enumerator" || name == kDocType) return true;
     for (const GroundEnum &entry : kGroundEnums)
         if (name == entry.type) return true;
     return false;

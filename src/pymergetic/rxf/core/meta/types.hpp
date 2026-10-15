@@ -72,6 +72,7 @@ struct TypeInfo {
     std::vector<FieldInfo> fields;  // the values of the payload, by offset, then name
     std::vector<FieldInfo> members; // the declared relations (Children, Inverse): no payload, by name
     bool variable() const { return (flags & kTypeVariable) != 0; }
+    bool self_describing() const { return (flags & kTypeSelfDescribing) != 0; }
     bool bitset() const { return (flags & kTypeBitset) != 0; }
 };
 
@@ -112,6 +113,10 @@ struct Attr {
 
 /* Attribute of the raw or tail bytes of a payload. */
 inline constexpr const char *kDataAttr = "data";
+
+/* Hexadecimal text to bytes and back: how payload bytes sit in an attribute. */
+bool from_hex(const std::string &text, std::vector<uint8_t> *out);
+std::string hex_of(const uint8_t *p, uint64_t n);
 
 class Types {
 public:
@@ -186,13 +191,18 @@ struct Issue {
 };
 std::vector<Issue> check(Types &types);
 
+/* The text of a Doc object, decompressed on demand: the text face of a doc
+ * (docs/22). BadName when `doc` is not a Doc object, BadImage when its bytes
+ * are not the text its codec words name. */
+Status doc_text(Types &types, Handle doc, std::string *out, std::string *error);
+
 /* The paths that the ground fixes: Type, Field, uint32_t, uint64_t, Enumerator, the enumerations of the
  * format, and everything below them. */
 bool is_ground(const Image &image, Handle object);
 
 /* Aliases. A path in an object that starts with '@' names an Alias object of the enclosing Module:
  * `@roles.call.body` is the alias `roles` followed by `.call.body`. */
-constexpr char kAliasMark = '@';
+inline constexpr char kAliasMark = '@';
 /* The nearest Module that is `object` or above it, kNone when there is none. */
 Handle scope_of(const Image &image, Handle object);
 /* The handle at `text` as seen from `object`: an absolute path, or an alias path. kNone when it does not
@@ -227,7 +237,7 @@ std::vector<Handle> ordered(Types &types, std::vector<Handle> handles);
 /* The Children and Inverse fields of the type of the object, each with its objects. */
 std::vector<Member> members(Types &types, Handle object);
 /* The Alias is marked as a deliberate name of its module (the enumerator REEXPORT in its `flags`), used or not. */
-constexpr const char *kAliasReexport = "Reexport";
+inline constexpr const char *kAliasReexport = "Reexport";
 bool alias_reexported(Types &types, Handle alias);
 
 /* A name an XML element or attribute can carry: letters, digits, '_', '-', '.', not starting with a digit. */
