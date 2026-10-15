@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RXF tutor — the run-cell machine, stepped by hand</title>
+<link rel="stylesheet" href="/static/ui/ui.css">
+<link rel="stylesheet" href="/tutor/static/tutor.css">
+<script src="/static/ui/ui.js" defer></script>
+</head>
+<body>
+<!-- ui:shell:begin — the one shell of docs/21 (source of truth: server/static/ui/shell.html).
+     Every page inlines this block verbatim between the ui:shell markers; the page's own nav entry
+     is the ONE allowed rewrite: inactive entries are <a class="button" href="...">Label</a>, the
+     active entry is <a href="..." class="active" aria-current="page">Label</a>. The live slot
+     reads exactly `no image` until something better is known (docs/21: the attached session or
+     `no image`); server-side fills and static/ui/ui.js only ever replace that default.
+     tests/test_unified_ui.py pins every copy of this block to this file. -->
+<header class="shell">
+  <span class="mark">RXF</span>
+  <nav aria-label="Surfaces">
+    <a class="button" href="/">Inspector</a>
+    <a class="button" href="/model">Model</a>
+    <a class="button" href="/editor">Editor</a>
+    <a href="/tutor" class="active" aria-current="page">Tutor</a>
+    <a class="button" href="/world">World</a>
+  </nav>
+  <div class="live" id="live-slot">no image</div>
+</header>
+<!-- ui:shell:end -->
+<!-- the live slot fill seam: tutor.py consumes this marker at serve time and replaces the shell's
+     `no image` default with the attached session (server/static/ui/shell.html: server-side fills
+     only ever replace that default) -->
+<!--LIVE_SLOT-->
+<p class="face-note">Tutor = teach &middot; one face of the link (docs/21): Inspector reads, Editor edits,
+Model explains, World renders.</p>
+
+<main>
+<p class="eyebrow">The teaching piece</p>
+<h1>The run-cell machine, stepped by hand</h1>
+<p class="lede">The <a href="/model">model page</a> documents the machine; this page makes you run it.
+Every scenario below is the machine of <code>tests/host/smp_sched.c</code> in miniature — one tick at a
+time, with the arena state and the carriers side by side. Nothing here is random: every schedule is
+fixed, so a screen always shows the same thing. The facts on this page are pinned as
+<span class="pin">pin chips</span> against the same sources the model page cites
+(<code>tests/host/smp_*.h</code>, <code>core/ground.h</code>, <code>docs/20-EXECUTION-POLICY.md</code>);
+<code>tests/test_tutor.py</code> fails if any of them drifts.</p>
+<p>One rule runs through all of it: <b>suspension is a data property</b>
+<span class="cite" data-cite="S2">S2</span>. A suspended run is a cell in state
+<code>PARKED</code> — no thread, no stack, no future.</p>
+
+<!-- The tab bar: one docs/21 component (.tabs), used at both levels (the six parts here, the
+    second-level rows inside a long part). The parts below stay in the DOM on every tab (hidden
+    only, never removed — the pins of tests/test_tutor.py read them); the hash is the deep link
+    both ways: #bugs shows the Bugs tab, and clicking a tab writes its hash. -->
+<div class="tabs" role="tablist" aria-label="Tutor parts">
+  <button class="tab active" role="tab" aria-selected="true" aria-controls="simulator" data-tab="simulator">Simulator</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="bugs" data-tab="bugs">Bugs</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="sync-async" data-tab="sync-async">Sync/Async</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="refusals" data-tab="refusals">Refusals</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="exercises" data-tab="exercises">Exercises</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="facts" data-tab="facts">Facts</button>
+</div>
+
+<!-- ============================ 1 · the simulator ============================ -->
+<section id="simulator" role="tabpanel" tabindex="0">
+<p class="eyebrow">Part 1 &middot; <span class="cite" data-cite="S1">S1</span> <span class="cite" data-cite="S3">S3</span> <span class="cite" data-cite="S5">S5</span></p>
+<h2>The step-through simulator</h2>
+<p>Two runs, two carriers, one waker. Step tick by tick through claims, step seals, handoffs
+(<code>RUNNING &rarr; PARKED</code> CAS), checksum rewrites, parked and canceled states — and the two
+refusals the machine counts instead of retrying: a stale handle at the pop (ABA)
+<span class="cite" data-cite="S3">S3</span> and a losing claim CAS. The arena cells with their header
+words sit on the left; the carriers and the event log on the right.</p>
+<div class="stage" id="stage-walk">
+  <div class="controls">
+    <button data-act="step">step</button>
+    <button data-act="event">run to next event</button>
+    <button data-act="end">run to end</button>
+    <button data-act="play">run</button>
+    <button data-act="reset">reset</button>
+    <label class="muted">speed <input type="range" min="1" max="5" value="4"></label>
+  </div>
+  <div class="columns">
+    <div><div class="arena"></div><div class="counters"></div></div>
+    <div><div class="carriers"></div><div class="log" aria-live="polite"></div></div>
+  </div>
+</div>
+</section>
+
+<!-- ============================ 2 · the bugs ============================ -->
+<section id="bugs" role="tabpanel" tabindex="0">
+<p class="eyebrow">Part 2 &middot; <span class="cite" data-cite="S4">S4</span> <span class="cite" data-cite="S5">S5</span> <span class="cite" data-cite="S10">S10</span></p>
+<h2>The bugs as teaching examples</h2>
+<p>Two historical bugs, replayed. Toggle the buggy ordering, watch the failure appear on schedule;
+toggle it back and watch it disappear. The ordering is the only thing that changes between the two
+modes — the actors, the interleaving and the work are identical.</p>
+
+<h3 id="seal-after-cas">The seal after the CAS <span class="cite" data-cite="S5">S5</span></h3>
+<p>The step seal (the step count and the FNV checksum rewrite) must happen
+<b>inside the ownership window, before the handoff CAS</b>. A waker may requeue a
+<code>PARKED</code> run the moment the CAS lands <span class="cite" data-cite="S4">S4</span>, and the
+next owner verifies the cell at once — so a seal after the CAS leaves the old owner writing while the
+new owner checks. That is the CHECKSUM_BAD flake, and it was a real leak.</p>
+<div class="stage" id="stage-seal">
+  <div class="controls">
+    <button data-mode="fixed" class="on">fixed: seal before CAS</button>
+    <button data-mode="buggy">buggy: seal after CAS</button>
+    <button data-act="step">step</button>
+    <button data-act="event">run to next event</button>
+    <button data-act="end">run to end</button>
+    <button data-act="reset">reset</button>
+    <label class="muted">speed <input type="range" min="1" max="5" value="4"></label>
+  </div>
+  <div class="columns">
+    <div><div class="arena"></div><div class="counters"></div></div>
+    <div><div class="carriers"></div><div class="log" aria-live="polite"></div></div>
+  </div>
+</div>
+
+<h3 id="s4-claim-leak">The S4 compactor claim leak <span class="cite" data-cite="S4">S4</span> <span class="cite" data-cite="S7">S7</span></h3>
+<p>The channel sender resolves the frame and its data cell, finds its partner's cell being moved by
+the compactor (<code>CLAIM_MOVING</code>), and answers early. The rule is absolute: <b>every claim goes
+back before the answer</b> — the early return of the partner path included. A claim leaked there
+wedges the compactor's claim wait for good, because a claim is bounded only by the holder's next safe
+point <span class="cite" data-cite="S5">S5</span>.</p>
+<div class="stage" id="stage-claim">
+  <div class="controls">
+    <button data-mode="ok" class="on">fixed: release on every answer</button>
+    <button data-mode="leaky">buggy: leak the claim</button>
+    <button data-act="step">step</button>
+    <button data-act="event">run to next event</button>
+    <button data-act="end">run to end</button>
+    <button data-act="reset">reset</button>
+    <label class="muted">speed <input type="range" min="1" max="5" value="4"></label>
+  </div>
+  <div class="columns">
+    <div><div class="arena"></div><div class="counters"></div></div>
+    <div><div class="carriers"></div><div class="log" aria-live="polite"></div></div>
+  </div>
+</div>
+</section>
+
+<!-- ============================ 3 · sync vs async ============================ -->
+<section id="sync-async" role="tabpanel" tabindex="0">
+<p class="eyebrow">Part 3 &middot; <span class="cite" data-cite="S6">S6</span> <span class="cite" data-cite="S10">S10</span></p>
+<h2>Sync vs async, and the race detector</h2>
+<p>The same step sequence, run synchronously (all of C0's steps, then all of C1's) and async (the two
+carriers racing under schedules A&ndash;D). With the discipline of S6 &mdash; a step reads and writes
+its own run cell and its own data cell &mdash; the answer words are byte-identical in every
+interleaving: suspension is a data property, so the who and the when are evidence and never the
+answer <span class="cite" data-cite="S10">S10</span>. Break the discipline (one shared accumulator)
+and the race detector below lights up exactly where the interleaving changes the outcome.</p>
+<div class="stage" id="stage-sync">
+  <div class="controls">
+    <button data-mode="sync" class="on">disciplined: own cells</button>
+    <button data-mode="broken">broken: shared accumulator</button>
+    <button data-act="step">step</button>
+    <button data-act="event">run to next event</button>
+    <button data-act="end">run to end</button>
+    <button data-act="reset">reset</button>
+    <label class="muted">speed <input type="range" min="1" max="5" value="4"></label>
+  </div>
+  <div class="columns">
+    <div><div class="arena"></div><div class="counters"></div></div>
+    <div><div class="carriers"></div><div class="log" aria-live="polite"></div></div>
+  </div>
+</div>
+<div class="card"><h3>the race detector</h3><div class="body">
+  <p class="note">The answer words of each schedule, computed by the same engine, against the
+  synchronous reference. Disciplined: every row is <span class="ok">identical</span>. Broken: the
+  rows that <span style="color:var(--bad)">differ</span> are the interleavings that leaked into the
+  answer.</p>
+  <div id="race-table"></div>
+</div></div>
+</section>
+
+<!-- ============================ 4 · refusals ============================ -->
+<section id="refusals" role="tabpanel" tabindex="0">
+<p class="eyebrow">Part 4 &middot; <span class="cite" data-cite="S1">S1</span> <span class="cite" data-cite="S2">S2</span></p>
+<h2>The honest refusals</h2>
+<p>The machine refuses; it does not improvise. Trigger each refusal and watch the machine state that
+caused it — the refusal is named, counted, and the caller decides what happens next.</p>
+<div class="stage">
+  <div class="controls">
+    <button data-refusal="call">call (push a frame)</button>
+    <button data-refusal="return">return</button>
+    <button data-refusal="unbound">call an unknown callee</button>
+    <button data-refusal="cancel">cancel at the next safe point</button>
+    <button id="refusal-reset">reset</button>
+  </div>
+  <div class="columns">
+    <div id="refusal-out"></div>
+    <div class="log" id="refusal-log" aria-live="polite"></div>
+  </div>
+</div>
+<p class="note">The codes are the interpreter's (<code>native/graph.h</code>): a call past the depth
+budget refuses <code>RXF_REFUSE_CALL_DEPTH</code>, a callee that names no bound program refuses
+<code>RXF_REFUSE_UNBOUND</code>. The cancel of docs/19 is not a code but a safe point: the break flag
+is data the poll finds, the step finishes, the seal lands, and the run ends there — no signal ever
+touched the run.</p>
+</section>
+
+<!-- ============================ 5 · exercises ============================ -->
+<section id="exercises" role="tabpanel" tabindex="0">
+<p class="eyebrow">Part 5</p>
+<h2>Exercises</h2>
+<p>Five small ones. The checks are not memorized sentences: where possible the machine itself grades
+you — the engine runs the schedules and compares the words. One exercise per tab — the same
+<code>.tabs</code> component one level down, so no tab is an endless list.</p>
+
+<div class="tabs sub" role="tablist" aria-label="Exercises">
+  <button class="tab active" role="tab" aria-selected="true" aria-controls="ex-order" data-tab="ex-order">1 &middot; order</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="ex-inter" data-tab="ex-inter">2 &middot; interleavings</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="ex-det" data-tab="ex-det">3 &middot; determinism</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="ex-refusal" data-tab="ex-refusal">4 &middot; refusal</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="ex-position" data-tab="ex-position">5 &middot; check position</button>
+</div>
+
+<div class="exercise" id="ex-order" role="tabpanel" tabindex="0">
+  <h3>1 &middot; Order these two operations</h3>
+  <p>A step is closing: it must <span class="pin">seal</span> the run cell (step count, checksum) and
+  hand the run on with the <span class="pin">cas</span> (<code>RUNNING &rarr; PARKED</code>). Click
+  them in the order the machine needs.</p>
+  <div class="controls">
+    <button data-order="seal">seal</button>
+    <button data-order="cas">cas</button>
+    <button id="ex-order-reset">reset</button>
+  </div>
+  <div class="seq" id="ex-order-seq"></div>
+  <div id="ex-order-out"></div>
+</div>
+
+<div class="exercise" id="ex-inter" role="tabpanel" tabindex="0">
+  <h3>2 &middot; Find the interleavings that break this</h3>
+  <p>The shared-accumulator program of part 3, run under four schedules (words computed live; the
+  sequential reference is <b>B &middot; C0 burst</b>). Check every schedule whose answer words
+  differ from the reference.</p>
+  <div id="ex-inter-list"></div>
+  <button id="ex-inter-check">check</button>
+  <div id="ex-inter-out"></div>
+</div>
+
+<div class="exercise" id="ex-det" role="tabpanel" tabindex="0">
+  <h3>3 &middot; Which of these runs is deterministic?</h3>
+  <p>Three programs, each run under schedules A to D. Determinism is not a promise — it is the same
+  answer every time.</p>
+  <div id="ex-det-list"></div>
+  <button id="ex-det-check">check</button>
+  <div id="ex-det-out"></div>
+</div>
+
+<div class="exercise" id="ex-refusal" role="tabpanel" tabindex="0">
+  <h3>4 &middot; Name the refusal</h3>
+  <p>A run's call depth is at <span class="pin" data-pin="RXF_GRAPH_CALL_DEPTH" data-value="8">8</span>
+  — the budget is spent — and the program makes one more call. What does the machine answer?</p>
+  <label><input type="radio" name="ex-refusal" value="RXF_REFUSE_OUT_OF_RANGE"> <code>RXF_REFUSE_OUT_OF_RANGE</code></label>
+  <label><input type="radio" name="ex-refusal" value="RXF_REFUSE_CALL_DEPTH"> <code>RXF_REFUSE_CALL_DEPTH</code></label>
+  <label><input type="radio" name="ex-refusal" value="RXF_REFUSE_UNBOUND"> <code>RXF_REFUSE_UNBOUND</code></label>
+  <button id="ex-refusal-check">check</button>
+  <div id="ex-refusal-out"></div>
+</div>
+
+<div class="exercise" id="ex-position" role="tabpanel" tabindex="0">
+  <h3>5 &middot; Where may the checksum check live?</h3>
+  <p>Where in a step may the machine verify the run-cell checksum?</p>
+  <label><input type="radio" name="ex-position" value="boundary"> at the step boundary, with the run owned and claimed</label>
+  <label><input type="radio" name="ex-position" value="midway"> in the middle of another carrier's step, when it looks fast</label>
+  <label><input type="radio" name="ex-position" value="after"> after the safe point, when things are quiet</label>
+  <button id="ex-position-check">check</button>
+  <div id="ex-position-out"></div>
+</div>
+</section>
+
+<!-- ============================ the pinned facts ============================ -->
+<section id="facts" role="tabpanel" tabindex="0">
+<p class="eyebrow">Anti-drift</p>
+<h2>The facts this page is pinned to</h2>
+<p class="note">Every <span class="pin">pin chip</span> here is checked against the C in
+<code>tests/host/smp_*.h</code>, <code>tests/host/smp_sched.c</code>, <code>native/graph.h</code> and
+<code>core/ground.h</code>, and against the section headings of
+<code>docs/20-EXECUTION-POLICY.md</code>, by <code>tests/test_tutor.py</code> — the same sources the
+<a href="/model">model page</a> is pinned to. The engine of this page reads these same constants out
+of one facts block; the test fails if the page, the engine and the C ever disagree.</p>
+
+<!-- second level: the five fact tables are five tabs of one reference, not one endless stack
+    (same .tabs component; the tables stay in the DOM, the pins read them all) -->
+<div class="tabs sub" role="tablist" aria-label="The pinned facts">
+  <button class="tab active" role="tab" aria-selected="true" aria-controls="fact-header" data-tab="fact-header">cell header</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="fact-kinds" data-tab="fact-kinds">cell kinds</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="fact-states" data-tab="fact-states">run states</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="fact-refusals" data-tab="fact-refusals">refusal codes</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="fact-policy" data-tab="fact-policy">policy names</button>
+</div>
+
+<div class="fact" id="fact-header" role="tabpanel" tabindex="0">
+<h3>The cell header &mdash; the words the arena strip shows</h3>
+<table>
+  <tr><th>offset</th><th>word</th><th>size</th></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_TYPE" data-value="0">0</span></td><td><code>type</code></td><td>8 B</td></tr>
+  <tr><td><span class="pin" data-pin="RXFB_C_PARENT" data-value="8">8</span></td><td><code>parent</code></td><td>8 B</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_PAYLOAD_SIZE" data-value="16">16</span></td><td><code>payload_size</code></td><td>8 B</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_GENERATION" data-value="24">24</span></td><td><code>generation</code></td><td>8 B</td></tr>
+  <tr><td><span class="pin" data-pin="RXFB_C_NAME" data-value="32">32</span></td><td><code>name</code></td><td>8 B</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_FLAGS" data-value="40">40</span></td><td><code>flags</code></td><td>4 B</td></tr>
+  <tr><td><span class="pin" data-pin="RXFB_C_REFCOUNT" data-value="44">44</span></td><td><code>ref_count</code></td><td>4 B</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_FORWARD" data-value="48">48</span></td><td><code>forward</code></td><td>8 B</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_INDEX" data-value="56">56</span></td><td><code>index</code></td><td>4 B</td></tr>
+  <tr><td><span class="pin" data-pin="RXFB_C_RESERVED" data-value="60">60</span></td><td><code>reserved</code></td><td>4 B</td></tr>
+</table>
+<p class="note">The header is <span class="pin" data-pin="RXF_SMP_CELL_BYTES" data-value="64">64</span>
+bytes; a handle is <code>index | generation &lt;&lt;</code>
+<span class="pin" data-pin="RXF_SMP_HANDLE_SHIFT" data-value="32">32</span>; the compactor's exclusive
+claim is <span class="pin" data-pin="RXF_SMP_CLAIM_MOVING" data-value="0x80000000">0x80000000</span>;
+the vacated tail is poisoned with
+<span class="pin" data-pin="RXF_SMP_POISON" data-value="0xA5">0xA5</span> and a dead cell is kind
+<span class="pin" data-pin="RXFB_KIND_DEAD" data-value="254">254</span>.</p>
+</div>
+
+<div class="fact" id="fact-kinds" role="tabpanel" tabindex="0">
+<h3>The cell kinds — what the arena strip draws</h3>
+<table>
+  <tr><th>kind</th><th>value</th></tr>
+  <tr><td><code>RXF_SMP_CELL_RUN</code></td><td><span class="pin" data-pin="RXF_SMP_CELL_RUN" data-value="1">1</span></td></tr>
+  <tr><td><code>RXF_SMP_CELL_DATA</code></td><td><span class="pin" data-pin="RXF_SMP_CELL_DATA" data-value="2">2</span></td></tr>
+  <tr><td><code>RXF_SMP_CELL_CHANNEL</code></td><td><span class="pin" data-pin="RXF_SMP_CELL_CHANNEL" data-value="3">3</span></td></tr>
+  <tr><td><code>RXF_SMP_CELL_RING</code></td><td><span class="pin" data-pin="RXF_SMP_CELL_RING" data-value="4">4</span></td></tr>
+  <tr><td><code>RXF_SMP_CELL_DELTA</code></td><td><span class="pin" data-pin="RXF_SMP_CELL_DELTA" data-value="5">5</span></td></tr>
+  <tr><td><code>RXF_SMP_CELL_SCRATCH</code></td><td><span class="pin" data-pin="RXF_SMP_CELL_SCRATCH" data-value="6">6</span></td></tr>
+</table>
+</div>
+
+<div class="fact" id="fact-states" role="tabpanel" tabindex="0">
+<h3>The run states and the step answers</h3>
+<table>
+  <tr><th>state</th><th>value</th><th>step answer</th><th>value</th></tr>
+  <tr><td><code>FREE</code></td><td><span class="pin" data-pin="RXF_SMP_STATE_FREE" data-value="0">0</span></td><td><code>SMP_STEP_AGAIN</code></td><td><span class="pin" data-pin="SMP_STEP_AGAIN" data-value="0">0</span></td></tr>
+  <tr><td><code>READY</code></td><td><span class="pin" data-pin="RXF_SMP_STATE_READY" data-value="1">1</span></td><td><code>SMP_STEP_PARK</code></td><td><span class="pin" data-pin="SMP_STEP_PARK" data-value="1">1</span></td></tr>
+  <tr><td><code>RUNNING</code></td><td><span class="pin" data-pin="RXF_SMP_STATE_RUNNING" data-value="2">2</span></td><td><code>SMP_STEP_DONE</code></td><td><span class="pin" data-pin="SMP_STEP_DONE" data-value="2">2</span></td></tr>
+  <tr><td><code>PARKED</code></td><td><span class="pin" data-pin="RXF_SMP_STATE_PARKED" data-value="3">3</span></td><td><code>SMP_STEP_SELFWAKE</code></td><td><span class="pin" data-pin="SMP_STEP_SELFWAKE" data-value="3">3</span></td></tr>
+  <tr><td><code>TERMINAL</code></td><td><span class="pin" data-pin="RXF_SMP_STATE_TERMINAL" data-value="4">4</span></td><td></td><td></td></tr>
+</table>
+<p class="note">The checksum is FNV-1a over the program state:
+<span class="pin" data-pin="SMP_FNV_PRIME" data-value="0x100000001B3">prime 0x100000001B3</span>,
+<span class="pin" data-pin="SMP_FNV_BASIS" data-value="0xcbf29ce484222325">basis 0xcbf29ce484222325</span>.</p>
+</div>
+
+<div class="fact" id="fact-refusals" role="tabpanel" tabindex="0">
+<h3>The refusal codes</h3>
+<table>
+  <tr><th>code</th><th>value</th><th>the machine refuses</th></tr>
+  <tr><td><code>RXF_REFUSE_CALL_DEPTH</code></td><td><span class="pin" data-pin="RXF_REFUSE_CALL_DEPTH" data-value="17">17</span></td><td>a call past the depth budget of <span class="pin" data-pin="RXF_GRAPH_CALL_DEPTH" data-value="8">8</span> frame regions</td></tr>
+  <tr><td><code>RXF_REFUSE_UNBOUND</code></td><td><span class="pin" data-pin="RXF_REFUSE_UNBOUND" data-value="13">13</span></td><td>a callee that names no bound program</td></tr>
+  <tr><td><code>RXF_REFUSE_STALE_GENERATION</code></td><td><span class="pin" data-pin="RXF_REFUSE_STALE_GENERATION" data-value="12">12</span></td><td>a handle whose slot generation moved (the ABA refusal)</td></tr>
+</table>
+</div>
+
+<div class="fact" id="fact-policy" role="tabpanel" tabindex="0">
+<h3>The policy names &mdash; docs/20, S1 to S11</h3>
+<table>
+  <tr><th>section</th><th>name</th></tr>
+  <tr><td><span class="cite" data-cite="S1">S1</span></td><td><span class="pin" data-policy="S1">The run-cell state machine</span></td></tr>
+  <tr><td><span class="cite" data-cite="S2">S2</span></td><td><span class="pin" data-policy="S2">Suspension is a data property</span></td></tr>
+  <tr><td><span class="cite" data-cite="S3">S3</span></td><td><span class="pin" data-policy="S3">The ready-ring protocol</span></td></tr>
+  <tr><td><span class="cite" data-cite="S4">S4</span></td><td><span class="pin" data-policy="S4">Park and wake on channel frames</span></td></tr>
+  <tr><td><span class="cite" data-cite="S5">S5</span></td><td><span class="pin" data-policy="S5">Ownership and the handoff</span></td></tr>
+  <tr><td><span class="cite" data-cite="S6">S6</span></td><td><span class="pin" data-policy="S6">The programs a run cell carries</span></td></tr>
+  <tr><td><span class="cite" data-cite="S7">S7</span></td><td><span class="pin" data-policy="S7">Handles, claims, and no raw address across a safe point</span></td></tr>
+  <tr><td><span class="cite" data-cite="S8">S8</span></td><td><span class="pin" data-policy="S8">Concurrent delta and compaction</span></td></tr>
+  <tr><td><span class="cite" data-cite="S9">S9</span></td><td><span class="pin" data-policy="S9">The edge shim</span></td></tr>
+  <tr><td><span class="cite" data-cite="S10">S10</span></td><td><span class="pin" data-policy="S10">Determinism and the differential</span></td></tr>
+  <tr><td><span class="cite" data-cite="S11">S11</span></td><td><span class="pin" data-policy="S11">The MicroPython seam (C3: no GIL)</span></td></tr>
+</table>
+</div>
+</section>
+</main>
+<script src="/tutor/static/tutor.js"></script>
+</body>
+</html>

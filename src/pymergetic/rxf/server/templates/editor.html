@@ -8,79 +8,55 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RXF editor</title>
+<link rel="stylesheet" href="/static/ui/ui.css">
+<script src="/static/ui/ui.js" defer></script>
 <style>
-  :root { color-scheme: light dark; }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 14px/1.5 system-ui, sans-serif; }
-  header { display: flex; gap: .6rem; align-items: center; padding: .55rem .8rem;
-    border-bottom: 1px solid #8886; flex-wrap: wrap; }
-  header b { font-size: 15px; }
-  header .spacer { flex: 1; }
-  .button, button { font: inherit; padding: .22rem .6rem; border: 1px solid #8886;
-    border-radius: 5px; background: #8881; color: inherit; cursor: pointer; text-decoration: none; }
-  .button:hover, button:hover { background: #8883; }
-  button.primary { background: #2a6; color: #fff; border-color: #2a6; }
-  button.warn { background: #b50; color: #fff; border-color: #b50; }
-  button:disabled { opacity: .45; cursor: not-allowed; }
-  main { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr);
-    gap: 0; height: calc(100vh - 49px); }
-  .col { overflow: auto; padding: .8rem; }
-  .col + .col { border-left: 1px solid #8886; }
-  h2 { font-size: 14px; margin: .2rem 0 .5rem; text-transform: uppercase; letter-spacing: .04em; opacity: .8; }
-  h3 { font-size: 13px; margin: .8rem 0 .35rem; }
-  code, pre, .mono, textarea { font-family: ui-monospace, "Cascadia Code", Menlo, monospace; }
-  pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
-  .note { font-size: 12px; opacity: .72; margin: .3rem 0; }
-  .badge { display: inline-block; padding: 0 .35rem; border: 1px solid #8886; border-radius: 4px; font-size: 11px; }
-  .ok { color: #171; }
-  .bad { color: #b00; }
-  .refusal { border-left: 3px solid #b00; background: #b0000010; padding: .4rem .6rem; margin: .35rem 0; }
-  .okbox { border-left: 3px solid #2a6; background: #2a61; padding: .4rem .6rem; margin: .35rem 0; }
-
-  /* source editor: a highlighted mirror under a transparent textarea */
-  .wrap { position: relative; border: 1px solid #8886; border-radius: 6px; overflow: hidden; }
-  .wrap textarea, .wrap pre { margin: 0; padding: .55rem .65rem; font-size: 13px; line-height: 20px;
-    tab-size: 2; white-space: pre; overflow-wrap: normal; }
+  /* Page layout only — colors, type, and chrome come from /static/ui/ui.css (docs/21). */
+  body { display: grid; grid-template-rows: auto auto 1fr; height: 100vh; }
+  main { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr); min-height: 0; }
+  .col { overflow: auto; padding: .8rem; min-width: 0; }
+  .col + .col { border-left: 1px solid var(--line); }
+  .col h2 { margin: .2rem 0 .5rem; }
+  .col h3 { margin: .8rem 0 .35rem; }
+  .wrap { position: relative; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .wrap textarea, .wrap pre { margin: 0; padding: .55rem .65rem; tab-size: 2; white-space: pre; overflow-wrap: normal; }
   .wrap textarea { position: relative; display: block; width: 100%; height: 320px; resize: vertical;
-    background: transparent; color: transparent; caret-color: currentColor; border: 0; outline: 0; z-index: 2; }
+    background: transparent; border: 0; outline: 0; z-index: 2; }
   .wrap pre { position: absolute; inset: 0; pointer-events: none; color: inherit; z-index: 1; overflow: hidden; }
-  .wrap .m-ok { border-bottom: 2px solid #2a68; }
-  .wrap .m-bad { border-bottom: 2px wavy #b00; background: #b0000018; text-decoration: underline wavy #b00; }
-  .wrap .m-name { opacity: .92; }
-  .wrap .m-keyword { color: #06c; }
-  .wrap .m-operator { color: #a0a; }
-  .wrap .m-builtin { color: #c60; }
-  .wrap .m-number { color: #171; }
-  .wrap .m-comment { opacity: .55; font-style: italic; }
-
-  .status { display: flex; gap: .7rem; align-items: center; font-size: 12px; margin: .45rem 0; flex-wrap: wrap; }
+  .status { display: flex; gap: .7rem; align-items: center; margin: .45rem 0; flex-wrap: wrap; }
   .tabs { display: flex; gap: .3rem; flex-wrap: wrap; margin: .3rem 0 .6rem; }
   .tabs button { padding: .18rem .55rem; }
-  .tabs button.on { background: #8884; border-color: #666; font-weight: 600; }
-  table { border-collapse: collapse; width: 100%; font-size: 12px; }
-  th, td { border: 1px solid #8884; padding: .18rem .38rem; text-align: left; vertical-align: top; }
-  th { background: #8881; }
-  input, select { font: inherit; padding: .18rem .35rem; border: 1px solid #8886; border-radius: 4px;
-    background: transparent; color: inherit; }
-  label { font-size: 12px; opacity: .82; }
   .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin: .35rem 0; }
-  .grid { display: grid; grid-template-columns: auto 1fr; gap: .35rem .7rem; align-items: center; }
-  svg text { font-family: ui-monospace, monospace; }
+  #poke-rows .header-row { grid-template-columns: 10rem 1fr; align-items: center; }
+  #poke-rows input, #poke-rows select { width: 100%; max-width: 22rem; }
 </style>
 </head>
 <body>
-<header>
-  <b>RXF editor</b>
-  <a class="button" href="/" title="Back to the inspector">Inspector</a>
-  <a class="button" href="/model" title="The run-cell machine">Model</a>
-  <span class="spacer"></span>
-  <span id="live" class="badge">checking session…</span>
+<!-- ui:shell:begin — the one shell of docs/21 (source of truth: server/static/ui/shell.html).
+     Every page inlines this block verbatim between the ui:shell markers; the page's own nav entry
+     is the ONE allowed rewrite: inactive entries are <a class="button" href="...">Label</a>, the
+     active entry is <a href="..." class="active" aria-current="page">Label</a>. The live slot
+     reads exactly `no image` until something better is known (docs/21: the attached session or
+     `no image`); server-side fills and static/ui/ui.js only ever replace that default.
+     tests/test_unified_ui.py pins every copy of this block to this file. -->
+<header class="shell">
+  <span class="mark">RXF</span>
+  <nav aria-label="Surfaces">
+    <a class="button" href="/">Inspector</a>
+    <a class="button" href="/model">Model</a>
+    <a href="/editor" class="active" aria-current="page">Editor</a>
+    <a class="button" href="/tutor">Tutor</a>
+    <a class="button" href="/world">World</a>
+  </nav>
+  <div class="live" id="live-slot">no image</div>
 </header>
+<!-- ui:shell:end -->
+<p class="face-note">Editor = edit &middot; one face of the link (docs/21): Inspector reads, Model explains, Tutor teaches, World renders.</p>
 
 <main>
   <!-- LEFT: the source document, its live symbol check, and the one seam -->
   <section class="col">
-    <h2>1 · Source &amp; live symbol check</h2>
+    <h2 class="eyebrow">1 · Source &amp; live symbol check</h2>
     <div class="row">
       <label>form
         <select id="language" title="rxfs = the program form; rxfd = the reference form (still named .rxf/.xml)">
@@ -105,7 +81,7 @@
       red underlines are refused — hover a token for its meaning or its refusal. Nothing here keeps a
       second vocabulary.</div>
 
-    <h2>2 · Compile + install through the one seam</h2>
+    <h2 class="eyebrow">2 · Compile + install through the one seam</h2>
     <div class="row">
       <button id="check">Check now</button>
       <button id="compile" title="Send the source through the in-image front end (live.front.Front.compile)">Compile</button>
@@ -123,7 +99,7 @@
 
   <!-- RIGHT: the loaded object's read-only faces, network view, and cell poke -->
   <section class="col">
-    <h2>3 · Load a cell / function</h2>
+    <h2 class="eyebrow">3 · Load a cell / function</h2>
     <div class="row">
       <label>path <input id="path" size="30" placeholder="pymergetic.rxf.selfedit.double" title="The function or cell to render"></label>
       <button id="load">Load</button>
@@ -154,20 +130,19 @@
 
     <div id="tab-poke" hidden>
       <h3>Poke one cell field</h3>
-      <div class="grid">
-        <label>field</label>
-        <select id="poke-field">
-          <option value="payload">payload (scalar word at offset)</option>
-          <option value="flags">flags</option>
-          <option value="name" disabled>name — refused</option>
-          <option value="forward" disabled>forward — refused</option>
-          <option value="generation" disabled>generation — refused</option>
-          <option value="checksum" disabled>checksum — refused</option>
-        </select>
-        <label>value</label>
-        <input id="poke-value" placeholder="0">
-        <label>offset (payload words)</label>
-        <input id="poke-offset" placeholder="0">
+      <div id="poke-rows">
+        <div class="header-row"><span>field</span>
+          <select id="poke-field">
+            <option value="payload">payload (scalar word at offset)</option>
+            <option value="flags">flags</option>
+            <option value="name" disabled>name — refused</option>
+            <option value="forward" disabled>forward — refused</option>
+            <option value="generation" disabled>generation — refused</option>
+            <option value="checksum" disabled>checksum — refused</option>
+          </select>
+        </div>
+        <div class="header-row"><span>value</span><input id="poke-value" placeholder="0"></div>
+        <div class="header-row"><span>offset (payload words)</span><input id="poke-offset" placeholder="0"></div>
       </div>
       <div class="row">
         <button id="poke-go" class="warn">Poke</button>
@@ -187,6 +162,8 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+// The Netzansicht paints with the one palette of ui.css — never a private color (docs/21).
+const cssvar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "currentColor";
 
 async function get(url) {
   const r = await fetch(url);
@@ -333,11 +310,11 @@ function renderNetz(n) {
     const a = (2 * Math.PI * i) / Math.max(around.length, 1) - Math.PI / 2;
     pos.set(nd.id, { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) });
   });
-  const color = { call: "#26c", argument: "#2a6", reference: "#888", subcell: "#a0a" };
+  const color = { call: cssvar("--hot"), argument: cssvar("--accent"), reference: cssvar("--muted"), subcell: cssvar("--text") };
   const edge = edges.map((e) => {
     const a = pos.get(e.from), b = pos.get(e.to);
     if (!a || !b) return "";
-    const c = color[e.kind] || "#666";
+    const c = color[e.kind] || cssvar("--muted");
     return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${c}" stroke-width="${e.kind === "call" ? 2.4 : 1.3}" ` +
       `marker-end="url(#ar-${e.kind})" opacity="0.85"><title>${esc(e.kind)}: ${esc(e.label)}</title></line>`;
   }).join("");
@@ -347,15 +324,15 @@ function renderNetz(n) {
     const p = pos.get(nd.id) || { x: cx, y: cy };
     const centre = i === 0;
     const r = centre ? 26 : 16;
-    const c = centre ? "#2a6" : ({ callee: "#26c", call: "#26c", reference: "#888", value: "#2a6", operation: "#a0a" }[nd.kind] || "#666");
-    return `<g><circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${c}" opacity="${centre ? 0.9 : 0.65}" stroke="#0006">` +
+    const c = centre ? cssvar("--accent") : ({ callee: color.call, call: color.call, reference: color.reference, value: color.argument, operation: color.subcell }[nd.kind] || cssvar("--line"));
+    return `<g><circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${c}" opacity="${centre ? 0.9 : 0.65}" stroke="${cssvar("--line")}">` +
       `<title>${esc(nd.kind)}: ${esc(nd.role)}</title></circle>` +
-      `<text x="${p.x}" y="${p.y + r + 12}" text-anchor="middle" font-size="10">${esc(nd.label)}</text></g>`;
+      `<text x="${p.x}" y="${p.y + r + 12}" text-anchor="middle">${esc(nd.label)}</text></g>`;
   }).join("");
-  const legend = Object.entries(n.legend || {}).map(([k, v]) => `<div class="note"><span class="badge" style="border-color:${color[k] || "#666"};color:${color[k] || "#666"}">${esc(k)}</span> ${esc(v)}</div>`).join("");
+  const legend = Object.entries(n.legend || {}).map(([k, v]) => `<div class="note"><span class="badge" style="border-color:${color[k] || cssvar("--muted")};color:${color[k] || cssvar("--muted")}">${esc(k)}</span> ${esc(v)}</div>`).join("");
   out.innerHTML = `<div class="note"><code>${esc(n.path)}</code> — the function and its environment as nodes and edges. ` +
-    `The blue thick edge is the graph-to-graph <b>CALL</b> card (<code>native/graph.h</code>).</div>` +
-    `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-height:440px;border:1px solid #8886;border-radius:6px"><defs>${marks}</defs>${edge}${node}</svg>` + legend;
+    `The thick gold edge is the graph-to-graph <b>CALL</b> card (<code>native/graph.h</code>).</div>` +
+    `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-height:440px"><defs>${marks}</defs>${edge}${node}</svg>` + legend;
 }
 
 // ---- load a cell / function -----------------------------------------------------------------
@@ -418,25 +395,8 @@ $("poke-why").addEventListener("click", () => {
     .map(([k, v]) => `<div class="refusal"><b>${esc(k)}</b>: ${esc(v)}</div>`).join("");
 });
 
-// ---- boot: session status and the first check -----------------------------------------------
-(async () => {
-  try {
-    const r = await get("/api/editor/numbers");
-    if (r && r.ok === false && r.refusal) {
-      $("live").textContent = "no running image";
-      $("live").style.borderColor = "#b50";
-      $("live").title = r.refusal;
-    } else {
-      $("live").textContent = "running image";
-      $("live").style.borderColor = "#2a6";
-    }
-  } catch (e) {
-    $("live").textContent = "no running image";
-    $("live").style.borderColor = "#b50";
-    $("live").title = e.message;
-  }
-  runCheck();
-})();
+// ---- boot: the first check (the session itself shows in the shell's live slot; see ui.js) -------
+runCheck();
 </script>
 </body>
 </html>

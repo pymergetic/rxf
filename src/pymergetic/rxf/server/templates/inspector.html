@@ -3,78 +3,76 @@
 <head>
 <meta charset="utf-8">
 <title>RXF inspector</title>
+<link rel="stylesheet" href="/static/ui/ui.css">
+<script src="/static/ui/ui.js" defer></script>
 <style>
-  :root { color-scheme: light; --bg: #fff; --panel: #f6f7f9; --line: #d8dce1; --text: #1c2128; --muted: #6a737d; --accent: #05c; --hot: #b8860b; }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 13px/1.4 system-ui, sans-serif; height: 100vh; display: grid; grid-template-rows: auto 1fr; background: var(--bg); color: var(--text); }
-  header { display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
-  header b { white-space: nowrap; }
-  header .summary { margin-left: auto; color: var(--muted); }
-  button { background: #fff; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; cursor: pointer; }
-  button:hover { border-color: var(--accent); }
-  button:disabled { color: var(--muted); cursor: default; border-color: var(--line); }
-  a.button { background: #fff; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; cursor: pointer; text-decoration: none; }
-  a.button:hover { border-color: var(--accent); text-decoration: none; }
+  /* Page layout only — colors, type, and chrome come from /static/ui/ui.css (docs/21). */
+  body { display: grid; grid-template-rows: auto auto auto 1fr; height: 100vh; }
   #panes { min-height: 0; display: grid; grid-template-columns: minmax(260px, .8fr) minmax(360px, 1.2fr) minmax(340px, 1fr); }
   .pane { min-width: 0; min-height: 0; overflow: auto; padding: 10px; }
   .pane + .pane { border-left: 1px solid var(--line); }
-  h2 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
-  h3 { margin: 14px 0 6px; font-size: 12px; }
-  input { width: 100%; box-sizing: border-box; padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; }
+  .pane h2 { margin: 0 0 8px; }
+  #q { width: 100%; }
   ul { list-style: none; margin: 0; padding-left: 16px; }
   #tree { padding-left: 0; }
   .row { display: flex; align-items: center; min-width: 0; }
-  .twisty { width: 22px; min-width: 22px; border: 0; background: transparent; padding: 2px; color: var(--muted); }
+  .twisty { width: 22px; min-width: 22px; border: 0; background: transparent; padding: 2px; color: var(--muted); cursor: pointer; }
   .label { cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 2px 6px 2px 2px; border-radius: 4px; flex: 1; min-width: 0; }
-  .label:hover { background: #eef; }
-  .label.selected { background: #fff6d8; outline: 1px solid var(--hot); }
+  .label:hover { background: var(--panel-2); }
+  .label.selected { background: var(--panel-2); outline: 1px solid var(--hot); }
   .t { color: var(--muted); margin-left: 6px; }
   .more { color: var(--muted); padding: 2px 0; }
-  a { color: var(--accent); cursor: pointer; text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  code { font: 12px ui-monospace, monospace; word-break: break-all; }
-  table { border-collapse: collapse; margin: 4px 0 10px; width: 100%; }
-  td, th { border: 1px solid var(--line); padding: 2px 8px; text-align: left; vertical-align: top; }
-  th { color: var(--muted); font-weight: 600; }
-  .badge { display: inline-block; padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 11px; }
-  .card { border: 1px solid var(--line); border-radius: 6px; margin-bottom: 12px; }
-  .card > h3 { margin: 0; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
-  .card > .body { padding: 6px 8px; }
   .legend, .bands { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 4px 0; color: var(--muted); }
   .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
   .chip i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; border: 1px solid var(--line); }
   .band { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; padding: 2px 6px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel); }
-  .canvas-wrap { position: relative; height: calc(100% - 110px); min-height: 260px; border: 1px solid var(--line); border-radius: 6px; background: #fbfcfd; }
+  .canvas-wrap { position: relative; height: calc(100% - 110px); min-height: 260px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
   canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
-  .tooltip { position: absolute; pointer-events: none; display: none; max-width: calc(100% - 12px); padding: 5px 8px; background: #21262d; color: #c9d1d9; border-radius: 4px; font-size: 11px; overflow-wrap: anywhere; z-index: 2; }
+  .tooltip { display: none; }
   .status { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); pointer-events: none; }
-  .hex-dump { overflow: auto; max-height: 22rem; background: #fbfcfd; border: 1px solid var(--line); border-radius: 4px; padding: 6px; font: 12px/1.6 ui-monospace, monospace; }
+  .hex-dump { overflow: auto; max-height: 22rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 6px; font: 12px/1.6 var(--mono); }
   .hex-row { display: grid; grid-template-columns: 6rem minmax(24rem, 1fr) 9rem; gap: 8px; white-space: pre; }
   .hex-offset { color: var(--muted); }
   .hex-byte { display: inline-block; width: 1.75rem; text-align: center; }
-  .hex-byte.hot { background: #fff6d8; outline: 1px solid var(--hot); border-radius: 2px; }
+  .hex-byte.hot { background: var(--panel); outline: 1px solid var(--hot); border-radius: 2px; }
   .hex-ascii { color: var(--muted); }
-  .note { color: var(--muted); margin: 4px 0; }
-  .bad { color: #b00; }
 </style>
 </head>
 <body>
-<header>
-  <b>RXF</b> <span id="info"></span>
-  <a class="button" href="/model" title="How the run-cell machine and the object model work">Model</a>
-  <a class="button" href="/editor" title="EDIT a function: live symbol check, compile + one-delta install, faces, Netzansicht, cell-poke">Editor</a>
-  <button id="reset" title="Show the whole arena again">Reset zoom</button>
-  <span class="summary" id="summary"></span>
+<!-- ui:shell:begin — the one shell of docs/21 (source of truth: server/static/ui/shell.html).
+     Every page inlines this block verbatim between the ui:shell markers; the page's own nav entry
+     is the ONE allowed rewrite: inactive entries are <a class="button" href="...">Label</a>, the
+     active entry is <a href="..." class="active" aria-current="page">Label</a>. The live slot
+     reads exactly `no image` until something better is known (docs/21: the attached session or
+     `no image`); server-side fills and static/ui/ui.js only ever replace that default.
+     tests/test_unified_ui.py pins every copy of this block to this file. -->
+<header class="shell">
+  <span class="mark">RXF</span>
+  <nav aria-label="Surfaces">
+    <a href="/" class="active" aria-current="page">Inspector</a>
+    <a class="button" href="/model">Model</a>
+    <a class="button" href="/editor">Editor</a>
+    <a class="button" href="/tutor">Tutor</a>
+    <a class="button" href="/world">World</a>
+  </nav>
+  <div class="live" id="live-slot">no image</div>
 </header>
+<!-- ui:shell:end -->
+<p class="face-note">Inspector = read &middot; one face of the link (docs/21): Editor edits, Model explains, Tutor teaches, World renders.</p>
+<div class="toolbar">
+  <span id="info"></span>
+  <button id="reset" title="Show the whole arena again">Reset zoom</button>
+  <span class="note push" id="summary"></span>
+</div>
 <div id="panes">
   <section class="pane">
-    <h2>Object tree</h2>
+    <h2 class="eyebrow">Object tree</h2>
     <input id="q" placeholder="search names">
     <div id="results"></div>
     <ul id="tree"></ul>
   </section>
   <section class="pane">
-    <h2>Memory map — arena cells by kind</h2>
+    <h2 class="eyebrow">Memory map — arena cells by kind</h2>
     <div class="legend" id="legend"></div>
     <div class="bands" id="bands"></div>
     <div class="canvas-wrap">
@@ -84,7 +82,7 @@
     </div>
   </section>
   <section class="pane">
-    <h2>Selected object details</h2>
+    <h2 class="eyebrow">Selected object details</h2>
     <div id="main"><p class="note">Select an object from the tree, search, or the memory map.</p></div>
   </section>
 </div>
@@ -94,10 +92,12 @@ const get = async (url) => { const r = await fetch(url); if (!r.ok) throw new Er
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const hex = (n) => "0x" + Number(n).toString(16);
 const link = (path) => path === null ? "none" : `<a data-path="${esc(path)}">${esc(path || "(root)")}</a>`;
+// The canvas paints with the one palette of ui.css — never a private color (docs/21).
+const cssvar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "currentColor";
 
 // One stable hue per cell kind: the same name always draws the same color.
 function kindColor(name) {
-  if (name === "Dead") return "#9aa1a9";
+  if (name === "Dead") return cssvar("--muted");
   let h = 2166136261;
   for (const c of String(name)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }
   return `hsl(${h % 360} 55% 52%)`;
@@ -132,7 +132,7 @@ async function loadMemory() {
 function renderLegend() {
   const kinds = Object.entries(memory.kinds).sort((a, b) => b[1] - a[1]);
   $("legend").innerHTML =
-    `<span class="chip"><i style="background:#eef0f3"></i>no cells</span>` +
+    `<span class="chip"><i style="background:${cssvar("--bg")}"></i>no cells</span>` +
     kinds.map(([name, bytes]) =>
       `<span class="chip"><i style="background:${kindColor(name)}"></i>${esc(name)} <small>${bytes} B</small></span>`
     ).join("");
@@ -159,18 +159,18 @@ function draw() {
   const cw = canvas.width / cols, ch = canvas.height / rows;
   bins.forEach((b, i) => {
     const x = (i % cols) * cw, y = Math.floor(i / cols) * ch;
-    ctx.fillStyle = b.count ? kindColor(b.dominant_kind) : "#eef0f3";
+    ctx.fillStyle = b.count ? kindColor(b.dominant_kind) : cssvar("--bg");
     ctx.globalAlpha = b.count ? 0.25 + 0.75 * b.occupancy : 1;
     ctx.fillRect(x + .5, y + .5, Math.max(1, cw - 1), Math.max(1, ch - 1));
     if (b.region !== "cells") {
       ctx.globalAlpha = 1;
-      ctx.strokeStyle = "#b0b6bd";
+      ctx.strokeStyle = cssvar("--line");
       ctx.lineWidth = d;
       ctx.strokeRect(x + .5, y + .5, cw - 1, ch - 1);
     }
     if (selected !== null && b.path === selected) {
       ctx.globalAlpha = 1;
-      ctx.strokeStyle = "#b8860b";
+      ctx.strokeStyle = cssvar("--hot");
       ctx.lineWidth = 2 * d;
       ctx.strokeRect(x + 1, y + 1, cw - 2, ch - 2);
     }
