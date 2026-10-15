@@ -422,7 +422,7 @@ All fourteen are decided; two were answered by work that landed in the meantime.
     mounts are subtrees (the module tree's shape); `open()`/`sys.path` resolve honestly over
     it, and rump/virtio-blk drivers back real storage under it later. Until then guests get
     honest refusals — a temporary stop, not the design promise it was drafted as.
-13. **Vocabulary — decided: i2/i3 is canonical.** One renaming pass makes the tests speak
-    i2/i3; the "slices 4-5"/"slice 1" wording retires there first.
+13. **Vocabulary — decided: i2/i3 is canonical.** The renaming pass landed in the tests
+    (2026-10-15); the "slices 4-5"/"slice 1" wording is retired there.
 14. **docs/19 — resolved by landed work.** `docs/19-SELF-EDITING-PATH.md` is in the tree
     (verified 2026-10-15; its links resolve).
