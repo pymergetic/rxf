@@ -50,7 +50,7 @@ p { margin: 8px 0; }
   color: var(--muted);
 }
 .lede, .note, .muted { color: var(--muted); }
-.lede { margin: 0 0 10px; }
+.lede { margin: 0 0 10px; color: var(--text); } /* a lead/subtitle line carries more weight than a note */
 .note { margin: 4px 0; font-size: 12px; }
 .muted { font-size: 12px; }
 .ok { color: var(--accent); }
@@ -91,7 +91,7 @@ p { margin: 8px 0; }
 }
 .shell .live .ok { color: var(--accent); }
 .shell .live .bad { color: var(--bad); }
-.face-note { color: var(--muted); font-size: 11px; margin: 2px 12px 0; }
+.face-note { color: var(--text); font-size: 11px; margin: 2px 12px 0; }
 
 /* ---- controls: flat, --panel-2 on --line, accent on hover; no gradients ---------------------- */
 button, .button, a.button {
@@ -270,17 +270,83 @@ svg rect.poison { fill: var(--panel); stroke: var(--hot); stroke-dasharray: 3 2;
 svg line, svg path { stroke: var(--muted); fill: none; }
 svg .flow { stroke: var(--text); }
 
-/* ---- the code mirror (the editor's meaning-table mirror): one palette, no private colors ------ */
+/* ---- the code mirror (the editor's meaning-table mirror) and the meaning register ------------
+   The mirror overlays its spans on a transparent textarea (.wrap below); the meaning register
+   (static/ui/highlight.js) names one class per semantic token and this is the ONE place those
+   classes get their look — in the mirror AND in every read-only code pane (pre.code). */
 .wrap textarea, .wrap pre { font-family: var(--mono); font-size: 13px; line-height: 20px; }
 .wrap textarea { color: transparent; caret-color: var(--text); }
-.wrap .m-ok { border-bottom: 2px solid var(--accent); }
-.wrap .m-bad {
+pre.code {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  margin: 0;
+  padding: .55rem .65rem;
+  white-space: pre;
+  word-break: normal;
+  overflow: auto;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+/* The register's palette lives on body (the :root block above is the design-token block docs/21
+   and tests/test_unified_ui.py pin). The fixed semantic mapping extends through it: teal =
+   live/addressable (a handle IS live), gold = attention (edge kinds, callables, the format's
+   namespace), red = refusal only — nothing in the register paints red. Every rule is
+   metric-neutral on purpose (color, background, radius, underline, shadow — never padding or
+   letter-spacing): the mirror overlays these spans on the textarea's text. */
+body {
+  --hl-tag: #7cc0e8;     /* structure: an XML element is a Type name of the image */
+  --hl-attr: #a6bdce;    /* fields: an XML attribute is a Field name */
+  --hl-path: #58c2b0;    /* addressable names (object and alias paths) */
+  --hl-kind: #ab93f2;    /* the words of the format (NodeKind, Form, ...) */
+  --hl-opcode: #d68fe0;  /* what runs (Opcode, Intrinsic, the IR's instructions) */
+  --hl-effects: #e5905c; /* what a body does (the effects bitset) */
+  --hl-doc: #a6d878;     /* recorded intent (docs/22: docs, provenance, TODOs) */
+  --hl-string: #86cfa6;
+  --hl-number: #8fa8e8;
+}
+.m-ok { border-bottom: 2px solid var(--accent); }
+.m-bad {
   border-bottom: 2px wavy var(--bad);
   background: color-mix(in srgb, var(--bad) 12%, transparent);
   color: var(--bad);
 }
-.wrap .m-keyword { color: var(--accent); font-weight: 600; }
-.wrap .m-builtin { color: var(--hot); }
-.wrap .m-operator { color: var(--muted); }
-.wrap .m-number { color: var(--text); }
-.wrap .m-comment { color: var(--muted); font-style: italic; }
+.m-keyword { color: var(--accent); font-weight: 600; }
+.m-builtin, .m-fn { color: var(--hot); }
+.m-operator, .m-punct { color: var(--muted); }
+.m-number { color: var(--hl-number); }
+.m-comment { color: var(--muted); font-style: italic; }
+.m-string { color: var(--hl-string); }
+.m-escape { color: var(--muted); font-weight: 600; }
+.m-identifier { color: var(--text); }
+.m-type, .m-tag { color: var(--hl-tag); font-weight: 600; }
+.m-attr { color: var(--hl-attr); }
+.m-ns { color: var(--hot); font-weight: 700; }
+/* addressable: a handle gets a soft pill so you SEE it is a cell (teal = live) */
+.m-handle {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: 4px;
+  border-bottom: 1.5px solid color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.m-path {
+  color: var(--hl-path);
+  text-decoration: underline dotted;
+  text-decoration-color: color-mix(in srgb, var(--hl-path) 70%, transparent);
+  text-underline-offset: 2px;
+}
+/* edge kinds get the gold chip: the one word that says what an edge is FOR */
+.m-refkind {
+  color: var(--hot);
+  background: color-mix(in srgb, var(--hot) 16%, transparent);
+  border-radius: 4px;
+}
+.m-effects { color: var(--hl-effects); font-weight: 600; }
+.m-kind { color: var(--hl-kind); }
+.m-opcode { color: var(--hl-opcode); font-weight: 600; }
+.m-doc { color: var(--hl-doc); }
+.m-pre { color: var(--hl-kind); font-weight: 600; }
+.m-meta { color: var(--hl-attr); font-style: italic; }
+.m-decor { color: var(--hot); font-weight: 600; }

@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- The EDITOR: edit a function's source, see it red/green as you type against the one meaning
      table, compile it through the in-image front end, look at the one delta before it installs,
-     read the honest faces and the Netzansicht, and poke a cell field. Read-only renderings never
+     read the honest faces and the network view, and poke a cell field. Read-only renderings never
      invent a body; refusals are shown, never swallowed. -->
 <html lang="en">
 <head>
@@ -10,6 +10,10 @@
 <title>RXF editor</title>
 <link rel="stylesheet" href="/static/ui/ui.css">
 <script src="/static/ui/ui.js" defer></script>
+<!-- the semantic register (docs/21, one vocabulary): every code pane declares its language and
+     this module colors what the tokens MEAN. No defer: the page's inline script paints through
+     it as it renders, so it must be live before the first content swap. -->
+<script src="/static/ui/highlight.js"></script>
 <style>
   /* Page layout only — colors, type, and chrome come from /static/ui/ui.css (docs/21). */
   body { display: grid; grid-template-rows: auto auto 1fr; height: 100vh; }
@@ -29,6 +33,15 @@
   .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin: .35rem 0; }
   #poke-rows .header-row { grid-template-columns: 10rem 1fr; align-items: center; }
   #poke-rows input, #poke-rows select { width: 100%; max-width: 22rem; }
+  /* find a path: the search dropdown under the path row (page layout only) */
+  .find { position: relative; }
+  .suggest { position: absolute; top: 100%; left: 0; right: 0; z-index: 10; margin-top: 2px;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius);
+    max-height: 260px; overflow: auto; }
+  .suggest-item { display: flex; gap: .55rem; align-items: center; width: 100%; padding: .22rem .55rem;
+    border: 0; background: transparent; text-align: left; }
+  .suggest-item.sel, .suggest-item:hover { background: var(--panel); }
+  .suggest .note, .suggest .refusal { padding: .35rem .55rem; }
 </style>
 </head>
 <body>
@@ -100,15 +113,20 @@
   <!-- RIGHT: the loaded object's read-only faces, network view, and cell poke -->
   <section class="col">
     <h2 class="eyebrow">3 · Load a cell / function</h2>
-    <div class="row">
-      <label>path <input id="path" size="30" placeholder="pymergetic.rxf.selfedit.double" title="The function or cell to render"></label>
-      <button id="load">Load</button>
+    <div class="find">
+      <div class="row">
+        <label>path <input id="path" size="30" placeholder="search the image's names…"
+          title="The function or cell to render. Start typing and pick from the image's own names — e.g. pymergetic.rxf.selfedit.double once a program is installed"
+          autocomplete="off" role="combobox" aria-expanded="false" aria-controls="path-suggest"></label>
+        <button id="load">Load</button>
+      </div>
+      <div id="path-suggest" class="suggest" hidden></div>
     </div>
     <div id="obj-status"></div>
 
     <div class="tabs" id="tabs">
       <button data-tab="faces" class="on">Faces</button>
-      <button data-tab="netz">Netzansicht</button>
+      <button data-tab="netz">Network view</button>
       <button data-tab="poke">Cell-poke</button>
     </div>
 
@@ -119,7 +137,7 @@
         <button data-face="cpp">C++</button>
         <button data-face="python">Python</button>
       </div>
-      <div id="face-out"><div class="note">Load a function to see its faces. Each face is an honest
+      <div id="face-out"><div class="lede">Load a function to see its faces. Each face is an honest
         projection or a refusal — never a faked body.</div></div>
     </div>
 
@@ -162,41 +180,53 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-// The Netzansicht paints with the one palette of ui.css — never a private color (docs/21).
+// The network view paints with the one palette of ui.css — never a private color (docs/21).
 const cssvar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "currentColor";
 
+// An honest error: a request that never reached the app says so (the server may have stopped),
+// while the app's own answer (404 `no object at …`, a refusal) is shown as it was written.
+async function refuse(r) {
+  const body = await r.text();
+  try { const detail = JSON.parse(body).detail; if (detail) return String(detail); } catch {}
+  return body || `HTTP ${r.status}`;
+}
 async function get(url) {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  let r;
+  try { r = await fetch(url); }
+  catch { throw new Error("the app does not answer — the server may have stopped (rxf serve …)"); }
+  if (!r.ok) throw new Error(await refuse(r));
   return r.json();
 }
 async function post(url, body) {
-  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  let r;
+  try {
+    r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  } catch { throw new Error("the app does not answer — the server may have stopped (rxf serve …)"); }
+  if (!r.ok) throw new Error(await refuse(r));
   return r.json();
+}
+
+// A seam call holds the live channel: compile, install and poke drive the front's delta ops, and
+// the shell's live feed (ui.js) steps aside while `body[data-channel-busy]` is set — a feed poll
+// must never land between the operations of one delta. The flag is the contract between the two
+// scripts of the shell.
+async function onChannel(work) {
+  document.body.dataset.channelBusy = "1";
+  try { return await work(); }
+  finally { delete document.body.dataset.channelBusy; }
 }
 
 // ---- the document and its live symbol check --------------------------------------------------
 const src = $("src"), hl = $("hl");
 
 function paint(marks) {
-  // Rebuild the mirror from the marks: green where the meaning table knows the token, red where it
-  // refuses. Every mark carries its meaning or its refusal for the hover tooltip.
+  // Rebuild the mirror from the base register (highlight.js: the semantic classes) plus the
+  // marks of the one meaning table: green where the meaning table knows the token, red where it
+  // refuses. Every mark carries its meaning or its refusal for the hover tooltip. The base
+  // register is what kills the flash of uncolored text: the source is colored the moment it is
+  // set, before the check answers.
   const text = src.value;
-  const bySpan = [];
-  for (const m of marks) if (m.start >= 0) bySpan.push(m);
-  bySpan.sort((a, b) => a.start - b.start);
-  let out = "", at = 0;
-  for (const m of bySpan) {
-    if (m.start < at) continue; // skip overlaps
-    out += esc(text.slice(at, m.start));
-    const cls = m.ok ? `m-ok m-${esc(m.kind)}` : `m-bad m-${esc(m.kind)}`;
-    const tip = m.ok ? (m.meaning || m.kind) : (m.refusal || "refused");
-    out += `<span class="${cls}" title="${esc(tip)}">${esc(text.slice(m.start, m.end))}</span>`;
-    at = m.end;
-  }
-  out += esc(text.slice(at));
-  hl.innerHTML = out + "\n"; // trailing newline keeps the last line box
+  hl.innerHTML = RXFHighlight.decorate(text, $("language").value, marks || []) + "\n"; // trailing newline keeps the last line box
 }
 function syncScroll() { hl.scrollTop = src.scrollTop; hl.scrollLeft = src.scrollLeft; }
 src.addEventListener("scroll", syncScroll);
@@ -212,23 +242,34 @@ async function runCheck() {
   $("check-status").innerHTML = refused
     ? `<span class="badge bad">${refused} refused</span><span class="badge">${total} tokens</span><span class="bad">hover the red tokens for the refusal</span>`
     : `<span class="badge ok">all ${total} tokens green</span><span class="badge">${esc(res.language)}</span>`;
+  RXFHighlight.refresh($("check-status"));
 }
 function scheduleCheck() { clearTimeout(checkTimer); checkTimer = setTimeout(runCheck, 220); }
-src.addEventListener("input", scheduleCheck);
+src.addEventListener("input", () => { paint([]); scheduleCheck(); }); // the base register follows typing immediately; the marks arrive with the check
 $("language").addEventListener("change", runCheck);
 $("check").addEventListener("click", runCheck);
 
 // ---- the one seam: compile / preview / install ---------------------------------------------
-function seamLine(cls, html) { $("seam-status").innerHTML = `<div class="${cls}">${html}</div>`; }
+function seamLine(cls, html) { $("seam-status").innerHTML = `<div class="${cls}">${html}</div>`; RXFHighlight.refresh($("seam-status")); }
 
-function renderDelta(text) {
-  $("delta").innerHTML = `<pre class="mono" style="font-size:11px;overflow:auto;max-height:320px">${esc(text)}</pre>`;
+// The XML/delta view: the one delta as canonical XML, in the rxfd register (a tag is a Type
+// name, a value says what it is). Painted in the same turn it is set — no flash, no jank.
+function renderDelta(text, lead) {
+  const box = $("delta");
+  box.innerHTML = lead ? `<div class="okbox">${lead}</div>` : "";
+  const pre = document.createElement("pre");
+  pre.className = "mono code";
+  pre.dataset.lang = "rxfd";
+  pre.style.maxHeight = "320px";
+  pre.textContent = text;
+  box.append(pre);
+  RXFHighlight.paint(pre);
 }
 
 async function compile() {
   seamLine("note", "compiling through the in-image front end…");
   try {
-    const r = await post("/api/editor/compile", { source: src.value, language: $("language").value, name: $("name").value || null });
+    const r = await onChannel(() => post("/api/editor/compile", { source: src.value, language: $("language").value, name: $("name").value || null }));
     if (!r.ok) {
       seamLine("refusal", `<b>compile refused</b> at line ${esc(r.line)}: ${esc(r.refusal || r.message || r.refusal)}`);
       return null;
@@ -243,8 +284,7 @@ async function compile() {
 async function preview() {
   const r = await compile();
   if (r && r.delta_preview) {
-    $("delta").innerHTML = `<div class="okbox"><b>the one delta install will send</b> — read it, then Install.</div>` +
-      `<pre class="mono" style="font-size:11px;overflow:auto;max-height:320px">${esc(r.delta_preview)}</pre>`;
+    renderDelta(r.delta_preview, `<b>the one delta install will send</b> — read it, then Install.`);
     seamLine("okbox", "this is exactly what install will change — nothing else.");
   }
 }
@@ -252,7 +292,7 @@ async function preview() {
 async function install() {
   seamLine("note", "compiling, then sending one delta…");
   try {
-    const r = await post("/api/editor/install", { source: src.value, language: $("language").value, name: $("name").value || null });
+    const r = await onChannel(() => post("/api/editor/install", { source: src.value, language: $("language").value, name: $("name").value || null }));
     if (!r.ok) {
       seamLine("refusal", `<b>install refused</b>: ${esc(r.refusal || r.message || r.refusal)}${r.line ? ` (line ${esc(r.line)})` : ""}`);
       return;
@@ -283,19 +323,24 @@ for (const b of document.querySelectorAll("#face-tabs button")) {
     renderFace();
   });
 }
+// Faces are code panes: each face declares its language and the register colors it (the C and
+// C++ faces on the c register, Python on the python one, the Pseudo projection on text).
+const FACE_LANG = { pseudo: "text", c: "c", cpp: "cpp", python: "python" };
 function renderFace() {
   const out = $("face-out");
   if (!currentFaces) { out.innerHTML = `<div class="note">Load a function first.</div>`; return; }
   const f = currentFaces.faces[currentFace];
   const refusals = (currentFaces.refusals || []).map((r) => `<div class="refusal"><b>${esc(r.face)}</b> face: ${esc(r.refusal)}</div>`).join("");
   const notes = (currentFaces.notes || []).map((n) => `<div class="note">${esc(n)}</div>`).join("");
+  const lang = FACE_LANG[currentFace] || "text";
   const body = f.ok
-    ? `<div class="okbox"><b>${esc(currentFace)}</b> — ${esc(f.note)}</div><pre class="mono" style="font-size:12px;overflow:auto">${esc(f.text)}</pre>`
+    ? `<div class="okbox"><b>${esc(currentFace)}</b> — ${esc(f.note)}</div><pre class="mono code" data-lang="${lang}">${esc(f.text)}</pre>`
     : `<div class="refusal"><b>${esc(currentFace)}</b> face is refused: ${esc(f.refusal)}</div>` +
-      `<div class="note">${esc(f.note)}</div><pre class="mono" style="font-size:12px;opacity:.7">${esc(f.text)}</pre>`;
+      `<div class="note">${esc(f.note)}</div><pre class="mono code" data-lang="${lang}" style="opacity:.7">${esc(f.text)}</pre>`;
   out.innerHTML = `<div class="note"><code>${esc(currentFaces.path)}</code> · shape <span class="badge">${esc(currentFaces.shape)}</span> · ` +
     `<code>${esc(currentFaces.signature.return_type)} ${esc(currentFaces.name)}(${esc(currentFaces.signature.parameters.join(", "))})</code></div>` +
     refusals + notes + body;
+  RXFHighlight.refresh(out);
 }
 
 // ---- netzansicht (SVG: function + environment as nodes and edges) ---------------------------
@@ -339,7 +384,7 @@ function renderNetz(n) {
 async function load() {
   const path = $("path").value.trim();
   $("obj-status").innerHTML = `<span class="note">loading…</span>`;
-  if (!path) { $("obj-status").innerHTML = `<div class="refusal">enter a path to load</div>`; return; }
+  if (!path) { $("obj-status").innerHTML = `<div class="refusal">enter a path to load</div>`; RXFHighlight.refresh($("obj-status")); return; }
   try {
     const [faces, netz] = await Promise.all([
       get(`/api/editor/faces?path=${encodeURIComponent(path)}`),
@@ -350,23 +395,88 @@ async function load() {
     renderFace();
     renderNetz(netz);
     $("obj-status").innerHTML = `<div class="okbox">loaded <code>${esc(path)}</code> · shape <span class="badge">${esc(faces.shape)}</span></div>`;
+    RXFHighlight.refresh($("obj-status"));
   } catch (e) {
     currentFaces = null;
     $("obj-status").innerHTML = `<div class="refusal">could not load: ${esc(e.message)}</div>`;
+    RXFHighlight.refresh($("obj-status"));
   }
 }
 $("load").addEventListener("click", load);
-$("path").addEventListener("keydown", (e) => { if (e.key === "Enter") load(); });
+
+// ---- find a path: search the image's own names (nobody types a full path from memory) ----------
+const suggest = $("path-suggest"), pathInput = $("path");
+let suggestItems = [], suggestAt = -1, suggestTimer = null, suggestGen = 0;
+
+function highlightSuggest() {
+  [...suggest.querySelectorAll(".suggest-item")].forEach((b, i) => b.classList.toggle("sel", i === suggestAt));
+}
+function renderSuggest(items, lead) {
+  suggestItems = items;
+  suggest.innerHTML = (lead || "") + items.map((it, i) =>
+    `<button type="button" class="suggest-item" data-i="${i}"><code>${esc(it.path)}</code>` +
+    `<span class="badge">${esc(it.type || "")}</span></button>`).join("");
+  suggestAt = items.length ? 0 : -1; // the first pick is ready: Enter takes it
+  highlightSuggest();
+  suggest.hidden = !items.length && !lead;
+  pathInput.setAttribute("aria-expanded", String(!suggest.hidden));
+}
+async function suggestFor(query) {
+  const gen = ++suggestGen;
+  try {
+    const items = query
+      ? await get(`/api/search?q=${encodeURIComponent(query)}`)
+      : (await get("/api/children?limit=30")).items;
+    if (gen !== suggestGen) return; // a newer keystroke already asked; never overwrite its answer
+    renderSuggest(items.slice(0, 12),
+      items.length ? "" : `<div class="note">no name matches — the image answers only what it holds</div>`);
+  } catch (e) {
+    if (gen !== suggestGen) return;
+    renderSuggest([], `<div class="refusal">${esc(e.message)}</div>`);
+  }
+}
+function scheduleSuggest() { clearTimeout(suggestTimer); suggestTimer = setTimeout(() => suggestFor(pathInput.value.trim()), 150); }
+pathInput.addEventListener("input", scheduleSuggest);
+pathInput.addEventListener("focus", () => suggestFor(pathInput.value.trim()));
+document.addEventListener("click", (e) => {
+  if (!suggest.contains(e.target) && e.target !== pathInput) suggest.hidden = true;
+});
+suggest.addEventListener("click", (e) => {
+  const b = e.target.closest(".suggest-item");
+  if (!b) return;
+  pathInput.value = suggestItems[+b.dataset.i].path;
+  suggest.hidden = true;
+  load();
+});
+pathInput.addEventListener("keydown", (e) => {
+  if (suggest.hidden) { if (e.key === "Enter") load(); return; }
+  const n = suggestItems.length;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    suggestAt = (suggestAt + (e.key === "ArrowDown" ? 1 : -1) + Math.max(n, 1)) % Math.max(n, 1);
+    highlightSuggest();
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    if (suggestAt >= 0 && suggestItems[suggestAt]) pathInput.value = suggestItems[suggestAt].path;
+    suggest.hidden = true;
+    load();
+  } else if (e.key === "Escape") suggest.hidden = true;
+});
 
 // Seed the source from the loaded function's Pseudo face — honestly labelled a projection.
 $("seed").addEventListener("click", () => {
-  if (!currentFaces) { $("obj-status").innerHTML = `<div class="refusal">load a function first, then seed from its Pseudo face</div>`; return; }
+  if (!currentFaces) {
+    $("obj-status").innerHTML = `<div class="refusal">load a function first, then seed from its Pseudo face</div>`;
+    RXFHighlight.refresh($("obj-status"));
+    return;
+  }
   const pseudo = currentFaces.faces.pseudo;
   src.value = pseudo.text || "";
   $("name").value = currentFaces.name || "";
   runCheck();
   $("check-status").insertAdjacentHTML("afterbegin",
     `<span class="badge">seeded from the Pseudo face — a projection, not recovered source; recompile to install</span>`);
+  RXFHighlight.refresh($("check-status"));
 });
 
 // ---- cell poke ------------------------------------------------------------------------------
@@ -377,11 +487,12 @@ $("poke-go").addEventListener("click", async () => {
   const offset = parseInt($("poke-offset").value || "0", 0) * 8; // words -> bytes
   $("poke-status").innerHTML = `<div class="note">poking…</div>`;
   try {
-    const r = await post("/api/editor/poke", { path, field, value, offset });
-    if (!r.ok) { $("poke-status").innerHTML = `<div class="refusal"><b>refused</b> ${esc(r.refusal || r.reason || "")}</div>`; return; }
+    const r = await onChannel(() => post("/api/editor/poke", { path, field, value, offset }));
+    if (!r.ok) { $("poke-status").innerHTML = `<div class="refusal"><b>refused</b> ${esc(r.refusal || r.reason || "")}</div>`; RXFHighlight.refresh($("poke-status")); return; }
     $("poke-status").innerHTML = `<div class="okbox"><b>poked</b> <code>${esc(r.path)}</code> ${esc(r.field)}` +
       ` — sets ${esc(r.sets)}, creates ${esc(r.creates)}, deletes ${esc(r.deletes)}, digest <code>${esc(String(r.digest).slice(0, 16))}</code></div>`;
   } catch (e) { $("poke-status").innerHTML = `<div class="refusal"><b>poke failed</b> ${esc(e.message)}</div>`; }
+  RXFHighlight.refresh($("poke-status"));
 });
 
 const REFUSALS = {
@@ -393,10 +504,17 @@ const REFUSALS = {
 $("poke-why").addEventListener("click", () => {
   $("poke-why-out").innerHTML = Object.entries(REFUSALS)
     .map(([k, v]) => `<div class="refusal"><b>${esc(k)}</b>: ${esc(v)}</div>`).join("");
+  RXFHighlight.refresh($("poke-why-out"));
 });
 
-// ---- boot: the first check (the session itself shows in the shell's live slot; see ui.js) -------
+// ---- boot: the first paint and the first check (the session itself shows in the shell's live
+//      slot; see ui.js) — the mirror is colored before the check answers, never blank first -------
+paint([]);
 runCheck();
+// The Inspector's Edit link lands here with ?path=… — load that cell right away (docs/21: one
+// link between the faces of the system).
+const deepLink = new URLSearchParams(location.search).get("path");
+if (deepLink) { $("path").value = deepLink; load(); }
 </script>
 </body>
 </html>

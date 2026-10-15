@@ -590,3 +590,63 @@ def test_a_pinned_object_is_not_moved(starter: bytes):
         host.client.apply(physical.compile(host.image(), loose).data) == loose.digest()
     )
     assert host.client.compact().digest == loose.digest()
+
+
+# ---- the session spec of a running image (what the web app's live slot reports) -----------------
+
+
+LIVE_LEAF = "pymergetic.rxf.foundation.live.pump"
+
+
+def test_the_hello_of_a_running_image_carries_its_version_and_its_counters(
+    starter: bytes, host: HostImage
+):
+    """What `rxf live info` and the shell's live slot report of a session (docs/21): the version
+    the image answers (`Hello.version` — the live layer of core/live/live.h), the identity of
+    what runs (its digest, its handle count and body size), and the counters of its area. Every
+    one of these words comes off the channel; none is host bookkeeping."""
+    image = Image.from_bytes(starter)
+    hello = host.client.hello()
+    assert hello.version == 1  # PYMERGETIC_RXF_LIVE_VERSION (core/live/live.h)
+    assert (hello.handles, hello.body_size) == (image.handle_count, image.body_size)
+    assert host.client.digest() == image.digest()
+    assert (hello.commits, hello.rejects) == (0, 0)
+    assert hello.committed == hello.arena_capacity  # an area that committed nothing has it all
+    assert hello.arena_capacity >= hello.emit_capacity > 0
+    assert hello.stage_capacity > 0 and hello.work_capacity > 0
+
+
+def test_the_counters_of_a_session_move_with_what_the_image_takes_and_refuses(
+    starter: bytes, host: HostImage
+):
+    """The live counters of a session are the image's own: a delta it takes is a commit, a delta
+    it refuses is a reject, and the hello says so from then on."""
+    base = Image.from_bytes(starter)
+    result = Image.from_bytes(starter)
+    result.add(resolved(result, "pymergetic.rxf.application"), "spec_pin", 8, NONE, b"x")
+    assert host.client.apply(physical.compile(base, result).data) == result.digest()
+    assert host.client.hello().commits == 1
+    wrong = physical.Builder()
+    wrong.create("pymergetic.rxf.application.spec_twice", record())
+    with pytest.raises(Refused):
+        host.client.apply(wrong.build("00" * 32))  # a base that is not the image
+    hello = host.client.hello()
+    assert (hello.commits, hello.rejects) == (1, 1)
+    assert host.client.digest() == result.digest()  # and what runs is what it took
+
+
+def test_the_live_leaf_of_the_image_is_an_object_the_channel_answers_for(
+    starter: bytes, host: HostImage
+):
+    """The live leaf the slot names (`live.pump`, docs/18: the leaf whose Code serves these very
+    rings) is an object of the image like any other. What the slot renders as its handle and its
+    state is what the channel answers for it — the same words the image itself carries."""
+    image = Image.from_bytes(starter)
+    handle = host.client.resolve(LIVE_LEAF)
+    assert handle is not None and handle == image.handle(LIVE_LEAF)
+    cell = host.client.get(handle)
+    got = image.get(handle)
+    assert cell.name == "pump"
+    assert cell.flags == got["kind"] | got["state"] << 8 | got["owner_kind"] << 14
+    assert (cell.flags >> 8) & 0x3F == got["state"]  # the state word the slot renders
+    assert image.live(handle) and cell.generation == got["generation"]
