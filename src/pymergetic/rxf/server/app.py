@@ -148,15 +148,17 @@ def create_app(image: Image, *, session: Session | None = None) -> FastAPI:
 
     def editor_compile(body: SourceBody) -> dict[str, Any]:
         front = _front(session)
-        if front is None:
+        if front is None or session is None:
             return _no_session()
-        return live_seam(lambda: editor.compile_source(front, body.source, body.name))
+        with session.transaction():  # one channel transaction at a time (session.py)
+            return live_seam(lambda: editor.compile_source(front, body.source, body.name))
 
     def editor_install(body: SourceBody) -> dict[str, Any]:
         front = _front(session)
-        if front is None:
+        if front is None or session is None:
             return _no_session()
-        return live_seam(lambda: editor.install_source(front, body.source, body.name))
+        with session.transaction():  # one channel transaction at a time (session.py)
+            return live_seam(lambda: editor.install_source(front, body.source, body.name))
 
     def editor_poke(body: PokeBody) -> dict[str, Any]:
         if session is None or session.world is None:
@@ -178,14 +180,16 @@ def create_app(image: Image, *, session: Session | None = None) -> FastAPI:
                 body.offset,
             )
 
-        return live_seam(_poke)
+        with session.transaction():  # emit → compile → apply is one transaction (session.py)
+            return live_seam(_poke)
 
     def editor_numbers() -> dict[str, Any]:
         """The numbers the source may use (the const table of the image's front end)."""
         front = _front(session)
-        if front is None:
+        if front is None or session is None:
             return _no_session()
-        return {"numbers": front.numbers()}
+        with session.transaction():  # one channel transaction at a time (session.py)
+            return {"numbers": front.numbers()}
 
     def session_spec() -> dict[str, Any]:
         """The live session spec behind the shell's live slot (docs/21): the link of the session
@@ -290,10 +294,11 @@ def _session_spec(session: Session | None) -> dict[str, Any]:
         }
     client = session.world.client
     try:
-        hello = client.hello()
-        digest = client.digest()
-        handle = client.resolve(LIVE_LEAF)
-        leaf = None if handle is None else client.get(handle)
+        with session.transaction():  # the feed is one snapshot: one transaction (session.py)
+            hello = client.hello()
+            digest = client.digest()
+            handle = client.resolve(LIVE_LEAF)
+            leaf = None if handle is None else client.get(handle)
     except Exception as problem:  # noqa: BLE001 - a channel that stopped answering is reported
         # as the refusal of the spec, never raised over the wire: a session that is attached but
         # silent must not fall back to `no image` (docs/21)
