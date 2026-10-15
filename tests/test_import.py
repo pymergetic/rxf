@@ -32,10 +32,10 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-import pytest
-
 import compose
+import pytest
 import rximport
+
 from pymergetic.rxf.core import tree
 
 from . import graph_world, rxf_native
@@ -420,6 +420,15 @@ REFUSED = {
     # (or the interning path as runtime services, the leaf table being another lane's)
     ("qstr.c", "qstr_from_str"): "inline budget",
     ("qstr.c", "qstr_from_strn"): "inline budget",
+    # the obj class of py/obj.c: the type -> name path (mp_obj_get_type_str -> the
+    # qstr corpus's qstr_str: the same need as the interning path above -- calls
+    # between imported graphs, the design note of the slice) and the runtime-dispatch
+    # class (mp_obj_is_true through the unary_op slot, mp_obj_get_int_maybe through
+    # the objint/runtime faces: slices 4-5's runtime dispatch owns those calls and the
+    # function words behind them)
+    ("obj.c", "mp_obj_get_type_str"): "call of qstr_str",
+    ("obj.c", "mp_obj_is_true"): "indirect call",
+    ("obj.c", "mp_obj_get_int_maybe"): "call of mp_unary_op",
 }
 
 # the panic paths: the run refuses (RXF_REFUSE_UNSUPPORTED) on the path that would panic
@@ -475,7 +484,25 @@ GLOBAL_CASES: dict[str, tuple[str, tuple[tuple[str, tuple[int, ...]], ...]]] = {
 
 # the cell's address as a word: what a run resolves the Object handle to. The two sides
 # map the cell somewhere of their own, so the shape is what matches, not the word
-GLOBAL_ADDRESSES: dict[tuple[str, str], str] = {("global_scalar.c", "counter_at"): "counter"}
+GLOBAL_ADDRESSES: dict[tuple[str, str], str] = {
+    ("global_scalar.c", "counter_at"): "counter",
+}
+
+# the @mp_type_* cells, the ROM objects and the arena of the obj corpus: the Object
+# handles their graphs resolve, and the targets obj_port_boot stores.  These live in
+# the obj world (obj_world below), not the shared one: the class's cells are past the
+# 120 bytes the starter's and qstr's cells leave there
+OBJ_ADDRESSES: dict[tuple[str, str], str] = {
+    ("obj.c", "obj_type_type_at"): "mp_type_type",
+    ("obj.c", "obj_type_int_at"): "mp_type_int",
+    ("obj.c", "obj_type_str_at"): "mp_type_str",
+    ("obj.c", "obj_type_bool_at"): "mp_type_bool",
+    ("obj.c", "obj_type_nonetype_at"): "mp_type_NoneType",
+    ("obj.c", "obj_none_at"): "mp_const_none_obj",
+    ("obj.c", "obj_false_at"): "mp_const_false_obj",
+    ("obj.c", "obj_true_at"): "mp_const_true_obj",
+    ("obj.c", "obj_arena_at"): "m_arena",
+}
 
 # the qstr core of MicroPython (py/qstr.c over the corpus's arena port): the pool cells
 # the world keeps across the calls are the statics the native library keeps between its
@@ -519,6 +546,31 @@ QSTR_STRINGS = (
 )
 QSTR_CASES: dict[str, tuple[str, ...]] = {"qstr.c": QSTR_PROGRAMS}
 
+# the obj class of MicroPython (py/obj.c over the corpus's arena port): the @mp_type_*
+# cells the world keeps across the calls are the statics the native library keeps
+# between its ctypes calls.  The gate of the slice is the ctor/type-test roundtrip:
+# the type cells are arena cells whose byte images carry the literal words and whose
+# one relocation word obj_port_boot stores (the boot rule of qstr.c's pools, one file
+# over), and then the ctor stamps a type and the type test reads it back -- on the
+# tagged immediates of REPR A, on the ROM objects of objbool.c/objnone.c, and on the
+# type cells themselves (every type is its own object whose header names
+# mp_type_type)
+OBJ_PROGRAMS = (
+    "obj_port_boot",
+    "mp_obj_malloc_helper",
+    "mp_obj_get_type",
+    "obj_type_type_at",
+    "obj_type_int_at",
+    "obj_type_str_at",
+    "obj_type_bool_at",
+    "obj_type_nonetype_at",
+    "obj_none_at",
+    "obj_false_at",
+    "obj_true_at",
+    "obj_arena_at",
+)
+OBJ_CASES: dict[str, tuple[str, ...]] = {"obj.c": OBJ_PROGRAMS}
+
 
 @dataclass
 class World:
@@ -531,7 +583,10 @@ class World:
 # the nlr ABI of py/nlr.h in its own translation unit (nlr_posix.c), so the differential
 # links its own stubs (nlr_stubs.c) the same way -- the IR the importer reads keeps every
 # call opaque, exactly as MicroPython's own build does
-FRIENDS: dict[str, tuple[str, ...]] = {"nlr_call.c": ("nlr_stubs.c",)}
+FRIENDS: dict[str, tuple[str, ...]] = {
+    "nlr_call.c": ("nlr_stubs.c",),
+    "obj.c": ("obj_stubs.c",),
+}
 
 
 def link(file: Path, shared: Path) -> None:
@@ -609,6 +664,19 @@ class CellRun:
         )
         self.placed: bytes | None = None
 
+    def cell_size(self, address: int) -> int:
+        """The size of the cell whose payload sits at ``address`` -- the object table's
+        own word, so a case that bounds a walk of a cell (the arena's extent) reads the
+        one definition of it (the C array's length, as the world placed the cell)."""
+        count = struct.unpack_from(
+            "<Q", self.emulator.read(graph_world.CONTEXT, 144), 32
+        )[0]
+        table = self.emulator.read(graph_world.OBJECTS, count * 80)
+        for index in range(count):
+            if struct.unpack_from("<Q", table, index * 80 + 24)[0] == address:
+                return struct.unpack_from("<Q", table, index * 80 + 32)[0]
+        raise AssertionError(f"{address:#x}: no cell of the world answers that payload")
+
     def call(self, name: str, args: tuple[int, ...]) -> tuple[int, int]:
         """One call of the sequence: (status, the answer word). The world, its cells
         included, stays as the last call left it."""
@@ -636,20 +704,16 @@ class CellRun:
         return status, int.from_bytes(self.emulator.read(graph_world.OUT, 8), "little")
 
 
-@pytest.fixture(scope="module")
-def world(tmp_path_factory) -> World:
-    build = tmp_path_factory.mktemp("import_corpus")
+def build_world(build: Path, homes: set[str]) -> World:
+    """One world of the imported corpus: the files ``homes`` names, every wanted body
+    imported into one image and linked natively, ``image.check()`` holding the deltas
+    together.  A world is one room of cells: the shared one carries the corpus but
+    obj.c, whose class takes payload room past what the starter's and qstr's cells
+    leave (120 bytes), so the obj class builds a world of its own -- the CellRun
+    contract of one world carrying one corpus file's cells."""
     image = tree.load(STARTER)
     native: dict[str, ctypes.CDLL] = {}
-    homes = sorted(
-        {home for home, _ in CASES.values()}
-        | {home for home, _ in MEMORY_CASES.values()}
-        | {home for home, _ in PAIR_MEMORY_CASES.values()}
-        | {home for home, _ in AT_RUN_REFUSED.values()}
-        | set(GLOBAL_CASES)
-        | set(QSTR_CASES)
-    )
-    for file in homes:
+    for file in sorted(homes):
         source = CORPUS / file
         stem = source.stem
         wanted = (
@@ -659,7 +723,9 @@ def world(tmp_path_factory) -> World:
             | {name for name, (home, _) in AT_RUN_REFUSED.items() if home == file}
             | {name for name, _ in GLOBAL_CASES.get(file, ("", ()))[1]}
             | {name for home, name in GLOBAL_ADDRESSES if home == file}
+            | {name for home, name in OBJ_ADDRESSES if home == file}
             | set(QSTR_CASES.get(file, ()))
+            | set(OBJ_CASES.get(file, ()))
         )
         imported = rximport.import_source_file(image, source, module=stem, only=wanted)
         assert set(imported) == wanted, f"{file}: imported {sorted(imported)}, not {sorted(wanted)}"
@@ -668,6 +734,31 @@ def world(tmp_path_factory) -> World:
         native[stem] = ctypes.CDLL(str(shared))
     assert image.check() == []  # the deltas of the importer hold together
     return World(image, compose.programs(image), native)  # compose consumes the imported graphs
+
+
+CORPUS_HOMES = (
+    {home for home, _ in CASES.values()}
+    | {home for home, _ in MEMORY_CASES.values()}
+    | {home for home, _ in PAIR_MEMORY_CASES.values()}
+    | {home for home, _ in AT_RUN_REFUSED.values()}
+    | set(GLOBAL_CASES)
+    | set(QSTR_CASES)
+    | set(OBJ_CASES)
+)
+OBJ_HOMES = set(OBJ_CASES)
+
+
+@pytest.fixture(scope="module")
+def world(tmp_path_factory) -> World:
+    return build_world(tmp_path_factory.mktemp("import_corpus"), CORPUS_HOMES - OBJ_HOMES)
+
+
+@pytest.fixture(scope="module")
+def obj_world(tmp_path_factory) -> World:
+    """The obj class's world: its cells are past the room the shared world's cells leave
+    (120 bytes), so obj.c imports into a world of its own -- one world, one corpus
+    file's cells, the CellRun contract."""
+    return build_world(tmp_path_factory.mktemp("import_obj"), OBJ_HOMES)
 
 
 @pytest.mark.parametrize("name", sorted(CASES))
@@ -818,19 +909,29 @@ def test_globals_are_arena_cells(world: World, file: str):
         )
 
 
-@pytest.mark.parametrize(("file", "name"), sorted(GLOBAL_ADDRESSES))
-def test_global_address_is_the_cell(world: World, file: str, name: str):
+def check_global_address(image, programs: dict[str, bytes], stem: str, name: str) -> None:
     """What ``&static`` answers: the payload address the Object handle resolves to. The
     two sides map the cell somewhere of their own, so the word itself cannot compare: its
     shape can -- the same address at every call, aligned, inside the arena."""
-    stem = Path(file).stem
-    run = CellRun(world.image, {name: world.programs[f"{stem}.{name}"]})
+    run = CellRun(image, {name: programs[f"{stem}.{name}"]})
     status, first = run.call(name, ())
     again, second = run.call(name, ())
     assert (status, again) == (OK, OK)
     assert first == second, f"{name}: two calls answered {first:#x} and {second:#x}"
     assert first and first % 8 == 0, f"{name}: {first:#x} is no aligned address"
     assert graph_world.BASE <= first < graph_world.BASE + graph_world.MAPPED
+
+
+@pytest.mark.parametrize(("file", "name"), sorted(GLOBAL_ADDRESSES))
+def test_global_address_is_the_cell(world: World, file: str, name: str):
+    check_global_address(world.image, world.programs, Path(file).stem, name)
+
+
+@pytest.mark.parametrize(("file", "name"), sorted(OBJ_ADDRESSES))
+def test_obj_global_address_is_the_cell(obj_world: World, file: str, name: str):
+    """The obj class's cells answer as the other files' statics do -- in the class's own
+    world, whose room the shared world's cells leave short."""
+    check_global_address(obj_world.image, obj_world.programs, Path(file).stem, name)
 
 
 def test_qstr_hash_find_roundtrip_matches_native(world: World):
@@ -940,9 +1041,184 @@ def test_qstr_hash_find_roundtrip_matches_native(world: World):
             )
 
 
+def test_obj_ctor_type_roundtrip_matches_native(obj_world: World):
+    """The obj class of MicroPython end to end (the gate of the slice): the imported
+    graphs answer the same as the natively compiled library.  The sequence boots the
+    @mp_type_* cells the way a port's boot fills the relocation words a static
+    initializer would carry (obj_port_boot, the boot rule of qstr.c's pools), and then
+    the smallest real call path runs: the constructor (mp_obj_malloc_helper) stamps a
+    type and the type test (mp_obj_get_type) reads it back.  Before the boot the cells
+    answer their byte images (the relocation word is the zero the flat profile
+    places); after it the type-of-type fixed point holds (every type is its own
+    object whose header names mp_type_type).  The tagged words of REPR A dispatch to
+    the type cells without touching memory, and the ROM objects of
+    objbool.c/objnone.c dispatch on their headers like the constructor's objects do.
+
+    The two sides map their cells somewhere of their own, so a type word cannot
+    compare across them: what compares is the relation (each answer names the cell
+    the case expects -- the same relation asserted on both sides), the content of the
+    cells the answers name (the relocation word aside, whose own words relate), and
+    the arena offset of every constructor answer -- the bump of the port's heap is
+    deterministic, so those words compare directly."""
+    stem = "obj"
+    run = CellRun(
+        obj_world.image, {name: obj_world.programs[f"{stem}.{name}"] for name in OBJ_PROGRAMS}
+    )
+    native = obj_world.native[stem]
+
+    def graph_at(name: str) -> int:
+        status, value = run.call(name, ())
+        assert status == OK, f"{name}: the imported graph refused ({status})"
+        return value
+
+    def native_at(name: str) -> int:
+        function = getattr(native, name)
+        function.restype = ctypes.c_void_p
+        return function() or 0
+
+    def check_type(
+        label: str, graph_word: int, native_word: int, graph_cell: int, native_cell: int
+    ) -> None:
+        """The type test on one shape of word, each side its own cell addresses: the
+        answer must name the cell the case expects, and the same relation holds or
+        breaks together on both sides (that agreement is the differential)."""
+        status, answer = run.call("mp_obj_get_type", (graph_word,))
+        native.mp_obj_get_type.argtypes = [ctypes.c_void_p]
+        native.mp_obj_get_type.restype = ctypes.c_void_p
+        expected = native.mp_obj_get_type(native_word) or 0
+        assert (status, answer == graph_cell) == (OK, expected == native_cell) == (
+            OK,
+            True,
+        ), (
+            f"mp_obj_get_type({label}): the imported graph answered ({status}, "
+            f"{answer:#x}) and natively it is ({OK}, {expected:#x}); the case expects "
+            f"the {graph_cell:#x} cell on the graph side and the {native_cell:#x} "
+            f"cell natively"
+        )
+
+    def check_content(label: str, graph_cell: int, native_cell: int, size: int) -> None:
+        """The bytes of a cell the answers name: identical across the sides but for
+        the relocation word at offset 0, which is an address of the cell's own side
+        (the callers compare it against that side's type address)."""
+        assert bytes(run.emulator.read(graph_cell + 8, size - 8)) == ctypes.string_at(
+            native_cell + 8, size - 8
+        ), f"{label}: the cell's bytes past its relocation word differ across the sides"
+
+    def check_reloc(label: str, graph_cell: int, native_cell: int, target: str) -> None:
+        """The relocation word obj_port_boot stores: each side's answer for the cell
+        it points at -- one relation, two address spaces."""
+        word = int.from_bytes(run.emulator.read(graph_cell, 8), "little")
+        held = ctypes.string_at(native_cell, 8)
+        expect = int.from_bytes(held, "little")
+        graph_target = graph_at(target)
+        native_target = native_at(target)
+        assert word == graph_target and expect == native_target, (
+            f"{label}: the boot stored {word:#x} (graph) and {expect:#x} (native), "
+            f"the {target} cells are at {graph_target:#x} and {native_target:#x}"
+        )
+
+    cells = (
+        ("type", "obj_type_type_at"),
+        ("int", "obj_type_int_at"),
+        ("str", "obj_type_str_at"),
+        ("bool", "obj_type_bool_at"),
+        ("NoneType", "obj_type_nonetype_at"),
+    )
+    roms = (
+        # the cell bytes compared past the relocation word: None's base alone, the
+        # bools' value (the padding C leaves beside it compares nothing)
+        ("none", "obj_none_at", "obj_type_nonetype_at", 8),
+        ("false", "obj_false_at", "obj_type_bool_at", 9),
+        ("true", "obj_true_at", "obj_type_bool_at", 9),
+    )
+    at = {name: (graph_at(name), native_at(name)) for _, name in cells}
+    at.update({name: (graph_at(name), native_at(name)) for _, name, _, _ in roms})
+    at["obj_arena_at"] = (graph_at("obj_arena_at"), native_at("obj_arena_at"))
+    graph_type, native_type = at["obj_type_type_at"]
+    graph_arena, native_arena = at["obj_arena_at"]
+    arena_bytes = run.cell_size(graph_arena)  # the C array's length, one definition
+
+    # before the boot the cells answer their byte images: the relocation word is the
+    # zero the flat profile places, and both sides answer it as a word
+    for label, name in cells:
+        graph_cell, native_cell = at[name]
+        check_type(f"&mp_type_{label} before the boot", graph_cell, native_cell, 0, 0)
+    for label, name, _, _ in roms:
+        graph_cell, native_cell = at[name]
+        check_type(f"&mp_const_{label}_obj before the boot", graph_cell, native_cell, 0, 0)
+
+    status, _ = run.call("obj_port_boot", ())
+    assert status == OK, f"obj_port_boot: the imported graph refused the boot ({status})"
+    native.obj_port_boot()
+
+    # the type-of-type fixed point: every type is its own object and its header names
+    # mp_type_type -- including mp_type_type itself
+    for label, name in cells:
+        graph_cell, native_cell = at[name]
+        check_type(f"&mp_type_{label}", graph_cell, native_cell, graph_type, native_type)
+        check_reloc(f"mp_type_{label}", graph_cell, native_cell, "obj_type_type_at")
+        check_content(f"mp_type_{label}", graph_cell, native_cell, 24)
+    for label, name, typed, size in roms:
+        graph_cell, native_cell = at[name]
+        graph_typed, native_typed = at[typed]
+        check_type(f"&mp_const_{label}_obj", graph_cell, native_cell, graph_typed, native_typed)
+        check_reloc(f"mp_const_{label}_obj", graph_cell, native_cell, typed)
+        check_content(f"mp_const_{label}_obj", graph_cell, native_cell, size)
+
+    # the constructor/type-test roundtrip: the ctor stamps the type, the test reads it
+    # back; the bump of the port's heap is deterministic, so the arena offsets of the
+    # two sides agree as words
+    for label, name in cells:
+        graph_cell, native_cell = at[name]
+        status, made = run.call("mp_obj_malloc_helper", (24, graph_cell))
+        native.mp_obj_malloc_helper.argtypes = [ctypes.c_uint64, ctypes.c_void_p]
+        native.mp_obj_malloc_helper.restype = ctypes.c_void_p
+        held = native.mp_obj_malloc_helper(24, native_cell) or 0
+        assert (status, (made - graph_arena) % U64) == (OK, (held - native_arena) % U64), (
+            f"mp_obj_malloc_helper(24, &mp_type_{label}): the imported graph answered "
+            f"({status}, offset {(made - graph_arena) % U64}), natively it is "
+            f"({OK}, offset {(held - native_arena) % U64})"
+        )
+        for word, where in ((made, "graph"), (held, "native")):
+            base = graph_arena if where == "graph" else native_arena
+            assert word % 16 == 0 and base <= word < base + arena_bytes, (
+                f"mp_obj_malloc_helper(24, &mp_type_{label}): the {where} object "
+                f"{word:#x} is no aligned word of the arena at {base:#x}"
+            )
+        check_type(f"mp_obj_malloc_helper(24, &mp_type_{label})", made, held, graph_cell, native_cell)
+        # the stamped header: the object's word is the type cell's address
+        stamped = int.from_bytes(run.emulator.read(made, 8), "little")
+        native_stamped = int.from_bytes(ctypes.string_at(held, 8), "little")
+        assert stamped == graph_cell and native_stamped == native_cell, (
+            f"mp_obj_malloc_helper(24, &mp_type_{label}): the stamped header is "
+            f"{stamped:#x} (graph) and {native_stamped:#x} (native), the type cells "
+            f"are at {graph_cell:#x} and {native_cell:#x}"
+        )
+
+    # the tagged words of REPR A: the dispatch touches no memory, and the words are
+    # the same on both sides (bit 0 set is a small int, the qstr tag is x << 3 | 2)
+    graph_int, native_int = at["obj_type_int_at"]
+    graph_str, native_str = at["obj_type_str_at"]
+    for value in (0, 1, 5, -3, (1 << 62) - 1):
+        check_type(
+            f"MP_OBJ_NEW_SMALL_INT({value})",
+            (value << 1 | 1) % U64,
+            (value << 1 | 1) % U64,
+            graph_int,
+            native_int,
+        )
+    for qst in (0, 1, 7, 41):
+        check_type(
+            f"MP_OBJ_NEW_QSTR({qst})",
+            (qst << 3 | 2) % U64,
+            (qst << 3 | 2) % U64,
+            graph_str,
+            native_str,
+        )
+
+
 def sign_bit(word: int) -> int:
     return (word >> 63) & 1
-
 
 @pytest.mark.parametrize(
     "name",
