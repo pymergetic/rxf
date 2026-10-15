@@ -433,3 +433,62 @@ def test_nothing_is_left_registered_when_a_runner_ends_without_closing():
     )
     assert done.returncode == 0, done.stderr
     assert done.stdout.strip() == "registered at exit: no"
+
+
+# ---- the two faces of one link: `rxf live` (frames) and `rxf console` (world) --------------------
+
+
+def test_the_frames_face_sees_what_the_world_face_installed(
+    solo: Seat, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    """`rxf live` and `rxf console` are two faces of one link, not two ways to one end. The
+    world face compiles and installs through the session; the frames face (`rxf live digest`,
+    `rxf live console`) speaks on the same channel — the seam's, not a second wire — and sees
+    the same image and the Function the world face installed."""
+    booted(solo)
+    file = tmp_path / "twice.rxf"
+    file.write_text(TWICE, encoding="utf-8")
+    with Session("shm:two-faces", solo.channel.client, solo.front):
+        assert main(["console", str(file), "--link=shm:two-faces"]) == 0
+        capsys.readouterr()  # what the world face printed
+
+        assert main(["live", "digest", "shm:two-faces"]) == 0
+        assert capsys.readouterr().out.strip() == solo.channel.loaded().digest()
+
+        script = tmp_path / "faces.txt"
+        script.write_text(
+            f"children {MODULE}\nresolve {MODULE}.twice\nquit\n", encoding="utf-8"
+        )
+        assert main(["live", "console", "shm:two-faces", str(script)]) == 0
+        answered = capsys.readouterr().out
+        assert f"{MODULE}.twice" in answered  # the frames face lists what the world face installed
+
+
+def test_the_frames_face_follows_the_registration_lifecycle(
+    solo: Seat, capsys: pytest.CaptureFixture[str]
+):
+    """Anmeldung and Ablmeldung are what both faces see: while the session is open the frames
+    face speaks on its channel; when it closes, the link has no runner and the face would open
+    a wire of its own (which this name has none of)."""
+    session = Session("shm:faces-lifecycle", solo.channel.client, solo.front).open()
+    try:
+        assert world.registered("shm:faces-lifecycle") is True
+        assert main(["live", "digest", "shm:faces-lifecycle"]) == 0
+        assert capsys.readouterr().out.strip() == solo.channel.loaded().digest()
+    finally:
+        session.close()
+    assert world.registered("shm:faces-lifecycle") is False
+    assert main(["live", "digest", "shm:faces-lifecycle"]) == 2
+    assert "rxf:" in capsys.readouterr().err
+
+
+def test_the_frames_face_uses_the_wire_when_no_runner_runs_here(
+    capsys: pytest.CaptureFixture[str],
+):
+    """Nothing runs here, but a rig or firmware may run at the far end of a line: without a
+    registration the frames face opens the wire (`live.link`), and what no wire reaches is
+    refused plainly instead of pretending a world is here."""
+    name = "shm:s1-no-runner-here"
+    assert world.registered(name) is False
+    assert main(["live", "digest", name]) == 2
+    assert "rxf:" in capsys.readouterr().err

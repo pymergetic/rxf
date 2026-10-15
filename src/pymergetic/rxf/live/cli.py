@@ -3,6 +3,15 @@
 LINK is what `live.link.open_link` takes: `pty:/dev/pts/3[:115200]`, `tty:/dev/ttyS0:115200`,
 `fd:5` or `shm:NAME`. The image on the other end is served by whatever drains its channel (the
 leaf `uart.pump` plus the live pump on a machine, a host that runs `core.live.Area`).
+
+This is the **frames face** of a link: `rxf live console` is its console. It reads and changes
+the image over the channel whatever wire carries it and needs no machine of its own. The
+**world face** (`rxf console`) compiles and installs, and that runs the image — a run is not a
+frame (docs/19, "who runs when") — so it attaches the world of whoever runs the image through
+the one seam (`console/world`). When a runner is registered at LINK in this process, both faces
+speak on its channel; when nothing runs here (a rig or firmware on the far end of a line), a
+command opens the wire. The two faces are one link, not one API: the frames face cannot run,
+the world face cannot reach an image no runner here drives.
 """
 
 from __future__ import annotations
@@ -12,12 +21,17 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from pymergetic.rxf import source
+from pymergetic.rxf.console import world
 from pymergetic.rxf.core.object import Image
 from pymergetic.rxf.live import link, physical
 from pymergetic.rxf.live.client import Client, LiveError
 
 
 def _client(spec: str, timeout: float) -> Client:
+    """The channel of the image at SPEC: the world of the runner in this process when one runs
+    here (`console/world`, the seam `rxf console` attaches through), else the wire (`live.link`)."""
+    if world.registered(spec):
+        return world.attach(spec, timeout=float(timeout)).client
     return link.connect(spec, timeout=float(timeout))
 
 
