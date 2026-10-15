@@ -295,6 +295,22 @@ to invent docs; an empty body is refused (`DocCodec.Raw` with no text is pinned 
 stability pins the lift lane owns: the naming contract, the `<rxf:doc>` delta round-trip
 (docs/15), and the `DocKind`/`DocRole` enumerations (`core/kinds/`).
 
+### 4.8 The value-width and relocation seam (the emitter's words)
+
+The vocabulary seam `rxemit.py` owns is one model wider than it was: a module's **width model**
+(`rxemit.DataModel`, from the IR's `target datalayout` — ILP32 or LP64) and the **relocation**
+of a static initializer (`Global.refusal`, `Relocation` in `rximport`). Both extend the seam
+backward-compatibly: the delta vocabulary is unchanged (`U64`/`WIDE`/`U32` still the only value
+types), and the widths ride what it already states (`literal_size`, the payload of a
+`SemanticObject`).
+
+| | |
+|---|---|
+| touches | `tools/native/rxemit.py` (`DataModel`, `Global.refusal`); `tools/native/rximport.py` (`module_model`/`pointer_width`, the model every sizing takes, `init_bytes`/`place_relocations`/`wires_boot`, the masked words of `function_wiring`/`lower_indirect`); `tests/test_import_width.py`, `tests/import_corpus/width32.c` |
+| implements | every cell, slot and store word is the **model's**: a pointer is 8 bytes in LP64 and 4 in ILP32, the function words a dispatch compares are the body's object id masked to that word, and a global initializer that names an address (a function pointer, a pointer to another global) places its byte image with the slot zero and one **wire** per relocation in the module's boot (`__wires_boot`) — the loader pass the native static gets before `main` |
+| refuses (by name, at import) | what the model cannot decide honestly: a pointer of a module that states no width, two pointer widths in one layout, a width that is neither 4 nor 8, the alignment of a 64-bit scalar under ILP32 (i386 and arm32 disagree — an ABI decision), a relocation slot that is not at a word of its cell or is narrower than the word, a relocation of a C++ runtime symbol (`_ZTV*`/`_ZTI*` and kin), and a declaration without bytes — each with its reason, never a slot silently left wrong |
+| docs | the flip of `global_reloc.c:use_reloc` (the relocation wires now) is in docs/20's flip history; the width policy is pinned in `tests/test_import_width.py`, both models of one source against their own host C builds |
+
 ## 5. Provenance: both import strands
 
 One machinery, one knob per import run, two entrances (docs/22 extends verbatim; only the

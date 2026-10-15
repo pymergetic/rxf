@@ -301,18 +301,30 @@ the C++ and Rust subsets of their sections. What remains:
                                as the starter's graphs do)
     graph calls                what recursion needs, with the refusal/status wiring of the
                                starter
-    the value-width policy     for MicroPython's word (32- vs 64-bit): the pass assumes
-                               64-bit words today
 
 and then MicroPython-core-as-corpus (the leaf table of native/graph.h grows in the change
 that owns that file -- this pass only names the leaves it needs).
 
-The C++ exception/RTTI runtimes, by-value aggregates (sret/byval) and module-level globals
-that are a relocation stay refused by policy: they are runtime machinery the interpreter has
-no card for, and this pass never lowers them to words that would run wrong. A call through
-a function word is no longer one of them where the import makes memory carry the words (the
-unary_op slot dispatch of ``lower_indirect``); the rest of that class stays refused with the
-reason the pass gives it.
+The C++ exception/RTTI runtimes and by-value aggregates (sret/byval) stay refused by policy:
+they are runtime machinery the interpreter has no card for, and this pass never lowers them to
+words that would run wrong. A call through a function word is no longer one of them where the
+import makes memory carry the words (the unary_op slot dispatch of ``lower_indirect``); the
+rest of that class stays refused with the reason the pass gives it.
+
+The value-width policy is the module's own (``rxemit.DataModel``): the datalayout's pointer
+width decides what a word of the flat memory is -- ILP32 and LP64 both import, each value
+word states its width and a store writes the bytes the model gives the type. A module whose
+widths the model cannot decide honestly (a pointer width that is neither 4 nor 8, a
+datalayout and typed pointers that disagree) refuses the import, never a guess.
+
+A module-level global whose initializer carries an address -- a function pointer in a
+callback struct, a pointer to another global -- is a **relocation** (``@data = global
+%struct { i32, void (i8*)* @callback }``): the cell is placed as its byte image with that
+slot zero, and the wire that fills it is one store of the word by the module's boot
+(``__wires_boot``, the loader's work a port runs before anything else), which is the link
+fact ``function_wiring`` arms a dispatch's call cards from. A relocation this pass cannot
+place (a C++ runtime symbol, a name the link cannot name, a slot the model's word does not
+fit) refuses the cell and every use of it, never a slot left silently wrong.
 
 The source beside the IR is read for more than its bodies (docs/22): every comment of the
 file is lifted to a Doc object of the image -- a task marker its own managed kind -- and the
@@ -342,17 +354,22 @@ import rxemit
 from pymergetic.rxf.core import tree
 from pymergetic.rxf.core.kinds import DocKind, DocRole
 from rxemit import (
+    DataModel,
     Global,
+    ILP32,
     LBlock,
     LGraph,
     LOp,
     LValue,
+    LP64,
     MOperand,
     ParseError,
     U32,
     U64,
+    UNDECIDED,
     ValueOperand,
     WIDE,
+    align,
     emit_delta,
 )
 
@@ -423,6 +440,15 @@ def is_runtime_callee(callee: str) -> bool:
     )
 
 
+def is_runtime_symbol(name: str) -> bool:
+    """A symbol of the C++ exception/RTTI machinery (a vtable, a typeinfo, a type name:
+    ``_ZTV*``/``_ZTI*``/``_ZTS*``, the ``__cxa_*``/``_Unwind*``/``__gxx_*`` runtime), or a
+    Rust runtime symbol. A relocation of one refuses the cell it sits in: these words
+    name runtime machinery the interpreter has no card for (the class ``is_runtime_callee``
+    refuses the calls of), so no wire of this pass may make memory carry them."""
+    return is_runtime_callee(name)
+
+
 # the nlr ABI of MicroPython (py/nlr.h): a setjmp-style push, a noreturn jump and a pop.
 # The nlr policy below lowers these by name
 NLR_PUSH = "nlr_push"
@@ -459,6 +485,61 @@ MASKS = {"i1": 1, "i8": 0xFF, "i16": 0xFFFF, "i32": 0xFFFFFFFF, "i64": FULL}
 
 class Unsupported(Exception):
     """A construct of the input that the subset of this importer does not cover."""
+
+
+# ---- the width model of one module (rxemit.DataModel) -----------------------------------------
+
+# the pointer width a ``target datalayout`` states: ``p:32:32`` (and the default address
+# space's ``p0:32:32``) say what one word of the flat memory is; the address-space specs
+# of a layout (``p10:8:8``: the wasm tables) are not the pointer the C of the module uses
+RE_DATA_LAYOUT = re.compile(r'target\s+datalayout\s*=\s*"([^"]*)"')
+RE_POINTER_SPEC = re.compile(r"\bp0?:(\d+):")
+
+
+def module_model(text: str) -> DataModel:
+    """The width model of a textual module: what one word of its flat memory is.
+
+    The ``target datalayout`` decides it: the pointer width of its default address space
+    (``p:32:32``/``p0:32:32`` is one 4-byte word), and where a layout states no pointer
+    width it is the 64-bit default that layout stands on (clang's native datalayout
+    spells only its own address spaces -- ``p270``/``p271``/``p272`` -- and the default
+    pointer of it is 8 bytes). A module with no ``target datalayout`` at all states no
+    width this pass can take: it is placed against the undecided model, whose integers
+    still know their widths but whose pointer words refuse where a store, a load or a
+    cell would use one. The same goes for a pointer width that is neither 4 nor 8, or a
+    layout that states two that disagree: the import refuses with the reason, and the
+    refusal is the story."""
+    layout = RE_DATA_LAYOUT.search(text)
+    if layout is None:
+        return UNDECIDED
+    widths = {int(found.group(1)) // 8 for found in RE_POINTER_SPEC.finditer(layout.group(1))}
+    if len(widths) > 1:
+        raise Unsupported(
+            f"the module's width model cannot be decided honestly: its datalayout states "
+            f"the pointer widths {sorted(8 * width for width in widths)}"
+        )
+    if not widths:
+        return LP64  # the default pointer of a layout that states none: LLVM's own
+    width = widths.pop()
+    if width not in (4, 8):
+        raise Unsupported(
+            f"the module's width model cannot be decided honestly: a {width * 8}-bit "
+            "pointer (this pass places 32- and 64-bit words only)"
+        )
+    return DataModel(pointer=width)
+
+
+def pointer_width(model: DataModel) -> int:
+    """The bytes one pointer takes in the model's flat memory, or the honest refusal: a
+    module that states no pointer width places no pointer word this pass can size (an
+    ``i32`` still knows it is 4 bytes; only the pointer is undecided), so a store, a
+    load or a cell that would need the width refuses instead of guessing it."""
+    if model.pointer is None:
+        raise Unsupported(
+            "the width of a pointer of this module is not decided (its datalayout states "
+            "none): this pass places 32- and 64-bit words and will not guess"
+        )
+    return model.pointer
 
 
 # ---- the layout of the types a getelementptr walks -------------------------------------------
@@ -551,22 +632,23 @@ def struct_fields(ty: str, structs: dict[str, str]) -> list[str] | None:
 
 
 def struct_layout(
-    fields: list[str], structs: dict[str, str], packed: bool = False
+    fields: list[str], structs: dict[str, str], packed: bool = False, model: DataModel = UNDECIDED,
 ) -> tuple[int, int]:
     """The (size, align) of a struct of these fields, with the padding C gives it (a
     packed struct takes no padding and aligns like one byte)."""
     at = 0
-    align = 1
+    align_of = 1
     for field in fields:
-        here = 1 if packed else type_align(field, structs)
-        at += -at % here
-        at += type_size(field, structs)
-        align = max(align, here)
-    at += -at % align
-    return at, align
+        here = 1 if packed else type_align(field, structs, model)
+        at = align(at, here)
+        at += type_size(field, structs, model)
+        align_of = max(align_of, here)
+    return align(at, align_of), align_of
 
 
-def field_offset(ty: str, index: int, structs: dict[str, str]) -> tuple[int, str]:
+def field_offset(
+    ty: str, index: int, structs: dict[str, str], model: DataModel = UNDECIDED
+) -> tuple[int, str]:
     """The (byte offset, field type) of one field of a struct type."""
     body = struct_body(ty, structs)
     if body is None or not 0 <= index < len(body[0]):
@@ -574,11 +656,11 @@ def field_offset(ty: str, index: int, structs: dict[str, str]) -> tuple[int, str
     fields, packed = body
     at = 0
     for position, field in enumerate(fields):
-        here = 1 if packed else type_align(field, structs)
-        at += -at % here
+        here = 1 if packed else type_align(field, structs, model)
+        at = align(at, here)
         if position == index:
             return at, field
-        at += type_size(field, structs)
+        at += type_size(field, structs, model)
     raise Unsupported(f"no field {index} of {ty}")
 
 
@@ -594,37 +676,48 @@ def array_element(ty: str) -> str | None:
     return shape[1] if shape else None
 
 
-def type_size(ty: str, structs: dict[str, str]) -> int:
-    """The bytes a value of this type takes in memory (the stride of a getelementptr)."""
+def type_size(ty: str, structs: dict[str, str], model: DataModel = UNDECIDED) -> int:
+    """The bytes a value of this type takes in memory (the stride of a getelementptr,
+    the width of the cell a store writes): a ``ptr`` is the model's word, never the
+    machine's. A caller that threads no model gets the undecided one -- integers size,
+    a pointer refuses -- so LP64 is never a default guess over a 32-bit module."""
     ty = ty.strip()
-    if ty == "ptr":
-        return 8
+    if ty == "ptr" or ty.endswith("*"):  # a typed pointer of older IR is one address word
+        return pointer_width(model)
     scalar = re.fullmatch(r"i(\d+)", ty)
     if scalar:
         return (int(scalar.group(1)) + 7) // 8
     shape = array_shape(ty)
     if shape is not None:
-        return shape[0] * type_size(shape[1], structs)
+        return shape[0] * type_size(shape[1], structs, model)
     body = struct_body(ty, structs)
     if body is not None:
-        return struct_layout(body[0], structs, body[1])[0]
+        return struct_layout(body[0], structs, body[1], model)[0]
     raise Unsupported(f"the size of {ty} is unknown to the subset")
 
 
-def type_align(ty: str, structs: dict[str, str]) -> int:
-    """The alignment a value of this type takes in memory."""
+def type_align(ty: str, structs: dict[str, str], model: DataModel = UNDECIDED) -> int:
+    """The alignment a value of this type takes in memory (the model's word for a
+    pointer, as ``type_size`` sizes it)."""
     ty = ty.strip()
-    if ty == "ptr":
-        return 8
+    if ty == "ptr" or ty.endswith("*"):
+        return pointer_width(model)
     scalar = re.fullmatch(r"i(\d+)", ty)
     if scalar:
-        return max(1, min((int(scalar.group(1)) + 7) // 8, 8))
+        size = (int(scalar.group(1)) + 7) // 8
+        if size > 4 and model.pointer == 4:
+            raise Unsupported(
+                f"the alignment of {ty} in memory is not this model's to decide: an "
+                "ILP32 ABI aligns a 64-bit scalar 4 or 8 (i386 and arm32 disagree), so a "
+                "layout that needs it refuses instead of guessing one"
+            )
+        return max(1, min(size, 8))
     element = array_element(ty)
     if element is not None:
-        return type_align(element, structs)
+        return type_align(element, structs, model)
     body = struct_body(ty, structs)
     if body is not None:
-        return struct_layout(body[0], structs, body[1])[1]
+        return struct_layout(body[0], structs, body[1], model)[1]
     raise Unsupported(f"the alignment of {ty} is unknown to the subset")
 
 
@@ -698,13 +791,46 @@ def item_value(item: str) -> str:
     return rest if rest else text
 
 
-def init_bytes(ty: str, text: str, structs: dict[str, str]) -> bytes | None:
-    """The initial payload of a global of this type, or None for an initializer outside the
-    subset (a relocation: an initializer that names a symbol, so its bytes would be a
-    link-time address this pass cannot know)."""
+RE_SYMBOL = re.compile(r'@[A-Za-z0-9_.$-]+|@"[^"]+"')
+# the slot a relocation can sit in: a scalar of the integer widths this pass stores words
+# of, or any pointer (the typed pointers of older IR included)
+RE_SLOT = re.compile(r"i(?:1|8|16|32|64)|ptr")
+
+
+@dataclass
+class Relocation:
+    """One relocation of a global's initializer: the slot at byte ``slot`` of the cell
+    holds the word of ``symbol`` (a function pointer in a callback struct, a pointer to
+    another global), not bytes the compiler can write.
+
+    The wire that places it is one store of that word into the slot -- the module's boot
+    (``__wires_boot``) makes every one of them before anything runs -- and the cell is
+    placed as its byte image with the slot zero until then, exactly like the native
+    static storage before its loader has placed the relocations. What the pass cannot
+    place refuses the cell (``Global.refusal``): a runtime symbol of the C++ machinery,
+    a name the link cannot name, a slot the model's word does not fit."""
+
+    slot: int  # the byte offset of the word inside the cell
+    form: str  # the initializer text of the atom (the wire's value operand)
+    symbol: str  # the ``@name`` the form names
+    slot_type: str  # the type of the slot: the width the wire store writes
+
+
+def init_bytes(
+    ty: str, text: str, structs: dict[str, str], model: DataModel,
+    relocs: list[Relocation], base: int = 0,
+) -> bytes | None:
+    """The initial payload of a global of this type, or None for an initializer outside
+    the subset.
+
+    An initializer that names a symbol -- ``@data = global %struct { i32, void (i8*)*
+    @callback }`` -- is a relocation: its slot is placed as the zero of the byte image
+    and the relocation is recorded (``relocs``) for the wire that fills it. Every other
+    form outside the subset answers None: the cell refuses by name, never a guessed
+    payload."""
     ty = ty.strip()
     text = text.strip()
-    size = type_size(ty, structs)
+    size = type_size(ty, structs, model)
     if text in ("", "zeroinitializer", "null", "undef", "poison"):
         return bytes(size)
     string = re.fullmatch(r'c"((?:[^"\\]|\\.)*)"', text)
@@ -728,7 +854,8 @@ def init_bytes(ty: str, text: str, structs: dict[str, str]) -> bytes | None:
             return None
         out = bytearray()
         for item in items:
-            made = init_bytes(element, item_value(item), structs)
+            at = base + len(out)
+            made = init_bytes(element, item_value(item), structs, model, relocs, at)
             if made is None:
                 return None
             out += made
@@ -740,12 +867,22 @@ def init_bytes(ty: str, text: str, structs: dict[str, str]) -> bytes | None:
             return None
         out = bytearray(bytes(size))
         for index, item in enumerate(items):
-            at, field_type = field_offset(ty, index, structs)
-            made = init_bytes(field_type, item_value(item), structs)
+            at, field_type = field_offset(ty, index, structs, model)
+            made = init_bytes(field_type, item_value(item), structs, model, relocs, base + at)
             if made is None:
                 return None
             out[at : at + len(made)] = made
         return bytes(out)
+    # a relocation: the atom names the symbol whose word the slot holds (a function
+    # pointer in a callback struct, a pointer to another global -- plain, or through a
+    # constant expression of one). The slot is placed as the zero the byte image carries
+    # and the wire of the boot fills it
+    if RE_SLOT.fullmatch(ty) or ty.endswith("*"):
+        symbol = RE_SYMBOL.search(text)
+        if symbol is not None:
+            slot_type = "ptr" if (ty == "ptr" or ty.endswith("*")) else ty
+            relocs.append(Relocation(base, text, symbol.group(0), slot_type))
+            return bytes(size)
     return None
 
 
@@ -1116,7 +1253,7 @@ def declared_functions(text: str) -> set[str]:
 
 def function_wiring(
     parsed: list[Function], module: str, only: set[str] | None,
-    declared: set[str], known: dict[str, str],
+    declared: set[str], known: dict[str, str], model: DataModel,
 ) -> dict[int, str]:
     """The function words one link makes memory carry, to the Function path whose body
     each is: every store of a function word by the bodies of the module (and the
@@ -1124,6 +1261,12 @@ def function_wiring(
     store that fills a slot names the body whether or not this import lowers that body
     (a boot of the module fills the slots of the type cells before anything runs), so
     the arms of a dispatch cover the words the whole translation unit wires.
+
+    The word is the model's (``rxemit.DataModel``): the object id of the body's path
+    masked to the pointer width the module's datalayout states, so a dispatch compares
+    the words the slots of that model carry. Two bodies whose words collide in it refuse
+    the link here -- the model cannot tell the words apart, and a dispatch that routed
+    on them would guess.
 
     These words are the arms of a call through a register (lower_indirect's slot
     dispatch): a word a store wires routes to the call card of the body it names; a
@@ -1133,6 +1276,12 @@ def function_wiring(
     with the function-word rule."""
     functions = {function.name: function for function in parsed}
     wired: dict[int, str] = {}
+
+    def word_of(path: str) -> int:
+        # the model's word of the body's id: the width is asked only where a store
+        # actually wires one (a module that states no width wires none this pass can size)
+        return object_id_of(path) & ((1 << (8 * pointer_width(model))) - 1)
+
     for name in functions:  # every body of the link unit, the boot's stores included
         found = functions[name]
         for block in found.blocks:
@@ -1143,13 +1292,138 @@ def function_wiring(
                     continue
                 bare = inst.a.name[1:]
                 if bare in known:
-                    wired[object_id_of(known[bare])] = known[bare]
+                    path = known[bare]
                 elif bare in functions:
-                    wired[object_id_of(f"{module}.{bare}")] = f"{module}.{bare}"
+                    path = f"{module}.{bare}"
                 elif bare in declared:
                     # an ABI face's word is data (the compare of a slot test), no arm
                     continue
+                else:
+                    continue
+                word = word_of(path)
+                if wired.get(word, path) != path:
+                    raise Unsupported(
+                        f"the function words of {wired[word]} and {path} collide in the "
+                        f"{pointer_width(model) * 8}-bit word of this model: a dispatch "
+                        "could not tell them apart, so the link refuses instead of routing"
+                    )
+                wired[word] = path
     return wired
+
+
+# the boot of the module: where the wires of the initializers' relocations are made
+WIRES_BOOT = "__wires_boot"
+# a relocation whose target this round of the fixpoint cannot decide yet
+WAIT = object()
+
+
+def wire_inst(cell: str, rel: Relocation) -> Inst:
+    """The wire of one relocation: the store that places the word the initializer names
+    into the slot it sits in (the module's boot makes them all before anything runs --
+    the loader's work the ``obj_port_boot``/``qstr_port_boot`` of the corpus does by
+    hand, here from the initializer itself)."""
+    if "getelementptr" in rel.form:
+        value = Operand(expr=rel.form)  # the target cell's address plus the constant walk
+    else:
+        value = Operand(name=rel.symbol)  # a function word, or a cell's address word
+    destination = (
+        Operand(name=cell)
+        if not rel.slot
+        else Operand(expr=f"getelementptr (i8, ptr {cell}, i64 {rel.slot})")
+    )
+    return Inst("store", type=rel.slot_type, a=value, b=destination)
+
+
+def wires_boot(wires: list[tuple[str, Relocation]]) -> Function:
+    """The boot of the module: one store per relocation of the module's initializers,
+    then the void return. It runs before anything else (the loader's relocation pass a
+    port's boot is), and ``function_wiring`` takes its stores like any body's: the arms
+    of a dispatch cover the words the boot wires."""
+    insts = [wire_inst(cell, rel) for cell, rel in wires]
+    insts.append(Inst("ret", type="void"))
+    return Function(WIRES_BOOT, [], "void", [Block("entry", insts)])
+
+
+def place_relocations(
+    globals_: dict[str, Global],
+    relocs_of: dict[str, list[Relocation]],
+    functions: dict[str, Function],
+    declared: set[str],
+    known: dict[str, str],
+    structs: dict[str, str],
+    model: DataModel,
+) -> dict[str, str]:
+    """Why each cell's relocations this pass cannot place; every cell this answer does
+    not name is placed (its byte image, the relocation slots zero, the wires of the boot
+    filling them).
+
+    One fixpoint over the cells the relocations name: a cell whose target is refused is
+    refused in turn (``a relocation to @t: ...``), and a cycle of cells that only wait
+    on each other is placed (the words its wires store are the wires' own). The refusals
+    are the story, never a dropped relocation: a runtime symbol of the C++ machinery, a
+    name the link cannot name, a slot the model's word does not fit, or a module that
+    states no pointer width at all."""
+
+    def one(rel: Relocation) -> object:
+        symbol = rel.symbol
+        bare = symbol[1:].strip('"')
+        if is_runtime_symbol(bare):
+            return (
+                f"a relocation of a runtime symbol ({symbol}: the C++ exception/RTTI "
+                "machinery is refused by policy)"
+            )
+        if model.pointer is None:
+            return (
+                f"a relocation of {symbol} (the width of a pointer of this module is not "
+                "decided: its datalayout states none, and this pass places 32- and "
+                "64-bit words and will not guess)"
+            )
+        size = type_size(rel.slot_type, structs, model)
+        if not model.pointer <= size <= 8:
+            return (
+                f"a relocation into a {rel.slot_type} slot of {size} bytes (the word is "
+                f"{model.pointer * 8} bits here, and a store moves at most 8)"
+            )
+        if rel.slot % model.pointer:
+            return (
+                f"a relocation at byte {rel.slot} of its cell (a word of this model is "
+                f"{model.pointer} bytes and its wire store places that word whole, at a "
+                "word of the cell: a slot that starts elsewhere cannot carry one)"
+            )
+        if symbol in globals_:
+            target = globals_[symbol]
+            if symbol in refused:
+                return f"a relocation to {symbol} ({refused[symbol]})"
+            if symbol in placed or (target.init is not None and not relocs_of.get(symbol)):
+                return ""
+            if not relocs_of.get(symbol):
+                return f"a relocation to {symbol} ({target.refusal or 'a declaration without bytes'})"
+            return WAIT  # the target's own relocations this round cannot decide yet
+        if bare in functions or bare in declared or bare in known:
+            return ""
+        return f"a relocation of {symbol} (not a name of this module or its link)"
+
+    refused: dict[str, str] = {}
+    placed: set[str] = set()
+    while True:
+        grew = False
+        for key, rels in sorted(relocs_of.items()):
+            if key in refused or key in placed or not rels:
+                continue
+            outcome: object = ""
+            for rel in rels:
+                outcome = one(rel)
+                if outcome is WAIT or outcome:
+                    break
+            if outcome is WAIT:
+                continue  # the next round decides it (or never does: a placed cycle)
+            grew = True
+            if outcome:
+                refused[key] = str(outcome)
+            else:
+                placed.add(key)
+        if not grew:
+            return refused
 
 
 def crosses_a_card(function: Function, functions: dict[str, Function]) -> bool:
@@ -1195,13 +1469,21 @@ def crosses_a_card(function: Function, functions: dict[str, Function]) -> bool:
     return False
 
 
-def parse_module(text: str) -> tuple[list[Function], dict[str, str], dict[str, "Global"]]:
+def parse_module(
+    text: str, known: dict[str, str] | None = None,
+) -> tuple[list[Function], dict[str, str], dict[str, "Global"]]:
     """The ``define`` functions of a textual LLVM module, its named struct types, and its
-    module-level globals (the named data objects of the import unit)."""
+    module-level globals (the named data objects of the import unit).
+
+    A global whose initializer carries an address is a relocation: its cell is placed as
+    the byte image with the slot zero, and the store that fills it is one wire of the
+    module's boot (``__wires_boot``, appended here when the module has wires). What the
+    pass cannot place refuses the cell with its reason (``Global.refusal``)."""
+    model = module_model(text)  # the width model of the module's words (the datalayout)
     found: list[Function] = []
     structs: dict[str, str] = {}
     globals_: dict[str, "Global"] = {}
-    pending: list[tuple["Global", str]] = []  # resolved once every typedef is known
+    pending: list[tuple[str, "Global", str]] = []  # resolved once every typedef is known
     raw_lines = text.splitlines()  # unstripped: a byte-string may hold a ``;`` of its own
     lines = [_strip(line) for line in text.splitlines()]
     at = 0
@@ -1238,7 +1520,7 @@ def parse_module(text: str) -> tuple[list[Function], dict[str, str], dict[str, "
                     constant=found_global.group("kind") == "constant",
                 )
                 if init_text:  # the bytes resolve once every typedef of the module is known
-                    pending.append((made, init_text))
+                    pending.append((name, made, init_text))
                 globals_[name] = made
                 at += 1
                 continue
@@ -1314,10 +1596,35 @@ def parse_module(text: str) -> tuple[list[Function], dict[str, str], dict[str, "
             if not block.insts:
                 raise ParseError(f"{function.name}: {block.name} is empty")
         found.append(function)
-    for made, init_text in pending:
-        # a None here is a declaration whose initializer names a symbol (a relocation):
-        # the use of the global refuses by name at lowering, never a guessed payload
-        made.init = init_bytes(made.type, init_text, structs)
+    relocs_of: dict[str, list[Relocation]] = {}
+    for key, made, init_text in pending:
+        # the bytes, and the relocations the initializer carries (an address the
+        # compiler cannot write: a function pointer in a callback struct, a pointer to
+        # another global). A None here is an initializer outside the subset: the use of
+        # the global refuses by name at lowering, never a guessed payload
+        relocs: list[Relocation] = []
+        made.init = init_bytes(made.type, init_text, structs, model, relocs)
+        relocs_of[key] = relocs if made.init is not None else []
+    functions = {function.name: function for function in found}
+    refused = place_relocations(
+        globals_, relocs_of, functions, declared_functions(text), known or {}, structs, model
+    )
+    for key, cell in globals_.items():
+        why = refused.get(key)
+        if why is not None:
+            cell.init = None  # no payload this pass can place: the reason says which
+            cell.refusal = why
+    wires = [
+        (key, rel) for key, rels in sorted(relocs_of.items()) if key not in refused
+        for rel in rels
+    ]  # fmt: skip
+    if wires:
+        if WIRES_BOOT in functions:
+            raise ParseError(
+                f"the module defines its own {WIRES_BOOT}: the wires of its initializers' "
+                "relocations have no boot to make them"
+            )
+        found.append(wires_boot(wires))
     return found, structs, globals_
 
 
@@ -1342,10 +1649,14 @@ class Lowering:
         known: dict[str, str] | None = None,
         declared: set[str] | None = None,
         wiring: dict[int, str] | None = None,
+        model: DataModel | None = None,
     ) -> None:
         self.fn = function
         self.module = module
         self.functions = functions or {}
+        # the width model of the module's words (rxemit.DataModel, from its datalayout):
+        # what a pointer -- and a function word -- is in the flat memory
+        self.model = host.model if host is not None else (model or LP64)
         self.structs = host.structs if host is not None else (structs or {})
         self.globals = host.globals if host is not None else (globals or {})
         # the names the module declares but does not define (an ABI face whose body
@@ -1454,24 +1765,31 @@ class Lowering:
         return MASKS[type_name]
 
     def bytes_of(self, type_name: str | None) -> int:
-        """The bytes a value of this type takes in memory: 1, 2, 4 or 8 (a ptr is 8)."""
+        """The bytes a value of this type takes in memory: 1, 2, 4 or 8 (a ptr is the
+        model's word -- 8 of an LP64 module, 4 of an ILP32 one)."""
         return (self.word_of(type_name).bit_length() + 7) // 8
 
     def word_of(self, type_name: str | None) -> int:
-        """The full word a value of this type occupies. A ``ptr`` is an address word -- all
-        64 bits -- so it is not narrowed to a width the way an integer is (the flat profile
-        addresses memory with an i64 word). An integer is the low bits of its width."""
-        return FULL if type_name == "ptr" else self.mask_of(type_name)
+        """The full word a value of this type occupies. A ``ptr`` is an address word --
+        the model's word (``rxemit.DataModel``): 64 bits where the module's datalayout
+        says so, 32 of an ILP32 one, and the honest refusal where a module states no
+        pointer width (nothing places such a word this pass can size). A load masks the
+        frame word to it and a store writes its bytes. An integer is the low bits of its
+        width."""
+        if type_name == "ptr":
+            return (1 << (8 * pointer_width(self.model))) - 1
+        return self.mask_of(type_name)
 
     def function_word(self, name: str) -> int:
         """The word a function's words are named by: the object id of its Function path
         (a body of this module is ``module.name``, a cross-module one the path ``known``
-        carries). A type cell's slot holds one -- the unary_op slot of the @mp_type_*
+        carries), masked to the model's word (the slot that holds one is a pointer of
+        that width). A type cell's slot holds one -- the unary_op slot of the @mp_type_*
         cells carries the address of the per-type body -- and a call through a register
         dispatches on it (lower_indirect compares the callee word against the words this
         import makes memory carry)."""
         bare = name.removeprefix("@")
-        return object_id_of(self.known.get(bare, f"{self.module}.{bare}"))
+        return object_id_of(self.known.get(bare, f"{self.module}.{bare}")) & self.word_of("ptr")
 
     def global_value(self, name: str) -> MOperand:
         """The value that is the module-level global's cell: one value of kind Object with
@@ -1576,10 +1894,16 @@ class Lowering:
                         return self.literal(self.function_word(bare))
                     raise Unsupported(f"{self.fn.name}: {name} is not defined in the module")
                 if found.init is None:
+                    # a declaration without bytes (the message this has always carried),
+                    # or an initializer this pass cannot place: the reason names which
                     raise Unsupported(
                         f"{self.fn.name}: the global {name} has no payload this pass can "
-                        "place (a declaration without bytes, or an initializer that is a "
-                        "relocation: a link-time address this pass cannot know)"
+                        + (
+                            f"place ({found.refusal})"
+                            if found.refusal is not None
+                            else "place (a declaration without bytes, or an initializer "
+                            "that is a relocation: a link-time address this pass cannot know)"
+                        )
                     )
                 return self.global_value(name)
             if name in self.nlr_buffers:
@@ -1662,18 +1986,18 @@ class Lowering:
         """The bytes a ``getelementptr``'s constant indices walk: the first index scales
         the whole type, the rest step through arrays and fields (the layout the cells use:
         ``struct_layout``/``field_offset``)."""
-        total = indices[0] * type_size(ty, self.structs)
+        total = indices[0] * type_size(ty, self.structs, self.model)
         for index in indices[1:]:
             shape = array_shape(ty)
             if shape is not None:
                 _, element = shape
-                total += index * type_size(element, self.structs)
+                total += index * type_size(element, self.structs, self.model)
                 ty = element
                 continue
             fields = struct_fields(ty, self.structs)
             if fields is None or not 0 <= index < len(fields):
                 raise Unsupported(f"{self.fn.name}: the field {index} of {ty} is not here")
-            at, field_type = field_offset(ty, index, self.structs)
+            at, field_type = field_offset(ty, index, self.structs, self.model)
             total += at
             ty = field_type
         return total
@@ -2629,18 +2953,18 @@ class Lowering:
             if index_type not in MASKS:
                 raise Unsupported(f"{self.fn.name}: a getelementptr index of {index_type}")
             if position == 0:
-                stride = type_size(current, self.structs)  # the first index scales the source
+                stride = type_size(current, self.structs, self.model)  # the first index scales the source
             else:
                 element = array_element(current)
                 if element is not None:  # an array: the index strides the element
                     current = element
-                    stride = type_size(current, self.structs)
+                    stride = type_size(current, self.structs, self.model)
                 elif struct_fields(current, self.structs) is not None:  # a struct field
                     if index.constant is None:
                         raise Unsupported(
                             f"{self.fn.name}: a getelementptr field of {current} is not a constant"
                         )
-                    at, current = field_offset(current, index.constant, self.structs)
+                    at, current = field_offset(current, index.constant, self.structs, self.model)
                     constant += at
                     continue
                 else:
@@ -3479,17 +3803,18 @@ def graphs_of(
     the Function path it is imported at, so a call of one of them becomes a call card that
     names that path (the reference the delta links).
     """
-    parsed, structs, globals_ = parse_module(text)
+    model = module_model(text)  # the width model of the module's words (the datalayout)
+    parsed, structs, globals_ = parse_module(text, known=known)
     functions = {function.name: function for function in parsed}
     declared = declared_functions(text)
-    wired = function_wiring(parsed, module, only, declared, known or {})
+    wired = function_wiring(parsed, module, only, declared, known or {}, model)
     found: dict[str, LGraph] = {}
     for function in parsed:
         if only is not None and function.name not in only:
             continue
         found[function.name] = Lowering(
             function, module, functions, structs=structs, globals=globals_, known=known,
-            declared=declared, wiring=wired,
+            declared=declared, wiring=wired, model=model,
         ).lower()
     if only is not None and set(found) != only:
         missing = ", ".join(sorted(only - set(found)))
