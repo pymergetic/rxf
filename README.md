@@ -28,11 +28,23 @@ three machines); the **execution policy** ([20](docs/20-EXECUTION-POLICY.md)): s
 property, proven by the host SMP harness (`tests/host/`); the **self-editing path** ([19](docs/19-SELF-EDITING-PATH.md)) under construction: the running
 image compiles its own front end and replaces the compiler from a delta (the fixpoint run, proven on
 x86-64, AArch64, and wasm32), and the in-image composer writes program words byte-identical to the host
-composer for all 58 programs of the corpus (53 graphs, 5 expressions); an image as a **module tree**, one XML file per module (`starter/`); the
+composer for all 58 programs of the corpus (53 graphs, 5 expressions); an **import lane**
+(`tools/native/rximport.py`) that lowers C, C++ and Rust source — or a raw `.ll`, read as it
+stands — onto the same semantic graphs and refuses by name what is outside its subset,
+`rximport --provenance` carrying the run's origin record, a citation per file (`path`, the line
+span, `sha256`) and every comment it lifts; the dispatch and out-cell flips (`mp_obj_is_true`,
+`mp_obj_get_int_maybe`, the last two MicroPython refusals) lowering as slot dispatch and an
+out-cell; an image as a **module tree**, one XML file per module (`starter/`), read back
+through the **hybrid module tree** (`Image.resolve_module`, `module_children`, `module_roots`
+— `package`|`module`|`none`, the exact `mp_import_stat` trichotomy under the Quad roots
+`px`/`pm`/`pt`/`py`); the
 `rxf` command line (Python Fire, command path = module path); syntax highlighting for the two text
 forms (`.rxfs`, `.rxfd`) generated from one meaning table (`editors/rxf-highlight`); a read-only
 inspector with an arena memory map, cell introspection, and a **model page** that documents and
-visualizes the run-cell machine (see below); and the
+visualizes the run-cell machine (see below); the **web app** over the same image (see below):
+one shell on five surfaces, `/tutor` stepping the run-cell machine by hand, the live feed of a
+running image in the shell's live slot, and the editor's compile, install, poke and name
+search; and the
 build (CMake, scikit-build-core, nanobind 3, platform wheels through cibuildwheel). The compiler,
 native Code binding, and executable builders of the former v5 Python stack are not in the tree
 (its last state is the git tag `legacy-v5-python`) and are still to be rebuilt on the core
@@ -128,6 +140,19 @@ starter/pymergetic/rxf/roles/call.xml       module pymergetic.rxf.roles.call
 ```
 
 Everything the format says itself is in the `rxf` XML namespace; an edge is said once (a field is the reference, the children are the list, the other direction is computed); roles are objects named by path; order among siblings is `rxf:index`; the n-th element of a list is `name[n]`; a word is the path of its enumerator (`kind="RefKind.Data"`, `layer="@kinds.FunctionLayer.Library"`), never a bare word or a number; a module may shorten long paths with aliases (`@call.Callee`); Types, enumerators, and roles are CamelCase, modules and fields snake_case. See [deltas and their XML form](docs/15-DELTAS-AND-XML.md).
+
+The same named cells read back as the image's **module tree** (the hybrid one: `rximport`
+compiles modules into it and MicroPython reads it back, one storage, no filesystem and no
+second copy). A module is a named cell under one of the Quad roots — `px` (extern/cpython),
+`pm` (mpy), `pt` (thirdparty), `py` (micro) — and `Image.resolve_module` answers the exact
+trichotomy `mp_import_stat` gives: `package` for a Module cell with sub-modules, `module` for
+one without (a leaf, or a container whose children are programs — the semantic tree of one
+program; a bare word is such a self-contained module), `none` for anything else (a name that
+names nothing, or a program node — a Function is an attribute of its module, never a module
+name). `Image.module_children` lists a package's sub-modules in name order,
+`Image.module_roots` answers the four roots and nothing else, and a name that does not spell
+one clear module (an alias spelling, an empty segment, an unknown root, a dead handle) raises
+`TreeError` instead of guessing.
 
 ## Syntax highlighting
 
@@ -242,29 +267,69 @@ The inspector's `/editor` edits a function's source in place: tokens are marked 
 you type against the single meaning table (`tools/highlight/meaning.json`), the source
 compiles through the running image's in-image front end, and **one** delta installs the
 Function — the delta is shown before it is sent. Read-only faces (Pseudo, C, C++, Python)
-are honest projections that refuse to fake a body they cannot know, and the Netzansicht
+are honest projections that refuse to fake a body they cannot know, and the network view
 draws a function and its environment (references, callees incl. the graph-to-graph `CALL`
 card) as a network. Cell-poke writes `payload`/`flags` through the live channel and refuses
 `forward`/`generation`/`checksum` (and `name`, a rename) outright. All of it drives the one
 seam — `pymergetic.rxf.console.world` — with no second channel and no second truth.
 
+### The web app
+
+`rxf server serve` runs one web app on a real running image: the app and the image behind it
+on one link (the image runs in the process with its own interpreter and live leaf;
+`rxf console --link=…` attaches to the same one, and Ctrl+C takes the registration with it).
+
+```sh
+rxf server serve starter --link=shm:rxf   # the app and a running image of the starter tree
+```
+
+One service, one shell: the five surfaces in one nav — Inspector reads, Model explains, Editor
+edits, Tutor teaches, World renders — and the shell's live slot is the one live feed
+(`static/ui/ui.js`). The slot reads exactly `no image` while the app runs no image; behind a
+session it shows what the running image itself answers — its image id, the interpreter
+version, its live leaf and state, the commit and reject counters — and polls while the app
+serves. `/tutor` steps the run-cell machine by hand on the same pinned facts the model page
+pins (the constants `tests/test_tutor.py` checks against `tests/host/`, `core/ground.h` and
+the execution policy). The editor's path field searches the image's own names as you type
+(`/api/search`, top-level browse on focus).
+
+![The editor: the source mirror in the rxfs register under the live check's marks](docs/images/web-ui-editor.png)
+
+![A refusal: red marks that carry their reason, and the badges that count them](docs/images/web-ui-diagnostics.png)
+
+![The one delta install would send, in the rxfd register](docs/images/web-ui-delta.png)
+
+![The C face of a function, in the c register](docs/images/web-ui-faces.png)
+
+![An object's detail: handles, paths and RefKind chips in the text register](docs/images/web-ui-inspector.png)
+
 ## The 3D world
 
 The image renders as an RTS city over the same cells the inspector reads: every cell is a
 block-stack building whose floors are the cell anatomy in S1 payload coloring — checksum
-teal, poison red, generation gold — the reference edges are Manhattan-routed ground cables
-between the lots, and the run cells ride the ready-ring as tram units under glowing curbs.
-The minimap is a real top-down projection of the same document (districts, buildings by
-family, void tiles in red, the camera's viewport); clicking it jumps the camera, clicking a
-building selects its cell in the HUD, and WASD moves camera-relative. The scene draws the
-checked-in demo world — the `demo_world.xml`
+teal, poison red, generation gold — and the reference edges are ground cables routed along
+the street lanes between the lots (a cable never crosses a building that is not its own
+endpoint). The ready-ring is one clean boulevard loop: a single flat ribbon with clamped
+miters and 45° corner cuts, bright flat-paint edge ribbons and readable centerline dashes
+over the asphalt, no curbs, no walls, no shadows — the landmark of the map against the muted
+local streets. The minimap is a real top-down projection of the same document (districts,
+buildings by family, void tiles in red, the camera's viewport); clicking it jumps the camera,
+and clicking a building selects its cell: the pick is a bright warm volume outline with a
+bracketed footprint glow painted flat on the ground (hover stays the thin teal cue), the
+HUD's cell fields fill along the bottom, and the datasheet opens beside the scene — a dark
+pane that says who speaks: `IMAGE — read from the cell` (state, spans, words, cables, the
+byte anatomy of the floors) above `WORLD — the view's own reading` (the paint family, the
+district grid, the band), every entry colored by meaning. WASD moves camera-relative. The
+scene draws the checked-in demo world — the `demo_world.xml`
 delta plus the traces a running snapshot carries (a stale handle's ghost cables, the 0xA5
 poison of compaction), exported to `demo-scene.json` as a byte-exact golden the tests pin —
 with no randomness behind any frame.
 
-![The world overview: block-stack buildings in S1 payload coloring, the ready-ring with its tram units, and the minimap](docs/images/world-overview.png)
+![The world overview: block-stack buildings in S1 payload coloring, the ready-ring as a clean boulevard loop, and the minimap](docs/images/world-overview.png)
 
-![Top-down tactical view: a selected run tower (system.runs.tick) with the HUD's live cell fields](docs/images/world-tactical.png)
+![Top-down tactical view: the selected run tower (system.runs.tick) with the HUD's cell fields along the bottom](docs/images/world-tactical.png)
+
+![The datasheet: what the image says about the cell above what the view decided](docs/images/world-datasheet.png)
 
 ## Layout
 
@@ -276,7 +341,7 @@ src/pymergetic/rxf/
     *.pyi                      generated stubs, one per Python submodule
   console/                     the console on a running image (`rxf console`) and the world seam
   live/                        the live channel: client, front end, and the commands of `rxf live`
-  server/                      the inspector and the model page
+  server/                      the web app: the inspector, the model page, the editor, the tutor
   world/                       the 3D world view: the demo world, the exporter, and the scene
 ```
 
