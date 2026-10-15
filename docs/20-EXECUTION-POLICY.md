@@ -280,9 +280,12 @@ each arm the call card of the body its word names. `mp_obj_get_int_maybe` was RE
 run-entry; the generation is the cell's own) written through `memory_copy` into the caller's
 out-word. Both flips are honest in both directions: the function-word rule flips **only where a
 store wires the word**, so `dispatch.c`'s `call_a_word` and `cpp_refuse.cpp`'s `vcall` stay
-refused byte-exact. One seam stays pinned — a call that both dispatches and carries out-cells
-returns status 16 (`test_the_out_param_callee_is_a_call_card`, xfail; the lowering is pinned
-green on its own, `test_the_out_param_callee_lowers_as_a_call_card`).
+refused byte-exact. The seam an xfail once pinned flips to green by investigation: a call that
+both dispatches and carries out-cells runs end to end (`test_the_out_param_callee_is_a_call_card`,
+a normal differential pin over the defined domain, out cells read back by the caller), and its
+"status 16" was never an interpreter fault — those inputs were outside the qstr corpus's domain,
+where `qstr.c`'s own `find_qstr` assert refuses the run and the natively compiled reference aborts
+on the same input (the panic path stays pinned one-sided: refuse, never a wrong answer).
 
 ## S7. Handles, claims, and no raw address across a safe point
 

@@ -435,7 +435,7 @@ VALUES_FOR_MEMORY = (0, 1, 0x42, 0xFF, 0x0123456789ABCDEF, U64 - 1, 1 << 63)
 #          memory: the memory.c cases are untouched), and the out-param callee reached
 #          as a call card is pinned green in test_the_out_param_callee_lowers_as_a_call_card
 #          (its end-to-end run -- a call that both dispatches and carries out-cells --
-#          is seam-pinned in test_the_out_param_callee_is_a_call_card)
+#          is pinned green in test_the_out_param_callee_is_a_call_card)
 REFUSED = {
     ("calls.c", "ping"): "recursion",
     ("calls.c", "pong"): "recursion",
@@ -1694,7 +1694,7 @@ def test_the_int_maybe_lowers_to_an_out_cell_call_card():
     handle its three words), never a raw pointer into flat memory.  The out cell is
     made and the body that the pointer names reaches the run as a genuine call card.
     End to end the write lands in that cell where the caller reads it back
-    (test_the_int_maybe_writes_the_caller_out_cell; its run alone is seam-pinned)."""
+    (test_the_int_maybe_writes_the_caller_out_cell pins the run)."""
     image = tree.load(STARTER)
     # the external stubs the ground-truth native link carries (obj_stubs.c) link here
     # too -- the graph and the native side resolve the same callees, mp_obj_int_get_checked
@@ -1743,8 +1743,10 @@ def test_the_out_param_callee_lowers_as_a_call_card():
     **call card** (RXF_GRAPH_CALL naming ``outparam.pair_out``), never an inline of the
     caller's blocks, and the pair of out cells its pointer parameters bind are the
     Objects (handle, three words) the writes land in.  End to end on the ground-truth
-    host runner is test_the_out_param_callee_is_a_call_card (its run alone is
-    seam-pinned at the interpreter's dispatched-call comparison)."""
+    host runner is test_the_out_param_callee_is_a_call_card (green: the combined dispatch +
+    out-cell call runs end to end; the "interpreter seam" an xfail once blamed does not exist --
+    out-of-domain inputs refuse at qstr.c's own find_qstr assert, where the natively compiled
+    reference aborts on the same input)."""
     image = tree.load(STARTER)
     known = rximport.import_into(
         image, rximport.compile_source(CORPUS / "qstr.c"), module="qstr",
@@ -1925,15 +1927,6 @@ def test_the_int_maybe_writes_the_caller_out_cell(tmp_path: Path):
             )
 
 
-@pytest.mark.xfail(
-    reason="the out-cell model lowers the callee as a call card (docs/23 4.1; pinned green in "
-    "test_the_out_param_callee_lowers_as_a_call_card), but the end-to-end run of the "
-    "out-parameter idiom -- a call that both dispatches through a runtime word AND carries "
-    "out-cells -- refuses at the interpreter's dispatched-call comparison (status 16) though "
-    "the wiring data is correct and the i3 slot path runs (test_the_true_check_rides_...). A "
-    "runtime seam below the lowering, at the i2-out-cell x i3-dispatch intersection",
-    strict=False,
-)
 def test_the_out_param_callee_is_a_call_card(tmp_path: Path):
     """The outparam gate of i2: the out-parameter idiom where the callee is a **call
     card**, not an inlined body, and its writes land in the caller's slot.  The boot
@@ -1945,7 +1938,12 @@ def test_the_out_param_callee_is_a_call_card(tmp_path: Path):
 
     Asserted on the composed words first (the card names ``outparam.pair_out`` -- one
     CallCallback, no inline), then end to end against the natively compiled pair of
-    corpora."""
+    corpora.  ``pair_out`` hands its argument to the qstr corpus's ``qstr_hash`` on the
+    same run (the call card whose body crosses the boundary), so the end-to-end inputs
+    are the qstr ids the pools carry.  An id outside them takes ``find_qstr``'s assert
+    (qstr.c's ``assert(*q < pool->len)``): a panic path where the natively compiled call
+    aborts the process and the run refuses the Refuse of the subset -- pinned
+    one-sidedly below, the AT_RUN_REFUSED rule, never a guessed answer."""
     image = tree.load(STARTER)
     known = rximport.import_into(
         image, rximport.compile_source(CORPUS / "qstr.c"), module="qstr",
@@ -2035,7 +2033,7 @@ def test_the_out_param_callee_is_a_call_card(tmp_path: Path):
         assert call("outparam.outparam_port_boot", ()) == 0 or True
         for boot in ("qstr.qstr_port_boot", "qstr.qstr_init"):
             call(boot, ())
-        for x in (0, 1, 0x1234, 0xABCDEF01, U64 - 1):
+        for x in range(10):  # every qstr id the corpus pools carry (MP_QSTRnull..MP_QSTR_qstr)
             for cell in outs.values():
                 cell[1][:] = bytes(len(cell[1]))  # a clean pair of cells per case
             got = call("outparam.sum_pair_card", (x,))
@@ -2049,6 +2047,23 @@ def test_the_out_param_callee_is_a_call_card(tmp_path: Path):
             assert (lo + hi) % U64 == got, (
                 f"sum_pair_card({x:#x}): the caller's slots hold {lo:#x} and {hi:#x}, "
                 f"not the words its answer carries"
+            )
+        # an id outside the pools takes find_qstr's assert -- a panic path (the
+        # natively compiled call aborts the process there, so there is nothing to
+        # compare against): the run refuses the Refuse of the subset, never a
+        # wrong answer
+        for x in (0x1234, 0xABCDEF01, U64 - 1):
+            for cell in outs.values():
+                cell[1][:] = bytes(len(cell[1]))
+            status, _ = rxf_native.run(
+                programs["outparam.sum_pair_card"],
+                struct.pack("<Q", x),
+                memory,
+                objects=objects,
+            )
+            assert status == rximport.UNSUPPORTED_STATUS, (
+                f"sum_pair_card({x:#x}): the panic path answered status {status}, "
+                f"not the Refuse ({rximport.UNSUPPORTED_STATUS}) of the subset"
             )
 
 
