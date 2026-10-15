@@ -258,12 +258,13 @@ def test_the_template_and_scripts_load_only_local_assets():
     assert "http://" not in html and "https://" not in html and "cdn" not in html.lower()
     for reference in re.findall(r'(?:src|href)="([^"]+)"', html):
         assert not reference.startswith(("/", "http", "//")), reference
-        assert (WORLD_DIR / reference).is_file(), reference
+        # cache-bust queries (?v=...) are the same local file — strip before the file check
+        assert (WORLD_DIR / reference.split("?")[0]).is_file(), reference
     config_match = re.search(r'id="rxf-world-config">\s*(\{.*?\})\s*<', html, re.DOTALL)
     assert config_match is not None
     config = json.loads(config_match.group(1))
-    assert config["sceneUrl"] == "scene.json"  # served by the /world/ route, not a file
-    assert (WORLD_DIR / config["fallbackUrl"]).is_file()
+    assert config["sceneUrl"].split("?")[0] == "scene.json"  # served by the /world/ route
+    assert (WORLD_DIR / config["fallbackUrl"].split("?")[0]).is_file()
     assert VENDOR_BABYLON.is_file()
     assert (VENDOR_BABYLON.parent / "license.md").is_file()
     assert (STATIC_DIR / "scene" / "demo-scene.json") == GOLDEN
