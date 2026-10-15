@@ -178,23 +178,44 @@ int smp_wake(smp_world *w, rxf_smp_handle target, uint32_t waker) {
 
 /* ---- the park (docs/20, S4) ---- */
 
+/* The seal of a step (docs/20, S5): close the run cell before it can change hands — the step's
+ * own closing duty (the guard words of the proof's run cells), the step count, and the checksum
+ * over the result. It runs while the run is still owned and claimed, and every transition that
+ * can hand the run to another carrier follows it. This is the shape of the handoff the policy
+ * requires ("the checksum rewritten before the requeue", docs/20 S5): the requeue of a parked run
+ * is committed by its waker the moment the run is PARKED, so the seal must precede the park
+ * transition just as it precedes the dispatcher's own requeue. */
+static void run_seal(smp_world *w, smp_run_payload *run, uint32_t carrier) {
+    if (w->step_end)
+        w->step_end(w->step_ctx, w, run, carrier);
+    /* A step is one resume of the run: resumes counts the resumes, steps the steps. */
+    run->steps++;
+    run->checksum = smp_run_checksum(run);
+}
+
 int smp_park(smp_world *w, smp_run_payload *run, uint32_t carrier) {
-    (void)w; /* the self-wake path is finished by the dispatcher, after it rewrites the checksum */
     run->park_carrier = carrier + 1;
     run->deferred = 0;
-    /* Consume a wake that landed while we ran: then we never sleep (S4, no lost wake), and the
-     * dispatcher takes the RUNNING to READY transition and requeues us. */
+    /* Consume a wake that landed while we ran: then we never sleep (S4, no lost wake), the run is
+     * still RUNNING and still ours, and the dispatcher seals it and takes the RUNNING to READY
+     * transition to requeue us. */
     if (atomic_exchange_explicit(&run->token, 0, memory_order_acq_rel) == 1)
         return SMP_STEP_AGAIN;
+    /* The park is the step's handoff, so it seals first (S5): the RUNNING to PARKED CAS below is
+     * a release a waker runs against the moment it lands — a waker that wins PARKED to READY
+     * enqueues this run and another carrier claims it at once — so every byte of the step must be
+     * final before it. The park's answer (PARK or SELFWAKE) tells the dispatcher the cell is
+     * already sealed: it must not write the run cell again. */
+    run_seal(w, run, carrier);
     uint32_t want = RXF_SMP_STATE_RUNNING;
     if (!atomic_compare_exchange_strong_explicit(&run->state, &want, RXF_SMP_STATE_PARKED,
                                                  memory_order_acq_rel, memory_order_acquire))
         return SMP_STEP_PARK; /* the owner is the only one that can fail this CAS */
     if (atomic_exchange_explicit(&run->token, 0, memory_order_acq_rel) == 1) {
         /* A wake arrived while we became PARKED. Whoever wins PARKED to READY owns the enqueue:
-         * if we win it, the dispatcher requeues us after it rewrites the checksum (the run cell is
-         * never handed back half-written); if the waker won, the run is already on its way into
-         * the ring. */
+         * if we win it, the dispatcher requeues us (the cell is sealed — above — so the next
+         * carrier never sees a half-written run cell); if the waker won, the run is already on
+         * its way into the ring. */
         want = RXF_SMP_STATE_PARKED;
         if (atomic_compare_exchange_strong_explicit(&run->state, &want, RXF_SMP_STATE_READY,
                                                     memory_order_acq_rel, memory_order_acquire))
@@ -269,34 +290,50 @@ int smp_dispatch_one(smp_world *w, uint32_t carrier) {
             run->migrate_refs++;
         }
         run->last_carrier = carrier + 1;
+        /* The check is exactly here — at the step boundary, with the run owned and claimed (the
+         * READY to RUNNING CAS above is that boundary), the one position where the program state
+         * of the run must be whole (S8). The previous owner sealed the cell before it let the run
+         * change hands (smp_park and the seal below), so a failure here is a real tear and never
+         * a comparison against a step epilogue still in flight. Never move this check to any
+         * other position: checked while a cell is legitimately mid-update it is a race in the
+         * check, not evidence of a torn cell. */
         if (smp_run_checksum(run) != run->checksum) {
             atomic_fetch_add_explicit(&w->checksum_fails, 1, memory_order_relaxed);
             run->checksum = smp_run_checksum(run);
         }
         int result = w->step(w->step_ctx, w, run, carrier);
-        /* A step is one resume of the run: resumes counts the resumes, steps the steps. */
-        run->steps++;
-        run->checksum = smp_run_checksum(run);
+        /* The seal before any handoff (S5): a step that parked answered with PARK or SELFWAKE and
+         * sealed its cell in smp_park, at the moment the run left RUNNING — the park is itself the
+         * handoff, since a waker may requeue a PARKED run at once — so the dispatcher seals only
+         * the results that are still RUNNING here (AGAIN, DONE) and then makes its transition.
+         * Every transition below follows the seal; after it this carrier writes only atomics and
+         * the ring, never a program word of the cell. */
+        if (result == SMP_STEP_AGAIN || result == SMP_STEP_DONE)
+            run_seal(w, run, carrier);
         atomic_fetch_add_explicit(&w->steps_total, 1, memory_order_relaxed);
         atomic_fetch_add_explicit(&w->carrier_steps[carrier], 1, memory_order_relaxed);
         if (result == SMP_STEP_DONE) {
+            /* TERMINAL is absorbing: a state CAS that nothing reads back, so a final wake races
+             * teardown and is refused by the state machine (the exit burst of S11). The cell is
+             * sealed (above) before the transition. */
             want = RXF_SMP_STATE_RUNNING;
             if (atomic_compare_exchange_strong_explicit(&run->state, &want, RXF_SMP_STATE_TERMINAL,
                                                         memory_order_acq_rel,
                                                         memory_order_acquire))
                 atomic_fetch_add_explicit(&w->terminal, 1, memory_order_release);
         } else if (result == SMP_STEP_SELFWAKE) {
-            /* The run woke itself at its own park: it is READY and the enqueue is ours. The
-             * checksum is already rewritten (above), so the next carrier never sees a
-             * half-written run cell (the handoff rule of S5). */
+            /* The run woke itself at its own park: it is READY and the enqueue is ours. The cell
+             * was sealed in smp_park, before the park transition, so the next carrier never sees
+             * a half-written run cell (the handoff rule of S5). */
             for (;;)
                 if (smp_ring_push(w, h) == 0)
                     break;
             if (w->notify)
                 w->notify(w->edge_ctx);
         } else if (result == SMP_STEP_PARK) {
-            /* The run is PARKED, or the waker that raced us is already enqueuing it. Nothing is
-             * left to do here. */
+            /* The run is PARKED (sealed in smp_park before the transition), or the waker that
+             * raced us is already enqueuing it. Nothing is left to do here — in particular no
+             * write to the run cell: its next owner may already be stepping it. */
         } else {
             want = RXF_SMP_STATE_RUNNING;
             if (atomic_compare_exchange_strong_explicit(&run->state, &want, RXF_SMP_STATE_READY,

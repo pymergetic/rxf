@@ -49,14 +49,21 @@ enum {
  * The run cell (docs/20, S1): the state word, the wake token, the handles of what the run reads
  * (never addresses, S7), and the whole volatile state of the program between two safe points.
  *
- * `state`, `token`, `waker_run` and `midflight` are written concurrently (a waker from any
- * carrier, the compactor) and are C11 atomics. The fields from run_index to migrate_mask are
- * handoff metadata and proof evidence: written by the owner or by the popper under the state
- * machine and the ring lock. Everything from `self` to the guards is the program state of the run:
- * written only under the ownership of one carrier between two safe points, covered by the
- * checksum, which is verified at the start of every step and rewritten at the end. The handoff of
- * ownership is the ready-ring: the fields of a run are written by one carrier and read by the
- * next, with the ring lock and the state CAS in between (S5).
+ * `state`, `token`, `waker_run`, `midflight`, `mp_raise_slot` and `mp_sched_flag` are written
+ * concurrently (a waker from any carrier, the compactor) and are C11 atomics. The fields from
+ * run_index to migrate_mask are handoff metadata and proof evidence: written by the owner or by
+ * the popper under the state machine and the ring lock. Everything from `self` to the guards is
+ * the program state of the run: written only under the ownership of one carrier between two safe
+ * points, covered by the checksum, which is verified at the step boundary and rewritten while the
+ * run is still owned. The handoff of ownership is the ready-ring: the fields of a run are written
+ * by one carrier and read by the next, with the ring lock and the state CAS in between (S5).
+ *
+ * The step boundary is also where the run cell is sealed (S5): a step's epilogue — `steps`, the
+ * guards, `checksum` — is several stores, and it must all land before the state machine lets a
+ * next carrier claim the run. The dispatcher therefore seals the cell inside the RUNNING window
+ * and makes the state CAS (or the enqueue that follows it) the last thing that happens to the
+ * cell: the non-atomic words then have exactly one writer at a time, each publishing through the
+ * release CAS of the handoff that the next owner acquires.
  */
 typedef struct {
     /* concurrent words: atomics only */
@@ -64,6 +71,10 @@ typedef struct {
     _Atomic(uint32_t) token;     /* the wake token (S4): set before a wake, consumed at a park */
     _Atomic(uint32_t) waker_run; /* who woke this run last (evidence, not protocol) */
     _Atomic(uint32_t) midflight; /* bumped when the compactor moves this run while it runs */
+    /* the MicroPython seam (docs/20, S11): the pending-flag words of a VM run, deposited by any
+     * waker and consumed at the run's own poll (mp_handle_pending) — concurrent like the token */
+    _Atomic(uint64_t) mp_raise_slot;
+    _Atomic(uint32_t) mp_sched_flag;
     /* handoff metadata and evidence */
     uint32_t run_index;
     uint32_t kind;
@@ -73,6 +84,12 @@ typedef struct {
     rxf_smp_handle self, data, channel, scratch, stale;
     uint64_t seed, pc, acc_sum, acc_xor, sent, rx_seen, data_offset, steps, target_steps;
     uint32_t ok, verify_bad, relocated, ring_refused, stale_refused;
+    /* the VM state of the MicroPython shape (S11): per-run, so the interpreter reads its own
+     * run's VM state with no lock and no claim — the checkpoint an nlr-shaped jump restores */
+    uint64_t mp_frame_sum, mp_frame_xor;
+    uint32_t mp_block, mp_iter, mp_polls, mp_unwinds;
+    uint32_t mp_raise_seen, mp_sched_seen, mp_events, mp_raise_events, mp_won, mp_refused;
+    uint32_t mp_deposits;
     uint32_t guard1[2], guard2[2];
     uint64_t checksum;
 } smp_run_payload;
@@ -110,6 +127,15 @@ struct smp_world;
  */
 typedef int (*smp_step_fn)(void *ctx, struct smp_world *w, smp_run_payload *run, uint32_t carrier);
 
+/* The end of a step: what a program must do to its own run cell before it is sealed. The proof's
+ * programs scribble their guard words during a step (a torn copy of the run cell must change
+ * them) and restore them here, while the run is still owned and claimed. The seal itself — this
+ * duty, the step count, the checksum — is the dispatcher's (or the park's, when the step ends in
+ * a park: that handoff seals before the RUNNING to PARKED CAS, smp_sched.c), and no program word
+ * of the cell is written after it (docs/20, S5). A product with no guards may leave this NULL. */
+typedef void (*smp_step_end_fn)(void *ctx, struct smp_world *w, smp_run_payload *run,
+                                uint32_t carrier);
+
 /* How a carrier waits when no run is ready: the edge shim (a condvar on the host). Returns when
  * work may exist or the wait timed out; the dispatcher never learns what the shim is. */
 typedef void (*smp_wait_fn)(void *ctx);
@@ -129,6 +155,7 @@ typedef struct smp_world {
     _Atomic(uint32_t) terminal;
     _Atomic(uint32_t) stop;
     smp_step_fn step;
+    smp_step_end_fn step_end; /* the step's own closing duty, before the seal (S5) */
     void *step_ctx;
     smp_wait_fn wait;
     smp_backoff_fn backoff;
@@ -165,8 +192,14 @@ int smp_wake(smp_world *w, rxf_smp_handle target, uint32_t waker);
  * the park is consumed here, so no wake is ever lost). It answers with the step result the
  * dispatcher must act on: SMP_STEP_AGAIN when the run is still RUNNING (a wake was already
  * waiting), SMP_STEP_SELFWAKE when the run woke itself and must be requeued (the dispatcher does
- * it, after it rewrites the checksum: the run cell is never handed back half-written), and
- * SMP_STEP_PARK when the run sleeps. */
+ * it: the run cell is already sealed and never handed back half-written), and SMP_STEP_PARK when
+ * the run sleeps.
+ *
+ * The park is the step's handoff (S5), so it seals the cell — the step's closing duty, the step
+ * count, the checksum — before the RUNNING to PARKED CAS: a waker may requeue a PARKED run at
+ * once, and the next owner must find whole state. The park is therefore the step's last act on
+ * the run cell: after it answers, the program touches nothing of the cell again and returns the
+ * answer (counters of the world are fine; program words are not). */
 int smp_park(smp_world *w, smp_run_payload *run, uint32_t carrier);
 
 /* The dispatcher: one step of one run (0), or the answers 1 (ring empty) and 2 (world stopped).
@@ -175,7 +208,11 @@ int smp_dispatch_one(smp_world *w, uint32_t carrier);
 int smp_dispatch_loop(smp_world *w, uint32_t carrier);
 
 /* The checksum over the volatile fields of a run cell: what proves no step saw a half-written run
- * and no compaction torn one (S8). */
+ * and no compaction torn one (S8). It is compared exactly at the step boundary the ownership claim
+ * marks — the one point where the cell must be whole and its writer is known — and rewritten by
+ * the owner before the state machine may hand the run on. Never check it at any other position:
+ * a comparison against a cell whose owner is still closing its step is a race in the check, not a
+ * torn cell (docs/20, S8). */
 uint64_t smp_run_checksum(const smp_run_payload *run);
 
 #endif

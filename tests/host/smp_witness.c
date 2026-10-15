@@ -6,7 +6,8 @@
  * asyncio Future or a Metal event ring would project them onto its own edge (docs/20, S9).
  *
  * The programs are deterministic functions of (seed, run index, step index): a step reads and
- * writes its own run cell and its own data cell and never the data of any other run, so the result
+ * writes its own run cell and its own data cell and never the program state of any other run (the
+ * seam of S11 deposits into another run's concurrent words exactly as a wake does), so the result
  * of a whole program is a function of the seed alone whatever the interleaving (S10). What the
  * interleaving decides is only who executes a step and when; the proof reads that back as evidence
  * (per-carrier counters, park/resume pairs, moves observed under runs) and never mixes it into the
@@ -19,6 +20,7 @@
 #include "smp_witness.h"
 
 #include "smp_arena.h"
+#include "smp_mpmodel.h"
 #include "smp_sched.h"
 
 #include <pthread.h>
@@ -36,7 +38,10 @@
 enum {
     WIT_PROGRAM_WORKER = 1,  /* spinning steps, occasional parks: the migration traffic */
     WIT_PROGRAM_CHANNEL = 2, /* two runs and a channel frame: park, send, wake, cross resume */
-    WIT_PROGRAM_STALE = 3    /* resolves a handle whose slot generation moved: must be refused */
+    WIT_PROGRAM_STALE = 3,   /* resolves a handle whose slot generation moved: must be refused */
+    WIT_PROGRAM_MPVM = 4     /* the MicroPython shape (S11): VM-loop iterations with the
+                              * mp_handle_pending poll at every back edge, pending raises and
+                              * scheduled callbacks between runs, an nlr-shaped unwind */
 };
 
 #define WIT_MAX_RUNS 512u
@@ -98,6 +103,18 @@ static void sleep_ns(long ns) {
 
 static uint64_t data_guard(uint64_t seed, uint64_t run_index, int which) {
     return mix64(seed ^ (run_index * 3 + (uint64_t)which * 7 + 1)) | 1ULL;
+}
+
+/* The guard words of a run cell (S8): its own torn-copy detector, covered by the checksum. The
+ * setup writes them, a step scribbles them (step_data), and the step's end restores them
+ * (step_end) — so the cell the dispatcher seals always closes with its guards in place, and a
+ * step that ever forgets its closing duty leaves a guard the next owner's checksum check fails
+ * hard on. */
+static void wit_run_guards(smp_run_payload *run) {
+    run->guard1[0] = 0x55667788u;
+    run->guard1[1] = (uint32_t)mix64(run->seed ^ run->run_index);
+    run->guard2[0] = ~run->guard1[0];
+    run->guard2[1] = (uint32_t)mix64((run->seed ^ run->run_index) + 7);
 }
 
 /* ---- the edge shim (S9): a condvar the core knows nothing about ---- */
@@ -181,8 +198,204 @@ typedef struct {
  * run itself wrote at its last step and against the guards of the setup, so a torn copy, a stale
  * read or a wrong rebind is caught right where it would happen. */
 
+/* The preamble of every program step (S7, S8): the data cell by handle, watched as it moves under
+ * us, and the coherence check of what this run wrote at its last step against the setup guards. A
+ * NULL answer means the step did no work: the claim was refused and the step is retried (an
+ * attempt and no result, S10). */
+static wit_data_payload *step_data(wit_world *ww, smp_run_payload *run) {
+    wit_data_payload *data = (wit_data_payload *)rxf_smp_arena_resolve(&ww->arena, run->data);
+    if (!data) {
+        if (rxf_smp_arena_is_stale(&ww->arena, run->data))
+            run->stale_refused++; /* a stale data handle would be a proof failure; counted */
+        else
+            run->ring_refused++; /* a transient claim collision: counted, retried next step */
+        return NULL;
+    }
+    uint64_t offset = rxf_smp_arena_offset(&ww->arena, run->data);
+    if (run->data_offset != 0 && offset != run->data_offset) {
+        /* The cell moved under us (between two safe points) and the handle found it: the whole
+         * rule S8 in one line. */
+        run->relocated++;
+        atomic_fetch_add_explicit(&ww->relocated_steps, 1, memory_order_relaxed);
+    }
+    run->data_offset = offset;
+
+    /* The coherence check: what this run wrote at its last step must still be there, and the
+     * guards of the setup must be intact. A stale raw address or a torn copy fails here. */
+    if (data->run_index != run->run_index || data->seed != run->seed ||
+        data->sum != run->acc_sum || data->xor_value != run->acc_xor ||
+        data->guard[0] != data_guard(run->seed, run->run_index, 0) ||
+        data->guard[1] != data_guard(run->seed, run->run_index, 1)) {
+        run->verify_bad++;
+        atomic_fetch_add_explicit(&ww->verify_bad, 1, memory_order_relaxed);
+    }
+    /* The step scribbles the run cell's guards and owes their restoration at the step's end
+     * (step_end, the closing duty the dispatcher seals behind). It makes the closing duty
+     * load-bearing: a step that ended without it would leave these bytes, and the next owner's
+     * checksum check would fail hard. */
+    run->guard1[0] ^= (uint32_t)run->acc_sum;
+    run->guard2[1] ^= (uint32_t)run->pc;
+    return data;
+}
+
+#define WIT_MP_BLOCK 4u /* the VM-loop cadence (S11): four back-edge polls to one bytecode frame */
+
+/*
+ * The MicroPython shape (docs/20, S11): a pair of runs per interrupt source. The source (even
+ * index) deposits raises and scheduled callbacks into its VM partner's pending words and wakes
+ * it — the wake-token op of S4, never a signal into the run. The VM run (odd index) executes its
+ * frame in VM-loop iterations, one dispatched step per back edge, and ends every step at the
+ * mp_handle_pending poll: the poll is the safe point. A raise delivered at a poll unwinds to the
+ * checkpoint of the current frame (the nlr shape) and the frame is retried; the retried frame
+ * computes the same bytes as the one it replaces, so the result advances only on committed frames
+ * (S10) while the interleaving decides only where a raise lands — evidence, never the answer.
+ */
+static int step_mpvm(wit_world *ww, smp_world *w, smp_run_payload *run, uint32_t carrier) {
+    wit_data_payload *data = step_data(ww, run);
+    if (!data)
+        return SMP_STEP_AGAIN; /* a refused claim is an attempt: no event, no iteration */
+
+    if (run->run_index % 2 == 0) {
+        /* The interrupt source: one event per dispatched step, exactly `messages` of them. The
+         * even events are raises (the single pending slot, with its Refuse path), the odd ones
+         * scheduled callbacks (the coalescing sched bit). */
+        uint32_t pair = run->run_index / 2;
+        if (run->mp_events < ww->messages) {
+            rxf_smp_handle target = w->runs[run->run_index + 1];
+            smp_run_payload *peer = (smp_run_payload *)rxf_smp_arena_resolve(&ww->arena, target);
+            if (!peer) {
+                run->ring_refused++; /* the partner cell is moving: the event is retried */
+                rxf_smp_arena_release(&ww->arena, run->data);
+                return SMP_STEP_AGAIN;
+            }
+            if ((run->mp_events & 1u) == 0) {
+                run->mp_raise_events++;
+                run->mp_deposits++;
+                if (smp_mp_schedule_raise(&peer->mp_raise_slot,
+                                          word_value(ww->seed, pair, run->mp_events)))
+                    run->mp_won++;
+                else
+                    run->mp_refused++; /* the Refuse path: a raise was already pending */
+            } else {
+                smp_mp_schedule_sched(&peer->mp_sched_flag);
+            }
+            rxf_smp_arena_release(&ww->arena, target);
+            /* The wake (S4): a pending event wakes the VM run out of a blocking call; the token
+             * protocol keeps a deposit that lands just before its park from being lost. */
+            if (smp_wake(w, target, run->run_index + 1) != 2)
+                atomic_fetch_add_explicit(&ww->wakes, 1, memory_order_relaxed);
+            uint64_t value = step_value(run->seed, run->run_index, run->mp_events);
+            run->acc_sum += value;
+            run->acc_xor ^= value;
+            run->mp_events++;
+            data->sum = run->acc_sum;
+            data->xor_value = run->acc_xor;
+        }
+        rxf_smp_arena_release(&ww->arena, run->data);
+        if (run->mp_events < ww->messages)
+            return SMP_STEP_AGAIN;
+        /* The exit burst (S11): the source outlives its VM and fires twice at a run that will
+         * never poll again — the interrupt that races the teardown. Two deposits back to back
+         * into the one-slot pending word: the reentrant deposit path, and a refusal is
+         * guaranteed, because nothing consumes the slot of a TERMINAL run again (TERMINAL is
+         * absorbing, and a terminated run is never in the ring), so at least one of the two is
+         * refused and the caller sees it. */
+        rxf_smp_handle target = w->runs[run->run_index + 1];
+        smp_run_payload *peer = (smp_run_payload *)rxf_smp_arena_resolve(&ww->arena, target);
+        if (!peer) {
+            run->ring_refused++; /* the partner cell is moving: the burst is retried */
+            return SMP_STEP_AGAIN;
+        }
+        if (atomic_load_explicit(&peer->state, memory_order_acquire) != RXF_SMP_STATE_TERMINAL) {
+            /* The VM has not ended yet: an attempt and no result (S10). */
+            rxf_smp_arena_release(&ww->arena, target);
+            return SMP_STEP_AGAIN;
+        }
+        for (uint32_t k = 0; k < 2; k++) {
+            run->mp_deposits++;
+            if (smp_mp_schedule_raise(&peer->mp_raise_slot,
+                                      word_value(ww->seed, pair, ww->messages + k)))
+                run->mp_won++;
+            else
+                run->mp_refused++;
+        }
+        rxf_smp_arena_release(&ww->arena, target);
+        /* The wake is paired with the deposit even here (S11): on a TERMINAL run the state
+         * machine refuses it and nothing is enqueued — the wake of a run that is gone. */
+        if (smp_wake(w, target, run->run_index + 1) != 2)
+            atomic_fetch_add_explicit(&ww->wakes, 1, memory_order_relaxed);
+        return SMP_STEP_DONE;
+    }
+
+    /* The VM run: one dispatched step is one VM-loop iteration, and its end is the poll. */
+    uint64_t value = step_value(run->seed, run->run_index,
+                                (uint64_t)run->mp_block * WIT_MP_BLOCK + run->mp_iter);
+    run->mp_frame_sum += value;
+    run->mp_frame_xor ^= value;
+    run->mp_iter++;
+    run->mp_polls++;
+    uint64_t raise = 0;
+    uint32_t sched = 0;
+    uint32_t seen = smp_mp_handle_pending(&run->mp_raise_slot, &run->mp_sched_flag, &raise, &sched);
+    (void)raise;
+    if (seen & SMP_MP_RAISE) {
+        /* The nlr shape (S11): the jump restores the checkpoint of the frame and the frame is
+         * re-entered. Every delivery lands after at least one iteration of work, so every raise
+         * unwinds what its frame had computed and the retry computes the same bytes again. */
+        run->mp_raise_seen++;
+        run->mp_unwinds++;
+        run->mp_frame_sum = 0;
+        run->mp_frame_xor = 0;
+        run->mp_iter = 0;
+    }
+    if (seen & SMP_MP_SCHED)
+        run->mp_sched_seen++; /* the callback ran at the poll: evidence, never the result */
+    if (run->mp_iter == WIT_MP_BLOCK) {
+        /* The frame commits (S10: the result advances only on progress): no raise reached the
+         * last poll of the frame, so its bytes are the answer. */
+        run->acc_sum += run->mp_frame_sum;
+        run->acc_xor ^= run->mp_frame_xor;
+        data->sum = run->acc_sum;
+        data->xor_value = run->acc_xor;
+        run->mp_frame_sum = 0;
+        run->mp_frame_xor = 0;
+        run->mp_iter = 0;
+        run->mp_block++;
+        if ((run->mp_block & 15u) == 7u) {
+            /* The blocking call (mp_hal_delay_ms and friends, S11): the VM run parks, and a
+             * timed edge wake (S9) or its partner's next event wakes it. */
+            rxf_smp_arena_release(&ww->arena, run->data);
+            atomic_fetch_add_explicit(&ww->parks, 1, memory_order_relaxed);
+            int answer = smp_park(w, run, carrier);
+            if (answer != SMP_STEP_PARK) /* a wake was already waiting: it never slept */
+                atomic_fetch_add_explicit(&ww->selfwakes, 1, memory_order_relaxed);
+            return answer;
+        }
+    }
+    if (run->mp_block >= run->target_steps) {
+        rxf_smp_arena_release(&ww->arena, run->data);
+        return SMP_STEP_DONE;
+    }
+    rxf_smp_arena_release(&ww->arena, run->data);
+    return SMP_STEP_AGAIN;
+}
+
+/* The step's closing duty (docs/20, S5): restore the guard words the step scribbled (step_data)
+ * while the run is still owned. The dispatcher seals the cell behind it — the step count and the
+ * checksum over the state this leaves — before any transition that can hand the run to another
+ * carrier. Everything a step writes to its run cell must be final when this returns. */
+static void step_end(void *ctx, smp_world *w, smp_run_payload *run, uint32_t carrier) {
+    (void)ctx;
+    (void)w;
+    (void)carrier;
+    wit_run_guards(run);
+}
+
 static int step_run(void *ctx, smp_world *w, smp_run_payload *run, uint32_t carrier) {
     wit_world *ww = (wit_world *)ctx;
+
+    if (run->kind == WIT_PROGRAM_MPVM)
+        return step_mpvm(ww, w, run, carrier);
 
     if (run->kind == WIT_PROGRAM_STALE) {
         /* The ABA program (S3, S7): one handle names a freed and re-used slot. It must be refused
@@ -204,33 +417,11 @@ static int step_run(void *ctx, smp_world *w, smp_run_payload *run, uint32_t carr
         return SMP_STEP_DONE;
     }
 
-    /* The data cell: resolved by handle every step (S7). */
-    wit_data_payload *data = (wit_data_payload *)rxf_smp_arena_resolve(&ww->arena, run->data);
-    if (!data) {
-        if (rxf_smp_arena_is_stale(&ww->arena, run->data))
-            run->stale_refused++; /* a stale data handle would be a proof failure; counted */
-        else
-            run->ring_refused++; /* a transient claim collision: counted, retried next step */
+    /* The data cell: resolved by handle every step (S7), watched and checked as in every
+     * program (S8). */
+    wit_data_payload *data = step_data(ww, run);
+    if (!data)
         return SMP_STEP_AGAIN;
-    }
-    uint64_t offset = rxf_smp_arena_offset(&ww->arena, run->data);
-    if (run->data_offset != 0 && offset != run->data_offset) {
-        /* The cell moved under us (between two safe points) and the handle found it: the whole
-         * rule S8 in one line. */
-        run->relocated++;
-        atomic_fetch_add_explicit(&ww->relocated_steps, 1, memory_order_relaxed);
-    }
-    run->data_offset = offset;
-
-    /* The coherence check: what this run wrote at its last step must still be there, and the
-     * guards of the setup must be intact. A stale raw address or a torn copy fails here. */
-    if (data->run_index != run->run_index || data->seed != run->seed ||
-        data->sum != run->acc_sum || data->xor_value != run->acc_xor ||
-        data->guard[0] != data_guard(run->seed, run->run_index, 0) ||
-        data->guard[1] != data_guard(run->seed, run->run_index, 1)) {
-        run->verify_bad++;
-        atomic_fetch_add_explicit(&ww->verify_bad, 1, memory_order_relaxed);
-    }
 
     if (run->kind == WIT_PROGRAM_WORKER) {
         /* The worker: every dispatched step is progress, and the mix decides when it parks (the
@@ -270,9 +461,27 @@ static int step_run(void *ctx, smp_world *w, smp_run_payload *run, uint32_t carr
     if (run->run_index % 2 == 0) { /* the sender */
         uint32_t pair = run->run_index / 2;
         if (run->sent < ww->messages) {
+            /* The rendezvous (S4): the sender fills a word only while its receiver sleeps, so
+             * one word is in flight at a time and every word of the pair crosses the park/wake
+             * protocol — the receiver parks on an empty frame and every park of it is answered
+             * by this sender's wake. Until the receiver sleeps, this step is an attempt and no
+             * result (S10): the attempt costs a dispatch and never a word of the answer. */
+            rxf_smp_handle target = w->runs[run->run_index + 1];
+            smp_run_payload *peer = (smp_run_payload *)rxf_smp_arena_resolve(&ww->arena, target);
+            if (!peer) {
+                /* the partner cell is moving: the fill is retried. Every claim this step took
+                 * goes back before it answers — the channel frame as well as the data cell: a
+                 * claim leaked here wedges the compactor's claim_cell wait for good. */
+                rxf_smp_arena_release(&ww->arena, run->channel);
+                rxf_smp_arena_release(&ww->arena, run->data);
+                return SMP_STEP_AGAIN;
+            }
+            int receiver_sleeps =
+                atomic_load_explicit(&peer->state, memory_order_acquire) == RXF_SMP_STATE_PARKED;
+            rxf_smp_arena_release(&ww->arena, target);
             uint32_t head = atomic_load_explicit(&ch->head, memory_order_relaxed);
             uint32_t tail = atomic_load_explicit(&ch->tail, memory_order_acquire);
-            if (head - tail < 16) {
+            if (receiver_sleeps && head - tail < 16) {
                 ch->words[head & 15] = word_value(ww->seed, pair, head);
                 atomic_store_explicit(&ch->head, head + 1, memory_order_release);
                 value = step_value(run->seed, run->run_index, run->sent);
@@ -315,8 +524,10 @@ static int step_run(void *ctx, smp_world *w, smp_run_payload *run, uint32_t carr
     rxf_smp_arena_release(&ww->arena, run->channel);
     rxf_smp_arena_release(&ww->arena, run->data);
 
-    /* The pair evidence (S4): the receiver of pair 0 records the first handoff it sees, park on
-     * one carrier and resume on another. */
+    /* The pair evidence (S4): the first receiver that sees a park of its own on one carrier and
+     * its resume on another records the handoff, and the waker it saw is its sender. With the
+     * rendezvous above every word of every pair is a park/wake cycle, so the pair demonstrates
+     * the S4 handoff by construction and not by the luck of the interleaving. */
     if (run->kind == WIT_PROGRAM_CHANNEL && run->run_index % 2 == 1 &&
         run->park_carrier != 0 && run->resume_carrier != 0 &&
         run->resume_carrier != run->park_carrier) {
@@ -470,7 +681,9 @@ static void *mutator_main(void *p) {
 
  * Workers park at random steps and have no partner to wake them: the edge shim (a host timer)
  * wakes them, as a real provider would. The channel pairs are woken by their partner runs only,
- * so the run-to-run wake of S4 is never polluted by the shim. */
+ * so the run-to-run wake of S4 is never polluted by the shim. The VM runs of the MicroPython shape
+ * park at blocking calls (S11) and take both: their partner's next event, or the hal timer's
+ * timeout wake, which is exactly what a real mp_hal_delay_ms waits on. */
 static void *watchdog_main(void *p) {
     wit_world *ww = (wit_world *)p;
     while (!atomic_load_explicit(&ww->w.stop, memory_order_relaxed)) {
@@ -485,7 +698,7 @@ static void *watchdog_main(void *p) {
             uint32_t kind = run->kind;
             rxf_smp_handle self = run->self;
             rxf_smp_arena_release(&ww->arena, ww->run_handles[i]);
-            if (parked && kind == WIT_PROGRAM_WORKER) {
+            if (parked && (kind == WIT_PROGRAM_WORKER || kind == WIT_PROGRAM_MPVM)) {
                 if (smp_wake(&ww->w, self, 0xFFFF) == 0)
                     atomic_fetch_add_explicit(&ww->watchdog_wakes, 1, memory_order_relaxed);
             }
@@ -521,6 +734,7 @@ void wit_go(uint32_t n_runs, uint32_t n_carriers, uint32_t seed, uint64_t steps_
 
     rxf_smp_arena_create(&ww.arena, 4u * 1024 * 1024, n_runs * 4 + 64);
     smp_world_init(&ww.w, &ww.arena, n_runs, step_run, &ww);
+    ww.w.step_end = step_end;
     ww.w.wait = edge_wait;
     ww.w.backoff = edge_backoff;
     ww.w.notify = edge_notify;
@@ -528,12 +742,15 @@ void wit_go(uint32_t n_runs, uint32_t n_carriers, uint32_t seed, uint64_t steps_
     ww.w.force_cross_resume = (flags & WIT_FLAG_FORCE_CROSS) ? 1 : 0;
     wit_edge_init(&ww.edge);
 
-    /* The programs: pairs of channel runs first, workers after, one stale-handle run last. */
+    /* The programs: pairs of runs first — the upper half of the pairs plays the MicroPython seam
+     * (S11), the lower half the channel pairs (S4) — workers after, one stale-handle run last. */
     uint32_t stale_index = n_runs >= 3 ? n_runs - 1 : 0xFFFFFFFFu;
     uint32_t pairs = (n_runs >= 3 ? (n_runs - 1) / 2 : n_runs / 2);
     if (pairs > 8)
         pairs = 8;
-    for (uint32_t p = 0; p < pairs; p++) {
+    uint32_t mp_pairs = pairs / 2;
+    uint32_t channel_pairs = pairs - mp_pairs;
+    for (uint32_t p = 0; p < channel_pairs; p++) {
         rxf_smp_handle ch = rxf_smp_arena_alloc(&ww.arena, RXF_SMP_CELL_CHANNEL,
                                                 sizeof(wit_channel_payload), 0);
         wit_channel_payload *payload =
@@ -546,8 +763,10 @@ void wit_go(uint32_t n_runs, uint32_t n_carriers, uint32_t seed, uint64_t steps_
         uint32_t kind = WIT_PROGRAM_WORKER;
         if (i == stale_index)
             kind = WIT_PROGRAM_STALE;
-        else if (i / 2 < pairs)
+        else if (i / 2 < channel_pairs)
             kind = WIT_PROGRAM_CHANNEL;
+        else if (i / 2 < pairs)
+            kind = WIT_PROGRAM_MPVM;
         rxf_smp_handle rh =
             rxf_smp_arena_alloc(&ww.arena, RXF_SMP_CELL_RUN, sizeof(smp_run_payload), 0);
         smp_run_payload *run = (smp_run_payload *)rxf_smp_arena_resolve(&ww.arena, rh);
@@ -557,10 +776,7 @@ void wit_go(uint32_t n_runs, uint32_t n_carriers, uint32_t seed, uint64_t steps_
         run->kind = kind;
         run->seed = seed;
         run->target_steps = steps_per_run;
-        run->guard1[0] = 0x55667788u;
-        run->guard1[1] = (uint32_t)mix64(seed ^ i);
-        run->guard2[0] = ~run->guard1[0];
-        run->guard2[1] = (uint32_t)mix64((seed ^ i) + 7);
+        wit_run_guards(run);
         if (kind == WIT_PROGRAM_CHANNEL)
             run->channel = ww.pair_channels[i / 2];
         run->checksum = smp_run_checksum(run);
@@ -795,6 +1011,41 @@ void wit_go(uint32_t n_runs, uint32_t n_carriers, uint32_t seed, uint64_t steps_
         out[WIT_OUT_ABA_OK] |=
             RXF_SMP_H_INDEX(stale_handle) == RXF_SMP_H_INDEX(fresh_handle) ? 2 : 0;
     }
+    /* The MicroPython seam evidence (S11): every raise that won the pending slot was delivered
+     * at a poll or is still pending when its VM run ended; every delivery unwound a frame; and
+     * the sources account for every raise event as won or refused (the Refuse path). */
+    uint64_t mp_events = 0, mp_raise_events = 0, mp_won = 0, mp_refused = 0, mp_deposits = 0;
+    uint64_t mp_delivered = 0, mp_pending_end = 0, mp_sched = 0, mp_unwinds = 0, mp_polls = 0;
+    for (uint32_t i = 0; i < n_runs; i++) {
+        smp_run_payload *run =
+            (smp_run_payload *)rxf_smp_arena_resolve(&ww.arena, ww.run_handles[i]);
+        if (!run)
+            continue;
+        if (run->kind == WIT_PROGRAM_MPVM) {
+            mp_events += run->mp_events;
+            mp_raise_events += run->mp_raise_events;
+            mp_won += run->mp_won;
+            mp_refused += run->mp_refused;
+            mp_deposits += run->mp_deposits;
+            mp_delivered += run->mp_raise_seen;
+            mp_sched += run->mp_sched_seen;
+            mp_unwinds += run->mp_unwinds;
+            mp_polls += run->mp_polls;
+            if (atomic_exchange_explicit(&run->mp_raise_slot, 0, memory_order_acq_rel) != 0)
+                mp_pending_end++; /* a raise whose VM run ended before a poll found it */
+        }
+        rxf_smp_arena_release(&ww.arena, ww.run_handles[i]);
+    }
+    out[WIT_OUT_MP_EVENTS] = mp_events;
+    out[WIT_OUT_MP_RAISE_EVENTS] = mp_raise_events;
+    out[WIT_OUT_MP_RAISE_WON] = mp_won;
+    out[WIT_OUT_MP_RAISE_REFUSED] = mp_refused;
+    out[WIT_OUT_MP_RAISE_DEPOSITS] = mp_deposits;
+    out[WIT_OUT_MP_DELIVERED] = mp_delivered;
+    out[WIT_OUT_MP_PENDING_END] = mp_pending_end;
+    out[WIT_OUT_MP_SCHED] = mp_sched;
+    out[WIT_OUT_MP_UNWINDS] = mp_unwinds;
+    out[WIT_OUT_MP_POLLS] = mp_polls;
     for (uint32_t i = 0; i < n_carriers && i < 32; i++) {
         out[WIT_OUT_CARRIER_STEPS + i] = atomic_load(&ww.w.carrier_steps[i]);
         out[WIT_OUT_CARRIER_POPS + i] = atomic_load(&ww.w.carrier_pops[i]);

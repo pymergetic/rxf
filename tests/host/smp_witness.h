@@ -11,9 +11,10 @@
  * The face of the harness is one call: wit_go runs one whole witness program on n_carriers threads
  * and writes 128 words of result and evidence. Everything about the program is a function of
  * (seed, n_runs, steps, messages): a step reads and writes its own run cell and its own data cell
- * and never the state of any other run, so the result is the same whatever the carrier count and
- * whatever the interleaving (docs/20, S10). What the interleaving decides is only who executes a
- * step and when; the proof reads that back as evidence (per-carrier counters, park/resume pairs,
+ * and never the program state of any other run (the seam of S11 deposits into another run's
+ * concurrent words exactly as a wake does), so the result is the same whatever the carrier count
+ * and whatever the interleaving (docs/20, S10). What the interleaving decides is only who executes
+ * a step and when; the proof reads that back as evidence (per-carrier counters, park/resume pairs,
  * moves observed under runs) and never mixes it into the result.
  */
 #include <stdint.h>
@@ -82,9 +83,21 @@ enum {
     WIT_OUT_SPINS = 111,       /* what the compactor waited for claims in total */
     WIT_OUT_SPINS_MAX = 112,
     WIT_OUT_PAIR_WAKER = 113,  /* the run that woke the channel receiver (the sender's identity) */
-    WIT_OUT_FORWARD_LOST = 114 /* moved cells whose old place a later slide covered: the record
-                                * cannot survive there; with FORWARD_OK it accounts for every
-                                * moved cell exactly (S8) */
+    WIT_OUT_FORWARD_LOST = 114, /* moved cells whose old place a later slide covered: the record
+                                 * cannot survive there; with FORWARD_OK it accounts for every
+                                 * moved cell exactly (S8) */
+    /* The MicroPython seam (docs/20, S11): the pending-word traffic of the MPVM programs. */
+    WIT_OUT_MP_EVENTS = 115,        /* events the interrupt sources attempted (raises + scheds) */
+    WIT_OUT_MP_RAISE_EVENTS = 116,  /* of those, raises (the even schedule of the source) */
+    WIT_OUT_MP_RAISE_WON = 117,     /* raises that won the pending slot */
+    WIT_OUT_MP_RAISE_REFUSED = 118, /* the Refuse path: a raise was already pending */
+    WIT_OUT_MP_DELIVERED = 119,     /* raises delivered at a poll */
+    WIT_OUT_MP_PENDING_END = 120,   /* raises still pending when the VM run ended */
+    WIT_OUT_MP_SCHED = 121,         /* scheduled callbacks consumed at polls */
+    WIT_OUT_MP_UNWINDS = 122,       /* nlr-shaped unwinds: the block rewound and retried */
+    WIT_OUT_MP_POLLS = 123,         /* mp_handle_pending calls (the VM runs' safe points) */
+    WIT_OUT_MP_RAISE_DEPOSITS = 124 /* raise deposits attempted (won + refused accounts for
+                                     * every one of them exactly, S11) */
 };
 
 void wit_go(uint32_t n_runs, uint32_t n_carriers, uint32_t seed, uint64_t steps_per_run,
