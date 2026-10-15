@@ -17,7 +17,7 @@ using object::Image;
 using object::Status;
 
 /* Parses each text (error messages carry its name) and applies all operations as one delta. */
-void apply_texts(Image &image, const std::vector<std::pair<std::string, std::string>> &files) {
+void apply_texts(Image &image, const std::vector<std::pair<std::string, std::string>> &files, bool links) {
     delta::Delta all;
     for (const auto &file : files) {
         delta::Delta one;
@@ -26,7 +26,7 @@ void apply_texts(Image &image, const std::vector<std::pair<std::string, std::str
         for (auto &op : one.ops) all.ops.push_back(std::move(op));
     }
     delta::Failure failure;
-    if (delta::apply(image, all, &failure) != Status::Ok) throw DeltaError(delta::describe(failure));
+    if (delta::apply(image, all, &failure, links) != Status::Ok) throw DeltaError(delta::describe(failure));
 }
 
 std::string canonical_text(const Image &image, const std::string *module) {
@@ -54,13 +54,19 @@ void bind_delta(nb::module_ &m, nb::class_<Image> &image) {
             "An image with the ground (root, Type, Field, uint32_t, uint64_t) and nothing else.")
         .def(
             "apply",
-            [](Image &self, const std::string &text) { apply_texts(self, {{"the delta", text}}); }, nb::arg("delta"),
-            "Applies a delta in XML. The image changes only when the whole delta applies and links.")
+            [](Image &self, const std::string &text, bool links) { apply_texts(self, {{"the delta", text}}, links); },
+            nb::arg("delta"), nb::arg("links") = true,
+            "Applies a delta in XML. The image changes only when the whole delta applies and links; "
+            "with `links=False` the operations must still hold but the result is not required to link, "
+            "which is what the physical compiler needs on a live image: the image checks the links when it takes the delta.")
         .def(
             "apply_all",
-            [](Image &self, const std::vector<std::pair<std::string, std::string>> &files) { apply_texts(self, files); },
-            nb::arg("files"),
-            "Applies several deltas (name, XML) as one: the operations run in the order given, atomically.")
+            [](Image &self, const std::vector<std::pair<std::string, std::string>> &files, bool links) {
+                apply_texts(self, files, links);
+            },
+            nb::arg("files"), nb::arg("links") = true,
+            "Applies several deltas (name, XML) as one: the operations run in the order given, atomically. "
+            "With `links=False` the result is not required to link (see `apply`).")
         .def(
             "export",
             [](const Image &self, const std::optional<std::string> &module) {

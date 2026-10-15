@@ -60,6 +60,9 @@ class FakeFront:
     def numbers(self) -> dict[str, int]:
         return {"RXF_REFUSE_UNSUPPORTED": 5}
 
+    def rebase(self) -> None:
+        self.calls.append(("rebase",))
+
 
 class FakeChannel:
     """The live channel's shape: one apply of a delta, and a digest back."""
@@ -302,7 +305,7 @@ def test_the_unpokeable_fields_say_why(point):
         ("generation", "ABA"),
         ("checksum", "integrity"),
     ):
-        out = editor.poke(channel, point, "a", field, 1)
+        out = editor.poke(channel, point, "a", field, 1, front=FakeFront())
         assert out["ok"] is False and word in out["refusal"]
     assert channel.applied == []  # not one byte went to the channel
 
@@ -310,7 +313,7 @@ def test_the_unpokeable_fields_say_why(point):
 def test_a_name_poke_is_refused_as_a_rename_not_an_in_place_write(point):
     from pymergetic.rxf.server import editor
 
-    out = editor.poke(FakeChannel(), point, "a", "name", 1)
+    out = editor.poke(FakeChannel(), point, "a", "name", 1, front=FakeFront())
     assert out["ok"] is False and "not a poke" in out["refusal"]
 
 
@@ -318,7 +321,7 @@ def test_poking_a_field_writes_through_the_channel(point):
     from pymergetic.rxf.server import editor
 
     channel = FakeChannel()
-    out = editor.poke(channel, point, "a", "flags", 99)
+    out = editor.poke(channel, point, "a", "flags", 99, front=FakeFront())
     assert out["ok"] is True and out["field"] == "flags" and out["path"] == "a"
     assert out["digest"] == "0xdeadbeef" and out["sets"] == 1
     assert len(channel.applied) == 1  # one delta, the one seam

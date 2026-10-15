@@ -213,14 +213,14 @@ class Image:
         An image with the ground (root, Type, Field, uint32_t, uint64_t) and nothing else.
         """
 
-    def apply(self, delta: str) -> None:
+    def apply(self, delta: str, links: bool = True) -> None:
         """
-        Applies a delta in XML. The image changes only when the whole delta applies and links.
+        Applies a delta in XML. The image changes only when the whole delta applies and links; with `links=False` the operations must still hold but the result is not required to link, which is what the physical compiler needs on a live image: the image checks the links when it takes the delta.
         """
 
-    def apply_all(self, files: Sequence[tuple[str, str]]) -> None:
+    def apply_all(self, files: Sequence[tuple[str, str]], links: bool = True) -> None:
         """
-        Applies several deltas (name, XML) as one: the operations run in the order given, atomically.
+        Applies several deltas (name, XML) as one: the operations run in the order given, atomically. With `links=False` the result is not required to link (see `apply`).
         """
 
     def export(self, module: str | None = None) -> str:

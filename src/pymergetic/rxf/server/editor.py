@@ -15,7 +15,9 @@ never invents a second channel:
   source goes through the in-image front end and one delta installs the Function. The delta is
   shown before it is sent. Nothing here compiles and nothing here sends a second way.
 - **cell poke** writes one cell field through the live channel (``live.client.Client``) and refuses
-  honestly what is not pokeable (forward, generation, checksum).
+  honestly what is not pokeable (forward, generation, checksum). The front end's mirror of the
+  image is rebased around it (``live.front.Front.rebase``), so the poke is part of the state the
+  next compile or install is staged against.
 
 The web wiring lives in ``server/app.py``; the front-end logic is pure Python so it can be tested
 without a browser and without a running image.
@@ -48,7 +50,9 @@ BYTECODE = "bytecode"
 
 
 class Front(Protocol):
-    """The in-image front end (``live.front.Front``): compile then install, one delta."""
+    """The in-image front end (``live.front.Front``): compile then install, one delta, and
+    ``rebase`` — the mirror of the image a delta is staged against, for a change that lands
+    outside its sends."""
 
     def compile(
         self, source: bytes, files: Mapping[str, bytes] | None = None
@@ -57,6 +61,8 @@ class Front(Protocol):
     def install(self, name: str, words: bytes, source: bytes) -> Any: ...
 
     def numbers(self) -> dict[str, int]: ...
+
+    def rebase(self) -> None: ...
 
 
 class Channel(Protocol):
@@ -675,11 +681,25 @@ def poke_word_payload(payload: bytes, offset: int, value: int) -> bytes:
 
 
 def poke(
-    channel: Channel, image: Image, path: str, field: str, value: Any, offset: int = 0
+    channel: Channel,
+    image: Image,
+    path: str,
+    field: str,
+    value: Any,
+    offset: int = 0,
+    *,
+    front: Front,
 ) -> dict[str, Any]:
     """Poke one cell field through the live channel (one delta, the seam). `payload` pokes a
     scalar word at `offset`; `name` and `flags` are honoured; `forward`/`generation`/`checksum`
-    are refused. The write goes through `channel.apply` — the same seam every other change uses."""
+    are refused. The write goes through `channel.apply` — the same seam every other change uses.
+
+    The poke lands outside the front end's own sends (`live/front.py` `_send`), so `front` — the
+    front end of the same image — is rebased here, right after the apply: the poke is part of
+    the image state the next compile or install is staged against, and a poke that could skip
+    the rebase would leave that compile refused a stale base. `front` is therefore not optional,
+    and a refused poke (or one that never applied) rebases nothing: the mirror tracks the
+    applies that land, and only those."""
     verdict = classify_poke(field)
     if not verdict["allowed"]:
         return {"ok": False, "field": field, "refusal": verdict["reason"]}
@@ -706,6 +726,7 @@ def poke(
 
     compiled = physical.compile(before, after)
     digest = channel.apply(compiled.data)
+    front.rebase()  # the poke moved the image past the front end's mirror: track it here
     return {
         "ok": True,
         "field": field,

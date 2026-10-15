@@ -87,7 +87,7 @@ struct Failure {
 };
 
 /* Applies `delta` to `image`. On failure `image` is unchanged. */
-Status apply(Image &image, const Delta &delta, Failure *failure);
+Status apply(Image &image, const Delta &delta, Failure *failure, bool links = true);
 
 /* A failure as text: the operation, the reason, and the link problems, one per line. */
 std::string describe(const Failure &failure);
