@@ -134,6 +134,21 @@ class Image:
         The fields of an object as (name, text); zero and unset values are left out.
         """
 
+    def resolve_module(self, name: str) -> str:
+        """
+        The module tree's trichotomy for one name: "package", "module" or "none" — the answer mp_import_stat gives. A name that spells no one clear module is refused (TreeError).
+        """
+
+    def module_children(self, name: str) -> list[str]:
+        """
+        The sub-module names of a package (what makes it one), in name order; empty for a leaf module and for none.
+        """
+
+    def module_roots(self) -> list[str]:
+        """
+        The Quad: the four roots of the module tree (px, pm, pt, py) and nothing else.
+        """
+
     def doc_text(self, handle: int) -> str:
         """The text of a Doc object, decompressed on demand (docs/22)."""
 

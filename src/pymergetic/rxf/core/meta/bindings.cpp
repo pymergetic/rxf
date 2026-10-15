@@ -105,6 +105,36 @@ void bind_meta(nb::module_ &, nb::class_<Image> &image) {
                 return out;
             },
             nb::arg("handle"), "The fields of an object as (name, text); zero and unset values are left out.")
+
+        // The hybrid module tree (docs/23 §4.6): the image IS the module tree. The trichotomy is
+        // the one mp_import_stat returns, so the upy port's fill is one call here.
+        .def(
+            "resolve_module",
+            [](const Image &self, const std::string &name) {
+                std::string error;
+                const meta::ModuleStat stat = meta::module_stat(self, name, &error);
+                if (!error.empty()) throw TreeError(error);
+                return std::string(meta::module_stat_word(stat));
+            },
+            nb::arg("name"),
+            "The module tree's trichotomy for one name: \"package\", \"module\" or \"none\" — the "
+            "answer mp_import_stat gives. A name that spells no one clear module is refused (TreeError).")
+        .def(
+            "module_children",
+            [](const Image &self, const std::string &name) {
+                std::string error;
+                std::vector<std::string> out = meta::module_children(self, name, &error);
+                if (!error.empty()) throw TreeError(error);
+                return out;
+            },
+            nb::arg("name"),
+            "The sub-module names of a package (what makes it one), in name order; empty for a leaf "
+            "module and for none.")
+        .def(
+            "module_roots",
+            [](const Image &) { return meta::module_roots(); },
+            "The Quad: the four roots of the module tree (px, pm, pt, py) and nothing else.")
+
         .def(
             "doc_text",
             [](const Image &self, uint64_t handle) {

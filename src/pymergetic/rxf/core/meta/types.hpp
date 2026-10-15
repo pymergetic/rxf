@@ -240,6 +240,34 @@ std::vector<Member> members(Types &types, Handle object);
 inline constexpr const char *kAliasReexport = "Reexport";
 bool alias_reexported(Types &types, Handle alias);
 
+// ---- the hybrid module tree (docs/23 §4.6) --------------------------------
+//
+// The module tree IS the image tree: a module is a named cell under a root, no filesystem, no
+// `.mpy`, no second storage. The four roots are the Quad. The walk answers the trichotomy
+// `mp_import_stat` returns (package = MP_IMPORT_STAT_DIR, module = MP_IMPORT_STAT_FILE,
+// none = MP_IMPORT_STAT_NO), so the MicroPython port's fill is one call into `module_stat`.
+
+/* The one answer mp_import_stat gives. */
+enum class ModuleStat : uint32_t { Package, Module, None };
+
+/* The word of a trichotomy answer: "package", "module" or "none". */
+const char *module_stat_word(ModuleStat stat);
+
+/* The Quad: the four roots of the module tree (px = extern/cpython, pm = mpy, pt = thirdparty,
+   py = micro) and nothing else. They are ordinary Module cells like any other. */
+const std::vector<std::string> &module_roots();
+
+/* The trichotomy of one module name over the named cells of the image. Each segment is a child
+   name of a Module cell (NodeKind 19); the root plays the Module role at the top level. A
+   package answers Package (it has sub-modules), a leaf module or a container with program
+   children answers Module, anything else None. A name that does not spell one clear module is
+   refused in `*error` (unknown root, ambiguous name, dead handle) — never a wrong trichotomy. */
+ModuleStat module_stat(const Image &image, const std::string &name, std::string *error);
+
+/* The sub-module names of a package (what makes it one), in name order; empty for a leaf module
+   and for none. Refused exactly like `module_stat`. */
+std::vector<std::string> module_children(const Image &image, const std::string &name, std::string *error);
+
 /* A name an XML element or attribute can carry: letters, digits, '_', '-', '.', not starting with a digit. */
 bool is_symbol(const std::string &name);
 /* The attributes of the text form that are not in its namespace (name, path); no Field may have these names. */

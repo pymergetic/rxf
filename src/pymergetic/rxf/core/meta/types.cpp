@@ -939,6 +939,119 @@ bool alias_reexported(Types &types, Handle alias) {
     return false;
 }
 
+// ---- the hybrid module tree (docs/23 §4.6) ---------------------------------
+
+const char *module_stat_word(ModuleStat stat) {
+    switch (stat) {
+        case ModuleStat::Package: return "package";
+        case ModuleStat::Module: return "module";
+        case ModuleStat::None: return "none";
+    }
+    return "none";
+}
+
+const std::vector<std::string> &module_roots() {
+    // The Quad: extern/cpython, mpy, thirdparty, micro. Names, not objects — the roots are
+    // ordinary Module cells of the image, made by a delta like any module.
+    static const std::vector<std::string> roots{"px", "pm", "pt", "py"};
+    return roots;
+}
+
+namespace {
+
+bool is_module_cell(const arena::Arena &arena, Handle h) {
+    const pymergetic_rxf_cell *c = arena.cell(h);
+    return c != nullptr && ((c->flags >> PYMERGETIC_RXF_FLAG_KIND_SHIFT) & PYMERGETIC_RXF_FLAG_KIND_MASK) == PYMERGETIC_RXF_NODE_MODULE;
+}
+
+std::string roots_line() {
+    std::string line;
+    for (const std::string &root : module_roots()) {
+        if (!line.empty()) line += ", ";
+        line += root;
+    }
+    return line;
+}
+
+/* One module name walked to the named cell it stands for, kNone when it names nothing (the
+   honest `none`). A name that does not spell one clear module is refused in `*error`: the walk
+   never guesses a trichotomy for it. */
+Handle module_cell(const Image &image, const std::string &name, std::string *error) {
+    const arena::Arena &arena = image.arena();
+    const Handle root = arena.header()->root;
+    if (arena.cell(root) == nullptr) {
+        if (error != nullptr) *error = "dead handle: the image has no live root to walk module names from";
+        return kNone;
+    }
+    // The segments of the name; each must be one clear child name.
+    std::vector<std::string> segments;
+    for (size_t start = 0; start <= name.size();) {
+        const size_t dot = name.find('.', start);
+        const std::string segment = name.substr(start, dot == std::string::npos ? std::string::npos : dot - start);
+        if (segment.empty()) {
+            if (error != nullptr) *error = "ambiguous name: '" + name + "' has an empty segment, so it names no one clear module";
+            return kNone;
+        }
+        if (segment[0] == kAliasMark) {
+            if (error != nullptr) *error = "ambiguous name: '" + segment + "' is an alias spelling (a nickname of its module); name the module itself";
+            return kNone;
+        }
+        segments.push_back(segment);
+        if (dot == std::string::npos) break;
+        start = dot + 1;
+    }
+
+    Handle at = root;
+    for (size_t i = 0; i < segments.size(); i++) {
+        const bool first = i == 0;
+        const bool last = i + 1 == segments.size();
+        const Handle h = image.child(at, segments[i]);
+        if (h == kNone) {
+            // A dotted name claims a root first; a claim that fails is refused, never answered
+            // as `none` (which would say the root exists and merely has no such child).
+            if (first && !last && error != nullptr)
+                *error = "unknown root: no module root named '" + segments[i] + "' (the roots are " + roots_line() + ")";
+            return kNone;
+        }
+        if (arena.cell(h) == nullptr) {
+            if (error != nullptr) *error = "dead handle: '" + segments[i] + "' of '" + name + "' names an object that is not live";
+            return kNone;
+        }
+        if (first && !last && !is_module_cell(arena, h)) {
+            if (error != nullptr) *error = "unknown root: '" + segments[i] + "' is not a root of the module tree (the roots are " + roots_line() + ")";
+            return kNone;
+        }
+        if (!last && !is_module_cell(arena, h)) return kNone; // off the tree: only module cells have sub-names
+        at = h;
+    }
+    return at;
+}
+
+} // namespace
+
+ModuleStat module_stat(const Image &image, const std::string &name, std::string *error) {
+    if (error != nullptr) error->clear();
+    const arena::Arena &arena = image.arena();
+    const Handle cell = module_cell(image, name, error);
+    if (cell == kNone) return ModuleStat::None;
+    if (!is_module_cell(arena, cell)) return ModuleStat::None; // anything else: no module
+    for (Handle child : image.children(cell))
+        if (is_module_cell(arena, child)) return ModuleStat::Package;
+    return ModuleStat::Module;
+}
+
+std::vector<std::string> module_children(const Image &image, const std::string &name, std::string *error) {
+    if (error != nullptr) error->clear();
+    std::vector<std::string> out;
+    const arena::Arena &arena = image.arena();
+    const Handle cell = module_cell(image, name, error);
+    if (cell == kNone) return out;
+    if (!is_module_cell(arena, cell)) return out;
+    for (Handle child : image.children(cell)) // children come in name order
+        if (is_module_cell(arena, child)) out.emplace_back(arena.name(child));
+    return out;
+}
+
 // ---- members ---------------------------------------------------------------
 
 namespace {
