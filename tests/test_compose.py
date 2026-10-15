@@ -72,11 +72,57 @@ def test_the_numbers_of_the_header_are_read_whole():
     assert sorted(graph_header.leaves().values()) == list(range(1, 49))
 
 
-def test_a_call_that_is_no_leaf_is_found(tmp_path: Path):
+def test_a_call_of_a_program_is_the_call_card(image, tmp_path: Path):
+    """A callee that is a program of its own is named by the object id of its words: the
+    call card of graph.h (OP_CALL, RXF_GRAPH_CALL, count, out, width, status, then the
+    program operand and the arguments). Here heap.pin's graph calls heap.pin itself, so
+    the composed program carries one card and every other word is what it was."""
     shutil.copytree(STARTER, tmp_path / "starter")
     path = tmp_path / "starter" / "pymergetic" / "rxf" / "foundation" / "heap.xml"
     path.write_text(
         path.read_text().replace('callee="@runtime.pin"', 'callee="@heap.pin"')
+    )
+    patched = tree.load(tmp_path / "starter")
+    made = compose.programs(patched)
+    name = "pymergetic.rxf.foundation.heap.pin"
+    words = tuple(compose.describe(made[name]))
+    before = tuple(compose.describe(compose.programs(image)[name]))
+    callee = compose.object_id(patched, patched.handle(name))
+    call, leaf = graph_header.numbers()["RXF_OP_CALL"], graph_header.numbers()["RXF_GRAPH_CALL"]
+    operand = graph_header.numbers()["RXF_OPERAND_OBJECT"]
+    cards = [
+        i for i in range(len(words) - 8)
+        if words[i] == call and words[i + 1] == leaf
+        and words[i + 6 : i + 9] == (operand, callee, 0)
+    ]  # fmt: skip
+    assert len(cards) == 1, f"{name}: {len(cards)} call cards, one expected"
+    (at,) = cards
+    # the card is the pin call of the body with its program operand in front of the
+    # arguments: three words more than the leaf call it replaces. Its header words and
+    # its arguments are exactly that call's; every other word of the program is what it
+    # was but for the jump targets past the insertion point, which move by those words
+    pin = graph_header.leaves()["runtime_pin"]
+    assert before[at] == call and before[at + 1] == pin, (before[at], before[at + 1])
+    count = before[at + 2]
+    assert words[at + 2 : at + 6] == before[at + 2 : at + 6]
+    assert words[at + 9 : at + 9 + 3 * count] == before[at + 6 : at + 6 + 3 * count]
+    assert len(words) == len(before) + 3
+    moved = [
+        (was, now)
+        for was, now in zip(before[:at] + before[at + 6 :], words[:at] + words[at + 9 :])
+        if was != now
+    ]
+    assert all(now == was + 3 for was, now in moved), moved
+
+
+def test_a_call_of_no_leaf_and_no_program_is_refused(tmp_path: Path):
+    """A callee that is no leaf of the interpreter and no program of the image is a
+    refusal, not a guess: graph.run is a Function of the image, but its machine lives
+    outside a program and its name is in no leaf table."""
+    shutil.copytree(STARTER, tmp_path / "starter")
+    path = tmp_path / "starter" / "pymergetic" / "rxf" / "foundation" / "heap.xml"
+    path.write_text(
+        path.read_text().replace('callee="@runtime.pin"', 'callee="@foundation.graph.run"')
     )
     with pytest.raises(compose.ComposeError, match="is not a leaf of the interpreter"):
         compose.programs(tree.load(tmp_path / "starter"))

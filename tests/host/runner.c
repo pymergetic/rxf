@@ -34,12 +34,21 @@
 /* The object a program is read from (tests/rxf_world.py uses the same id for the same thing). */
 #define RXF_HOST_PROGRAM_ID 900001ULL
 #define RXF_HOST_GENERATION 1ULL
+/* The secondary objects of a run: the programs a call card names (graph.h's
+ * RXF_GRAPH_CALL: a callee is a program of its own, bound at the object id its call
+ * carries) and the cells an Object handle resolves. Registered before a run,
+ * cleared by it -- one run at a time in a process, like the tests run them. The room
+ * is what the imports of one world bind: the pools and strings of the qstr corpus
+ * (16 cells), the type cells and the arena of the obj corpus (10), and the callee
+ * programs of their call cards. */
+#define RXF_HOST_OBJECTS 48
 /* The area of the Channel capability the step budget is kept at (the rings start at word 30). */
 #define RXF_HOST_AREA_BYTES 320U
 #define RXF_AREA_RX_HEAD 120U
 #define RXF_AREA_RX_TAIL 124U
-/* A value of a run is at most the frame of the interpreter; the tests return whole words. */
-#define RXF_HOST_OUT_ROOM 4096U
+/* A value of a run is at most the frame of the interpreter -- one run cell of it now that
+ * the frames are variable length (native/graph.h); the tests return whole words. */
+#define RXF_HOST_OUT_ROOM RXF_GRAPH_CELL_BYTES
 
 /* The leaves of native/basics.c (their shapes are the ones native/graph.h gives their ids). */
 rxf_u32 rxf_wrapping_add_uint64_t(rxf_u64, rxf_u64, rxf_u64 *);
@@ -74,7 +83,8 @@ static struct {
     rxf_runtime_context context;
     rxf_native_slot functions[48];
     rxf_native_slot capabilities[1];
-    rxf_object_entry objects[1];
+    rxf_object_entry objects[1 + RXF_HOST_OBJECTS];
+    rxf_u64 bound; /* the secondary objects registered for the run that goes */
     rxf_u8 area[RXF_HOST_AREA_BYTES];
     rxf_u64 out[RXF_HOST_OUT_ROOM / 8];
     jmp_buf escape; /* where a run that does not end is stopped */
@@ -181,6 +191,23 @@ void rxf_host_deinit(void) {
     memset(&host, 0, sizeof(host));
 }
 
+/* A secondary object of the run that goes: a program a call card names (its words at
+ * the object id the card's handle carries) or a cell an Object handle resolves. The
+ * payload is an address of this process (the flat memory of the run, or the words
+ * themselves). The run consumes what is registered: one run at a time. */
+rxf_u32 rxf_host_bind(rxf_u64 id, rxf_u64 payload, rxf_u64 size) {
+    if (id == RXF_HOST_PROGRAM_ID || host.bound >= RXF_HOST_OBJECTS)
+        return RXF_REFUSE_OUT_OF_RANGE;
+    rxf_object_entry *entry = &host.objects[1 + host.bound++];
+    entry->id = id;
+    entry->generation = RXF_HOST_GENERATION;
+    entry->payload = payload;
+    entry->size = size;
+    entry->capacity = size;
+    entry->state = RXF_OBJECT_LIVE;
+    return RXF_OK;
+}
+
 /* One run of a program of words on the arguments of whole words: the (status, value) of
  * rxf_sim.run. `memory_base` and `memory_size` are the flat address space the addresses of the
  * run live in; `limit` is the step budget of rxf_sim.run (0: the run may go on). */
@@ -202,6 +229,17 @@ RXF_FUNCTION rxf_u32 rxf_host_run(const void *words, rxf_u64 words_bytes, const 
     host.objects[0].size = words_bytes;
     host.objects[0].capacity = words_bytes;
     host.objects[0].state = RXF_OBJECT_LIVE;
+    /* the table the run sees is sorted by id (the interpreter's lookup is a binary
+       search): the program's entry is one of them, the bound secondaries the rest */
+    rxf_u64 count = 1 + host.bound;
+    host.bound = 0;
+    host.context.object_count = count;
+    for (rxf_u64 i = 1; i < count; i++)
+        for (rxf_u64 j = i; j > 0 && host.objects[j].id < host.objects[j - 1].id; j--) {
+            rxf_object_entry swap = host.objects[j];
+            host.objects[j] = host.objects[j - 1];
+            host.objects[j - 1] = swap;
+        }
     host.steps = 0;
     host.budget = limit;
     memset(host.out, 0, sizeof(host.out));

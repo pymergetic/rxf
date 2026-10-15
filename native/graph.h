@@ -50,10 +50,15 @@
  *     own frame words of the run cell.  Nothing but words and handles crosses the
  *     boundary: no raw pointer outlives a step (S7, docs/20).
  *
- * The run cell carries the frames: one RXF_GRAPH_FRAME region per level of depth,
- * at most RXF_GRAPH_CALL_DEPTH of them (the depth budget -- a call past it is
+ * The run cell carries the frames: one variable-length cell per level of depth, its
+ * exact size the frame bytes the program declares (word 1).  The frames of the active
+ * call chain are carved back to back from the payload of the run cell as (base, size)
+ * links -- the cell grows by the declared frame bytes of a call and shrinks at its
+ * answer -- and their sum must fit the cell: a chain past it is refused
+ * RXF_REFUSE_CELL_BUDGET, never spilled and never split.  At most
+ * RXF_GRAPH_CALL_DEPTH links stand at once (the depth budget -- a call past it is
  * refused RXF_REFUSE_CALL_DEPTH, the Refuse-on-budget shape).  The run's
- * interpreter iterates over a bounded stack of frame links -- (return program,
+ * interpreter iterates over that bounded stack of frame links -- (return program,
  * return word offset, the caller's out and status slots) -- so depth costs words
  * of the cell, never native stack.  A call boundary is between two instructions,
  * so it is a safe point like any other (S7, S11: mp_handle_pending lowers here).
@@ -68,15 +73,27 @@
  */
 
 #define RXF_GRAPH_MAGIC 0x31475852ULL
+/* The frame budget the lowerers still enforce: the composer of tools/native/compose.py
+ * and the refusal table of tools/native/rximport.py refuse a frame over this at import
+ * time. The run itself no longer refuses a frame this size -- its cells are variable
+ * length, the declared frame bytes exact (RXF_GRAPH_CELL_BYTES below); flipping the
+ * lowerers' budget is the importer lane's follow-up. */
 #define RXF_GRAPH_FRAME 1024U
 #define RXF_GRAPH_COPY 256U
 #define RXF_GRAPH_NONE (~0ULL)
 /* Word 1 of a CALL that names a program rather than a leaf: 0, the id no leaf has. */
 #define RXF_GRAPH_CALL 0ULL
-/* The depth budget of a run: the run cell carries one RXF_GRAPH_FRAME region per level
- * of nesting, at most this many, and a call past the last level is refused
- * RXF_REFUSE_CALL_DEPTH. The budget bounds the frame words a run may spend and the
- * frame links the interpreter iterates over; depth never costs native stack. */
+/* The run cell: the payload that carries the frames of a run's active call chain. The
+ * frames are variable-length cells carved (base, size) from it, their sizes the exact
+ * frame bytes the programs declare; the arena's slot classes (base x factor) steer where
+ * a cell lands, never how big it is -- the cell header keeps the exact byte sizes
+ * (docs/20, S6/S7). The budget is cell bytes: the sum of the active frames must fit,
+ * and a chain past it is refused RXF_REFUSE_CELL_BUDGET. */
+#define RXF_GRAPH_CELL_BYTES 8192U
+/* The depth budget of a run: how many frame links (base + size of the run cell) may be
+ * open at once -- the entry's frame is one of them -- and a call past the last link is
+ * refused RXF_REFUSE_CALL_DEPTH. The budget is links, not bytes: the bytes are bounded
+ * by RXF_GRAPH_CELL_BYTES, and depth never costs native stack. */
 #define RXF_GRAPH_CALL_DEPTH 8U
 
 /* The ids of the capabilities of the runtime context (words 6 and 7 of it: how many, and the table
@@ -204,6 +221,11 @@ enum rxf_graph_leaf {
 #define RXF_REFUSE_UNSUPPORTED 16U
 /* The refusal of a run whose call depth is spent (the depth budget of RXF_GRAPH_CALL_DEPTH). */
 #define RXF_REFUSE_CALL_DEPTH 17U
+/* The refusal of a run whose frames do not fit the run cell: the declared frame bytes of
+ * the active call chain are over RXF_GRAPH_CELL_BYTES. The answer is the budget itself --
+ * a frame is never spilled and never split to make a chain fit (the Refuse-on-budget
+ * shape), and the refusal is returned, never silent. */
+#define RXF_REFUSE_CELL_BUDGET 18U
 
 /* How a leaf is called: its parameters after the context, as letters. */
 enum rxf_shape {

@@ -232,9 +232,21 @@ LEAF_RUN = {
 
 
 def run(
-    program: bytes, args: bytes, memory: Memory, limit: int = 50_000_000
+    program: bytes, args: bytes, memory: Memory, limit: int = 50_000_000,
+    objects: dict[int, bytes] | None = None,
 ) -> tuple[int, int]:
-    """(status, value) of a run of the program on arguments of whole words."""
+    """(status, value) of a run of the program on arguments of whole words.
+
+    ``objects`` are the programs a call card names, by the id of their words: a card's
+    callee is a program of its own (graph.h's RXF_GRAPH_CALL), its parameters the
+    call's arguments as words of the caller's frame, its own locals in the next
+    RXF_GRAPH_FRAME region of the cell. Depth costs words of the cell (at most
+    RXF_GRAPH_CALL_DEPTH of them -- a call past the budget refuses
+    RXF_REFUSE_CALL_DEPTH), never stack here either; a Return answers the call at any
+    depth above 0 and ends the run at 0, and a Refuse gives the call its status (with
+    no status slot to catch it, it ends the run).
+    """
+    objects = objects or {}
     code = struct.unpack(f"<{len(program) // 8}Q", program)
     assert code[0] == N["RXF_GRAPH_MAGIC"]
     frame_bytes, parameters, words, pc = code[1], code[2], code[3], code[4]
@@ -247,6 +259,10 @@ def run(
         memory.write(frame + slot, args[used : used + width])
         used += (width + 7) // 8 * 8
 
+    depth = 0
+    stack: list[tuple[tuple[int, ...], int, int, int, int, int]] = []
+    # a saved frame: (the caller's words, the pc to go on at, its frame, the call's
+    # out slot, its width, its status slot)
     steps = 0
     while True:
         steps += 1
@@ -256,8 +272,53 @@ def run(
         if op == OP_CALL:
             leaf, count, out, out_width, status = (
                 code[pc + 1], code[pc + 2], code[pc + 3], code[pc + 4], code[pc + 5])
-            args_ = []
             at = pc + 6
+            if leaf == N["RXF_GRAPH_CALL"]:  # a call card: a program of its own
+                kind, named, zero = code[at], code[at + 1], code[at + 2]
+                if kind != N["RXF_OPERAND_OBJECT"] or zero != 0:
+                    return N["RXF_REFUSE_OUT_OF_RANGE"], 0
+                at += 3
+                if depth + 1 >= N["RXF_GRAPH_CALL_DEPTH"]:
+                    return N["RXF_REFUSE_CALL_DEPTH"], 0
+                made = objects.get(named)
+                if made is None:
+                    return N["RXF_REFUSE_UNBOUND"], 0
+                callee = struct.unpack(f"<{len(made) // 8}Q", made)
+                if len(callee) < 5 or callee[0] != N["RXF_GRAPH_MAGIC"]:
+                    return N["RXF_REFUSE_TYPE_MISMATCH"], 0
+                callee_frame, callee_parameters = callee[1], callee[2]
+                entry = callee[4]
+                if (callee_frame > N["RXF_GRAPH_FRAME"] or callee_frame & 7
+                        or callee_parameters != count):
+                    return N["RXF_REFUSE_OUT_OF_RANGE"], 0
+                dst = FRAME_AT + (depth + 1) * N["RXF_GRAPH_FRAME"]
+                memory.write(dst, bytes(callee_frame))
+                for i in range(callee_parameters):
+                    slot, width = callee[5 + 2 * i], callee[6 + 2 * i]
+                    if slot + width > callee_frame:
+                        return N["RXF_REFUSE_OUT_OF_RANGE"], 0
+                    kind, a, b = code[at], code[at + 1], code[at + 2]
+                    present = min(b, width)
+                    if kind == OPD_LITERAL:
+                        data = a.to_bytes(8, "little")[:present]
+                    elif kind == N["RXF_OPERAND_OBJECT"]:
+                        # a handle argument: the bound object's payload words (the
+                        # run-entry ARGS shape of a handle is its three words)
+                        payload = objects.get(a)
+                        if payload is None:
+                            return N["RXF_REFUSE_UNBOUND"], 0
+                        data = payload[:present]
+                    else:
+                        data = memory.read(frame + a, present)
+                    memory.write(dst + slot, data)
+                    at += 3
+                if out != NONE:
+                    memory.write(frame + out, bytes(out_width))
+                stack.append((code, at, frame, out, out_width, status))
+                depth += 1
+                code, pc, frame = callee, entry, dst
+                continue
+            args_ = []
             for _ in range(count):
                 kind = code[at]
                 if kind == OPD_LITERAL:
@@ -316,13 +377,48 @@ def run(
             pc = code[at]
         elif op == OP_RETURN:
             kind, a, b = code[pc + 1], code[pc + 2], code[pc + 3]
+            width = code[pc + 4]
+            if depth == 0:
+                if kind == OPD_LITERAL:
+                    return 0, a
+                return 0, int.from_bytes(memory.read(frame + a, min(b, 8)), "little")
+            # a callee's out word to the caller-named destination word, and the caller
+            # goes on after its call step (the answer of a call, graph.c's `answer`)
             if kind == OPD_LITERAL:
-                return 0, a
-            return 0, int.from_bytes(memory.read(frame + a, min(b, 8)), "little")
+                if width > 8:
+                    return N["RXF_REFUSE_OUT_OF_RANGE"], 0
+                data = a.to_bytes(8, "little")
+            else:
+                data = memory.read(frame + a, width if width > 8 else b)
+            code, pc, frame, out, out_width, status = stack.pop()
+            depth -= 1
+            if width > 8:
+                if width > out_width:
+                    return N["RXF_REFUSE_OUT_OF_RANGE"], 0
+                if out != NONE:
+                    memory.write(frame + out, data[:width])
+            else:
+                if 8 > out_width:
+                    return N["RXF_REFUSE_OUT_OF_RANGE"], 0
+                if out != NONE:
+                    memory.write(frame + out, data.ljust(8, b"\0")[:8])
+            if status != NONE:
+                memory.write(frame + status, struct.pack("<I", 0))
         elif op == OP_REFUSE:
             kind, a, b = code[pc + 1], code[pc + 2], code[pc + 3]
             if kind == OPD_LITERAL:
-                return a & 0xFFFFFFFF, 0
-            return int.from_bytes(memory.read(frame + a, min(b, 8)), "little") & 0xFFFFFFFF, 0
+                value = a & 0xFFFFFFFF
+            else:
+                value = int.from_bytes(memory.read(frame + a, min(b, 8)), "little") & 0xFFFFFFFF
+            if depth == 0:
+                return value, 0
+            # the call gets its status; with no status slot to catch it, the run ends
+            # with the refusal (the uncaught shape)
+            code, pc, frame, out, out_width, status = stack.pop()
+            depth -= 1
+            if status != NONE:
+                memory.write(frame + status, struct.pack("<I", value))
+            else:
+                return value, 0
         else:
             raise NotImplementedError(OP.get(op, op))

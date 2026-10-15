@@ -211,6 +211,47 @@ under the same rules:
   other a VM run (frame iterations with the poll at every back edge, nlr-shaped unwinds, and
   blocking-call parks).
 
+### A call is a frame of the run cell (RXF_GRAPH_CALL)
+
+A call card is a program calling a program. The callee is named by its object id, and the run makes
+it a frame of the run cell: one `RXF_GRAPH_FRAME` region per level of nesting, at most
+`RXF_GRAPH_CALL_DEPTH` of them. A call past the last level is refused `RXF_REFUSE_CALL_DEPTH` — the
+depth budget bounds the frame words a run may spend and the frame links the interpreter iterates
+over, so depth costs words of the cell, never native stack. A call boundary sits between two
+instructions, so it is a safe point like any other (S7, S11).
+
+The call's arguments ride the frame as what a frame can carry: a scalar is one word, a handle its
+three words (the shapes run-entry `ARGS` takes). Nothing else crosses the boundary — no raw pointer
+outlives a step (S7). A callee writes through an **Object** its caller passes (an out cell it holds
+the handle of), never through a raw pointer to a caller's value. That is why a body that stores
+through a pointer parameter lowers only where it is inlined into its caller's locals (the
+out-parameter idiom of `tests/import_corpus/outparam.c`) and is refused as a program a call card
+would reach — the importer's `a pointer to a value` refusal. The callee's Return copies its out word
+to the caller-named destination (a handle returns as its three words in a wide out slot, or the
+caller passes an Object and the callee writes through it); Refuse gives the call its status. Both
+write the call's status slot and the caller goes on after the call step. At depth 0 (no call above),
+Return writes the run's output and ends the run, as it always did.
+
+### The frames are variable-length cells of the run cell
+
+What the call frame above describes is not one fixed region per level. A program declares its exact
+frame bytes (word 1 of its words), and the frame is that many bytes, no more: the frames of the
+active call chain are carved back to back from the run cell's payload as `(base, size)` links — the
+cell grows by the declared frame bytes of a call and shrinks at its answer — and their sum must fit
+the cell (`RXF_GRAPH_CELL_BYTES`, native/graph.h). The budget is cell bytes: a chain whose frames
+do not fit is refused `RXF_REFUSE_CELL_BUDGET`, never spilled and never split; a frame of 1608
+bytes runs as it declares. Depth is a separate and smaller question: at most
+`RXF_GRAPH_CALL_DEPTH` links stand open at once, and a call past the last one is refused
+`RXF_REFUSE_CALL_DEPTH` — a link bound, not a byte wall.
+
+This is the allocator's own rule (S7) applied to run words: a cell is allocated with the exact
+payload size its header records, and the arena's slot classes (base × factor) are placement policy
+only — they steer where a cell lands, never how big it is. The run cell is one cell whose payload
+carries the frames; a frame link is base + size, the size is the program's own word, and no level
+is padded to a class. What the lowerers refuse at import is their own budget and stays theirs
+(`RXF_GRAPH_FRAME`, the composer's and the importer's refusal tables — the follow-up lane flips
+those); the run enforces the cell budget instead, and refuses what does not fit with a status.
+
 ## S7. Handles, claims, and no raw address across a safe point
 
 A payload address is valid for exactly one window: from a resolve to its release. The end of a
