@@ -137,6 +137,51 @@ class Image:
     def doc_text(self, handle: int) -> str:
         """The text of a Doc object, decompressed on demand (docs/22)."""
 
+    def doc_add(self, parent: int, name: str, text: str, kind: int = 0, status: int = 0, codec: int = 0) -> int:
+        """
+        A Doc object below `parent` carrying `text` (DocKind/DocStatus/DocCodec words), made by the rules of the ground. Refused below the ground's floor: an image cannot hold a kind it does not know.
+        """
+
+    def doc_place(self, source: int, doc: int, role: int = 0) -> None:
+        """
+        A RefKind.Doc placement of `doc` on `source` (DocRole word). Stored docs make zero runtime refs (the image check), so the placement is editorial.
+        """
+
+    def lift_comment(self, target: int, name: str, text: str, kind: int = 0, status: int = 0, role: int = 0) -> int:
+        """
+        A comment/docstring lifted to a Narrates Doc object (Lz4 by default) and placed on `target` — the import lane's single call. Refused below the floor as any other doc creation.
+        """
+
+    def doc_origin(self, parent: int, name: str, tier: str, upstream: str, repository: str, commit: str, license: str = '', importer: str = '') -> int:
+        """
+        The origin record of an import (a Topic Doc): upstream, repository, commit, license, importer. Made at every provenance tier (docs/22); `tier` is the run's per-import tier.
+        """
+
+    def doc_source(self, parent: int, name: str, tier: str, source: str, origin: int | None = None) -> int:
+        """
+        The imported source itself as one stored payload (a Narrative Doc, Lz4), its origin in the tail first. The 'full' tier's payload — place() it on every object it explains: one payload, N placements.
+        """
+
+    def doc_hash(self, parent: int, name: str, tier: str, sha256: str) -> int:
+        """
+        The file's content SHA as one hash Document (a Topic Doc, Raw): exactly 64 lowercase hex digits or refused. The 'hash' tier's payload.
+        """
+
+    def doc_cite(self, parent: int, name: str, tier: str, placed_on: Sequence[int], provenance: Sequence[int], path: str, first_line: int, last_line: int, sha256: str = '') -> int:
+        """
+        A citation (a Narrative Doc with a locator in its tail) placed on each object of `placed_on`, citing each fact of `provenance` (the import's origin record, the file's source Doc at full). First and last line are 1-based, or refused. Made at the 'cite' and 'full' tiers.
+        """
+
+    def doc_locator(self, doc: int) -> dict[str, Any]:
+        """
+        The locator of a citation: {path, first_line, last_line, sha256} parsed out of the Doc's text tail (the seam, docs/22). Refused on a Doc without one.
+        """
+
+    def doc_permalink(self, doc: int) -> str:
+        """
+        A citation's permalink built from its locator: repo at commit, path, the line range.
+        """
+
     def type_name(self, arg: int, /) -> str | None: ...
 
     def layout(self, type: int) -> dict[str, Any]:
