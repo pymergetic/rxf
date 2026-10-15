@@ -436,6 +436,22 @@ VALUES_FOR_MEMORY = (0, 1, 0x42, 0xFF, 0x0123456789ABCDEF, U64 - 1, 1 << 63)
 #          as a call card is pinned green in test_the_out_param_callee_lowers_as_a_call_card
 #          (its end-to-end run -- a call that both dispatches and carries out-cells --
 #          is pinned green in test_the_out_param_callee_is_a_call_card)
+#
+# The relocation flip, REFUSED -> lowered (the static initializers of docs/23 6 q4 and the
+# dual value-width model of q1; history kept here and in docs/20, never blurred):
+#   ("global_reloc.c", "use_reloc"): "relocation"
+#       -> lowered (test_the_function_pointer_relocation_wires_like_the_native_
+#          static_initializer runs it): @picker's initializer names helper, so the cell
+#          is placed as its byte image (the slot zero -- exactly the native static
+#          before its loader places the relocations) and the module's boot
+#          (__wires_boot) makes the wire: one store of helper's function word into the
+#          slot. The differential is the host C build of global_reloc.c beside the
+#          composed run: after the boot the dispatch of use_reloc routes to helper on
+#          both sides, and the state evolves identically (reset_picker's store resets
+#          the same word). What never moved: use_decl (a declaration without bytes)
+#          stays refused with its message byte-exact, and the C++ vtables still refuse
+#          -- their relocations name the runtime symbols of the RTTI machinery, so no
+#          wire arms vcall's dispatch and its function-word rule below stays byte-exact.
 REFUSED = {
     ("calls.c", "ping"): "recursion",
     ("calls.c", "pong"): "recursion",
@@ -466,9 +482,9 @@ REFUSED = {
     # Rust: the shapes opt-level 0 keeps in memory
     ("rust_refuse.rs", "r_join"): "carried through memory",
     ("rust_refuse.rs", "r_array"): "getelementptr of the local",
-    # globals: a cell this pass cannot place (its initializer is a relocation: the bytes
-    # would be a link-time address) and a declaration without bytes
-    ("global_reloc.c", "use_reloc"): "relocation",
+    # globals: a declaration without bytes. The relocation class that used to sit here
+    # (use_reloc's @picker: "relocation") flips with the static initializers the
+    # importer lowers now (the flip history above)
     ("global_reloc.c", "use_decl"): "no payload",
     # the nlr policy's soundness boundary: the setjmp buffer the frame alone keeps alive
     # is opaque, and a body that reads or writes its bytes is refused, never guessed
@@ -634,6 +650,12 @@ OBJ_PROGRAMS = (
 )
 OBJ_CASES: dict[str, tuple[str, ...]] = {"obj.c": OBJ_PROGRAMS}
 
+# the relocation program of global_reloc.c (the flip history above): the boot that wires
+# @picker's slot, the body whose function word it is, the store that resets it and the
+# dispatch that rides the word
+RELOC_PROGRAMS = ("__wires_boot", "helper", "reset_picker", "use_reloc")
+RELOC_CASES: dict[str, tuple[str, ...]] = {"global_reloc.c": RELOC_PROGRAMS}
+
 
 @dataclass
 class World:
@@ -649,6 +671,9 @@ class World:
 FRIENDS: dict[str, tuple[str, ...]] = {
     "nlr_call.c": ("nlr_stubs.c",),
     "obj.c": ("obj_stubs.c",),
+    # global_reloc.c declares elsewhere without bytes (the relocation story's refusal);
+    # the differential's ground-truth link carries the definition its real link would
+    "global_reloc.c": ("global_reloc_stubs.c",),
     # outparam.c declares the qstr face its card call names (the out-param callee of
     # sum_pair_card crosses a card boundary); the differential of the world links the
     # abort stubs, and the out-param gate links the qstr corpus's real face instead
@@ -793,6 +818,7 @@ def build_world(build: Path, homes: set[str]) -> World:
             | {name for home, name in OBJ_ADDRESSES if home == file}
             | set(QSTR_CASES.get(file, ()))
             | set(OBJ_CASES.get(file, ()))
+            | set(RELOC_CASES.get(file, ()))
         )
         imported = rximport.import_source_file(image, source, module=stem, only=wanted)
         assert set(imported) == wanted, f"{file}: imported {sorted(imported)}, not {sorted(wanted)}"
@@ -811,6 +837,7 @@ CORPUS_HOMES = (
     | set(GLOBAL_CASES)
     | set(QSTR_CASES)
     | set(OBJ_CASES)
+    | set(RELOC_CASES)
 )
 OBJ_HOMES = set(OBJ_CASES)
 
@@ -999,6 +1026,128 @@ def test_obj_global_address_is_the_cell(obj_world: World, file: str, name: str):
     """The obj class's cells answer as the other files' statics do -- in the class's own
     world, whose room the shared world's cells leave short."""
     check_global_address(obj_world.image, obj_world.programs, Path(file).stem, name)
+
+
+def test_the_function_pointer_relocation_wires_like_the_native_static_initializer(
+    tmp_path: Path,
+):
+    """The relocation of a static initializer (docs/23 6 q4), the flip of use_reloc's
+    REFUSED entry above: @picker of global_reloc.c is ``static uint64_t (*volatile
+    picker)(uint64_t) = helper`` -- the initializer names a body. The cell is placed as
+    its byte image (the slot zero: what the native static keeps before its loader places
+    the relocations), and the module's boot (__wires_boot) makes the wire: one store of
+    helper's function word into the slot. The differential is the host C build of the
+    same file beside the composed run on the host runner (the seat of the dispatch:
+    ``test_the_unary_slot_dispatch_routes_to_the_type_body`` -- the arm's call card names
+    a program of its own, so the run's table holds the cells and the programs, and a
+    sequence of runs keeps them the way the native library keeps its statics).
+
+    The two sides keep their words in addresses of their own, so the word in the slot
+    does not compare across them: what compares is the call both sides answer. The word
+    the graph side carries is the model's own -- the object id of the body's Function
+    path (function_wiring's link fact) -- and that is pinned here. Before the boot the
+    cell answers its byte image and the dispatch refuses the run at the chain's
+    fall-through (lower_indirect's boundary: a word no arm names routes to no card),
+    never a wrong route."""
+    image = tree.load(STARTER)
+    wanted = set(RELOC_PROGRAMS)
+    imported = rximport.import_into(
+        image, rximport.compile_source(CORPUS / "global_reloc.c"), module="global_reloc",
+        only=wanted,
+    )  # fmt: skip
+    assert set(imported) == wanted, sorted(imported)
+    assert image.check() == []
+    programs = compose.programs(image)
+
+    # the cells and the programs of the run, at the ids its cards name them by
+    composer = compose.Composer(image)
+    cells: dict[str, bytearray] = {}
+    objects: dict[int, bytes | bytearray] = {}
+    for handle in range(image.handle_count):
+        if not image.live(handle):
+            continue
+        values = composer.fields(handle)
+        if compose.word(values.get("kind")) != "Object" or "object_id" not in values:
+            continue
+        name = image.path(handle).rsplit(".", 1)[-1]
+        if not name.startswith("global_"):
+            continue
+        cell = bytearray(bytes.fromhex(values.get("data", "")))
+        cells[name[len("global_") :]] = cell
+        objects[int(values["object_id"])] = cell
+    for handle in range(image.handle_count):
+        if not image.live(handle) or image.type_name(handle) != "SemanticOperation":
+            continue
+        callee = composer.fields(handle).get("callee")
+        target = image.resolve(callee) if callee else None
+        if target is not None and image.path(target) in programs:
+            objects[compose.object_id(image, target)] = programs[image.path(target)]
+
+    # the native reference: the host C build of the same corpus (its ground-truth link
+    # carries the definition of elsewhere that global_reloc_stubs.c stands in for)
+    shared = tmp_path / "libglobal_reloc.so"
+    link(CORPUS / "global_reloc.c", shared)
+    native = ctypes.CDLL(str(shared))
+    native.use_reloc.argtypes = [ctypes.c_uint64]
+    native.use_reloc.restype = ctypes.c_uint64
+    native.reset_picker.restype = None
+
+    picker = cells["picker"]
+    assert len(picker) == 8, "@picker: the cell is one pointer word"
+    helper_word = rximport.object_id_of("global_reloc.helper")
+
+    def slot() -> int:
+        return struct.unpack_from("<Q", picker, 0)[0]
+
+    with rxf_native.Memory(1 << 16) as memory:
+
+        def call(name: str, words: tuple[int, ...]) -> tuple[int, int]:
+            return rxf_native.run(
+                programs[f"global_reloc.{name}"],
+                struct.pack(f"<{len(words)}Q", *words),
+                memory,
+                objects=objects,
+            )
+
+        # before the boot the slot is the zero the byte image carries, and the dispatch
+        # has no arm for it: the run refuses at the fall-through, never a wrong route
+        assert slot() == 0, f"@picker before the boot holds {slot():#x}, not the byte image"
+        status, _ = call("use_reloc", (5,))
+        assert status == rximport.UNSUPPORTED_STATUS, (
+            f"use_reloc before the boot: the dispatch answered {status}, the "
+            f"fall-through of an unwired word is RXF_REFUSE_UNSUPPORTED "
+            f"({rximport.UNSUPPORTED_STATUS})"
+        )
+        # the boot is the loader's relocation pass: the wire stores helper's word
+        status, _ = call("__wires_boot", ())
+        assert status == OK, f"__wires_boot: the imported graph refused the boot ({status})"
+        assert slot() == helper_word, (
+            f"@picker after the boot holds {slot():#x}, the model's word of "
+            f"global_reloc.helper is {helper_word:#x} (the object id of the body's "
+            "Function path, function_wiring's link fact)"
+        )
+        # the differential: both sides dispatch to helper (x + 1), and the state
+        # (reset_picker's store of the same word) evolves identically
+        for value in (5, 7, 2):
+            status, made = call("use_reloc", (value,))
+            held = native.use_reloc(value)
+            assert (status, made) == (OK, held) == (OK, value + 1), (
+                f"use_reloc({value}): the imported graph answered ({status}, {made}), "
+                f"natively it is ({OK}, {held})"
+            )
+        status, _ = call("reset_picker", ())
+        assert status == OK, f"reset_picker: the imported graph refused ({status})"
+        native.reset_picker()
+        assert slot() == helper_word, (
+            "reset_picker: the body's own store wires the same word again (the slot a "
+            f"run reads is {slot():#x})"
+        )
+        status, made = call("use_reloc", (9,))
+        held = native.use_reloc(9)
+        assert (status, made) == (OK, held) == (OK, 10), (
+            f"use_reloc(9) after the reset: the imported graph answered "
+            f"({status}, {made}), natively it is ({OK}, {held})"
+        )
 
 
 def test_qstr_hash_find_roundtrip_matches_native(world: World):

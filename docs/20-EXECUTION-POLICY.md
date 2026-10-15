@@ -287,6 +287,22 @@ a normal differential pin over the defined domain, out cells read back by the ca
 where `qstr.c`'s own `find_qstr` assert refuses the run and the natively compiled reference aborts
 on the same input (the panic path stays pinned one-sided: refuse, never a wrong answer).
 
+**The static-initializer relocation flip.** `global_reloc.c`'s `use_reloc` and `reset_picker` were
+REFUSED `relocation` — `@picker` is `static uint64_t (*volatile picker)(uint64_t) = helper`, a
+static initializer naming a body, and a link-time address the pass could not know. It lowers now
+(docs/23 6 q4): the cell places its byte image with the relocation slot zero (what the native
+static keeps before its loader runs), and the module's boot `__wires_boot` wires the slot — one
+store of `helper`'s function word, the same word `reset_picker`'s own store carries. The
+differential is the host C build of the same file beside the composed run
+(`test_the_function_pointer_relocation_wires_like_the_native_static_initializer`): before the
+boot the dispatch refuses the run at the chain's fall-through (a word no arm names routes to no
+card), after it both sides answer `x + 1` and evolve the same state through `reset_picker`. What
+never moved is byte-exact: `use_decl` (a declaration without bytes), `dispatch.c`'s `call_a_word`
+(a word no store of the link wires), and the C++ runtime relocations of `cpp_refuse.cpp`
+(`_ZTV*`/`_ZTI*` and kin) refuse with their messages unchanged. The width model that decides the
+words (ILP32 vs LP64, from the datalayout) refuses rather than guesses where it cannot decide —
+pinned in `tests/test_import_width.py`, both models of one source against their own host C builds.
+
 ## S7. Handles, claims, and no raw address across a safe point
 
 A payload address is valid for exactly one window: from a resolve to its release. The end of a

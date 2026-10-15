@@ -1,6 +1,9 @@
-/* A cell this pass cannot place: a global whose initializer is a relocation (its bytes
-   would be a link-time address this pass cannot know), and a declaration without bytes.
-   Both refuse at the use -- the cell has no payload -- rather than guessing. */
+/* A static initializer the importer lowers (docs/23 6 q4): @picker's initializer is a
+   relocation (it names helper), so the cell is placed as its byte image -- the slot the
+   zero the flat profile carries, the native static before its loader places the
+   relocations -- and the wire of the module's boot (__wires_boot) stores helper's word
+   into it. The declaration beside it (elsewhere) still refuses at the use: it has no
+   payload this pass can place. */
 #include <stdint.h>
 
 static uint64_t helper(uint64_t x) {
@@ -9,7 +12,7 @@ static uint64_t helper(uint64_t x) {
 
 /* the function pointer of MicroPython's mp_plat_print shape: a cell whose initializer is
    the address of another symbol. It is volatile so the load of the cell survives
-   opt-level 1 (a constant cell alone folds away): the refusal is at that load */
+   opt-level 1 (a constant cell alone folds away) */
 static uint64_t (*volatile picker)(uint64_t) = helper;
 
 void reset_picker(void) {

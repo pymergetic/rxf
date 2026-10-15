@@ -36,6 +36,52 @@ class ParseError(Exception):
     ``rximport`` cannot read, or a model value the emitter cannot write."""
 
 
+# ---- the width model the words are placed against ---------------------------------------------
+
+@dataclass(frozen=True)
+class DataModel:
+    """The data model of one module: what one word of the flat memory is.
+
+    The widths a value is placed with come from the module's datalayout (the pointer
+    width it states), never from the machine this toolchain happens to run on: an ILP32
+    guest and an LP64 host both import, and every value word says its own width
+    (``type_path`` below). Two word spaces, and the line between them is exact:
+
+    * a **frame word** is the run's own word -- 64 bits wherever the module runs
+      (parameters, results, literals, the three words of a handle);
+    * a **memory word** is what a value takes in the flat space and what a store writes
+      there: ``i8``..``i64`` their bytes, and a ``ptr`` the model's pointer. A load of a
+      pointer masks the frame word to the model's word, a store writes that many bytes,
+      and a function word is the model word the slot holds (two bodies whose words
+      collide in it refuse the link -- never a dispatch that cannot tell them apart).
+
+    Where the model cannot decide a width honestly the import refuses (a pointer width
+    that is neither 4 nor 8, a datalayout that states none where a pointer word would be
+    placed), never a guess."""
+
+    pointer: int | None = 8  # bytes one pointer (and one function word) takes in memory
+
+    @property
+    def word_mask(self) -> int | None:
+        """The model's word, as the mask of its low bits (a pointer's width), or None
+        where the module states no pointer width (nothing places such a word)."""
+        return None if self.pointer is None else (1 << (8 * self.pointer)) - 1
+
+
+def align(offset: int, to: int) -> int:
+    """``offset`` rounded up to the next multiple of ``to`` (the padding C places)."""
+    return offset + (-offset % to)
+
+
+# the models the subset places words against: LP64 (clang's native target) and ILP32 (the
+# wasm32-style guest) are the two the datalayout states; UNDECIDED is a module that
+# states no pointer width -- its integers still know their widths, and the width of a
+# pointer refuses where a word would be placed (module_model, rximport)
+LP64 = DataModel(pointer=8)
+ILP32 = DataModel(pointer=4)
+UNDECIDED = DataModel(pointer=None)
+
+
 # ---- the semantic model the emitter writes -----------------------------------------------------
 
 
@@ -48,12 +94,22 @@ class Global:
     kind Object with this global's ``object_id``: the handle of the arena cell the run
     resolves to the cell's payload address. Loads and stores of the global lower to flat
     loads and stores at that address (the memory leaves), so the cell is exactly the C
-    static storage the differential's native binary keeps."""
+    static storage the differential's native binary keeps.
+
+    An initializer that carries an address -- a function pointer in a callback struct, a
+    pointer to another global -- is a **relocation**: the bytes it is placed with leave
+    that slot zero, and the wire that fills it is one store of the word (the module's
+    boot: the link fact ``function_wiring`` takes the arms of a dispatch from). The run's
+    cell answers its byte image until the boot runs, exactly like the native static
+    storage before its loader has placed the relocations; a relocation this pass cannot
+    place (a runtime symbol of the C++ machinery, a name the link cannot name) refuses
+    the cell with ``refusal``, never a slot left silently wrong."""
 
     name: str  # the C name (the cell is ``module.name``)
     type: str  # the LLVM type of the global
     init: bytes | None  # the initial payload; None for a declaration without bytes
     constant: bool = False  # LLVM ``constant`` (a data root: a message, a table)
+    refusal: str | None = None  # why a payload cannot be placed (its use refuses by it)
 
     @property
     def cell(self) -> str:
