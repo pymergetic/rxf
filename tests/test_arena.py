@@ -23,8 +23,9 @@ def booted(**kwargs):
     return image
 
 
-# Root, Type, Field, uint32_t, uint64_t, Enumerator, the eight enumerations of the format with their enumerators, and the Field objects of Type and Field.
-GROUND = 99
+# Root, Type, Field, uint32_t, uint64_t, Enumerator, the eight enumerations of the format with their enumerators, and the Field objects of Type and Field;
+# plus the six Doc objects of the ground (Documentation, Intent, Norm, Constraint, Requirement, Origin) and their fifteen Field objects (docs slice 1).
+GROUND = 120
 
 
 def module(image, parent, name):
