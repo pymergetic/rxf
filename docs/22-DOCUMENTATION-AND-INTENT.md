@@ -97,10 +97,11 @@ Every import creates provenance — from the same machinery, at the **level the 
 
 1. **Origin record** (from `cite` up), one Doc per source set: upstream name, repository permalink,
    pinned commit, license, importer version. Written once, shared by every object it produced.
-2. **Citation per object** (from `cite` up): a `RefKind.Doc` placement onto the file's provenance
-   Doc, payload a locator (path + line range + optional content hash) — a permalink like
-   `…/blob/<commit>/py/obj.c#L120-L180`. The debug info supplies the locator; the importer never
-   guesses.
+2. **Citation per object** (from `cite` up): a small Doc whose text tail is the **locator** (path +
+   line range + optional content hash), placed `RefKind.Doc` on each imported object it explains and
+   citing the provenance facts it was made from (the origin record, the file's source Doc at `full`)
+   — a permalink like `…/blob/<commit>/py/obj.c#L120-L180`. The debug info supplies the locator;
+   the importer never guesses.
 3. **The full source** (only at `full`): the codec tier above, lz4 where it pays.
 
 The knob is **per import run** (`--provenance=full|cite|hash`) and becomes a fact of the image
@@ -108,6 +109,77 @@ itself: an image says at which level its objects were claimed, and never overcla
 `hash` — an object must always say at least what it *is*. Below the floor is refused (S11 honesty):
 **the importer takes no anonymous input.** Deltas preserve citations; an object edited later keeps
 its provenance and gains the edition that changed it.
+
+### The locator seam: the citing Doc's text tail (decided)
+
+A citation needs a payload the reference cannot carry: a path and a line range. The reference in the
+cell is 24 bytes and closed (`role`, `index`, `kind`, `binding`, `target`); a locator is a variable
+string, and a new reference field would break the ABI for every image and every seat — the call the
+`Doc` type itself made when it went behind the untouched 64-byte header. So the seam is decided the
+same way: **the locator is the citing Doc's text tail**, a record of `key=value` lines.
+
+```
+path=py/obj.c
+lines=120-180
+sha256=8f14e45fceea167a5a36dedd4bea2543ab1b2d4d8f1e4f0a9b2c3d4e5f607182
+```
+
+- `path` and `lines` (`first-last`, 1-based) are required; `sha256` is optional (64 lowercase hex
+  digits). One line per fact, no empty lines, no unknown keys — a text that is not this record is
+  not a locator, and the parse refuses it.
+- The record is written and read by one pair of faces (`Image.doc_cite(...)` writes it through the
+  image, `Image.doc_locator(doc)` parses it back into `{path, first_line, last_line, sha256}`), so
+  export/parse round-trips through the delta text like every other doc text. The digest moves only
+  if the locator does.
+- The permalink is **derived, never stored**: `<repository>/blob/<commit>/<path>#L<first>-L<last>`,
+  built from the locator and the origin record the citation cites
+  (`Image.doc_permalink(doc)`). One permalink form, no second copy to drift.
+
+The alternative — a locator field on the reference — was refused: it is ABI-visible, it puts a
+variable string in a fixed 24-byte record, and it contradicts the slice-1 rule that docs carry
+their text and references carry only handles and words.
+
+### The image side: provenance facts, placements, and the floor
+
+The import lane records provenance through the image's doc faces — C++ (`core/doc/provenance.hpp`)
+bound to Python (`Image`), so a lane never assembles a Doc payload by hand. One `tier` word per
+call (`"full"`, `"cite"`, `"hash"`); a word below the floor is refused with the floor's reason.
+
+| face | writes | tier gate |
+|---|---|---|
+| `doc_origin(parent, name, tier, upstream, repository, commit, license, importer)` | the origin record (a `Topic` Doc) | `cite` and up |
+| `doc_cite(parent, name, tier, placed_on, provenance, path, first_line, last_line, sha256="")` | one citation placed on each object of `placed_on`, citing each fact of `provenance` | `cite` and up |
+| `doc_source(parent, name, tier, source, origin=None)` | the imported source itself (a `Narrates` Doc, lz4) | `full` only |
+| `doc_hash(parent, name, tier, sha256)` | the file's content SHA (a `Narrates` Doc, raw) | `hash` only |
+| `lift_comment(target, name, text, kind=DocKind.Narrates, status=DocStatus.Open, role=DocRole.Narrates)` | a comment as a `Narrates` Doc placed on the target | — |
+
+- **A fact of a tier exists only at that tier.** The gates above refuse the wrong tier honestly
+  (`a hash record is written only at hash: from cite up the hash rides in the citation's locator`),
+  so an image never overclaims what its provenance holds.
+- **The floor refusal**: `tier_of("none")`, `"off"`, `""`, `"anonymous"`, or any unknown word is
+  refused — `the provenance floor is hash: the importer takes no anonymous input`. Below `hash` is
+  not a smaller tier; it is no provenance at all.
+- **Dedup is placement-first**: one stored payload per fact, then `RefKind.Doc` placements on every
+  object it explains — one source payload behind N placements, one citation behind its N objects.
+  Placing the same doc twice on the same object is refused (one edge, said once).
+- Fact creation follows the ground's rules like every create: unknown `DocKind`/`DocStatus`/
+  `DocCodec` words are refused, text must be UTF-8 without NUL, and the ground takes no children.
+
+### Lifting a comment (the call the importer makes)
+
+Comments and docstrings are lifted through one call per captured comment:
+
+```python
+doc = image.lift_comment(target, name, text)          # a Narrates Doc (lz4 where it pays), placed
+doc = image.lift_comment(target, name, text,          # TODO/FIXME: its own managed kind
+                         kind=int(DocKind.Todo), role=int(DocRole.Narrates))
+```
+
+The doc is created below the target, placed `RefKind.Doc` on it with the given role, and returns
+its handle. The import lane pairs each lifted comment with the citation of the range it came from
+(`doc_cite(..., placed_on=[doc_handle], ...)`), so every quoted line keeps its permalink. The lane
+chooses the tier; at `cite` and `hash` it lifts only what it can cite or hash — the image stores
+what it is given and the tier gate polices provenance facts, not editorial text.
 
 ## Policy is documentation: S1–S11 are topics
 
@@ -190,6 +262,10 @@ another district (topics as buildings, placements as cables). One look (docs/21)
 - The importer lifts comments from source-with-debug-info into `Doc` objects and refuses without it.
 - Placement dedup: the same source placed under several topics copies no text; a pin asserts one
   payload, many placements.
+- Provenance lands at the tier the run declares (`full` | `cite` | `hash`), a fact of a tier exists
+  only at that tier, and below the floor is refused — an image never overclaims its provenance.
+- A citation's locator round-trips: the `key=value` record survives export/parse in the citing
+  Doc's text tail, and the permalink is derived from it and the origin record it cites.
 - Honest membership: a placement never implies a call edge; a test pins that the doc graph and the
   call graph stay separate truths.
 
@@ -257,3 +333,7 @@ object state. A TODO is a fact with a state, not a comment that rots.
    codec section above. Both states reachable, one state stored, search on demand.
 4. **Import scope: everything** — comments at definitions *and* free-floating comments; TODOs as
    their own managed kind (above).
+5. **The locator seam is the citing Doc's text tail** (slice 2): a citation is a Doc whose text is
+   a `key=value` record (`path`, `lines`, optional `sha256`); the 24-byte reference carries no
+   locator payload and the ABI is untouched. The permalink is derived from the record and the
+   origin record it cites, never stored.
