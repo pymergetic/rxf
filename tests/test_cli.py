@@ -60,7 +60,7 @@ def test_the_command_tree_is_the_module_tree():
         "ping",
         "console",
     }
-    assert set(commands["server"]) == {"browse"}
+    assert set(commands["server"]) == {"browse", "serve"}
 
 
 def test_every_command_sits_in_the_cli_file_of_what_it_operates_on():
@@ -91,7 +91,7 @@ def test_info_check_and_digest_of_a_delta(capsys, delta_file):
     status, out, _ = run(capsys, "core", "object", "info", str(delta_file))
     report = json.loads(out)
     assert status == 0 and report["ok"] and report["entry"] == "a"
-    assert report["objects"] == 104  # 99 ground + Point, x, next, a, b
+    assert report["objects"] == 125  # 120 ground + Point, x, next, a, b
     status, out, _ = run(capsys, "core", "object", "check", str(delta_file))
     assert status == 0 and json.loads(out) == {"ok": True, "issues": []}
     _, out, _ = run(capsys, "core", "object", "digest", str(delta_file))
