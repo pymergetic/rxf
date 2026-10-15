@@ -34,10 +34,12 @@ import mmap
 import platform
 import struct
 import sys
+import threading
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, ClassVar, Self
 
 import pymergetic.rxf
+from pymergetic.rxf.console.world import WorldIsRegistered
 from pymergetic.rxf.core.object import Image
 from pymergetic.rxf.live.client import Client
 from pymergetic.rxf.live.front import Front, Region
@@ -272,25 +274,45 @@ class Seat:
         self.close()
 
 
+# One link, one runner (docs/19, "who runs when"): the attach decision is taken here, atomically,
+# so two attaches cannot both take one link — the link never has two runners registered or
+# running traffic. The runner that is there keeps its link until it closes; a second attach is
+# refused with the seam's own refusal (`WorldIsRegistered` of `console/world.py`), never shared
+# and never stolen. (A refused attach has already built its own private machine and unmaps it
+# again in `close`; it never touches the link.)
+_ATTACH = threading.Lock()
+
+
 class Runner:
     """The running image behind `rxf serve`: one seat, one channel, one front end, one link.
 
     `session` is the world `rxf console --link=SPEC` attaches to — opened here, because whoever
     runs the image registers its world (docs/19, "who runs when"). A link whose image already
-    runs answers `WorldIsRegistered` and keeps its runner; `close` takes the registration and
-    the machine with it (also at exit, through `Session.close`).
+    runs is refused `WorldIsRegistered` and keeps its runner — even when the two attaches race,
+    the link ends up with exactly one runner, the one that reserved it first; `close` takes the
+    registration and the machine with it (also at exit, through `Session.close`).
     """
+
+    _at_link: ClassVar[dict[str, "Runner"]] = {}
 
     def __init__(self, image: Image, link: str = "shm:rxf") -> None:
         self.link = link
-        self._seat = Seat(image)
+        self._seat = Seat(image)  # its own machine; it runs no traffic until the world registers
         self.session = Session(link, self._seat.client, self._seat.front)
         try:
-            self.session.open()  # one link, one runner: a taken link refuses here
+            with _ATTACH:  # one link, one runner: reserved atomically, refused honestly
+                if link in Runner._at_link:
+                    raise WorldIsRegistered(
+                        f"{link} already has a runner: one link has one runner, and the "
+                        "runner that is there keeps its link until it closes"
+                    )
+                Runner._at_link[link] = self
+            self.session.open()  # and its world registers at the link (a taken link refuses here)
             words, source, consts = _seed()
-            self._seat.front.boot(
-                words, source, consts
-            )  # the seed docs/19 allows, once
+            with self.session.transaction():  # the boot is one transaction on the channel
+                self._seat.front.boot(
+                    words, source, consts
+                )  # the seed docs/19 allows, once
         except BaseException:
             self.close()
             raise
@@ -312,6 +334,9 @@ class Runner:
 
     def close(self) -> None:
         """The run is over: the link gives no runner again and the machine is gone with it."""
+        with _ATTACH:
+            if Runner._at_link.get(self.link) is self:
+                del Runner._at_link[self.link]
         self.session.close()
         self._seat.close()
 
