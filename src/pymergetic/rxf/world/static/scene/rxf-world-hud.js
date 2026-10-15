@@ -210,6 +210,27 @@
     body.appendChild(line);
   }
 
+  function datasheetGroup(body, name, note) {
+    /* a provenance group: "image" holds what the cell says, "world" what the view decided.
+     * Rows collect inside the group (they are appended to it, not to the body), so the zebra
+     * stripes run per group and the heads stand outside them. */
+    var group = global.document.createElement("div");
+    group.className = "datasheet-group";
+    var head = global.document.createElement("div");
+    head.className = "datasheet-group-head";
+    var label = global.document.createElement("span");
+    label.className = "datasheet-group-name";
+    label.textContent = name;
+    var hint = global.document.createElement("span");
+    hint.className = "datasheet-group-note";
+    hint.textContent = note;
+    head.appendChild(label);
+    head.appendChild(hint);
+    group.appendChild(head);
+    body.appendChild(group);
+    return group;
+  }
+
   function hex(byteOffset) {
     return "0x" + Number(byteOffset).toString(16).toUpperCase();
   }
@@ -278,7 +299,9 @@
     },
     sheet: function (payload) {
       /* the datasheet side pane: every field the image knows about the selected cell, plus
-       * its cable list and its floor-stack anatomy. Seams show "—" and say so in grey. */
+       * its cable list and its floor-stack anatomy. Seams show "—" and say so in grey. The rows
+       * are split by who says them: "image" rows are read from the cell, "world" rows are this
+       * view's own reading — our classifications never pass as the image's facts. */
       var pane = global.document.getElementById("rxf-world-datasheet");
       if (!pane) return;
       if (!payload) {
@@ -290,58 +313,64 @@
       var region = payload.region;
       body.textContent = "";
       slot("[data-datasheet-title]", cell.path || cell.name || cell.id);
-      datasheetRow(body, "id", value(cell.id));
-      datasheetRow(body, "name", value(cell.path || cell.name));
-      datasheetRow(body, "handle", value(cell.handle));
-      datasheetRow(body, "kind", value(cell.kind));
-      datasheetRow(body, "family", value(cell.family));
-      datasheetRow(
-        body,
-        "region",
-        region ? region.name + " · " + region.id + " · " + region.band : value(cell.region)
-      );
-      if (region) {
-        datasheetRow(body, "band", hex(region.start) + "–" + hex(region.end));
-      }
-      datasheetRow(body, "bytes", hex(cell.offset) + "–" + hex(cell.offset + cell.size) + " (" + cell.size + " B)");
-      datasheetRow(body, "payload", cell.payload_size + " B");
-      datasheetRow(body, "generation", value(cell.generation));
+      /* the image group: what the cell itself says — state bits, spans, words, cables, and the
+       * byte anatomy (the floor VALUES are real addresses; only the word "floors" is ours) */
+      var image = datasheetGroup(body, "image", "read from the cell");
+      datasheetRow(image, "id", value(cell.id));
+      datasheetRow(image, "name", value(cell.path || cell.name));
+      datasheetRow(image, "handle", value(cell.handle));
+      datasheetRow(image, "kind", value(cell.kind));
+      datasheetRow(image, "bytes", hex(cell.offset) + "–" + hex(cell.offset + cell.size) + " (" + cell.size + " B)");
+      datasheetRow(image, "payload", cell.payload_size + " B");
+      datasheetRow(image, "generation", value(cell.generation));
       if (cell.state) {
-        datasheetRow(body, "provenance", value(cell.state.provenance));
-        datasheetRow(body, "disposition", value(cell.state.disposition));
-        datasheetRow(body, "cleanliness", value(cell.state.cleanliness));
-        datasheetRow(body, "mobility", value(cell.state.mobility));
+        datasheetRow(image, "provenance", value(cell.state.provenance));
+        datasheetRow(image, "disposition", value(cell.state.disposition));
+        datasheetRow(image, "cleanliness", value(cell.state.cleanliness));
+        datasheetRow(image, "mobility", value(cell.state.mobility));
       } else {
-        datasheetRow(body, "state", "—", true);
+        datasheetRow(image, "state", "—", true);
       }
-      datasheetRow(body, "forward", cell.forward ? "C_FORWARD " + cell.forward : "0");
+      datasheetRow(image, "forward", cell.forward ? "C_FORWARD " + cell.forward : "0");
       /* poisoned is the one row where "yes" is the bad hue and "—" is a seam */
-      datasheetRow(body, "poisoned", cell.poisoned ? "yes" : "—", !cell.poisoned, cell.poisoned ? "v-bad" : "");
-      datasheetRow(body, "claim", value(cell.claim), cell.claim === null || cell.claim === undefined);
+      datasheetRow(image, "poisoned", cell.poisoned ? "yes" : "—", !cell.poisoned, cell.poisoned ? "v-bad" : "");
+      datasheetRow(image, "claim", value(cell.claim), cell.claim === null || cell.claim === undefined);
       datasheetRow(
-        body,
+        image,
         "checksum",
         value(cell.checksum),
         cell.checksum === null || cell.checksum === undefined
       );
-      datasheetRow(body, "refs", value(cell.ref_count) + " row(s) · " + payload.edges.length + " cable(s)");
+      datasheetRow(image, "refs", value(cell.ref_count) + " row(s) · " + payload.edges.length + " cable(s)");
       for (var edge of payload.edges.slice(0, 8)) {
         var way = edge.from === cell.id ? "→ " + edge.to : "← " + edge.from;
         /* cables in the accent; a ghost cable is the bad hue (it leads nowhere) */
-        datasheetRow(body, "cable", way + (edge.stale ? " (ghost)" : ""), edge.stale, edge.stale ? "v-bad" : "v-accent");
+        datasheetRow(image, "cable", way + (edge.stale ? " (ghost)" : ""), edge.stale, edge.stale ? "v-bad" : "v-accent");
       }
       if (payload.edges.length > 8) {
-        datasheetRow(body, "cable", "+" + (payload.edges.length - 8) + " more", true);
+        datasheetRow(image, "cable", "+" + (payload.edges.length - 8) + " more", true);
       }
       if (cell.anatomy && cell.anatomy.length) {
-        datasheetRow(body, "anatomy", cell.anatomy.length + " floors");
+        datasheetRow(image, "anatomy", cell.anatomy.length + " floors");
         for (var band of cell.anatomy.slice(0, 12)) {
           /* the anatomy floors are byte addresses: the data hue, in mono */
-          datasheetRow(body, band.role, hex(band.offset) + " +" + band.size + " B", false, "v-data");
+          datasheetRow(image, band.role, hex(band.offset) + " +" + band.size + " B", false, "v-data");
         }
         if (cell.anatomy.length > 12) {
-          datasheetRow(body, "floors", "+" + (cell.anatomy.length - 12) + " more", true);
+          datasheetRow(image, "floors", "+" + (cell.anatomy.length - 12) + " more", true);
         }
+      }
+      /* the world group: what this view decided — the paint family, the district grid, the
+       * band assignment. The image never said "tower"; we did. */
+      var world = datasheetGroup(body, "world", "the view's own reading");
+      datasheetRow(world, "family", value(cell.family));
+      datasheetRow(
+        world,
+        "region",
+        region ? region.name + " · " + region.id + " · " + region.band : value(cell.region)
+      );
+      if (region) {
+        datasheetRow(world, "band", hex(region.start) + "–" + hex(region.end));
       }
       pane.classList.add("open");
     },

@@ -334,6 +334,41 @@ body {
   color: var(--seam); /* a seam shows "—", never a lie */
 }
 
+/* the provenance groups: "image" rows say what the cell says, "world" rows say what this
+ * view decided. The head names the speaker; the note says how to read it. */
+.datasheet-group + .datasheet-group {
+  margin-top: 6px;
+}
+
+.datasheet-group-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 4px 3px;
+  border-top: 1px solid var(--line);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.datasheet-group:first-child .datasheet-group-head {
+  border-top: 0;
+  padding-top: 2px;
+}
+
+.datasheet-group-name {
+  color: var(--accent); /* the image's facts, in the identity hue */
+}
+
+.datasheet-group + .datasheet-group .datasheet-group-name {
+  color: var(--v-prov); /* our own reading, in the provenance hue */
+}
+
+.datasheet-group-note {
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
 /* the semantic value colors: what kind of fact the value is, at a glance */
 .datasheet-value.v-accent {
   color: var(--accent); /* the object's identity: path, handle, refs, cables */
