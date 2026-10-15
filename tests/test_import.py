@@ -317,7 +317,7 @@ CASES: dict[str, tuple[str, list[tuple[int, ...]]]] = {
     # the second return of the setjmp is dead in the graph (nlr_push answers 0 there)
     "nlr_guarded": ("nlr_call.c", [(x,) for x in VALUES if x != 0]),
     # the multiply of C: one wrapping leaf kept in the low bits (squared.c was the
-    # importer's first refused arithmetic; slice 1 wires the leaf in)
+    # importer's first refused arithmetic; the call card wires the leaf in)
     "squared": ("squared.c", [(a,) for a in VALUES]),
     # py/smallint.c of MicroPython end to end: the modulo that takes the sign of the
     # second operand (srem), the floor division that adjusts before one truncating divide
@@ -413,7 +413,7 @@ VALUES_FOR_MEMORY = (0, 1, 0x42, 0xFF, 0x0123456789ABCDEF, U64 - 1, 1 << 63)
 # Both qstr flips run end to end in
 # test_the_interning_path_lowers_with_variable_frames.
 #
-# MicroPython slices 6+7, REFUSED -> lowered (the runtime-dispatch model of i3 and the
+# The last two MicroPython refusals, REFUSED -> lowered (the runtime-dispatch model of i3 and the
 # pointer/out-cell model of i2; history kept here and in docs/20, never blurred):
 #   ("obj.c", "mp_obj_is_true"): "function word"
 #       -> lowered (test_the_true_check_rides_the_slot_lookup_program): the indirect
