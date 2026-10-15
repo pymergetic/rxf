@@ -1,5 +1,6 @@
 #include <pymergetic/rxf/core/meta/types.hpp>
 
+#include <pymergetic/rxf/core/doc/codec.hpp>
 #include <pymergetic/rxf/core/kinds/kinds.hpp>
 
 #include <algorithm>
@@ -21,6 +22,22 @@ constexpr size_t kMaxLeaves = 1U << 16;          // values one payload may be sp
 constexpr uint64_t kMaxFieldExtent = 1ULL << 31; // offset, count and element size of one Field
 
 bool is_pow2(uint64_t v) { return v != 0 && (v & (v - 1)) == 0; }
+
+uint64_t load_uint(const uint8_t *p, uint64_t size) {
+    uint64_t v = 0;
+    std::memcpy(&v, p, size); // little-endian host
+    return v;
+}
+
+void store_uint(uint8_t *p, uint64_t size, uint64_t v) { std::memcpy(p, &v, size); }
+
+bool all_zero(const uint8_t *p, uint64_t n) {
+    for (uint64_t i = 0; i < n; i++)
+        if (p[i] != 0) return false;
+    return true;
+}
+
+} // namespace
 
 std::string hex_of(const uint8_t *p, uint64_t n) {
     static const char digits[] = "0123456789abcdef";
@@ -50,22 +67,6 @@ bool from_hex(const std::string &text, std::vector<uint8_t> *out) {
     }
     return true;
 }
-
-uint64_t load_uint(const uint8_t *p, uint64_t size) {
-    uint64_t v = 0;
-    std::memcpy(&v, p, size); // little-endian host
-    return v;
-}
-
-void store_uint(uint8_t *p, uint64_t size, uint64_t v) { std::memcpy(p, &v, size); }
-
-bool all_zero(const uint8_t *p, uint64_t n) {
-    for (uint64_t i = 0; i < n; i++)
-        if (p[i] != 0) return false;
-    return true;
-}
-
-} // namespace
 
 bool is_symbol(const std::string &n) {
     if (n.empty()) return false;
@@ -1079,6 +1080,16 @@ std::vector<Issue> check(Types &types) {
     if (arena.header()->entry != kNone && arena.cell(arena.header()->entry) == nullptr)
         issues.push_back({"", "the entry is not a live object"});
 
+    // Documentation is an object graph of its own (docs/22): the built-in Doc type, and the doc
+    // roles its edges carry.
+    const Handle doc_type = types.find(kinds::kDocType);
+    const Handle doc_roles = types.find(kinds::kDocRoleType);
+    const auto doc_role_of = [&](Handle role) -> int {
+        const pymergetic_rxf_cell *rc = role == kNone ? nullptr : arena.cell(role);
+        if (doc_roles == kNone || rc == nullptr || rc->parent != doc_roles || rc->payload_size < sizeof(uint64_t)) return -1;
+        return static_cast<int>(load_uint(arena.payload(role), sizeof(uint64_t)));
+    };
+
     for (Handle h = 0; h < arena.handle_count(); h++) {
         const pymergetic_rxf_cell *c = arena.cell(h);
         if (c == nullptr) continue;
@@ -1105,6 +1116,22 @@ std::vector<Issue> check(Types &types) {
             if (refs[k].role != kNone && arena.cell(refs[k].role) == nullptr) issue(h, "a reference has a dead role");
             if (kinds::name_of(kinds::bindings, refs[k].binding) == nullptr)
                 issue(h, "a reference has the unknown binding " + std::to_string(refs[k].binding));
+            // A doc edge is editorial: its role is one of the doc roles, and its target is a Doc
+            // object. A placement comes from anywhere; a topic link (Parent, Related) is between
+            // docs. A doc role never labels a runtime edge.
+            {
+                const int role = doc_role_of(refs[k].role);
+                if (refs[k].kind == PYMERGETIC_RXF_REF_DOC) {
+                    if (role < 0) issue(h, "a doc edge must carry a doc role (Narrates, Attaches, References, Parent, or Related)");
+                    if (refs[k].index != 0) issue(h, "a doc edge is editorial: it does not occupy a runtime slot");
+                    const pymergetic_rxf_cell *tc = refs[k].target == kNone ? nullptr : arena.cell(refs[k].target);
+                    if (tc != nullptr && tc->type != doc_type) issue(h, "a doc edge must name a Doc object");
+                    if ((role == PYMERGETIC_RXF_DOC_ROLE_PARENT || role == PYMERGETIC_RXF_DOC_ROLE_RELATED) && c->type != doc_type)
+                        issue(h, "a topic link (Parent or Related) leaves a Doc object");
+                } else if (role >= 0) {
+                    issue(h, "a doc role names a doc edge (RefKind.Doc)");
+                }
+            }
         }
         // The payload against its type.
         const Layout &L = types.layout(c->type);
@@ -1145,6 +1172,48 @@ std::vector<Issue> check(Types &types) {
                 if (e != nullptr && e->bits) named = rest == 0;
                 if (!named) issue(h, "field " + leaf.name + " holds " + std::to_string(v) + ", which " + image.path(leaf.enumeration) + " does not name");
             }
+        // The text of a doc: the words of its payload must name the bytes behind them (docs/22).
+        if (doc_type != kNone && c->type == doc_type && c->payload_size >= sizeof(pymergetic_rxf_doc)) {
+            pymergetic_rxf_doc words;
+            std::memcpy(&words, payload, sizeof(words));
+            std::string text, problem;
+            if (!doc::unstore(words.codec, payload + sizeof(words), c->payload_size - sizeof(words), &text, &problem))
+                issue(h, "the text of the doc does not decode: " + problem);
+            else if (text.empty() && words.codec == PYMERGETIC_RXF_DOC_CODEC_RAW)
+                issue(h, "a doc with an empty body is not written in DocCodec.Raw");
+            else if (!doc::valid_utf8(text))
+                issue(h, "the text of the doc is not UTF-8");
+        }
+    }
+
+    // The parent link of topics is containment: one parent, and no cycle in it (docs/22).
+    if (doc_type != kNone) {
+        std::map<Handle, Handle> parent;
+        for (Handle h = 0; h < arena.handle_count(); h++) {
+            const pymergetic_rxf_cell *c = arena.cell(h);
+            if (c == nullptr || c->type != doc_type) continue;
+            const pymergetic_rxf_ref *refs = arena.refs(h);
+            for (uint32_t k = 0; k < c->ref_count; k++) {
+                if (refs[k].kind != PYMERGETIC_RXF_REF_DOC || doc_role_of(refs[k].role) != PYMERGETIC_RXF_DOC_ROLE_PARENT) continue;
+                if (!parent.emplace(h, refs[k].target).second) issue(h, "a topic has more than one parent");
+            }
+        }
+        std::set<Handle> walking, done;
+        for (const auto &entry : parent) {
+            if (done.count(entry.first) != 0) continue;
+            std::vector<Handle> trail;
+            Handle at = entry.first;
+            while (parent.count(at) != 0 && walking.count(at) == 0 && done.count(at) == 0) {
+                walking.insert(at);
+                trail.push_back(at);
+                at = parent.at(at);
+            }
+            if (walking.count(at) != 0) issue(at, "the parent links of topics contain a cycle");
+            for (Handle w : trail) {
+                walking.erase(w);
+                done.insert(w);
+            }
+        }
     }
 
     // Type and Field objects.
@@ -1277,6 +1346,29 @@ std::vector<Issue> check(Types &types) {
                 issue(h, std::string("the alias is not used (mark it ") + kAliasReexport + " to keep it)");
     }
     return issues;
+}
+
+Status doc_text(Types &types, Handle doc, std::string *out, std::string *error) {
+    const Image &image = types.image();
+    const arena::Arena &arena = image.arena();
+    const pymergetic_rxf_cell *c = arena.cell(doc);
+    if (c == nullptr) {
+        if (error != nullptr) *error = "the doc is not a live object";
+        return Status::BadHandle;
+    }
+    const Handle doc_type = types.find(kinds::kDocType);
+    if (doc_type == kNone || c->type != doc_type) {
+        if (error != nullptr) *error = image.path(doc) + " is not a Doc object";
+        return Status::BadName;
+    }
+    if (c->payload_size < sizeof(pymergetic_rxf_doc)) {
+        if (error != nullptr) *error = "the payload of the doc is shorter than its words";
+        return Status::BadImage;
+    }
+    pymergetic_rxf_doc words;
+    std::memcpy(&words, arena.payload(doc), sizeof(words));
+    if (!doc::unstore(words.codec, arena.payload(doc) + sizeof(words), c->payload_size - sizeof(words), out, error)) return Status::BadImage;
+    return Status::Ok;
 }
 
 } // namespace pymergetic::rxf::core::meta

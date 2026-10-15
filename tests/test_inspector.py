@@ -56,6 +56,7 @@ def test_inspector_navigates_the_tree(inspector):
             ),
             *("Enumerator", "NodeKind", "Form", "TypeFlags", "FieldFlags"),
             *("RefKind", "Binding", "OwnerKind", "Mobility"),
+            *("Doc", "DocKind", "DocStatus", "DocCodec", "DocRole"),
         ]
     )
     assert [row["name"] for row in inspector.children("Point")["items"]] == [

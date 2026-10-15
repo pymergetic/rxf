@@ -17,6 +17,10 @@ enum class Mobility : uint32_t {};
 enum class Form : uint32_t {};
 enum class TypeFlags : uint32_t {};
 enum class FieldFlags : uint32_t {};
+enum class DocKind : uint32_t {};
+enum class DocStatus : uint32_t {};
+enum class DocCodec : uint32_t {};
+enum class DocRole : uint32_t {};
 
 template <class E, class... Extra> void bind_enum(nb::module_ &m, const char *name, kinds::Table table, const char *doc, Extra... extra) {
     nb::enum_<E> e(m, name, doc, extra...);
@@ -35,6 +39,10 @@ void bind_kinds(nb::module_ &m) {
     bind_enum<Form>(m, "Form", kinds::forms, "The form of a Type.", nb::is_arithmetic());
     bind_enum<TypeFlags>(m, "TypeFlags", kinds::type_flags, "The flags of a Type.", nb::is_flag());
     bind_enum<FieldFlags>(m, "FieldFlags", kinds::field_flags, "The flags of a Field.", nb::is_flag());
+    bind_enum<DocKind>(m, "DocKind", kinds::doc_kinds, "What a doc is: a docstring, a topic, a todo.", nb::is_arithmetic());
+    bind_enum<DocStatus>(m, "DocStatus", kinds::doc_statuses, "The state word of a todo.", nb::is_arithmetic());
+    bind_enum<DocCodec>(m, "DocCodec", kinds::doc_codecs, "The codec of the text of a doc.", nb::is_arithmetic());
+    bind_enum<DocRole>(m, "DocRole", kinds::doc_roles, "Why a doc sits on an object or topic.", nb::is_arithmetic());
 }
 
 } // namespace pymergetic::rxf::core::bindings

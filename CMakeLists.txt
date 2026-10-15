@@ -49,9 +49,15 @@ target_link_libraries(rxf_hash PUBLIC rxf_ground)
 target_compile_options(rxf_hash PRIVATE -Wall -Wextra -Werror)
 set_target_properties(rxf_hash PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# pymergetic::rxf::core::doc: the text of documentation and the LZ4 block format behind it.
+add_library(rxf_doc STATIC ${RXF_CORE}/doc/codec.cpp)
+target_link_libraries(rxf_doc PUBLIC rxf_ground)
+target_compile_options(rxf_doc PRIVATE -Wall -Wextra -Werror)
+set_target_properties(rxf_doc PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 # pymergetic::rxf::core::meta: self-description (Type and Field objects, payload codec, link check).
 add_library(rxf_meta STATIC ${RXF_CORE}/meta/types.cpp)
-target_link_libraries(rxf_meta PUBLIC rxf_object)
+target_link_libraries(rxf_meta PUBLIC rxf_object rxf_doc)
 target_compile_options(rxf_meta PRIVATE -Wall -Wextra -Werror)
 set_target_properties(rxf_meta PROPERTIES POSITION_INDEPENDENT_CODE ON)
 

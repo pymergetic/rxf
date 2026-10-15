@@ -277,6 +277,14 @@ constexpr FieldDef kFieldFields[] = {
     {"via", true, offsetof(pymergetic_rxf_field, via), kRefOpt, nullptr},
 };
 
+/* Doc: the text of documentation and the codec of that text (docs/22). The
+ * words are here; the text is the variable tail after them. */
+constexpr FieldDef kDocFields[] = {
+    {"kind", false, offsetof(pymergetic_rxf_doc, kind), 0, "DocKind"},
+    {"status", false, offsetof(pymergetic_rxf_doc, status), 0, "DocStatus"},
+    {"codec", false, offsetof(pymergetic_rxf_doc, codec), 0, "DocCodec"},
+};
+
 } // namespace
 
 Status Image::bootstrap() {
@@ -355,7 +363,14 @@ Status Image::bootstrap() {
     };
     status = describe(PYMERGETIC_RXF_HANDLE_TYPE, kTypeFields, sizeof(kTypeFields) / sizeof(kTypeFields[0]));
     if (status != Status::Ok) return status;
-    return describe(PYMERGETIC_RXF_HANDLE_FIELD, kFieldFields, sizeof(kFieldFields) / sizeof(kFieldFields[0]));
+    status = describe(PYMERGETIC_RXF_HANDLE_FIELD, kFieldFields, sizeof(kFieldFields) / sizeof(kFieldFields[0]));
+    if (status != Status::Ok) return status;
+    // Doc: the built-in type of documentation; its text sits in the tail behind these words.
+    status = type_object(kinds::kDocType, PYMERGETIC_RXF_FORM_STRUCT, sizeof(pymergetic_rxf_doc), 4,
+                         PYMERGETIC_RXF_TYPE_FLAG_VARIABLE | PYMERGETIC_RXF_TYPE_FLAG_SELF_DESCRIBING,
+                         sizeof(kDocFields) / sizeof(kDocFields[0]), 0, kAny);
+    if (status != Status::Ok) return status;
+    return describe(resolve(kinds::kDocType), kDocFields, sizeof(kDocFields) / sizeof(kDocFields[0]));
 }
 
 Status Image::remove(pymergetic_rxf_handle handle) {
