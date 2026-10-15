@@ -57,6 +57,58 @@ No source map ⇒ the import **refuses** to invent docs (honest refusal, not a g
 imported this way keeps its intent **inside the object**, so the original `.c`/`.rs` can be discarded
 and the image is still documentable and developable — the self-build story, applied to intent.
 
+## Provenance: code that was Python
+
+Python-level sources — builtins of the Python standard library, `asyncio`, helpers — are **compiled
+to RXF objects by the toolchain**. The source does not ship at runtime and is never parsed again.
+What survives is the provenance: a placement from each compiled object to a Doc that carries the
+original source (lz4, decompressed on demand) and the marker *was once Python*. The comment lifting
+above is the same idea at line granularity; provenance is it at module granularity. An object whose
+source compiled away is not undocumented — its Doc is right there, compressed, and the coverage
+rule holds it accountable like any standard.
+
+The rule covers **both provenances**: C sources arrive through the importer (their citations from
+the debug info), Python sources through the toolchain — and both land as objects in **one module
+tree**. The guest's `import` is a lookup in the object tree (named cells under root, `mp_import_stat`
+over the image), never a filesystem walk and no `.mpy` loader at runtime. The hybrid is real in the
+only sense that matters: two front doors, one namespace, one honest provenance per object.
+
+### The import entrance format is textual LLVM IR
+
+The importer's real entry door is the textual `.ll` — anything whose toolchain can emit LLVM IR is
+importable, whatever the language behind it. The language suffixes (`.c`, `.cpp`, `.rs`) are only
+convenience: they run the matching compiler first (`clang -S -emit-llvm -O1`, `clang++`,
+`rustc --emit=llvm-ir`) and hand the IR text over. A raw `.ll` is accepted as-is.
+
+What passes is decided by the subset of operations the importer lowers, not by the language the
+front end came from: an IR body outside the subset is refused honestly, with the reason, at import
+time (S11). The IR itself is a reading format, never part of the image — ephemeral during import,
+gone once the Cards exist.
+
+### Provenance is systematic, compact, and per-import optional
+
+Every import creates provenance — from the same machinery, at the **level the import run declares**:
+
+| level | what is written | size |
+|---|---|---|
+| `full` | origin record + citations + the source itself (lz4) | big, on demand |
+| `cite` (default) | origin record + citations (permalinks into the pinned commit) | a few dozen bytes per object |
+| `hash` | **only the content SHAs of the imported source files** — identity without location | one hash per file, shared |
+
+1. **Origin record** (from `cite` up), one Doc per source set: upstream name, repository permalink,
+   pinned commit, license, importer version. Written once, shared by every object it produced.
+2. **Citation per object** (from `cite` up): a `RefKind.Doc` placement onto the file's provenance
+   Doc, payload a locator (path + line range + optional content hash) — a permalink like
+   `…/blob/<commit>/py/obj.c#L120-L180`. The debug info supplies the locator; the importer never
+   guesses.
+3. **The full source** (only at `full`): the codec tier above, lz4 where it pays.
+
+The knob is **per import run** (`--provenance=full|cite|hash`) and becomes a fact of the image
+itself: an image says at which level its objects were claimed, and never overclaims. The floor is
+`hash` — an object must always say at least what it *is*. Below the floor is refused (S11 honesty):
+**the importer takes no anonymous input.** Deltas preserve citations; an object edited later keeps
+its provenance and gains the edition that changed it.
+
 ## Policy is documentation: S1–S11 are topics
 
 The execution policy (docs/20, S1–S11) is currently text: markdown headings, C constants in
