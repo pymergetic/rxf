@@ -1083,17 +1083,19 @@
       });
       canvas.addEventListener("pointerup", function (event) {
         if (pointer.button === 0 && pointer.moved < 6) {
-          var pick = scene.createPickingRay(
+          var picked = scene.createPickingRay(
             event.clientX - canvas.getBoundingClientRect().left,
             event.clientY - canvas.getBoundingClientRect().top,
             BABYLON.Matrix.Identity(),
             camera
           );
+          /* vendored Babylon 9.30 hands back the Ray itself; be kind to either shape */
+          var ray = picked.ray || picked;
           var hit = null;
-          if (pick.ray.direction.y !== 0) {
-            var ground = -pick.ray.origin.y / pick.ray.direction.y;
+          if (ray.direction.y !== 0) {
+            var ground = -ray.origin.y / ray.direction.y;
             if (ground > 0) {
-              var point = pick.ray.origin.add(pick.ray.direction.scale(ground));
+              var point = ray.origin.add(ray.direction.scale(ground));
               var best = 3.2;
               var hitDistance = Infinity;
               for (var cell of world.cellList) {

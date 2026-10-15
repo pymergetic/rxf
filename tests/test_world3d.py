@@ -285,6 +285,15 @@ def test_the_scene_scripts_stay_deterministic():
         assert "http://" not in source and "https://" not in source
 
 
+def test_the_click_ray_accepts_the_vendored_babylon_ray_shape():
+    """Vendored Babylon 9.30's createPickingRay hands back the Ray itself, not a
+    {ray: Ray} wrapper — the click handler must normalize before dereferencing,
+    or every canvas click throws (found by the README capture lane)."""
+    source = (STATIC_DIR / "scene" / "rxf-world.js").read_text(encoding="utf-8")
+    assert "picked.ray || picked" in source
+    assert not re.search(r"\bpick\.ray\.", source)
+
+
 # ---- the wiring seam -------------------------------------------------------------------------------
 
 
