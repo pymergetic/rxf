@@ -262,10 +262,17 @@ def test_the_topics_and_placements_survive_the_text_form(materialized):
 
 
 def test_every_cited_section_of_the_tutor_is_a_topic(materialized):
-    """The fourth anchor's page side, read-only: a chip cites a section, the section is a topic."""
+    """The fourth anchor's page side, read-only: a chip cites a section, the section is a topic --
+    and the chip is a reference to that topic (docs/22): its href resolves the topic's own path."""
     image, _ = materialized
-    cited = {f"S{number}" for number in re.findall(r'data-cite="S(\d+)"', TUTOR_PAGE.read_text())}
+    page = TUTOR_PAGE.read_text()
+    cited = {f"S{number}" for number in re.findall(r'data-cite="S(\d+)"', page)}
     assert cited, "the tutor cites no section of docs/20"
+    linked = {
+        f"S{number}"
+        for number in re.findall(r'href="/\?path=pymergetic\.rxf\.docs\.execution\.S(\d+)"', page)
+    }
+    assert linked == cited, "every chip must link to its topic (chips without topic href: a reference that resolves nowhere)"
     expected = sections()
     inspector = Inspector(image)
     for name in sorted(cited, key=lambda s: int(s[1:])):

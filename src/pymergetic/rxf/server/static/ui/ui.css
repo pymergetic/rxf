@@ -234,6 +234,7 @@ th { color: var(--muted); font-weight: 600; background: var(--panel-2); }
   padding: 0 8px;
   background: var(--panel);
   white-space: nowrap;
+  text-decoration: none;
 }
 .toolbar {
   display: flex;

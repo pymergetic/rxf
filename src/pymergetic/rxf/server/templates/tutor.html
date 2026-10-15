@@ -45,7 +45,7 @@ fixed, so a screen always shows the same thing. The facts on this page are pinne
 (<code>tests/host/smp_*.h</code>, <code>core/ground.h</code>, <code>docs/20-EXECUTION-POLICY.md</code>);
 <code>tests/test_tutor.py</code> fails if any of them drifts.</p>
 <p>One rule runs through all of it: <b>suspension is a data property</b>
-<span class="cite" data-cite="S2">S2</span>. A suspended run is a cell in state
+<a class="cite" data-cite="S2" href="/?path=pymergetic.rxf.docs.execution.S2">S2</a>. A suspended run is a cell in state
 <code>PARKED</code> — no thread, no stack, no future.</p>
 
 <!-- The tab bar: one docs/21 component (.tabs), used at both levels (the six parts here, the
@@ -63,12 +63,12 @@ fixed, so a screen always shows the same thing. The facts on this page are pinne
 
 <!-- ============================ 1 · the simulator ============================ -->
 <section id="simulator" role="tabpanel" tabindex="0">
-<p class="eyebrow">Part 1 &middot; <span class="cite" data-cite="S1">S1</span> <span class="cite" data-cite="S3">S3</span> <span class="cite" data-cite="S5">S5</span></p>
+<p class="eyebrow">Part 1 &middot; <a class="cite" data-cite="S1" href="/?path=pymergetic.rxf.docs.execution.S1">S1</a> <a class="cite" data-cite="S3" href="/?path=pymergetic.rxf.docs.execution.S3">S3</a> <a class="cite" data-cite="S5" href="/?path=pymergetic.rxf.docs.execution.S5">S5</a></p>
 <h2>The step-through simulator</h2>
 <p>Two runs, two carriers, one waker. Step tick by tick through claims, step seals, handoffs
 (<code>RUNNING &rarr; PARKED</code> CAS), checksum rewrites, parked and canceled states — and the two
 refusals the machine counts instead of retrying: a stale handle at the pop (ABA)
-<span class="cite" data-cite="S3">S3</span> and a losing claim CAS. The arena cells with their header
+<a class="cite" data-cite="S3" href="/?path=pymergetic.rxf.docs.execution.S3">S3</a> and a losing claim CAS. The arena cells with their header
 words sit on the left; the carriers and the event log on the right.</p>
 <div class="stage" id="stage-walk">
   <div class="controls">
@@ -88,16 +88,16 @@ words sit on the left; the carriers and the event log on the right.</p>
 
 <!-- ============================ 2 · the bugs ============================ -->
 <section id="bugs" role="tabpanel" tabindex="0">
-<p class="eyebrow">Part 2 &middot; <span class="cite" data-cite="S4">S4</span> <span class="cite" data-cite="S5">S5</span> <span class="cite" data-cite="S10">S10</span></p>
+<p class="eyebrow">Part 2 &middot; <a class="cite" data-cite="S4" href="/?path=pymergetic.rxf.docs.execution.S4">S4</a> <a class="cite" data-cite="S5" href="/?path=pymergetic.rxf.docs.execution.S5">S5</a> <a class="cite" data-cite="S10" href="/?path=pymergetic.rxf.docs.execution.S10">S10</a></p>
 <h2>The bugs as teaching examples</h2>
 <p>Two historical bugs, replayed. Toggle the buggy ordering, watch the failure appear on schedule;
 toggle it back and watch it disappear. The ordering is the only thing that changes between the two
 modes — the actors, the interleaving and the work are identical.</p>
 
-<h3 id="seal-after-cas">The seal after the CAS <span class="cite" data-cite="S5">S5</span></h3>
+<h3 id="seal-after-cas">The seal after the CAS <a class="cite" data-cite="S5" href="/?path=pymergetic.rxf.docs.execution.S5">S5</a></h3>
 <p>The step seal (the step count and the FNV checksum rewrite) must happen
 <b>inside the ownership window, before the handoff CAS</b>. A waker may requeue a
-<code>PARKED</code> run the moment the CAS lands <span class="cite" data-cite="S4">S4</span>, and the
+<code>PARKED</code> run the moment the CAS lands <a class="cite" data-cite="S4" href="/?path=pymergetic.rxf.docs.execution.S4">S4</a>, and the
 next owner verifies the cell at once — so a seal after the CAS leaves the old owner writing while the
 new owner checks. That is the CHECKSUM_BAD flake, and it was a real leak.</p>
 <div class="stage" id="stage-seal">
@@ -116,12 +116,12 @@ new owner checks. That is the CHECKSUM_BAD flake, and it was a real leak.</p>
   </div>
 </div>
 
-<h3 id="s4-claim-leak">The S4 compactor claim leak <span class="cite" data-cite="S4">S4</span> <span class="cite" data-cite="S7">S7</span></h3>
+<h3 id="s4-claim-leak">The S4 compactor claim leak <a class="cite" data-cite="S4" href="/?path=pymergetic.rxf.docs.execution.S4">S4</a> <a class="cite" data-cite="S7" href="/?path=pymergetic.rxf.docs.execution.S7">S7</a></h3>
 <p>The channel sender resolves the frame and its data cell, finds its partner's cell being moved by
 the compactor (<code>CLAIM_MOVING</code>), and answers early. The rule is absolute: <b>every claim goes
 back before the answer</b> — the early return of the partner path included. A claim leaked there
 wedges the compactor's claim wait for good, because a claim is bounded only by the holder's next safe
-point <span class="cite" data-cite="S5">S5</span>.</p>
+point <a class="cite" data-cite="S5" href="/?path=pymergetic.rxf.docs.execution.S5">S5</a>.</p>
 <div class="stage" id="stage-claim">
   <div class="controls">
     <button data-mode="ok" class="on">fixed: release on every answer</button>
@@ -141,13 +141,13 @@ point <span class="cite" data-cite="S5">S5</span>.</p>
 
 <!-- ============================ 3 · sync vs async ============================ -->
 <section id="sync-async" role="tabpanel" tabindex="0">
-<p class="eyebrow">Part 3 &middot; <span class="cite" data-cite="S6">S6</span> <span class="cite" data-cite="S10">S10</span></p>
+<p class="eyebrow">Part 3 &middot; <a class="cite" data-cite="S6" href="/?path=pymergetic.rxf.docs.execution.S6">S6</a> <a class="cite" data-cite="S10" href="/?path=pymergetic.rxf.docs.execution.S10">S10</a></p>
 <h2>Sync vs async, and the race detector</h2>
 <p>The same step sequence, run synchronously (all of C0's steps, then all of C1's) and async (the two
 carriers racing under schedules A&ndash;D). With the discipline of S6 &mdash; a step reads and writes
 its own run cell and its own data cell &mdash; the answer words are byte-identical in every
 interleaving: suspension is a data property, so the who and the when are evidence and never the
-answer <span class="cite" data-cite="S10">S10</span>. Break the discipline (one shared accumulator)
+answer <a class="cite" data-cite="S10" href="/?path=pymergetic.rxf.docs.execution.S10">S10</a>. Break the discipline (one shared accumulator)
 and the race detector below lights up exactly where the interleaving changes the outcome.</p>
 <div class="stage" id="stage-sync">
   <div class="controls">
@@ -175,7 +175,7 @@ and the race detector below lights up exactly where the interleaving changes the
 
 <!-- ============================ 4 · refusals ============================ -->
 <section id="refusals" role="tabpanel" tabindex="0">
-<p class="eyebrow">Part 4 &middot; <span class="cite" data-cite="S1">S1</span> <span class="cite" data-cite="S2">S2</span></p>
+<p class="eyebrow">Part 4 &middot; <a class="cite" data-cite="S1" href="/?path=pymergetic.rxf.docs.execution.S1">S1</a> <a class="cite" data-cite="S2" href="/?path=pymergetic.rxf.docs.execution.S2">S2</a></p>
 <h2>The honest refusals</h2>
 <p>The machine refuses; it does not improvise. Trigger each refusal and watch the machine state that
 caused it — the refusal is named, counted, and the caller decides what happens next.</p>
@@ -357,17 +357,17 @@ the vacated tail is poisoned with
 <h3>The policy names &mdash; docs/20, S1 to S11</h3>
 <table>
   <tr><th>section</th><th>name</th></tr>
-  <tr><td><span class="cite" data-cite="S1">S1</span></td><td><span class="pin" data-policy="S1">The run-cell state machine</span></td></tr>
-  <tr><td><span class="cite" data-cite="S2">S2</span></td><td><span class="pin" data-policy="S2">Suspension is a data property</span></td></tr>
-  <tr><td><span class="cite" data-cite="S3">S3</span></td><td><span class="pin" data-policy="S3">The ready-ring protocol</span></td></tr>
-  <tr><td><span class="cite" data-cite="S4">S4</span></td><td><span class="pin" data-policy="S4">Park and wake on channel frames</span></td></tr>
-  <tr><td><span class="cite" data-cite="S5">S5</span></td><td><span class="pin" data-policy="S5">Ownership and the handoff</span></td></tr>
-  <tr><td><span class="cite" data-cite="S6">S6</span></td><td><span class="pin" data-policy="S6">The programs a run cell carries</span></td></tr>
-  <tr><td><span class="cite" data-cite="S7">S7</span></td><td><span class="pin" data-policy="S7">Handles, claims, and no raw address across a safe point</span></td></tr>
-  <tr><td><span class="cite" data-cite="S8">S8</span></td><td><span class="pin" data-policy="S8">Concurrent delta and compaction</span></td></tr>
-  <tr><td><span class="cite" data-cite="S9">S9</span></td><td><span class="pin" data-policy="S9">The edge shim</span></td></tr>
-  <tr><td><span class="cite" data-cite="S10">S10</span></td><td><span class="pin" data-policy="S10">Determinism and the differential</span></td></tr>
-  <tr><td><span class="cite" data-cite="S11">S11</span></td><td><span class="pin" data-policy="S11">The MicroPython seam (C3: no GIL)</span></td></tr>
+  <tr><td><a class="cite" data-cite="S1" href="/?path=pymergetic.rxf.docs.execution.S1">S1</a></td><td><span class="pin" data-policy="S1">The run-cell state machine</span></td></tr>
+  <tr><td><a class="cite" data-cite="S2" href="/?path=pymergetic.rxf.docs.execution.S2">S2</a></td><td><span class="pin" data-policy="S2">Suspension is a data property</span></td></tr>
+  <tr><td><a class="cite" data-cite="S3" href="/?path=pymergetic.rxf.docs.execution.S3">S3</a></td><td><span class="pin" data-policy="S3">The ready-ring protocol</span></td></tr>
+  <tr><td><a class="cite" data-cite="S4" href="/?path=pymergetic.rxf.docs.execution.S4">S4</a></td><td><span class="pin" data-policy="S4">Park and wake on channel frames</span></td></tr>
+  <tr><td><a class="cite" data-cite="S5" href="/?path=pymergetic.rxf.docs.execution.S5">S5</a></td><td><span class="pin" data-policy="S5">Ownership and the handoff</span></td></tr>
+  <tr><td><a class="cite" data-cite="S6" href="/?path=pymergetic.rxf.docs.execution.S6">S6</a></td><td><span class="pin" data-policy="S6">The programs a run cell carries</span></td></tr>
+  <tr><td><a class="cite" data-cite="S7" href="/?path=pymergetic.rxf.docs.execution.S7">S7</a></td><td><span class="pin" data-policy="S7">Handles, claims, and no raw address across a safe point</span></td></tr>
+  <tr><td><a class="cite" data-cite="S8" href="/?path=pymergetic.rxf.docs.execution.S8">S8</a></td><td><span class="pin" data-policy="S8">Concurrent delta and compaction</span></td></tr>
+  <tr><td><a class="cite" data-cite="S9" href="/?path=pymergetic.rxf.docs.execution.S9">S9</a></td><td><span class="pin" data-policy="S9">The edge shim</span></td></tr>
+  <tr><td><a class="cite" data-cite="S10" href="/?path=pymergetic.rxf.docs.execution.S10">S10</a></td><td><span class="pin" data-policy="S10">Determinism and the differential</span></td></tr>
+  <tr><td><a class="cite" data-cite="S11" href="/?path=pymergetic.rxf.docs.execution.S11">S11</a></td><td><span class="pin" data-policy="S11">The MicroPython seam (C3: no GIL)</span></td></tr>
 </table>
 </div>
 </section>
