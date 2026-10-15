@@ -5,8 +5,17 @@
   <title>RXF world</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- The arena as a world: one Babylon.js scene from the scene JSON. All assets are served
-       locally (vendored Babylon under static/vendor) — no remote references, no network at runtime. -->
+       locally (vendored Babylon under static/vendor) — no remote references, no network at runtime.
+       The page is one surface of the ONE shell (docs/21): same service, same nav, same live slot. -->
+  <link rel="stylesheet" href="/static/ui/ui.css">
   <link rel="stylesheet" href="static/scene/rxf-world.css?v=20261015">
+  <style>
+    /* the shell chrome above the full-bleed scene: one column, the world takes what the bar and
+       the face note leave. rxf-world.css sizes body/#rxf-world to the full height on its own;
+       this page-local rule only splits that height between the chrome and the scene. */
+    body { display: flex; flex-direction: column; height: 100vh; }
+    #rxf-world { flex: 1 1 auto; min-height: 0; height: auto; }
+  </style>
   <script>
     /* failures before (or while) the scene boots still land somewhere: the HUD error slot */
     window.__rxErrors = [];
@@ -21,6 +30,27 @@
   </script>
 </head>
 <body>
+<!-- ui:shell:begin — the one shell of docs/21 (source of truth: server/static/ui/shell.html).
+     Every page inlines this block verbatim between the ui:shell markers; the page's own nav entry
+     is the ONE allowed rewrite: inactive entries are <a class="button" href="...">Label</a>, the
+     active entry is <a href="..." class="active" aria-current="page">Label</a>. The live slot
+     reads exactly `no image` until something better is known (docs/21: the attached session or
+     `no image`); server-side fills and static/ui/ui.js only ever replace that default.
+     tests/test_unified_ui.py pins every copy of this block to this file. -->
+<header class="shell">
+  <span class="mark">RXF</span>
+  <nav aria-label="Surfaces">
+    <a class="button" href="/">Inspector</a>
+    <a class="button" href="/model">Model</a>
+    <a class="button" href="/editor">Editor</a>
+    <a class="button" href="/tutor">Tutor</a>
+    <a href="/world" class="active" aria-current="page">World</a>
+  </nav>
+  <div class="live" id="live-slot">no image</div>
+</header>
+<!-- ui:shell:end -->
+<p class="face-note">World = render &middot; one face of the link (docs/21): Inspector reads, Model explains, Editor edits, Tutor teaches.</p>
+
   <div id="rxf-world">
     <canvas id="rxf-world-canvas" tabindex="0"></canvas>
 
@@ -45,7 +75,19 @@
 
     <!-- minimap slot -->
     <aside class="hud-minimap">
+      <div class="compass" aria-hidden="true">
+        <span class="compass-needle" data-compass-needle></span>
+      </div>
       <canvas id="rxf-world-minimap"></canvas>
+    </aside>
+
+    <!-- the datasheet side pane: the clicked cell, spelled out -->
+    <aside class="hud-datasheet" id="rxf-world-datasheet" aria-label="datasheet">
+      <header class="datasheet-head">
+        <span class="datasheet-title" data-datasheet-title>datasheet</span>
+        <button class="datasheet-close" data-datasheet-close aria-label="close datasheet">✕</button>
+      </header>
+      <div class="datasheet-body" id="datasheet-body"></div>
     </aside>
 
     <!-- bottom status bar: the selected cell's metadata -->
@@ -73,5 +115,6 @@
   <script src="static/vendor/babylon/babylon.js?v=20261015"></script>
   <script src="static/scene/rxf-world-hud.js?v=20261015"></script>
   <script src="static/scene/rxf-world.js?v=20261015"></script>
+  <script src="/static/ui/ui.js"></script>
 </body>
 </html>

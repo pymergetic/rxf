@@ -16,6 +16,9 @@ Shots (the pins of the README, plus the text proof at the extreme angles):
     world-tactical.png       pose "tactical"  top-down on a selected run tower, HUD fields filled
     world-proof-topdown.png  raw view         pitch 90 straight down: name labels + checksums
     world-proof-inspect.png  raw view         steep inspect (pitch 68): name labels + checksums
+    world-ring.png           raw view         the ring road's corner: clean chamfers, no spikes
+    world-streets.png        raw view         the street paint: flat markings between the blocks
+    world-datasheet.png      pose "inspect"   the selected cell's datasheet pane open
 """
 
 # pyright: reportMissingImports=false
@@ -43,8 +46,36 @@ SHOTS = (
     "world-tactical.png",
     "world-proof-topdown.png",
     "world-proof-inspect.png",
+    "world-ring.png",
+    "world-streets.png",
+    "world-datasheet.png",
 )
 TOWER_PATH = "system.runs.tick"  # the run tower the README's tactical shot selects
+
+
+def focus_views(doc: dict[str, Any]) -> dict[str, dict[str, float]]:
+    """The deterministic close-up views of the proof shots: the ring road's farthest corner
+    (the chamfers), and the middle of the first avenue (the street paint)."""
+    ring = doc["ring"]["path"]
+    center = doc["ring"]["center"]
+    corner = max(
+        ring,
+        key=lambda point: (point["x"] - center["x"]) ** 2 + (point["z"] - center["z"]) ** 2,
+    )
+    avenue = next(
+        (street for street in doc["streets"] if street["kind"] == "avenue"),
+        doc["streets"][0],
+    )
+    return {
+        "ring": {"x": corner["x"], "z": corner["z"], "altitude": 48, "pitch": 68, "yaw": 35},
+        "streets": {
+            "x": (avenue["from"] + avenue["to"]) / 2,
+            "z": avenue["at"],
+            "altitude": 34,
+            "pitch": 60,
+            "yaw": 25,
+        },
+    }
 
 
 def serve(root: Path) -> tuple[socketserver.ThreadingTCPServer, int]:
@@ -134,6 +165,13 @@ def capture(out_dir: Path, colors: int) -> list[Path]:
                 (
                     "world-proof-inspect.png",
                     {"x": tower["plot"]["x"], "z": tower["plot"]["z"], "altitude": 34, "pitch": 68, "yaw": 20},
+                    tower["id"],
+                ),
+                ("world-ring.png", focus_views(doc)["ring"], None),
+                ("world-streets.png", focus_views(doc)["streets"], None),
+                (
+                    "world-datasheet.png",
+                    {"x": tower["plot"]["x"], "z": tower["plot"]["z"], "altitude": 30, "pitch": 58, "yaw": 30},
                     tower["id"],
                 ),
             )

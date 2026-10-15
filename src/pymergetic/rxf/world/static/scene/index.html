@@ -23,7 +23,7 @@
   </head>
   <body>
     <div id="rxf-world">
-      <canvas id="rxf-world-canvas" tabindex="0" aria-label="RXF world 3D view. 1-6 camera poses, O ortho, WASD camera-relative move, drag pan, right-drag orbit, wheel zoom, click select, minimap click jumps."></canvas>
+      <canvas id="rxf-world-canvas" tabindex="0" aria-label="RXF world 3D view. 1-6 camera poses, O ortho, WASD camera-relative move, drag pan, right-drag orbit, wheel zoom, click select with datasheet pane (ESC closes), minimap click jumps."></canvas>
 
       <header class="hud-top">
         <span class="title">RXF WORLD</span>
@@ -37,13 +37,24 @@
         <span class="slot"><b>cells</b><i data-count="cells">—</i></span>
         <span class="slot"><b>cables</b><i data-count="edges">—</i></span>
         <span class="slot"><b>ghosts</b><i data-count="stale_edges">—</i></span>
-        <span class="keys">1..6 poses · O ortho/fly · WASD move (camera-relative) · drag pan · right-drag orbit · wheel zoom · click select · minimap click jumps</span>
+        <span class="keys">1..6 poses · O ortho/fly · WASD move (camera-relative) · drag pan · right-drag orbit · wheel zoom · click select + datasheet (ESC closes) · minimap click jumps</span>
       </header>
 
       <div class="hud-lod" data-lod>—</div>
 
       <aside class="hud-minimap">
+        <div class="compass" aria-hidden="true">
+          <span class="compass-needle" data-compass-needle></span>
+        </div>
         <canvas id="rxf-world-minimap"></canvas>
+      </aside>
+
+      <aside class="hud-datasheet" id="rxf-world-datasheet" aria-label="datasheet">
+        <header class="datasheet-head">
+          <span class="datasheet-title" data-datasheet-title>datasheet</span>
+          <button class="datasheet-close" data-datasheet-close aria-label="close datasheet">✕</button>
+        </header>
+        <div class="datasheet-body" id="datasheet-body"></div>
       </aside>
 
       <footer class="hud-bottom">
