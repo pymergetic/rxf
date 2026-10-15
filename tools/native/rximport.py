@@ -146,8 +146,12 @@ What these refuse, by name (never lowered to wrong words):
                              (``rtti_call``); an ordinary dynamic_cast lowers the null
                              check of its cast now and refuses at the __dynamic_cast
                              runtime call itself (``dyn``)
-    an indirect call         a virtual method or a function pointer is a call of a
-                             register the pass cannot name (``vcall``)
+    a call through a word     a call of a register (a function word: a virtual method or
+                             a slot of a type cell) dispatches on the words this import
+                             makes memory carry (``lower_indirect``: the store that wires
+                             the slot names the body, one call card per word); a word no
+                             store of the import wires refuses the import, a word the
+                             arms do not name refuses the run (``slot``)
     a by-value aggregate     a return through the sret pointer ("returns through an sret
                              pointer", ``big_make``) and a byval parameter (a copy the
                              callee may write, ``big_take``)
@@ -286,10 +290,12 @@ the C++ and Rust subsets of their sections. What remains:
 and then MicroPython-core-as-corpus (the leaf table of native/graph.h grows in the change
 that owns that file -- this pass only names the leaves it needs).
 
-The C++ exception/RTTI runtimes, indirect calls (virtual methods, function pointers),
-by-value aggregates (sret/byval) and module-level globals stay refused by policy: they are
-runtime machinery the interpreter has no card for, and this pass never lowers them to words
-that would run wrong.
+The C++ exception/RTTI runtimes, by-value aggregates (sret/byval) and module-level globals
+that are a relocation stay refused by policy: they are runtime machinery the interpreter has
+no card for, and this pass never lowers them to words that would run wrong. A call through
+a function word is no longer one of them where the import makes memory carry the words (the
+unary_op slot dispatch of ``lower_indirect``); the rest of that class stays refused with the
+reason the pass gives it.
 """
 
 from __future__ import annotations
@@ -299,9 +305,10 @@ import re
 import shutil
 import struct
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, TypeAlias
+from typing import Literal
 
 import graph_header
 
@@ -815,7 +822,10 @@ RE_GEP_INDEX = re.compile(
 )
 RE_CALL = re.compile(
     rf"^(?:(?:tail|musttail|notail)\s+)?call\s+(?:(?:fastcc|ccc|coldcc|cc\s+\d+|[a-z][a-z0-9_]*)\s+)*"
-    rf"(?P<ret>{AGGREGATE}|{TYPE})(?:\s*\([^()]*\))?\s+@(?:"  # a call of a variadic function
+    # the return type is the instruction's ``type`` (a call of a program answers one: the
+    # card's out width is what the callee's Return writes, so a pointer return is the
+    # wide value both sides agree on)
+    rf"(?P<type>{AGGREGATE}|{TYPE})(?:\s*\([^()]*\))?\s+@(?:"  # a call of a variadic function
     # prints its function type between the return type and the callee; a rustc callee
     # may be quoted as well
     rf'"(?P<qcallee>[^"]+)"|(?P<callee>[A-Za-z0-9_.$-]+))\((?P<args>.*)\)$'
@@ -838,6 +848,14 @@ RE_INSERTVALUE = re.compile(
     rf"(?P<b>{VALUE}),\s*(?P<to>\d+)$"
 )
 RE_CALLEE = re.compile(r"^(?:(?:tail|musttail|notail)\s+)?call\b")
+RE_INDIRECT = re.compile(
+    rf"^(?:(?:tail|musttail|notail)\s+)?call\s+(?:[a-z][a-z0-9_]*\s+)*"
+    # a call of a register: the callee is a function word in a value (the slot dispatch
+    # of a type cell -- mp_unary_op's unary_op slot), not a symbol the line names
+    rf"(?P<type>{AGGREGATE}|{TYPE})(?:\s*\([^()]*\))?\s+"
+    rf"(?P<callee>[%@][A-Za-z0-9_.$-]+)\((?P<args>.*)\)$"
+)
+RE_DECLARE = re.compile(r"^declare\b.*@(?P<name>[A-Za-z0-9_.$-]+)\s*\(")
 RE_EXCEPTION = re.compile(r"^(?:invoke\b|landingpad\b|resume\b|catchswitch\b|catchpad\b|cleanuppad\b)")
 RE_METADATA = re.compile(r"(?:,\s*!\S+(?:\s+!\d+)?)+\s*$")
 RE_ATTRGROUP = re.compile(r"\s+#\d+\s*$")
@@ -1046,8 +1064,76 @@ def _instruction(text: str, name: str | None) -> Inst:
     if RE_EXCEPTION.match(text):
         return Inst("exception", name=name, raw=text)  # an edge or pad of a C++ exception
     if RE_CALLEE.match(text):
-        return Inst("indirect", name=name, raw=text)  # a call whose callee is no symbol
+        found = RE_INDIRECT.match(text)
+        if found is None:
+            return Inst("indirect", name=name, raw=text)  # a callee no pattern names
+        inst = Inst(
+            "indirect", name=name, type=found.group("type"), callee=found.group("callee")
+        )
+        for argument in split_params(found.group("args")):
+            arg = RE_ARG.match(argument)
+            if not arg:
+                raise ParseError(f"an argument outside the subset: {argument!r}")
+            inst.args.append((arg.group("type"), Operand.parse(arg.group("opd"))))
+        return inst
     return Inst("unknown", name=name, raw=text)  # the lowering raises Unsupported if asked
+
+
+def declared_functions(text: str) -> set[str]:
+    """The names the module's ``declare`` lines carry: a function whose body lives
+    elsewhere (an ABI face of the port or another module), whose address may still be a
+    word a store wires into a cell (the slot of a type object names its body that way)."""
+    return {
+        found.group("name")
+        for line in text.splitlines()
+        if (found := RE_DECLARE.match(_strip(line))) is not None
+    }
+
+
+def function_wiring(
+    parsed: list[Function], module: str, only: set[str] | None,
+    declared: set[str], known: dict[str, str],
+) -> dict[int, str]:
+    """The function words one import makes memory carry, to the Function path whose body
+    each is: every store of a function word by the bodies it lowers (and the bodies those
+    call -- a boot of the module fills the slots of the type cells before anything runs).
+
+    These words are the arms of a call through a register (lower_indirect's slot
+    dispatch): only a word whose body this import makes a program of (a lowered body, or
+    a cross-module one ``known`` names) is an arm -- a word standing for a body outside
+    the import is carried as data (a compare against it) and dispatches to no card."""
+    functions = {function.name: function for function in parsed}
+    reach = set(only if only is not None else functions)
+    pending = list(reach)
+    while pending:  # the inline closure: a callee's stores run inside the caller's body
+        found = functions.get(pending.pop())
+        if found is None:
+            continue
+        for block in found.blocks:
+            for inst in block.insts:
+                if inst.op == "call" and inst.callee in functions and inst.callee not in reach:
+                    reach.add(inst.callee)
+                    pending.append(inst.callee)
+    wired: dict[int, str] = {}
+    for name in reach:
+        found = functions.get(name)
+        if found is None:
+            continue
+        for block in found.blocks:
+            for inst in block.insts:
+                if inst.op != "store" or inst.a is None or not inst.a.name:
+                    continue
+                if not inst.a.name.startswith("@"):
+                    continue
+                bare = inst.a.name[1:]
+                if bare in known:
+                    wired[object_id_of(known[bare])] = known[bare]
+                elif bare in functions and (only is None or bare in only):
+                    wired[object_id_of(f"{module}.{bare}")] = f"{module}.{bare}"
+                elif bare in declared:
+                    # an ABI face's word is data (the compare of a slot test), no arm
+                    continue
+    return wired
 
 
 def parse_module(text: str) -> tuple[list[Function], dict[str, str], dict[str, "Global"]]:
@@ -1193,7 +1279,8 @@ class LValue:
 
 
 # an operand of the model: the path of a value, or a constant that a Literal object stands for
-MOperand: TypeAlias = tuple[Literal["value"], str] | tuple[Literal["literal"], int]
+type ValueOperand = tuple[Literal["value"], str]
+type MOperand = ValueOperand | tuple[Literal["literal"], int]
 
 
 @dataclass
@@ -1248,12 +1335,27 @@ class Lowering:
         tag: str = "",
         structs: dict[str, str] | None = None,
         globals: dict[str, "Global"] | None = None,
+        known: dict[str, str] | None = None,
+        declared: set[str] | None = None,
+        wiring: dict[int, str] | None = None,
     ) -> None:
         self.fn = function
         self.module = module
         self.functions = functions or {}
         self.structs = host.structs if host is not None else (structs or {})
         self.globals = host.globals if host is not None else (globals or {})
+        # the names the module declares but does not define (an ABI face whose body
+        # lives elsewhere): their addresses may be words a store wires into a cell
+        self.declared: set[str] = host.declared if host is not None else (declared or set())
+        # the function words this import makes memory carry (every store of one by the
+        # bodies it lowers) to the Function path whose body it is: the arms of a call
+        # through a register (lower_indirect's slot dispatch)
+        self.wiring: dict[int, str] = host.wiring if host is not None else (wiring or {})
+        # the C name of a cross-module callee to the Function path it is imported at
+        # (a call card names its callee by that path, the reference the delta links):
+        # what a prior import_into of the image answered, carried to the calls this
+        # module makes of those functions
+        self.known: dict[str, str] = host.known if host is not None else (known or {})
         self.global_values: dict[str, LValue] = host.global_values if host else {}
         self.object_paths: set[str] = host.object_paths if host else set()
         # the paths of every Object value (a global's cell): where the bytes of an operand
@@ -1273,6 +1375,9 @@ class Lowering:
         self.names: dict[str, MOperand] = {}
         self.params: list[LValue] = []
         self.pointers: set[str] = set()  # names that hold an address (ptr params and results)
+        self.ptr_params: set[str] = set()  # the pointer parameters: a pointer to a caller's value
+        self.stored_params: set[str] = set()  # the pointer params written through (an out cell)
+        self.card_calls: bool = False  # whether the body makes a call card (a program of its own)
         self.narrow_names: set[str] = set()  # the allocas whose address stays inside the function
         self.wide_names: set[str] = set()  # the allocas whose address reaches a memory leaf
         self.wide: dict[str, LValue] = {}  # those locals, by alloca name
@@ -1293,6 +1398,10 @@ class Lowering:
         # one shared scratch wide slot per frame (every lowering of the frame sees the
         # same one-cell holder): the staging a load of the flat space needs, made once
         self.load_scratch: list[MOperand] = host.load_scratch if host else []
+        # the values that ARE slots (a wide local, the load staging): a leaf given one
+        # receives its own address (``pointer`` of native/graph.c), where a word is the
+        # flat address it carries -- harmonize_widths keeps the flavors apart
+        self.slots: set[str] = host.slots if host else set()
         # the values already standing as some block's condition: the image binds one
         # value to one field, so a second branch on the same flag takes a copy
         self.conditions: set[str] = host.conditions if host else set()
@@ -1346,6 +1455,16 @@ class Lowering:
         addresses memory with an i64 word). An integer is the low bits of its width."""
         return FULL if type_name == "ptr" else self.mask_of(type_name)
 
+    def function_word(self, name: str) -> int:
+        """The word a function's words are named by: the object id of its Function path
+        (a body of this module is ``module.name``, a cross-module one the path ``known``
+        carries). A type cell's slot holds one -- the unary_op slot of the @mp_type_*
+        cells carries the address of the per-type body -- and a call through a register
+        dispatches on it (lower_indirect compares the callee word against the words this
+        import makes memory carry)."""
+        bare = name.removeprefix("@")
+        return object_id_of(self.known.get(bare, f"{self.module}.{bare}"))
+
     def global_value(self, name: str) -> MOperand:
         """The value that is the module-level global's cell: one value of kind Object with
         the global's ``object_id``, so the run resolves it to the payload address of the
@@ -1379,6 +1498,11 @@ class Lowering:
                 # a module-level global: its cell is the Object value above
                 found = self.globals.get(name)
                 if found is None:
+                    # else a function word: the address of a body (or ABI face) of the
+                    # module -- the words the unary_op slots of the type cells carry
+                    bare = name[1:]
+                    if bare in self.functions or bare in self.declared or bare in self.known:
+                        return self.literal(self.function_word(bare))
                     raise Unsupported(f"{self.fn.name}: {name} is not defined in the module")
                 if found.init is None:
                     raise Unsupported(
@@ -1498,6 +1622,20 @@ class Lowering:
     def lower(self) -> LGraph:
         self.lower_body()
         self.own_terminus()
+        self.harmonize_widths()
+        if self.card_calls and self.stored_params:
+            # the body calls a program (a call card), so it is a program of its own: a
+            # frame of the run cell. But it also writes through a pointer its caller gave
+            # -- a pointer to a caller's value -- and that is no word or handle a call
+            # frame can carry (the write would land in the callee's copy, not the
+            # caller's cell). A body like this only lowers where it is inlined into a
+            # caller whose locals it writes (the out-parameter idiom of outparam.c); as a
+            # program reached by a card it is refused rather than left writing the wind.
+            raise Unsupported(
+                f"{self.fn.name}: a pointer to a value (the body writes through a pointer its "
+                "caller gave, and a call card frame cannot carry it: only an inlined body "
+                "reaches a caller's cell)"
+            )
         if not self.function_results and self.has_reachable_cycle():
             # a body with no Return that the entry can reach a cycle in (an endless loop)
             # answers nothing: it stays refused rather than imported as a graph that
@@ -1598,12 +1736,14 @@ class Lowering:
                 raise Unsupported(f"{self.fn.name}: a parameter of {type_name}, not an integer")
             if type_name == "ptr":  # an address of the flat memory, opaque to this pass
                 self.pointers.add(name)
+                self.ptr_params.add(name)  # a pointer the caller gave: a pointer to a value
         self.resolve_labels(entry)
         for name in sorted(self.wide_names):  # the locals ride as the entry's first parameters
             made = self.value(
                 "Bound", entry.path, f"local[{len(self.wide)}]",
                 owner_block=entry.path, width=16, type_path=WIDE,
             )  # fmt: skip
+            self.slots.add(made.path)  # a wide local is a slot: a leaf gets its address
             self.wide[name] = made
             self.wide_of[made.path] = made
             self.names[name] = ("value", made.path)
@@ -1730,8 +1870,21 @@ class Lowering:
                     pointers = {0, 1}
                 elif inst.callee.startswith("llvm.memset"):
                     pointers = {0}
+                elif inst.callee.startswith("llvm."):
+                    continue  # an intrinsic of the IR (a lifetime marker): no pointer of its own
+                elif inst.callee in (NLR_PUSH, NLR_POP, NLR_JUMP):
+                    continue  # the setjmp buffer of the nlr ABI (its policy is lower_nlr)
                 else:
-                    continue
+                    # an opaque call -- a call card of another program, or an ABI face
+                    # whose card is the reference the delta links: its pointer-typed
+                    # arguments are addresses the callee reads or writes through (the
+                    # flat memory or a local's bytes, the way a leaf's pointers do), so
+                    # a local one of them names is a wide slot of the frame
+                    pointers = {
+                        position
+                        for position, (type_name, _) in enumerate(inst.args)
+                        if type_name == "ptr"
+                    }
                 for position, (_, argument) in enumerate(inst.args):
                     name = argument.name
                     if position in pointers and name is not None and name in allocas:
@@ -1949,7 +2102,7 @@ class Lowering:
             LOp(op, len(target.ops), "CallCallback", inputs, [U64] * arity, None, callee)
         )
 
-    def move_value(self, target: LBlock, source: MOperand, width: int = 8) -> MOperand:
+    def move_value(self, target: LBlock, source: MOperand, width: int = 8) -> ValueOperand:
         """A ReturnValue operation (the pattern of the starter): a move of a value to a slot.
 
         The interpreter's OP_MOVE is what reads memory into a value: the bytes of the source
@@ -2006,6 +2159,73 @@ class Lowering:
             ):
                 block.terminator_value = self.move_value(block, block.terminator_value)
 
+    def harmonize_widths(self) -> None:
+        """The width of a block parameter is the width its edges hand it, whole values.
+
+        The two flavors of a pointer the frame carries decide the width.  A word (8
+        bytes) is the value itself: ``pointer`` of native/graph.c gives a leaf what the
+        slot holds -- the flat address.  A wide value (16 bytes) is one of two things: a
+        slot (a wide local or the load staging: a leaf gets the slot's own address) or a
+        carrier (the out of a card, the answer of a ret -- "the address word carried in
+        a wide result, its first bytes").  A phi joins values of one flavor: a carrier
+        hands its word over in a copy of 8 bytes (the first bytes, exactly what the ret
+        and the card document), and a slot joins as a wide slot with words copied into
+        one.  A parameter that would join a slot and a word is refused rather than
+        answered from the wrong bytes: a slot's own address and the flat address a word
+        carries are not the same pointer.
+
+        The composer copies whole values only (its width check), so this pass is what
+        makes every edge whole before the composer sees one."""
+        widths = {value.path: value.width for value in self.values}
+        blocks = {block.path: block for block in self.blocks}
+
+        def flavor(path: str) -> str:
+            if widths.get(path, 8) == 8:
+                return "word"
+            return "slot" if path in self.slots else "word"
+
+        # what every parameter of every block is handed, across all the edges to it
+        incoming: dict[str, list[tuple[LBlock, str, list[MOperand], int, MOperand]]] = {}
+        for block in self.blocks:
+            for path, arguments in block.successors:
+                target = blocks.get(path)
+                if target is None or len(arguments) != len(target.params):
+                    continue  # a count that does not line up: the composer speaks first
+                for index, (argument, parameter) in enumerate(
+                    zip(arguments, target.params, strict=True)
+                ):
+                    incoming.setdefault(parameter.path, []).append(
+                        (block, path, arguments, index, argument)
+                    )
+        moved: dict[tuple[str, str, int], MOperand] = {}
+        for parameter in (p for block in self.blocks for p in block.params):
+            hands = incoming.get(parameter.path, [])
+            if not hands:
+                continue  # no edge hands it: the entry's own parameters (the run gives
+                # them, wide locals as 16-byte slots among them) keep the width they carry
+            flavors = {
+                flavor(argument[1])
+                for _, _, _, _, argument in hands
+                if argument[0] == "value"
+            }
+            if len(flavors) > 1:
+                raise Unsupported(
+                    f"{self.fn.name}: a block parameter that joins a slot and a word (the "
+                    "two flavors of a pointer the frame carries: a slot's own address and "
+                    "the flat address a word holds are not the same bytes)"
+                )
+            wanted = 16 if flavors == {"slot"} else 8
+            if parameter.width != wanted:
+                parameter.width = wanted
+                parameter.type_path = WIDE if wanted > 8 else U64
+            for block, _, arguments, index, argument in hands:
+                if argument[0] != "value" or widths.get(argument[1]) == wanted:
+                    continue  # a literal copies its bytes anywhere; a whole value goes
+                key = (block.path, argument[1], wanted)
+                if key not in moved:
+                    moved[key] = self.move_value(block, argument, width=wanted)
+                arguments[index] = moved[key]
+
     def load_scratch_of(self, target: LBlock) -> MOperand:
         """The shared scratch wide slot a load of the flat space stages its bytes in.
 
@@ -2017,7 +2237,9 @@ class Lowering:
         where that would push the frame past its budget."""
         if not self.load_scratch:
             entry = self.entry or target
-            self.load_scratch.append(self.move_value(entry, self.literal(0), width=16))
+            staged = self.move_value(entry, self.literal(0), width=16)
+            self.slots.add(staged[1])  # the staging is a slot: its own address is given
+            self.load_scratch.append(staged)
         return self.load_scratch[0]
 
     def and_mask(self, target: LBlock, source: MOperand, mask: int) -> MOperand:
@@ -2217,7 +2439,9 @@ class Lowering:
         for argument in (a, b):
             arm = self.new_block()
             arm.terminator = "Goto"
-            arm.successors = [(join.path, [argument])]  # the arm passes its value to the join
+            # an edge's copy takes the bytes of its source: a cell's bytes are its
+            # payload, so what a cell hands the join is its address (address_value)
+            arm.successors = [(join.path, [self.address_value(arm, argument)])]
             arms.append(arm)
         target.terminator = "Branch"
         target.condition = self.own_condition(cond, target)
@@ -2407,6 +2631,10 @@ class Lowering:
         if inst.b is None:
             raise ParseError(f"{self.fn.name}: a store without its address")
         pointer = inst.b.name
+        if pointer is not None and pointer in self.ptr_params:
+            # the store writes through a pointer the caller gave (an out cell of the
+            # caller's frame): remembered to refuse where a call card would carry it
+            self.stored_params.add(pointer)
         made = self.narrow_operand(inst.a, mask)  # what is stored is the low bits of its word
         destination = self.operand(inst.b)  # an unresolved constant expression refuses here
         # the address is flat memory: a parameter, the address of one, a global's cell, or
@@ -2538,9 +2766,13 @@ class Lowering:
             return self.lower_leaf_call(inst, target, key)
         if callee in self.functions:
             return self.lower_inline(inst, target)
-        raise Unsupported(
-            f"{self.fn.name}: a call of {callee} (only leaves and functions of the module)"
-        )
+        # a callee that is no leaf and no function of the module: the call card, named
+        # by the Function path the callee is imported at (the reference the delta links;
+        # a cross-module callee is carried in `known`), else its bare name for the
+        # composer to resolve where the whole image is known -- what no program of the
+        # image answers is refused there (a runtime face another lane owns, a typo)
+        bare = callee.rsplit(".", 1)[-1]
+        return self.lower_card(inst, target, self.known.get(bare, bare))
 
     def lower_leaf_call(self, inst: Inst, target: LBlock, key: str) -> LBlock | None:
         callee, arity, has_out, pointers = LEAVES[key]
@@ -2596,6 +2828,13 @@ class Lowering:
         # the blocks of the call take the count of blocks made so far as their name: two
         # calls of one function, nested or not, never number their blocks the same way
         before = len(self.values)
+        blocks_before = len(self.blocks)
+        literals_before = set(self.literals)
+        conditions_before = set(self.conditions)
+        scratch_before = len(self.load_scratch)
+        slots_before = set(self.slots)
+        globals_before = dict(self.global_values)
+        object_paths_before = set(self.object_paths)
         sub = Lowering(
             callee, self.module, self.functions, (*self.stack, self.fn.name),
             host=self, tag=f"call{len(self.blocks)}_",
@@ -2627,6 +2866,8 @@ class Lowering:
                 block.successors = [(join.path, [answered])]
         # the caller's block goes to the callee's entry: its locals (the entry's parameters)
         # start zero, the way a frame does
+        terminator_before = target.terminator
+        successors_before = target.successors
         target.terminator = "Goto"
         target.successors = [(entry.path, [self.literal(0)] * len(entry.params))]
         copied = sum(
@@ -2634,18 +2875,89 @@ class Lowering:
             for value in self.values[before:]
             if value.kind not in ("Literal", "Object")
         )
-        if copied > INLINE_WORDS * 8:
-            # the composer's inline path makes a run of the callee's blocks inside the
-            # caller's: there is no call to fall back on, so a body this big refuses the
-            # caller instead of silently becoming most of its frame
+        if copied > GRAPH_FRAME:
+            # a callee this big is not a program of its own either -- its frame would
+            # be past RXF_GRAPH_FRAME (1024), so the call can neither stay inlined nor
+            # become a card that names a program no run can hold. The caller is refused
+            # here rather than left a card that resolves to nothing at run time. This
+            # is the honest reason (a frame past the budget), not the inline budget.
             raise Unsupported(
-                f"{self.fn.name}: a call of {callee.name} inlines {copied // 8} words "
-                f"(the inline budget is {INLINE_WORDS} words)"
+                f"{self.fn.name}: {callee.name} needs a frame of {copied} bytes "
+                f"(RXF_GRAPH_FRAME is {GRAPH_FRAME})"
             )
+        if copied > INLINE_WORDS * 8:
+            # the inline budget refuses to inline in favor of the call, not instead of
+            # one: a body this big would become most of the caller's frame, so the
+            # inline is undone and the call goes as the call card of graph.h (the
+            # callee is a program of its own, named by the object id of its words).
+            # A callee whose frame fits RXF_GRAPH_FRAME is a program the run can hold;
+            # one past it is refused above.
+            del self.values[before:]
+            del self.blocks[blocks_before:]
+            for key in set(self.literals) - literals_before:
+                del self.literals[key]
+            self.conditions.clear()
+            self.conditions |= conditions_before
+            del self.load_scratch[scratch_before:]
+            # the shared registries of the globals go back too: a cell the inline named
+            # and the rollback dropped must be named again by the caller's own body (a
+            # stale entry would leave the operand pointing at no value of the graph)
+            self.global_values.clear()
+            self.global_values.update(globals_before)
+            self.object_paths.clear()
+            self.object_paths |= object_paths_before
+            self.slots.clear()
+            self.slots |= slots_before
+            target.terminator = terminator_before
+            target.successors = successors_before
+            return self.lower_card(inst, target, f"{self.module}.{callee.name}")
+        # an inlined callee's own call cards ride in the caller's body now: the caller is
+        # a program of its own if the callee was
+        self.card_calls |= sub.card_calls
         self.note(inst.name, ("value", chosen.path))
         if inst.type == "ptr" and inst.name is not None:  # the result holds an address
             self.pointers.add(inst.name)
         return join
+
+    def lower_card(self, inst: Inst, target: LBlock, name: str) -> LBlock:
+        """A call of a program: the call card of ``native/graph.h`` -- the callee's
+        words are named by their object id, its parameters are the call's arguments as
+        words of the caller's frame (a scalar one word, a handle its three), and its
+        Return is the out word of the call. What the composer makes of this operation
+        is the card; what a run makes of it is a frame of the run cell. ``name`` is the
+        callee's function path of the image, or its bare name where the callee is a
+        function of another module (the composer resolves it against the image)."""
+        self.card_calls = True  # the body calls a program: it is a program of its own
+        arguments = [
+            self.address_value(
+                target,
+                self.frame_moperand(target, argument) if type_name == "ptr"
+                else self.narrow_operand(argument, self.mask_of(type_name)),
+            )
+            for type_name, argument in inst.args
+        ]  # fmt: skip
+        self.op_count += 1
+        op = f"{target.path}.op{self.op_count}"
+        # the answer of a pointer is the address word carried in a wide result (its
+        # first bytes) -- the ret of ``finish`` answers a ptr the same way, and the run
+        # copies an answer whole into the card's out (graph.c: an answer wider than the
+        # out refuses), so the out of a card is as wide as the answers it can take
+        result = self.value(
+            "OperationResult", op, f"op{self.op_count}_result",
+            owner_block=target.path, owner_op=op,
+            width=16 if inst.type == "ptr" else 8,
+            type_path=WIDE if inst.type == "ptr" else U64,
+        )  # fmt: skip
+        target.ops.append(
+            LOp(op, len(target.ops), "CallCallback", arguments,
+                [U64 if type_name in ("i64", "i1", "ptr") else U32
+                 for type_name, _ in inst.args],
+                result, name)
+        )  # fmt: skip
+        self.note(inst.name, ("value", result.path))
+        if inst.type == "ptr" and inst.name is not None:  # the result holds an address
+            self.pointers.add(inst.name)
+        return target
 
     def lower_intrinsic(self, inst: Inst, target: LBlock) -> LBlock | None:
         callee = inst.callee
@@ -2817,11 +3129,91 @@ class Lowering:
             raise ParseError(f"{self.fn.name}: an insertvalue without its name")
         self.aggregates[inst.name] = tuple(made)
 
-    def lower_indirect(self, inst: Inst, target: LBlock) -> None:
-        raise Unsupported(
-            f"{self.fn.name}: an indirect call (a C++ virtual method or a function "
-            "pointer): the subset calls leaves and functions of the module by name"
-        )
+    def lower_indirect(self, inst: Inst, target: LBlock) -> LBlock | None:
+        """A call through a function word: the type-slot dispatch of MicroPython (the
+        unary_op slot of the @mp_type_* cells carries the address of the per-type body,
+        and mp_unary_op calls it).
+
+        The dispatch is on the word, not on a type lookup: every store of a function word
+        by the bodies this import lowers (the boot that fills the slots of the type cells)
+        arms it, and the chain compares the callee word against those arms, each arm the
+        call card of the body whose word it is. A word the wiring names routes; what the
+        card model cannot express is refused, never a guess:
+
+        * no arm at all -- the import refuses the body (below): a call through a function
+          word this import makes no body for. The card model names its callee when the
+          words are made (the store that wires the slot is what names the body), so a
+          dispatch whose words no store of this import carries cannot name one.
+        * a word the arms do not name refuses the run at the chain's fall-through: the
+          body it would name is outside this import (a type of the runtime another lane
+          owns, a Python class's own slot) and no card of it exists. The runtime type
+          lookup behind such a word is what the card model cannot express; the refuse is
+          the honest end of the path (the status-branch idiom), not a wrong answer."""
+        if inst.callee is None:
+            raise ParseError(f"{self.fn.name}: an indirect call without its callee")
+        callee = self.operand(Operand.parse(inst.callee))
+        arms = sorted(self.wiring.items())
+        if not arms:
+            raise Unsupported(
+                f"{self.fn.name}: a call through a function word (a slot dispatch): this "
+                "import makes no body its word can name (the card model names its callee "
+                "when the words are made)"
+            )
+        if callee[0] == "literal":
+            # a constant function word (the immediate the C names): its arm is known here
+            for word, card in arms:
+                if word & FULL == callee[1] & FULL:
+                    arm = self.lower_card(
+                        Inst("call", type=inst.type, callee=card, args=list(inst.args)),
+                        target, card,
+                    )
+                    made = arm.ops[-1].result
+                    if made is None:
+                        raise ParseError(f"{self.fn.name}: a call card that produced no result")
+                    self.note(inst.name, ("value", made.path))
+                    if inst.type == "ptr" and inst.name is not None:
+                        self.pointers.add(inst.name)
+                    return target
+            raise Unsupported(
+                f"{self.fn.name}: a call through the function word {callee[1]} (a slot "
+                "dispatch): this import wires no body for it"
+            )
+        join = self.new_block()
+        chosen = self.value(
+            "Bound", join.path, f"blkparam[{len(join.params)}]", owner_block=join.path,
+            width=16 if inst.type == "ptr" else 8,
+            type_path=WIDE if inst.type == "ptr" else U64,
+        )  # fmt: skip
+        join.params.append(chosen)
+        current = target
+        for index, (word, card) in enumerate(arms):
+            same = self.call(current, "equal_uint64_t", [callee, self.literal(word & FULL)])
+            arm = self.new_block()
+            called = self.lower_card(
+                Inst("call", type=inst.type, callee=card, args=list(inst.args)), arm, card
+            )
+            made = called.ops[-1].result
+            if made is None:
+                raise ParseError(f"{self.fn.name}: a call card that produced no result")
+            arm.terminator = "Goto"
+            arm.successors = [(join.path, [("value", made.path)])]
+            if index == len(arms) - 1:
+                # the fall-through: a word no arm names (the refuse of the boundary above)
+                fall = self.new_block()
+                fall.terminator = "Refuse"
+                fall.terminator_value = self.literal(UNSUPPORTED_STATUS)
+                tails = (arm, fall)
+            else:
+                nxt = self.new_block()
+                tails = (arm, nxt)
+            current.terminator = "Branch"
+            current.condition = self.own_condition(same, current)
+            current.successors = [(tail.path, []) for tail in tails]
+            current = tails[1]
+        self.note(inst.name, ("value", chosen.path))
+        if inst.type == "ptr" and inst.name is not None:
+            self.pointers.add(inst.name)
+        return join
 
     def lower_exception(self, inst: Inst, target: LBlock) -> None:
         raise Unsupported(
@@ -3165,12 +3557,18 @@ def compile_rs(source: str | Path) -> str:
     """The textual LLVM IR of a Rust file: ``rustc --emit=llvm-ir -C opt-level=0
     -C panic=abort`` (opt-level 0 is what a bare rustc answers; the functions are
     ``#[no_mangle] pub extern "C"`` so their names survive the mangling)."""
-    done = subprocess.run(
-        [RUSTC, "--emit=llvm-ir", "--crate-type=lib", "-C", "opt-level=0", "-C", "panic=abort",
-         str(source), "-o", "-"],
-        capture_output=True,
-        text=True,
-    )
+    # a working directory of its own: rustc drops ``stdout.<crate>.<hash>-cgu.*.rcgu.ll``
+    # codegen halves next to the output name in the working directory, and two imports
+    # at once (the parallel test runs) collide on those names and lose a half -- the
+    # copy to stdout then finds no file
+    with tempfile.TemporaryDirectory(prefix="rximport-") as own:
+        done = subprocess.run(
+            [RUSTC, "--emit=llvm-ir", "--crate-type=lib", "-C", "opt-level=0", "-C",
+             "panic=abort", str(Path(source).resolve()), "-o", "-"],
+            capture_output=True,
+            text=True,
+            cwd=own,
+        )
     if done.returncode:
         raise ParseError(f"{RUSTC} could not compile {source}: {done.stderr.strip()}")
     return done.stdout
@@ -3190,7 +3588,8 @@ def compile_source(source: str | Path) -> str:
 
 
 def graphs_of(
-    text: str, module: str = "imported", only: set[str] | None = None
+    text: str, module: str = "imported", only: set[str] | None = None,
+    known: dict[str, str] | None = None,
 ) -> dict[str, LGraph]:
     """The functions of a textual module as graphs; ``only`` names the ones wanted.
 
@@ -3198,16 +3597,21 @@ def graphs_of(
     composer's inline path), so a function that is only a callee of a wanted one does not
     get a graph of its own. A function outside the subset raises ``Unsupported`` when it is
     asked for (in ``only``), and is skipped when it is not: a corpus file may carry helpers
-    this pass cannot lower.
+    this pass cannot lower. ``known`` maps the C name of a function of another module to
+    the Function path it is imported at, so a call of one of them becomes a call card that
+    names that path (the reference the delta links).
     """
     parsed, structs, globals_ = parse_module(text)
     functions = {function.name: function for function in parsed}
+    declared = declared_functions(text)
+    wired = function_wiring(parsed, module, only, declared, known or {})
     found: dict[str, LGraph] = {}
     for function in parsed:
         if only is not None and function.name not in only:
             continue
         found[function.name] = Lowering(
-            function, module, functions, structs=structs, globals=globals_
+            function, module, functions, structs=structs, globals=globals_, known=known,
+            declared=declared, wiring=wired,
         ).lower()
     if only is not None and set(found) != only:
         missing = ", ".join(sorted(only - set(found)))
@@ -3216,14 +3620,19 @@ def graphs_of(
 
 
 def import_into(
-    image, text: str, module: str = "imported", only: set[str] | None = None
+    image, text: str, module: str = "imported", only: set[str] | None = None,
+    known: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """One delta onto the image; the C name of every imported function to its Function path.
 
     ``image`` is a ``pymergetic.rxf.core.object.Image`` with the starter already in it (the
     leaves the graphs call live there); ``Image.apply`` is the only thing done to it.
+    ``known`` maps the C name of a function of another module (already imported into the
+    image) to the Function path it is at, so a call of one of them becomes a call card
+    naming that path. The mapping this returns is the shape to pass as ``known`` to a
+    later import of a module that calls these.
     """
-    graphs = list(graphs_of(text, module, only).values())
+    graphs = list(graphs_of(text, module, only, known=known).values())
     if not graphs:
         return {}
     image.apply(emit_delta(graphs, module))

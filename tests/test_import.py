@@ -395,7 +395,16 @@ REFUSED = {
     ("cpp_refuse.cpp", "big_take"): "byval",
     ("cpp_refuse.cpp", "cpp_throw"): "exception",
     ("cpp_refuse.cpp", "cpp_catch"): "exception",
-    ("cpp_refuse.cpp", "vcall"): "indirect",
+    # a C++ virtual call: the vtable's words live in the constant initializer of a
+    # global (a relocation the flat profile refuses to place), so no store of the
+    # import wires them and the call through the vtable word is refused with the
+    # function-word rule of lower_indirect (its slot dispatch is the same one the
+    # unary_op route uses -- where a boot wires the words, it routes)
+    ("cpp_refuse.cpp", "vcall"): "function word",
+    # the function-word rule itself as a pin: a call through a word the run carries
+    # where no store of the import wires one (dispatch.c has no boot to fill a slot):
+    # the card model names its callee when the words are made, so the body refuses
+    ("dispatch.c", "call_a_word"): "function word",
     # the null check of the cast lowers as a word compare now; the cast refuses at the
     # __dynamic_cast runtime call itself (its virtual call is an indirect one after it)
     ("cpp_refuse.cpp", "dyn"): "dynamic_cast",
@@ -412,23 +421,35 @@ REFUSED = {
     ("nlr_call.c", "nlr_abuse_read"): "nlr buffer",
     ("nlr_call.c", "nlr_abuse_write"): "nlr buffer",
     # the interning path of MicroPython (qstr_from_str -> qstr_from_strn -> the helper):
-    # clang -O1 keeps qstr_find_strn a call (it is past the inline budget as a callee:
-    # 119-121 words), and the composer's inline path has no call to fall back on. The
-    # core the gate needs (qstr_compute_hash, qstr_find_strn, qstr_hash and the
-    # accessors of find_qstr) imports and runs below; what this refusal records as a
-    # need is call support between imported graphs
-    # (or the interning path as runtime services, the leaf table being another lane's)
-    ("qstr.c", "qstr_from_str"): "inline budget",
-    ("qstr.c", "qstr_from_strn"): "inline budget",
+    # the call of qstr_find_strn is a call card now (the inline budget refuses to
+    # inline in favor of one, not instead of it), and the core the gate needs
+    # (qstr_compute_hash, qstr_find_strn, qstr_hash and the accessors of find_qstr)
+    # imports and runs below. What keeps these two refused is the frame, not the call:
+    # clang -O1 keeps the interning's qstr_add path inside qstr_from_strn itself (186
+    # instructions -> 195 frame values, 1608 bytes -- 1560 even packed, past
+    # RXF_GRAPH_FRAME's 1024; the composer refuses the same graph the importer does),
+    # so qstr_from_strn is no program of its own and qstr_from_str's call of it can
+    # neither stay inlined nor become a card that names one
+    ("qstr.c", "qstr_from_str"): "needs a frame",
+    ("qstr.c", "qstr_from_strn"): "a frame of 1608 bytes is too large",
     # the obj class of py/obj.c: the type -> name path (mp_obj_get_type_str -> the
-    # qstr corpus's qstr_str: the same need as the interning path above -- calls
-    # between imported graphs, the design note of the slice) and the runtime-dispatch
-    # class (mp_obj_is_true through the unary_op slot, mp_obj_get_int_maybe through
-    # the objint/runtime faces: slices 4-5's runtime dispatch owns those calls and the
-    # function words behind them)
-    ("obj.c", "mp_obj_get_type_str"): "call of qstr_str",
-    ("obj.c", "mp_obj_is_true"): "indirect call",
-    ("obj.c", "mp_obj_get_int_maybe"): "call of mp_unary_op",
+    # qstr corpus's qstr_str) imports now -- its call of qstr_str is a call card (the
+    # cross-file shape of the slice), proven end to end on the host runner in
+    # test_the_type_name_path_reaches_the_qstr_program. What stays refused is the
+    # runtime-dispatch class where its words are not made by the same import: the slot
+    # dispatch of slices 4 routes on the words obj_port_boot stores into the @mp_type_*
+    # cells (test_the_unary_slot_dispatch_routes_to_the_type_body imports that boot and
+    # the bodies together), and mp_obj_is_true imported here alone has no such store --
+    # the precise rule of lower_indirect (a call through a function word this import
+    # makes no body for). mp_obj_is_true carries its own slot read. mp_obj_get_int_maybe
+    # calls mp_unary_op, whose body this corpus now carries (the unary route of slice 4),
+    # and that call inlines the route into the caller's blocks -- so the first thing this
+    # import cannot name is the same dispatch. The pointer-write rule holds for that body
+    # too (a write through the caller's out cell lands in a call frame's copy: refused in
+    # lower() where a body both writes one and makes a card call) but the inlined dispatch
+    # is asked first
+    ("obj.c", "mp_obj_is_true"): "function word",
+    ("obj.c", "mp_obj_get_int_maybe"): "function word",
 }
 
 # the panic paths: the run refuses (RXF_REFUSE_UNSUPPORTED) on the path that would panic
@@ -1217,8 +1238,288 @@ def test_obj_ctor_type_roundtrip_matches_native(obj_world: World):
         )
 
 
+def test_the_type_name_path_reaches_the_qstr_program(tmp_path: Path):
+    """The cross-file call of the type -> name path end to end on the host runner (the
+    ground truth seat of ``tests/host/runner.c``: ``rxf_graph_run`` with the callee
+    registered in its object table), the same sequence of the natively compiled corpora
+    beside it. mp_obj_malloc_helper stamps a type and mp_obj_get_type_str gets that
+    object's type name back -- over the call card of ``native/graph.h`` (RXF_GRAPH_CALL)
+    that names the qstr corpus's qstr_str as a program of its own. This is the flip
+    REFUSED used to record for mp_obj_get_type_str (its call of qstr_str refused the
+    import); with the call card the call goes.
+
+    The two frozen corpora carry different qstr enums on purpose (obj.c's comment: its
+    enum stands in for genhdr's and nothing of the class reads it), so the name of the
+    type mp_type_int is qstr 2, and the qstr corpus's pool answers its entry 2 for it:
+    the strings both sides answer compare by content, the addresses cannot (each side
+    keeps its cells somewhere of its own -- test_global_address_is_the_cell)."""
+    image = tree.load(STARTER)
+    known = rximport.import_into(
+        image, rximport.compile_source(CORPUS / "qstr.c"), module="qstr",
+        only={"qstr_port_boot", "qstr_init", "qstr_str"},
+    )  # fmt: skip
+    rximport.import_into(
+        image, rximport.compile_source(CORPUS / "obj.c"), module="obj",
+        only={"obj_port_boot", "mp_obj_malloc_helper", "mp_obj_get_type_str"},
+        known=known,
+    )  # fmt: skip
+    assert image.check() == []
+    programs = compose.programs(image)
+    callee = "qstr.qstr_str"
+    callee_handle = image.resolve(callee)
+    assert callee_handle is not None, callee
+    callee_id = compose.object_id(image, callee_handle)
+
+    # the cells the running graphs name (the pools and strings of the qstr corpus, the
+    # type cells and the arena of obj.c) as live bytearrays: the boot calls store the
+    # addresses of the cells into them and the later calls read what was stored
+    running = (
+        "qstr.qstr_port_boot", "qstr.qstr_init", callee,
+        "obj.obj_port_boot", "obj.mp_obj_malloc_helper", "obj.mp_obj_get_type_str",
+    )  # fmt: skip
+    composer = compose.Composer(image)
+    cells: dict[str, tuple[int, bytearray]] = {}
+    for handle in range(image.handle_count):
+        if not image.live(handle):
+            continue
+        values = composer.fields(handle)
+        if compose.word(values.get("kind")) != "Object" or "object_id" not in values:
+            continue
+        path = image.path(handle)
+        if not any(path.startswith(f"{name}.") for name in running):
+            continue
+        cells[path.rsplit(".", 1)[-1][len("global_") :]] = (
+            int(values["object_id"]),
+            bytearray(bytes.fromhex(values.get("data", ""))),
+        )
+    objects: dict[int, bytes | bytearray] = {identity: data for identity, data in cells.values()}
+    objects[callee_id] = programs[callee]  # the callee of the call card, by its id
+
+    def address_of(cell: str) -> int:
+        data = cells[cell][1]
+        return ctypes.addressof((ctypes.c_uint8 * len(data)).from_buffer(data))
+
+    with rxf_native.Memory(1 << 16) as memory:
+
+        def call(name: str, words: tuple[int, ...]) -> int:
+            status, value = rxf_native.run(
+                programs[name],
+                struct.pack(f"<{len(words)}Q", *words),
+                memory,
+                objects=objects,
+            )
+            assert status == OK, f"{name}: the host run refused ({status})"
+            return value
+
+        for boot in ("qstr.qstr_port_boot", "qstr.qstr_init", "obj.obj_port_boot"):
+            call(boot, ())
+        made = call("obj.mp_obj_malloc_helper", (24, address_of("mp_type_int")))
+        name_at = call("obj.mp_obj_get_type_str", (made,))
+
+    # the same sequence natively, in one library of the two corpora (obj.c linked with
+    # qstr.c: its qstr_str the real one, not the abort stub of obj_stubs.c) -- the
+    # ground truth of what the type name is
+    shared = tmp_path / "libqstrobj.so"
+    subprocess.run(
+        [CLANG, "-O1", "-shared", "-fPIC",
+         # the two corpora each carry their own bounded-arena port (m_malloc_maybe and
+         # m_malloc_fail over their own static m_arena), and obj_stubs.c stubs qstr_str
+         # to abort where the real qstr corpus defines it. qstr.c comes first so its
+         # qstr_str is the definition the linker keeps (the type name path needs the
+         # real one); the identical arena helpers may be one definition here -- the
+         # path only needs obj's ctor to bump once and the qstr pool to answer
+         "-Wl,--allow-multiple-definition",
+         str(CORPUS / "qstr.c"), str(CORPUS / "obj.c"), str(CORPUS / "obj_stubs.c"),
+         str(NATIVE / "basics.c"), str(NATIVE / "stdlib_memory.c"), "-o", str(shared)],
+        check=True,
+    )  # fmt: skip
+    native = ctypes.CDLL(str(shared))
+    native.qstr_port_boot()
+    native.qstr_init()
+    native.obj_port_boot()
+    native.mp_obj_malloc_helper.argtypes = [ctypes.c_uint64, ctypes.c_void_p]
+    native.mp_obj_malloc_helper.restype = ctypes.c_void_p
+    native.mp_obj_get_type_str.argtypes = [ctypes.c_void_p]
+    native.mp_obj_get_type_str.restype = ctypes.c_void_p
+    native.obj_type_int_at.restype = ctypes.c_void_p
+    type_cell = native.obj_type_int_at() or 0
+    held = native.mp_obj_malloc_helper(24, type_cell) or 0
+    native_at = native.mp_obj_get_type_str(held) or 0
+
+    expect = ctypes.string_at(native_at)
+    assert expect == b"a", (
+        f"the name of mp_type_int is qstr 2 and the pool of the qstr corpus answers "
+        f"{expect!r} for it (its entry 2)"
+    )
+    assert ctypes.string_at(name_at) == expect, (
+        f"the host run of the call card answered {ctypes.string_at(name_at)!r} for the "
+        f"type name and natively it is {expect!r}"
+    )
+
+
+def test_the_unary_slot_dispatch_routes_to_the_type_body(tmp_path: Path):
+    """The unary_op slot dispatch end to end on the host runner (the ground truth seat
+    of ``tests/host/runner.c``), the same sequence of the natively compiled corpora
+    beside it.  obj_port_boot wires the words of the per-type unary bodies into the
+    slots of the @mp_type_* cells, and mp_unary_op's call through the slot dispatches
+    on those words -- the route of ``lower_indirect``: one call card per wired word,
+    each naming the body whose word the slot carries.  The cases walk every route: the
+    fast paths of the immediate words (the small ints), the per-type bodies behind the
+    slots (bool_unary_op of the bool cells, mp_obj_int_unary_op of an int object), the
+    str-or-bytes hash fast path over a qstr word (which calls the qstr corpus's
+    qstr_hash across the call card), and mp_obj_len_maybe's own slot call.
+
+    The two sides keep their cells somewhere of their own, so a case names the answer
+    both ways (the graph's cell word and the native one); a small int is the same word
+    on both sides."""
+    image = tree.load(STARTER)
+    known = rximport.import_into(
+        image, rximport.compile_source(CORPUS / "qstr.c"), module="qstr",
+        only={"qstr_port_boot", "qstr_init", "qstr_str", "qstr_hash", "qstr_compute_hash",
+              "qstr_data", "qstr_len"},
+    )  # fmt: skip
+    rximport.import_into(
+        image, rximport.compile_source(CORPUS / "obj.c"), module="obj",
+        only={"obj_port_boot", "mp_obj_malloc_helper", "mp_obj_is_true", "mp_unary_op",
+              "mp_obj_int_unary_op", "bool_unary_op", "uni_unary_op", "mp_obj_len_maybe",
+              "mp_obj_new_int", "obj_type_int_at", "obj_true_at", "obj_false_at"},
+        known=known,
+    )  # fmt: skip
+    assert image.check() == []
+    programs = compose.programs(image)
+
+    # the cells the running graphs name (the type cells, the ROM objects, the arena and
+    # the qstr pools) as live bytearrays, and every program of the image by its object
+    # id -- the call cards of the dispatch name their bodies that way
+    composer = compose.Composer(image)
+    cells: dict[str, tuple[int, bytearray]] = {}
+    for handle in range(image.handle_count):
+        if not image.live(handle):
+            continue
+        values = composer.fields(handle)
+        if compose.word(values.get("kind")) != "Object" or "object_id" not in values:
+            continue
+        path = image.path(handle)
+        name = path.rsplit(".", 1)[-1]
+        if name.startswith("global_"):
+            cells[name[len("global_") :]] = (
+                int(values["object_id"]),
+                bytearray(bytes.fromhex(values.get("data", ""))),
+            )
+    objects: dict[int, bytes | bytearray] = {identity: data for identity, data in cells.values()}
+    # the programs the call cards name, by their object id (a leaf of the interpreter
+    # needs no binding): the bodies the unary_op slots dispatch to and the qstr face
+    for handle in range(image.handle_count):
+        if not image.live(handle) or image.type_name(handle) != "SemanticOperation":
+            continue
+        callee = composer.fields(handle).get("callee")
+        target = image.resolve(callee) if callee else None
+        if target is not None and image.path(target) in programs:
+            objects[compose.object_id(image, target)] = programs[image.path(target)]
+
+    def address_of(cell: str) -> int:
+        data = cells[cell][1]
+        return ctypes.addressof((ctypes.c_uint8 * len(data)).from_buffer(data))
+
+    with rxf_native.Memory(1 << 16) as memory:
+
+        def call(name: str, words: tuple[int, ...]) -> int:
+            status, value = rxf_native.run(
+                programs[name],
+                struct.pack(f"<{len(words)}Q", *words),
+                memory,
+                objects=objects,
+            )
+            assert status == OK, f"{name}: the host run refused ({status})"
+            return value
+
+        for boot in ("qstr.qstr_port_boot", "qstr.qstr_init", "obj.obj_port_boot"):
+            call(boot, ())
+        graph_true = call("obj.obj_true_at", ())
+        graph_false = call("obj.obj_false_at", ())
+        graph_int_cell = call("obj.obj_type_int_at", ())
+        graph_made = call("obj.mp_obj_malloc_helper", (24, graph_int_cell))
+
+        # the same sequence natively, in one library of the two corpora (obj.c linked
+        # with qstr.c: its qstr_hash the real one, not the abort stub of obj_stubs.c)
+        shared = tmp_path / "libqstrobj.so"
+        subprocess.run(
+            [CLANG, "-O1", "-shared", "-fPIC", "-Wl,--allow-multiple-definition",
+             str(CORPUS / "qstr.c"), str(CORPUS / "obj.c"), str(CORPUS / "obj_stubs.c"),
+             str(NATIVE / "basics.c"), str(NATIVE / "stdlib_memory.c"), "-o", str(shared)],
+            check=True,
+        )  # fmt: skip
+        native = ctypes.CDLL(str(shared))
+        native.qstr_port_boot()
+        native.qstr_init()
+        native.obj_port_boot()
+        for routine, arguments, answer in (
+            ("mp_unary_op", (ctypes.c_int, ctypes.c_uint64), ctypes.c_uint64),
+            ("mp_obj_len_maybe", (ctypes.c_uint64,), ctypes.c_uint64),
+            ("mp_obj_malloc_helper", (ctypes.c_uint64, ctypes.c_void_p), ctypes.c_void_p),
+            ("qstr_hash", (ctypes.c_uint64,), ctypes.c_uint64),
+        ):
+            getattr(native, routine).argtypes = list(arguments)
+            getattr(native, routine).restype = answer
+        for routine in ("obj_type_int_at", "obj_true_at", "obj_false_at"):
+            getattr(native, routine).restype = ctypes.c_void_p
+        native_true = native.obj_true_at() or 0
+        native_false = native.obj_false_at() or 0
+        native_held = native.mp_obj_malloc_helper(24, native.obj_type_int_at() or 0) or 0
+
+        def small(value: int) -> int:
+            return (value << 1 | 1) % U64
+
+        # the op words of py/runtime0.h (LEN is no small-int op -- its route is the
+        # length face of mp_obj_len_maybe, walked at the end of this test)
+        positive, negative, invert, not_, boolean, _length, hashing, absolute, int_maybe = range(9)
+        qstr_word = (2 << 3) | 2  # MP_OBJ_NEW_QSTR(2): the qstr word both sides hash
+        qstr_hashed = small(native.qstr_hash(2))
+        # every case: (label, the op, the argument on both sides, the answer on both sides)
+        cases = (
+            ("MP_UNARY_OP_POSITIVE of -2 is the word itself", positive,
+             (small(-2), small(-2)), (small(-2), small(-2))),
+            ("MP_UNARY_OP_NEGATIVE of 5", negative, (small(5), small(5)), (small(-5), small(-5))),
+            ("MP_UNARY_OP_INVERT of 5", invert, (small(5), small(5)), (small(~5), small(~5))),
+            ("MP_UNARY_OP_NOT of 0 is the true cell", not_, (small(0), small(0)), (graph_true, native_true)),
+            ("MP_UNARY_OP_NOT of 3 is the false cell", not_, (small(3), small(3)), (graph_false, native_false)),
+            ("MP_UNARY_OP_BOOL of 0 is the false cell", boolean, (small(0), small(0)), (graph_false, native_false)),
+            ("MP_UNARY_OP_BOOL of 7 is the true cell", boolean, (small(7), small(7)), (graph_true, native_true)),
+            ("MP_UNARY_OP_HASH of a small int is the word itself", hashing,
+             (small(7), small(7)), (small(7), small(7))),
+            ("MP_UNARY_OP_ABS of -3", absolute, (small(-3), small(-3)), (small(3), small(3))),
+            ("MP_UNARY_OP_ABS of 4 is the word itself", absolute, (small(4), small(4)), (small(4), small(4))),
+            ("MP_UNARY_OP_INT_MAYBE of a small int is the word itself", int_maybe,
+             (small(9), small(9)), (small(9), small(9))),
+            # the per-type bodies behind the slots the boot wires
+            ("MP_UNARY_OP_BOOL of the true cell routes to bool_unary_op", boolean,
+             (graph_true, native_true), (graph_true, native_true)),
+            ("MP_UNARY_OP_BOOL of the false cell routes to bool_unary_op", boolean,
+             (graph_false, native_false), (graph_false, native_false)),
+            ("MP_UNARY_OP_INT_MAYBE of an int object routes to mp_obj_int_unary_op (the null word)",
+             int_maybe, (graph_made, native_held), (0, 0)),
+            ("MP_UNARY_OP_HASH of a qstr word hashes through the qstr corpus's qstr_hash", hashing,
+             (qstr_word, qstr_word), (qstr_hashed, qstr_hashed)),
+        )
+        for label, op, (graph_arg, native_arg), (graph_want, native_want) in cases:
+            got = call("obj.mp_unary_op", (op, graph_arg))
+            assert got == graph_want, (
+                f"{label}: the imported graph answered {got:#x}, the route's answer is "
+                f"{graph_want:#x}"
+            )
+            want = native.mp_unary_op(op, native_arg)
+            assert want == native_want, (
+                f"{label}: natively it is {want:#x}, the route's answer is {native_want:#x}"
+            )
+        # mp_obj_len_maybe takes the same route: the slot the boot wires answers the
+        # bool body's LEN (no length: the null word both sides)
+        assert call("obj.mp_obj_len_maybe", (graph_true,)) == 0
+        assert native.mp_obj_len_maybe(native_true) == 0
+
+
 def sign_bit(word: int) -> int:
     return (word >> 63) & 1
+
 
 @pytest.mark.parametrize(
     "name",
