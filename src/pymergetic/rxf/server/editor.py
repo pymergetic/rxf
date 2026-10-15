@@ -337,7 +337,7 @@ def _pseudo_blocks(fn: _Fn) -> str:
         [
             _signature(fn, "pseudo"),
             "    # block graph (SemanticGraph of the image):",
-            "    #   see the Netzansicht for its blocks, terminators and callees (the CALL card)",
+            "    #   see the network view for its blocks, terminators and callees (the CALL card)",
         ]
     )
 

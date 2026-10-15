@@ -5,6 +5,10 @@
 <title>RXF inspector</title>
 <link rel="stylesheet" href="/static/ui/ui.css">
 <script src="/static/ui/ui.js" defer></script>
+<!-- the semantic register (docs/21, one vocabulary): handles, paths and kind words in the detail
+     panes carry their meaning (static/ui/highlight.js). No defer: the inline script paints
+     through it as it renders. -->
+<script src="/static/ui/highlight.js"></script>
 <style>
   /* Page layout only — colors, type, and chrome come from /static/ui/ui.css (docs/21). */
   body { display: grid; grid-template-rows: auto auto auto 1fr; height: 100vh; }
@@ -334,21 +338,21 @@ function hexDump(payload) {
   return `
     <div class="note">offset · hex bytes · ASCII — highlighted bytes are reference slots (handles) the type layout declares</div>
     ${payload.truncated ? `<div class="note bad">truncated: ${payload.displayed} of ${payload.size} bytes shown</div>` : ""}
-    <div class="hex-dump">${rows || '<div class="note">empty payload</div>'}</div>`;
+    <div class="hex-dump" data-nohl>${rows || '<div class="note">empty payload</div>'}</div>`;
 }
 
 function renderDetail(d) {
   const f = d.flags, s = f.state, c = d.cell;
   const refs = d.refs.map((r, i) => `<tr>
-      <td>${i}</td><td>${esc(r.kind)}</td>
+      <td>${i}</td><td><span class="m-refkind">${esc(r.kind)}</span></td>
       <td>${r.role === null ? "—" : link(r.role)}</td>
-      <td>${r.index}</td><td>${esc(r.binding)}</td>
+      <td>${r.index}</td><td><span class="m-kind">${esc(r.binding)}</span></td>
       <td>${r.target === null ? `<code>none #${r.target_handle}</code>` : link(r.target)}</td>
     </tr>`).join("");
   const used = d.used_by.map((u) => `<tr><td>${esc(u.how)}</td><td>${link(u.path)}</td></tr>`).join("");
   $("main").innerHTML = `
     <h3>${esc(d.path || "(root)")}
-      <a class="button" href="/editor?path=${encodeURIComponent(d.path || "")}" title="Open this cell in the Editor: edit source, live symbol check, compile + one-delta install, faces, Netzansicht, poke">Edit</a>
+      <a class="button" href="/editor?path=${encodeURIComponent(d.path || "")}" title="Open this cell in the Editor: edit source, live symbol check, compile + one-delta install, faces, network view, poke">Edit</a>
     </h3>
     <table>
       <tr><th>handle</th><td><code>#${d.handle}</code> · index ${d.handle} · generation ${d.generation}</td></tr>
@@ -369,8 +373,8 @@ function renderDetail(d) {
       <table>
         <tr><th>raw</th><td><code>${hex(f.raw)}</code></td></tr>
         <tr><th>kind</th><td>${esc(f.kind)} (${d.kind_value})</td></tr>
-        <tr><th>state</th><td>${esc(s.provenance)} · ${esc(s.disposition)} · ${esc(s.cleanliness)} · ${esc(s.mobility)} <span class="t">raw ${s.value} (${hex(s.value)})</span></td></tr>
-        <tr><th>owner</th><td>${esc(f.owner)}</td></tr>
+        <tr><th>state</th><td><span class="m-kind">${esc(s.provenance)}</span> · <span class="m-kind">${esc(s.disposition)}</span> · <span class="m-kind">${esc(s.cleanliness)}</span> · <span class="m-kind">${esc(s.mobility)}</span> <span class="t">raw ${s.value} (${hex(s.value)})</span></td></tr>
+        <tr><th>owner</th><td><span class="m-kind">${esc(f.owner)}</span></td></tr>
       </table>
     </div></div>
     <div class="card"><h3>Cell</h3><div class="body">
@@ -389,6 +393,7 @@ function renderDetail(d) {
       <table>${used ? `<tr><th>how</th><th>object</th></tr>${used}` : '<tr><td>none</td></tr>'}</table>
       ${d.used_by_count > d.used_by.length ? `<p class="note">... ${d.used_by_count - d.used_by.length} more</p>` : ""}
     </div></div>`;
+  RXFHighlight.refresh($("main")); // handles, paths and the prose around them carry their meaning
 }
 
 async function show(path) {
@@ -397,6 +402,7 @@ async function show(path) {
     d = await detail(path);
   } catch (error) {
     $("main").innerHTML = `<div class="note bad">Could not load ${esc(path || "(root)")}\n${esc(error.message)}</div>`;
+    RXFHighlight.refresh($("main"));
     return;
   }
   selected = path;
@@ -426,6 +432,7 @@ $("q").addEventListener("input", async (e) => {
 (async () => {
   const info = await get("/api/info");
   $("info").innerHTML = `${info.objects} objects, ${info.issue_count ? `<span class="bad">${info.issue_count} problems</span>` : "links"}<br><code>${info.digest.slice(0, 16)}</code>`;
+  RXFHighlight.refresh($("info"));
   const root = await childrenOf("");
   for (const c of root.items) $("tree").append(node(c));
   loadMemory();
