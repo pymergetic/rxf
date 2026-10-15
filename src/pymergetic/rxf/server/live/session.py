@@ -13,6 +13,9 @@ stage buffer, the base digest a delta is compiled against, the request memory of
 session owns ONE transaction gate (`transaction`): every operation that takes the channel, the
 feed reads of `GET /api/live` and the editor's compile / install / poke alike, runs inside it.
 Two of them never interleave inside one another; the caller waits (or skips by not entering).
+The world of the session carries this gate with it (`console/world.py`): every request that
+enters the channel through a world that attaches at the link — the console's programs and the
+commands of `rxf live` — enters the same transaction.
 
 `rxf serve` runs one behind its inspector (`server/app.py` holds it for the lifetime of the app),
 and the host of `rxf live`'s channel (the harness, a rig) opens one at the link it serves — the
@@ -33,10 +36,10 @@ from pymergetic.rxf.console import world
 from pymergetic.rxf.live.client import Client
 from pymergetic.rxf.live.front import Front
 
-# The registration is a check-and-set on the one registry (`world.register` calls it), so it is
-# taken here: two attaches that race cannot both pass the check and end up registered at one
-# link. `Session.open` is where a runner attaches (server/live/runner.py reserves through it).
-_LINKS = threading.Lock()
+# The registration is a check-and-set on the one registry, and `console/world.py` takes it
+# atomically for every caller — a `Session.open` here and a direct `world.register` race on the
+# same gate. `Session.open` is where a runner attaches (server/live/runner.py reserves through
+# it).
 
 
 class Session:
@@ -44,9 +47,9 @@ class Session:
 
     def __init__(self, spec: str, client: Client, front: Front) -> None:
         self.spec = spec
-        self._world = world.World(client, front)
-        self._open = False
         self._gate = threading.RLock()
+        self._world = world.World(client, front, transaction=self.transaction)
+        self._open = False
 
     @property
     def world(self) -> world.World:
@@ -71,13 +74,12 @@ class Session:
         """Register the world at its link: `rxf console --link=SPEC` attaches it from here on.
 
         Open when it is open is the same session, not a second registration. A link whose image
-        already runs answers `WorldIsRegistered` and keeps the runner that is there — atomically,
-        so racing attaches cannot both take one link.
+        already runs answers `WorldIsRegistered` and keeps the runner that is there — atomically
+        in the one registry (`console/world.py`), so racing attaches cannot both take one link.
         """
         if self._open:
             return self
-        with _LINKS:
-            world.register(self.spec, self._build)
+        world.register(self.spec, self._build)
         atexit.register(self.close)  # a runner that ends without closing leaves nothing behind
         self._open = True
         return self
@@ -91,11 +93,11 @@ class Session:
             return
         self._open = False
         atexit.unregister(self.close)
-        with _LINKS:
-            world.forget(self.spec)
+        world.forget(self.spec)
 
     def _build(self, spec: str, timeout: float) -> world.World:
-        """The world of the image that runs here; `attach` calls this once per console."""
+        """The world of the image that runs here; `attach` calls this once per console. It
+        carries this session's transaction (`console/world.py`), so its requests enter the gate."""
         return self._world
 
     def __enter__(self) -> Self:

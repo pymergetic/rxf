@@ -17,10 +17,11 @@ import os
 import struct
 import subprocess
 import sys
-from collections.abc import Iterator
+import threading
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import NamedTuple, TextIO
+from typing import Any, NamedTuple, TextIO
 
 import graph_header
 import link
@@ -55,6 +56,12 @@ program triple(x) {
 TWICE = """\
 program twice(x) {
     return x + x;
+}
+"""
+
+QUAD = """\
+program quad(x) {
+    return x + x + x + x;
 }
 """
 
@@ -416,6 +423,52 @@ def test_a_second_world_at_the_same_link_is_refused_not_stolen(solo: Seat):
     second.close()
 
 
+def test_two_racing_registrations_produce_exactly_one_world(solo: Seat):
+    """The check-and-set of the one registry is atomic for every caller (`console/world.py`):
+    two registrations racing for one free link — a direct `world.register` against another, or
+    against the `open` of a `Session` — cannot both pass the check and take it. Exactly one
+    world stands at the link, the other answers `WorldIsRegistered`, and nothing is stolen: what
+    `attach` finds is the winner's world, round after round."""
+    for round_number in range(12):  # the window is small: race it again and again
+        spec = f"shm:register-race-{round_number}"
+        session = Session(spec, solo.channel.client, solo.front)
+        made = [world.World(solo.channel.client, solo.front) for _ in range(2)]
+        barrier = threading.Barrier(2)
+        outcomes: dict[str, object] = {}
+
+        def run(tag: str, work: Callable[[], world.World]) -> None:
+            barrier.wait(timeout=60)
+            try:
+                outcomes[tag] = work()
+            except BaseException as problem:  # noqa: BLE001 - the race outcome is what is pinned
+                outcomes[tag] = problem
+
+        def take(which: int) -> world.World:
+            world.register(spec, lambda name, timeout: made[which])
+            return made[which]
+
+        if round_number % 2 == 0:  # the named race: a direct register against a Session.open
+            works = [("session", lambda: session.open().world), ("direct", lambda: take(0))]
+        else:  # and the plain one: two direct registers
+            works = [("one", lambda: take(0)), ("two", lambda: take(1))]
+
+        racers = [threading.Thread(target=run, args=(tag, work)) for tag, work in works]
+        for racer in racers:
+            racer.start()
+        for racer in racers:
+            racer.join(timeout=60)
+            assert not racer.is_alive(), "a registration never finished"
+
+        worlds = [o for o in outcomes.values() if isinstance(o, world.World)]
+        refused = [o for o in outcomes.values() if isinstance(o, world.WorldIsRegistered)]
+        assert len(worlds) == 1, outcomes
+        assert len(refused) == 1, outcomes
+        assert world.attach(spec) is worlds[0]
+        session.close()
+        world.forget(spec)
+        assert world.registered(spec) is False
+
+
 def test_nothing_is_left_registered_when_a_runner_ends_without_closing():
     """What runs the image takes its registration with it even when it ends without closing: no
     process ends with a world still registered at its link (the exit hook of the session)."""
@@ -492,3 +545,133 @@ def test_the_frames_face_uses_the_wire_when_no_runner_runs_here(
     assert world.registered(name) is False
     assert main(["live", "digest", name]) == 2
     assert "rxf:" in capsys.readouterr().err
+
+
+# ---- one gate for the traffic of every face: the console, the app and `rxf live` serialize --------
+
+
+def test_a_console_operation_waits_for_the_transaction_an_app_operation_holds(solo: Seat):
+    """A console operation and an app mutation on one image serialize at one gate. The app side
+    is the shape of `server/app.py`'s install route: compile-then-install inside one
+    `Session.transaction()`. While that transaction is in flight the console's program does not
+    run — not between the app's compile and its install — and once it is over the console's
+    program runs, and BOTH mutations are intact: two Functions of the image that answer."""
+    booted(solo)
+    with Session("shm:one-gate", solo.channel.client, solo.front) as session:
+        attached = world.attach("shm:one-gate")
+        console = Console(attached.front, io.StringIO())
+        holding = threading.Event()
+        released = threading.Event()
+        done = threading.Event()
+        answered: dict[str, Any] = {}
+        installed: dict[str, Any] = {}
+
+        def app_operation() -> None:
+            with session.transaction():  # one channel transaction at a time (session.py)
+                verdict = attached.front.compile(TWICE.encode())
+                if verdict.ok:
+                    attached.front.install("twice", verdict.words, TWICE.encode())
+                installed["verdict"] = verdict
+                holding.set()
+                released.wait(timeout=300)
+
+        def console_operation() -> None:
+            if holding.wait(timeout=300):
+                answered["outcome"] = console.submit(QUAD)
+                done.set()
+
+        workers = [
+            threading.Thread(target=app_operation),
+            threading.Thread(target=console_operation),
+        ]
+        for worker in workers:
+            worker.start()
+        assert holding.wait(timeout=300)
+        assert not done.wait(2), "a console operation landed inside the app's transaction"
+        released.set()
+        assert done.wait(300), "the console operation never ran once the app was done"
+        for worker in workers:
+            worker.join(timeout=300)
+            assert not worker.is_alive()
+
+        assert installed["verdict"].ok
+        assert answered["outcome"]["ok"] is True
+        assert answered["outcome"]["path"] == f"{MODULE}.quad"
+        assert call(solo, f"{MODULE}.twice", 7) == (0, 14)
+        assert call(solo, f"{MODULE}.quad", 7) == (0, 28)
+
+
+def test_two_console_operations_at_one_world_serialize_as_two_intact_installs(solo: Seat):
+    """Two console operations fired at the same instant (two terminals on one link) serialize at
+    the same gate: both land as intact commits — no install compiles against the other's tail
+    and the image refuses nothing mid-race — and both Functions run afterwards."""
+    booted(solo)
+    with Session("shm:console-race", solo.channel.client, solo.front) as session:
+        attached = world.attach("shm:console-race")
+        before = attached.client.hello()
+        barrier = threading.Barrier(2)
+        answers: list[dict[str, Any]] = []
+
+        def submit(source: str) -> None:
+            barrier.wait(timeout=60)
+            answers.append(Console(attached.front, io.StringIO()).submit(source))
+
+        racers = [
+            threading.Thread(target=submit, args=(source,)) for source in (TWICE, QUAD)
+        ]
+        for racer in racers:
+            racer.start()
+        for racer in racers:
+            racer.join(timeout=300)
+            assert not racer.is_alive(), "a console operation never finished"
+
+        assert len(answers) == 2, answers
+        for answer in answers:
+            assert answer["ok"] is True, answer
+        assert {answer["path"] for answer in answers} == {
+            f"{MODULE}.twice",
+            f"{MODULE}.quad",
+        }
+        hello = attached.client.hello()
+        assert hello.rejects == before.rejects, "the image refused a delta mid-race"
+        assert hello.commits >= before.commits + 2
+        assert call(solo, f"{MODULE}.twice", 7) == (0, 14)
+        assert call(solo, f"{MODULE}.quad", 7) == (0, 28)
+
+
+def test_the_frames_face_waits_for_the_transaction_too(
+    solo: Seat, capsys: pytest.CaptureFixture[str]
+):
+    """`rxf live` commands speak on the channel of the world a runner registered — inside the
+    same gate every other face holds. While one operation is in flight a command waits at it
+    instead of landing between its requests (a torn stage buffer, an emit read torn in half);
+    when the operation is over the command answers."""
+    with Session("shm:frames-gate", solo.channel.client, solo.front) as session:
+        holding = threading.Event()
+        released = threading.Event()
+        done = threading.Event()
+        status: list[int] = []
+
+        def in_flight() -> None:
+            with session.transaction():  # one operation on the channel, not over yet
+                holding.set()
+                released.wait(timeout=300)
+
+        def command() -> None:
+            if holding.wait(timeout=300):
+                status.append(main(["live", "digest", "shm:frames-gate"]))
+                done.set()
+
+        workers = [threading.Thread(target=in_flight), threading.Thread(target=command)]
+        for worker in workers:
+            worker.start()
+        assert holding.wait(timeout=300)
+        assert not done.wait(2), "an `rxf live` command landed inside a running operation"
+        released.set()
+        assert done.wait(300), "the command never answered once the operation was over"
+        for worker in workers:
+            worker.join(timeout=300)
+            assert not worker.is_alive()
+
+        assert status == [0]
+        assert capsys.readouterr().out.strip() == solo.channel.loaded().digest()
