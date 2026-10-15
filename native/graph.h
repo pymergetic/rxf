@@ -24,7 +24,7 @@
  * Edge: target, n, then n copies of (operand, destination slot, width). All
  * sources are read before any destination is written.
  *
- *   CALL      leaf, n, out slot, out width, status slot, n operands
+ *   CALL      callee, n, out slot, out width, status slot, [program operand,] n operands
  *   MOVE      dst, width, src
  *   MAP       dst, width, src, offset, n, n pairs (from, to) of status codes
  *   FIELD     dst, width, src, offset, size
@@ -37,12 +37,47 @@
  *   SWITCH    condition, n, n tags, n + 1 edges (the last is the default)
  *   RETURN    src, width: written to the output (at least 8 bytes)
  *   REFUSE    src: the status the run returns
+ *
+ * A CALL names its callee one of two ways, and both are the same call step:
+ *
+ *   - a leaf id (1..48, the function table of the context), then n operands; or
+ *   - RXF_GRAPH_CALL (word 1 is 0: there is no leaf 0), then one program operand
+ *     (OBJECT: a = the object id the callee's program words are bound at, b = 0)
+ *     and n argument operands.  The callee is a program of its own: its parameters
+ *     are the call's arguments as words of the caller's frame (a scalar one word, a
+ *     handle its three words -- the shapes run-entry ARGS takes), bound into the
+ *     callee's parameter slots when the call is made, and its locals live in its
+ *     own frame words of the run cell.  Nothing but words and handles crosses the
+ *     boundary: no raw pointer outlives a step (S7, docs/20).
+ *
+ * The run cell carries the frames: one RXF_GRAPH_FRAME region per level of depth,
+ * at most RXF_GRAPH_CALL_DEPTH of them (the depth budget -- a call past it is
+ * refused RXF_REFUSE_CALL_DEPTH, the Refuse-on-budget shape).  The run's
+ * interpreter iterates over a bounded stack of frame links -- (return program,
+ * return word offset, the caller's out and status slots) -- so depth costs words
+ * of the cell, never native stack.  A call boundary is between two instructions,
+ * so it is a safe point like any other (S7, S11: mp_handle_pending lowers here).
+ *
+ * The callee's ending answers the call the way a leaf answers one: RETURN copies
+ * its out word to the caller-named destination word (a handle returns as its three
+ * words in a wide out slot, or the caller passes an Object and the callee writes
+ * through it) and REFUSE gives the call its status; both write the status to the
+ * call's status slot and the caller goes on after the call step.  A refusal with
+ * no status slot to catch it ends the run with it.  At depth 0 (no call above)
+ * RETURN writes the run's output and ends the run, as it always did.
  */
 
 #define RXF_GRAPH_MAGIC 0x31475852ULL
 #define RXF_GRAPH_FRAME 1024U
 #define RXF_GRAPH_COPY 256U
 #define RXF_GRAPH_NONE (~0ULL)
+/* Word 1 of a CALL that names a program rather than a leaf: 0, the id no leaf has. */
+#define RXF_GRAPH_CALL 0ULL
+/* The depth budget of a run: the run cell carries one RXF_GRAPH_FRAME region per level
+ * of nesting, at most this many, and a call past the last level is refused
+ * RXF_REFUSE_CALL_DEPTH. The budget bounds the frame words a run may spend and the
+ * frame links the interpreter iterates over; depth never costs native stack. */
+#define RXF_GRAPH_CALL_DEPTH 8U
 
 /* The ids of the capabilities of the runtime context (words 6 and 7 of it: how many, and the table
  * of id, generation, address). */
@@ -167,6 +202,8 @@ enum rxf_graph_leaf {
 
 /* The refusal of the compiler (native/compile.c) for what it leaves to the interpreter. */
 #define RXF_REFUSE_UNSUPPORTED 16U
+/* The refusal of a run whose call depth is spent (the depth budget of RXF_GRAPH_CALL_DEPTH). */
+#define RXF_REFUSE_CALL_DEPTH 17U
 
 /* How a leaf is called: its parameters after the context, as letters. */
 enum rxf_shape {
