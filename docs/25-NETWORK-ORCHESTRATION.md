@@ -7,7 +7,8 @@
 > link`, `ethtool`, udev) and the control plane (`ip`/`ifconfig` as adapters, netplan as
 > authored desired state), L3 for IPv4 **and** IPv6, sockets with readiness and deadlines, the
 > filter model (tables, chains, sets) and its control face, TLS and WireGuard as cards over one
-> crypto card, and the SLIP line complete.
+> crypto card, the transport modules (http, ftp, … client and server over one codec, TLS as an
+> optional wrapper), and the SLIP line complete.
 
 ## 1. Overview
 
@@ -156,6 +157,21 @@ class Interest(Flag):
 class Readiness:                         # the wake payload — a channel frame (docs/10)
     handle: Handle
     ready: Interest
+
+# ---- transports (§12): one stream contract, protocol modules on top ----
+
+@dataclass(frozen=True)
+class Stream:                            # what a protocol sees: a socket, wrapped or not
+    handle: Handle                       # the socket behind it (generation-checked)
+    wrapped: bool                        # TLS in between or not — the protocol cannot tell
+    deadline: int | None
+
+@dataclass(frozen=True)
+class Listener:                          # a server's durable config (§14)
+    path: str                            # net/transport/http/0
+    bind: Endpoint
+    tls: TlsConfig | None                # one argument turns TLS on
+    backlog: int
 
 # ---- filter model (nftables/PF-shaped: the shape is the interface, the code is ours) ----
 
@@ -373,7 +389,7 @@ here it is cells and wakes, under the same honesty rules:
   device can do, and setting a knob it cannot is refused `NotSupported` **by name** — never a
   silent no-op that reports success.
 - **VLANs are cells.** 802.1Q tagging is a `Vlan` over a device or bridge port; QinQ and exotic
-  tagging stay refused (§16).
+  tagging stay refused (§17).
 - **Hardware queues stay honest to the seat.** RSS queues and IRQ steering map to what the fill
   exposes; a single-queue seat says so instead of pretending.
 
@@ -444,7 +460,7 @@ port.add(Interval(23, 23), Interval(3128, 3130))     # interval sets are first c
 inp.rule(matches=[Match("tcp", "in", port.path)], verdict=Verdict.DROP)
 ```
 
-- **Stateful**: `Conntrack` is TRANSIENT state (§13); `Match("ct", …)` sees it, and it never
+- **Stateful**: `Conntrack` is TRANSIENT state (§14); `Match("ct", …)` sees it, and it never
   appears in a successor.
 - **NAT** is `ChainType.NAT` at the SNAT/DNAT hooks (`prerouting`/`postrouting`); masquerade is
   a rule, not a mode.
@@ -486,7 +502,67 @@ the stack's provenance set (mbedtls, Apache-2.0, the same body `io.fetch` cites)
 through `rximport` like the lwIP card — the imported graph is the defining lang, the vendored C
 is the cited source of record.
 
-## 12. The SLIP line, complete
+## 12. Transports: protocol modules over one stream, TLS optional
+
+The transport layer is Python-first code over `cap.net.socket` streams: one module per protocol,
+client and server as faces of **one codec**, and an optional TLS wrapper no protocol knows
+about. Adding a protocol is one submodule; adding TLS to any protocol is one constructor
+argument. The goal is that a protocol is cheap enough to add that we never again debate whether
+to take one (http, ftp today; smtp, mqtt, and friends are the same three files later).
+
+```text
+pymergetic/rxf/net/transport/
+    stream.py       the byte-stream contract: read, write, wait, close
+    framing.py      line and length-prefixed helpers over a stream (optional)
+    http/
+        codec.py    request/response parse and write — ONE parser, both faces
+        client.py   get, post, … over a stream
+        server.py   the listener: route table -> handler run
+    ftp/
+        codec.py    the control channel
+        client.py   incl. the data connection it opens itself
+        server.py   incl. PASV/PORT data connections
+    ...             smtp, mqtt, …: each the same three files
+```
+
+- **One stream contract.** `Stream` wraps a socket handle (§5): `read`/`write`/`wait`/`close`
+  with deadlines as deadlines. TLS is a wrapper over the *same* contract
+  (`net.tls.wrap(stream, TlsConfig)`, §11) — protocol code cannot tell whether it is wrapped.
+  That is the whole optional-TLS mechanism: a protocol takes `tls: TlsConfig | None` at
+  construction and never learns the difference.
+- **Client and server share the codec.** One parser per protocol (one defining lang, the house
+  rule); client and server modules are faces over it. Two parsers that must agree is the first
+  step toward two stacks.
+- **Servers are run-cell machines.** A listener is durable config (§14); each accepted
+  connection is a run cell (docs/23 §4.5), handlers park on `wait(READ)` and wake as readiness
+  arrives, backpressure is channel frames (docs/10). A handler is an ordinary Python function —
+  the same strand the guest stdlib runs (docs/23 §4.3) — so `import net.transport.http` works in
+  a guest program and on the host alike, and the client modules are what scripts and
+  `io.fetch`-style callers reuse.
+- **Streams on demand.** FTP's data connection (PASV/PORT) is why the mechanism creates streams
+  at runtime: the transport contract includes `connect()`, and a passive data socket is a
+  listener the protocol opens and closes itself. The generic mechanism has to cover that, or
+  ftp is where we bolt things on.
+- **Protocol errors are typed.** Malformed messages are refused by name (`MalformedMessage`) on
+  top of the §15 set — a bad request is a refusal, never a wrong parse half-applied.
+
+```python
+import net.transport.http as http
+from net.tls import TlsConfig
+
+app = http.server(routes={...})        # handlers are run-cells (docs/23 §4.5)
+app.listen(("::", 8443), tls=TlsConfig(role=Role.SERVER, ...))   # TLS: one argument
+
+body = http.client.get("https://example.net/", tls=TlsConfig(role=Role.CLIENT, ...))
+```
+
+**microdot and friends.** A micro web framework is an app layer, not a transport: its seam is
+`http/server.py`'s route face. When we want one, we assimilate it as an adapter over that seam —
+its own provenance and citations (docs/22), its own file, no fork into our codec and no second
+HTTP server beside ours. Until then the route table is the app surface, and the framework
+question is an open question (§19).
+
+## 13. The SLIP line, complete
 
 The byte line of docs/23 §4.4, fully specified:
 
@@ -501,7 +577,7 @@ The byte line of docs/23 §4.4, fully specified:
 - The guest side deframes into `netif->input` (the i3 callback the boot wires, docs/23 §4.4);
   `sys_now` stays the edge timer, a mailbox a channel frame, a semaphore a park/wake pair.
 
-## 13. State classification and buffers
+## 14. State classification and buffers
 
 - **Durable** (survives successors): device config, addresses, routes, listeners (the service is
   config), filter tables/chains/rules/sets, TLS configs, WireGuard devices and peers, secrets.
@@ -511,7 +587,7 @@ The byte line of docs/23 §4.4, fully specified:
 - **Buffers**: frames and payloads are heap cells; DMA buffers are pinned and immobile;
   compaction never moves them; pbufs are arena cells (docs/23 risk 4).
 
-## 14. Refusals providers map to
+## 15. Refusals providers map to
 
 `WouldBlock · Timeout · StaleHandle · NotConnected · ConnectionRefused · ConnectionReset ·
 AddressInUse · NoRoute · LinkDown · MessageTooLong · NetUnreachable · HostUnreachable ·
@@ -519,7 +595,7 @@ PermissionDenied · NotSupported · InvalidEndpoint`
 
 Providers map their errors to this set; the body never sees `errno` or a host TLS error code.
 
-## 15. Seats
+## 16. Seats
 
 Fills may differ per seat (the POSIX host binds `cap.net.socket` directly; metal/firmware seats
 compose over `cap.net.frame` with the lwIP card and the SLIP line; the browser seat rides its
@@ -527,14 +603,14 @@ bridge), but the module and the Python/C face do not, and **one contract suite r
 seat**. A missing fill is a stub that fails the prove, not a dark port. No seat gets a second
 card so it can skip the first.
 
-## 16. Honest refusals (first build)
+## 17. Honest refusals (first build)
 
 - edge-triggered readiness (level only) · VJ header compression · V4-mapped v6 sockets ·
   TLS 1.2 and renegotiation · Zero-copy `splice`/`sendfile` · RAW sockets without
   `cap.net.raw` · private-key export from `Secret` cells by default ·
   `QUEUE` without a bound consumer program (the packet is dropped, not queued forever)
 
-## 17. NetBSD rump: a provider, never the in-image stack
+## 18. NetBSD rump: a provider, never the in-image stack
 
 Rump (unmodified NetBSD drivers as libraries over `rumpuser`) is genuinely attractive — a full
 BSD stack, and PF is the firewall model we just shaped ourselves around. It still does not
@@ -556,7 +632,7 @@ So: no rump discussion needed for the build. It is listed here as the named alte
 fill; if a hosted seat ever wants it, it fills `cap.net.socket`, passes the same suite, and the
 body never learns which provider answered.
 
-## 18. Open questions
+## 19. Open questions
 
 - WireGuard source of record: boringtun (BSD-3, RS) as pinned import vs. protocol core composed
   over `cap.crypto` with boringtun as differential reference only. The license gate (docs/22)
@@ -571,3 +647,7 @@ body never learns which provider answered.
 - `QUEUE` interface width: one consumers' program per chain or per table.
 - Filter rule vs. socket-reuse conflict (TPROXY-like redirection): needs its own delta-level
   design note before it is more than a named refusal.
+- The micro web framework seam: when the route table in `http/server.py` stops being enough,
+  microdot (or similar) is assimilated as one adapter module over that seam with its own
+  provenance (docs/22) — the decision to make now is only the route-face shape it would need,
+  so the seam is cheap to adapt to when the day comes.
