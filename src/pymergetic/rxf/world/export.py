@@ -20,10 +20,10 @@ Top level::
       "voids":    [ Void, ... ],       # 0xA5 poison runs: rubble pits / void tiles
       "edges":    [ Edge, ... ],       # cables: handle references between cells
       "streets":  [ Street, ... ],     # the street grid in the gaps between the plots
-      "ring":     { ... },             # the ready-ring as a ring road (geometry only)
-      "trams":    [ Tram, ... ],       # run cells as units on the ring road
+      "ring":     { ... },             # the ready-ring as a ring road, with its run data
+      "trams":    [ Tram, ... ],       # the runs in ring slots as units on the ring road
       "carriers": [],                  # SEAM: carrier lanes (SMP evidence, later stage)
-      "metrics":  { ... },             # HUD numbers; null where no live data exists yet
+      "metrics":  { ... },             # HUD numbers; null where the image carries no such word
       "counts":   { ... }              # totals for the HUD and the tests
     }
 
@@ -98,8 +98,9 @@ Cell (a building)::
       "footprint": 1.1, "height": 1.7, # world units
       "state": {"provenance": "Image", "disposition": "Retain",
                 "cleanliness": "Clean", "mobility": "Movable"},  # the state word of ground.h
+      "run_state": "RUNNING",          # the S1 run state word (below), or null
       "claim": null,                   # SEAM: live claim window (resolve/release), later stage
-      "checksum": null,                # SEAM: run-cell checksum status, later stage
+      "checksum": "ok",                # the S1 run checksum verdict (below), or null
       "poisoned": false,               # a 0xA5 run of POISON_RUN bytes or more inside this cell
       "forward": 0,                    # C_FORWARD compaction record (0 = none)
       "index": 0, "ref_count": 2,      # the header words the walk decoded
@@ -128,6 +129,25 @@ S1 (docs/20) plus the checksum: ``concurrent`` (atomics), ``handoff`` (evidence)
 to the real ``smp_run_payload``. A smaller payload, or any other cell, is one ``payload`` band.
 A poisoned cell's payload is one ``poison`` band (rubble, void). ``refrows`` are the reference rows
 and ``pad`` the alignment padding. ``ANATOMY_ROLES`` pins the vocabulary.
+
+Run words (docs/20, S1 — read from the cell, never guessed)
+-----------------------------------------------------------
+
+A run cell's payload is ``smp_run_payload`` (docs/20, S1): the concurrent words first (the run's
+``state`` word is the first four bytes), the handoff metadata, the program state, and the FNV-1a
+checksum over the program state (prime ``0x100000001B3``, basis ``0xcbf29ce484222325`` — the
+checksum the dispatcher rewrites at every seal). The exporter reads those words **only** when a
+tower's payload is exactly ``smp_run_payload`` (``RUN_WORDS_BYTES``): then the state word at
+payload offset 0 and the checksum at ``RUN_CHECKSUM_AT`` over ``[RUN_PROGRAM_AT, RUN_CHECKSUM_AT)``
+are the real words of S1, and
+
+* ``cell.run_state`` is the state word named (``FREE/READY/RUNNING/PARKED/TERMINAL``; a word the
+  state machine does not name stays null — the image carried a number, not a state);
+* ``cell.checksum`` is the checksum verdict (``"ok"`` when the stored word equals the FNV-1a the
+  exporter recomputes over the program state, ``"bad"`` otherwise).
+
+Any other payload shape carries no run words this document may name: both fields stay null, and no
+number is invented to fill their place.
 
 Void (a poison tile — the vacated tail of compaction reads 0xA5 until it is reused)::
 
@@ -165,11 +185,14 @@ the street network between the two buildings, and enters the target's lot — th
 over the streets (``_rails``), corner-cut like a routed trace. A cable never crosses a building
 volume that is not its own endpoint.
 
-Ring and trams (the ready-ring of the execution policy, v1 geometry only)::
+Ring and trams (the ready-ring of the execution policy, docs/23 §4.5 — the tram metaphor)
+-----------------------------------------------------------------------------------------
 
-    "ring": {"center": {"x": 69.4, "z": 9.0}, "radius": 84.2, "lanes": 1, "state": null,
+    "ring": {"center": {"x": 69.4, "z": 9.0}, "radius": 84.2, "lanes": 1,
+             "state": {"FREE": 0, "READY": 1, "RUNNING": 1, "PARKED": 1, "TERMINAL": 0},
+             "occupied": 2,
              "path": [{"x": -8, "z": -8}, {"x": 88, "z": -8}, ...]}   # closed ring road
-    "trams": [{"id": "t0", "run": "h30", "angle": 0.785398, "state": null}]
+    "trams": [{"id": "t0", "run": "h30", "angle": 0.785398, "state": "RUNNING"}]
 
 ``ring.path`` is the ring road as a closed path hugging the city: the plots' bounds at
 ``RING_MARGIN``, corners chamfered at 45°, and — where the road would cut through a building's
@@ -179,22 +202,33 @@ volume. What the scene draws and what the tram units ride (``angle`` is the tram
 loop) is that path. The streets carry the same rule: avenues through the free bands, crosses and
 lanes in the gaps between the footprints, branches from every district out to the network, and
 every cable's ``route`` runs along those streets from its source's lot to its target's lot.
-``ring.state`` and every ``tram.state`` are SEAMs: the live READY/RUNNING/PARKED state of the
-ready-ring is runtime evidence (docs/20, S3), not image data, and arrives in a later stage.
-Each run cell (family "tower") places one tram on the ring; the scene drives the markers around
-the ring as a deterministic visual — the run state they carry is the seam, not the motion.
+
+The tram units are the metaphor of docs/23 §4.5, and they are drawn from the ring data the image
+really carries (the S1 run words, above): **a tram is one run cell sitting in a ring slot** — a run
+whose state word is ``READY`` or ``RUNNING`` — and a ``PARKED`` run is off the road (a building's
+quiet floor, not a circulating tram). ``ring.occupied`` counts exactly those slots and the tram
+list is that count, one unit per slot; ``ring.state`` is the census of the run state words the
+image carries (null when it carries none). ``tram.state`` is the run's own state word. The world
+never draws a run on the road that the image does not put in a ring slot, and never draws a second
+queue the machine does not have.
 
 Metrics (the top resource bar of the HUD)::
 
     {
       "runs": 4,             # run cells of the image — available, wired
-      "carriers": null,      # SEAM: SMP carrier count
-      "steps_per_s": null,   # SEAM: live step rate
-      "claim_spins": null,   # SEAM: compactor claim spins (docs/20, S7)
-      "moved_cells": null,   # SEAM: compaction evidence (docs/20, S8)
-      "refusals": null,      # SEAM: state_refused counts (docs/20, S3)
-      "checksum_status": null  # SEAM: run-cell checksum verdicts
+      "carriers": null,      # SEAM: SMP carrier count (runtime evidence, no cell carries it)
+      "steps_per_s": null,   # SEAM: live step rate (runtime evidence)
+      "claim_spins": null,   # SEAM: compactor claim spins (docs/20, S7; a world counter)
+      "moved_cells": 0,      # cells carrying a C_FORWARD compaction record (docs/20, S8)
+      "refusals": null,      # SEAM: state_refused counts (docs/20, S3; a world counter)
+      "checksum_status": "3 ok"  # the S1 checksum verdicts ("3 ok", "2 ok · 1 bad"), or null
     }
+
+A number appears only where the image really carries it: ``moved_cells`` counts the C_FORWARD
+records the cell headers carry (a compaction's own trace), ``checksum_status`` sums the run
+checksum verdicts of the S1 words. The counters a run of the machine keeps outside any cell
+(``state_refused``, claim spins, the step rate, the carrier count) are runtime evidence the
+exporter cannot read from an image — those slots stay null, honestly empty.
 
 Determinism
 ===========
@@ -211,11 +245,12 @@ What this exporter reads (all read-only): ``Inspector.header``, ``Inspector.cell
 
 from __future__ import annotations
 
+import bisect
 import enum
 import json
 import math
 import struct
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import Any
 
 from pymergetic.rxf.core.arena import HANDLE_NONE, KIND_BLOCK, KIND_DEAD
@@ -284,6 +319,16 @@ RUN_PAYLOAD_REGIONS = (
     ("checksum", 8),
 )
 
+# The run words of docs/20 S1, read only at the exact smp_run_payload shape (the region weights
+# above are its real byte counts): the state word is the payload's first four bytes, the checksum
+# its last eight, and it covers the program state in between. The state machine's names (S1) and
+# the checksum's FNV-1a (S8: prime 0x100000001B3, basis 0xcbf29ce484222325).
+RUN_WORDS_BYTES = sum(weight for _, weight in RUN_PAYLOAD_REGIONS)
+RUN_STATES = ("FREE", "READY", "RUNNING", "PARKED", "TERMINAL")
+ON_ROAD = ("READY", "RUNNING")  # docs/23 §4.5: a tram is one run cell in a ring slot
+FNV_PRIME = 0x100000001B3
+FNV_BASIS = 0xCBF29CE484222325
+
 ANATOMY_ROLES = tuple(word for word, _ in HEADER_WORDS) + (
     "payload",
     "concurrent",
@@ -344,7 +389,7 @@ def _districts(header: Mapping[str, Any], occupied: Iterable[int]) -> list[dict[
     cell from `occupied` is a gutter between the blocks (and an all-gutter row shrinks): the grid
     tightens around content instead of stretching empty arena across the map."""
     body = int(header["body_size"])
-    offsets = tuple(occupied)
+    offsets = sorted(occupied)
     chunks: list[tuple[str, str, int, int]] = [
         ("header", "header", 0, int(header["header_size"])),
         ("index", "index", int(header["index_off"]), int(header["cells_off"])),
@@ -358,7 +403,8 @@ def _districts(header: Mapping[str, Any], occupied: Iterable[int]) -> list[dict[
         index += 1
 
     def holds(start: int, end: int) -> bool:
-        return any(start <= offset < end for offset in offsets)
+        at = bisect.bisect_left(offsets, start)
+        return at < len(offsets) and offsets[at] < end
 
     cols = DISTRICT_COLS
     out: list[dict[str, Any]] = []
@@ -392,9 +438,11 @@ def _districts(header: Mapping[str, Any], occupied: Iterable[int]) -> list[dict[
 
 
 def _region_of(regions: Sequence[dict[str, Any]], offset: int) -> dict[str, Any]:
-    for region in regions:
-        if int(region["start"]) <= offset < int(region["end"]):
-            return region
+    """The district an offset starts in. The bands are contiguous and sorted by start, so one
+    lookup is a binary search — however many districts the arena grows into."""
+    index = bisect.bisect_right(regions, offset, key=lambda region: int(region["start"])) - 1
+    if index >= 0 and offset < int(regions[index]["end"]):
+        return regions[index]
     return regions[-1]
 
 
@@ -435,6 +483,39 @@ def _bulk(family: str, payload_size: int) -> tuple[float, float]:
     if family == "rubble":
         return _round(1.5 + 0.5 * mass), _round(0.4 + 0.3 * mass)
     return _round(1.3 + 0.9 * mass), _round(1.8 + 5.0 * mass)
+
+
+# ---- run words: the S1 state word and checksum of a real run-cell payload -------------------------
+
+
+def fnv1a(data: bytes) -> int:
+    """FNV-1a 64 over `data` — the checksum algorithm of ``smp_run_checksum`` (docs/20, S8)."""
+    word = FNV_BASIS
+    for byte in data:
+        word = ((word ^ byte) * FNV_PRIME) & 0xFFFFFFFFFFFFFFFF
+    return word
+
+
+def _run_words(family: str, payload: bytes) -> tuple[str | None, str | None]:
+    """The run words a cell's payload really carries: ``(run_state, checksum verdict)``.
+
+    Read only when the payload is exactly ``smp_run_payload`` (``RUN_WORDS_BYTES``) on a run
+    cell (family "tower"): the state word is then the first four bytes, the checksum the last
+    eight, and it covers the program state between the handoff metadata and the checksum
+    (docs/20, S1/S8). A state word the machine does not name, or any other payload shape,
+    carries nothing this document may call a run word: both answers stay ``None``.
+    """
+    if family != "tower" or len(payload) != RUN_WORDS_BYTES:
+        return None, None
+    (state,) = struct.unpack_from("<I", payload, 0)
+    run_state = RUN_STATES[state] if state < len(RUN_STATES) else None
+    if run_state is None:
+        return None, None  # not a run record the machine names: no run word, no verdict
+    program_at = sum(weight for _, weight in RUN_PAYLOAD_REGIONS[:2])
+    checksum_at = RUN_WORDS_BYTES - 8
+    (stored,) = struct.unpack_from("<Q", payload, checksum_at)
+    verdict = "ok" if stored == fnv1a(payload[program_at:checksum_at]) else "bad"
+    return run_state, verdict
 
 
 # ---- anatomy: the block-stack floors of a building ---------------------------------------------------
@@ -619,6 +700,11 @@ def _network(
     def width(gap: float) -> float:
         return min(2 * STREET_WIDTH, max(1.8, gap * 0.7))
 
+    # the buildings of every district, bucketed once (not rescanned per district)
+    in_region: dict[str, list[Mapping[str, Any]]] = {}
+    for cell in cells:
+        in_region.setdefault(str(cell["region"]), []).append(cell)
+
     out: list[dict[str, Any]] = []
     z_bands = _bands_of(
         (float(region["plot"]["z"]), float(region["plot"]["z"]) + float(region["plot"]["d"]))
@@ -648,8 +734,10 @@ def _network(
             if gap >= 1.2:
                 out.append(_street("cross", "z", (first[1] + second[0]) / 2, z_from, z_to, width(gap)))
     # lanes: the street grid between the buildings of every district, and along its margins
+    avenues = sorted(s["at"] for s in out if s["kind"] == "avenue")
+    crosses = sorted(s["at"] for s in out if s["kind"] == "cross")
     for region in regions:
-        here = [cell for cell in cells if str(cell["region"]) == str(region["id"])]
+        here = in_region.get(str(region["id"]), [])
         if not here:
             continue
         plot = region["plot"]
@@ -689,8 +777,6 @@ def _network(
         # branches: the district's median lanes continued to the nearest avenue / cross / ring
         x_lanes = sorted(s["at"] for s in region_lanes if s["axis"] == "z")
         z_lanes = sorted(s["at"] for s in region_lanes if s["axis"] == "x")
-        avenues = sorted(s["at"] for s in out if s["kind"] == "avenue")
-        crosses = sorted(s["at"] for s in out if s["kind"] == "cross")
         if x_lanes:
             at = min(x_lanes, key=lambda value: abs(value - (px + pw / 2)))
             lane_width = next(s["width"] for s in region_lanes if s["axis"] == "z" and s["at"] == at)
@@ -802,8 +888,27 @@ def _merge_rects(
     while merged:
         merged = False
         out: list[list[float]] = []
+        # Neighbours come from a coarse grid of the touch-grown boxes: two boxes that can
+        # merge share a cell, so the scan meets the few near boxes instead of pairing every
+        # box with every box before it (17k keep-outs would square up otherwise).
+        cell = max(1.0, 2.0 * touch)
+        near: dict[tuple[int, int], list[int]] = {}
+
+        def cells_of(box: Sequence[float]) -> Iterator[tuple[int, int]]:
+            for gx in range(
+                math.floor((box[0] - touch) / cell), math.floor((box[2] + touch) / cell) + 1
+            ):
+                for gz in range(
+                    math.floor((box[1] - touch) / cell), math.floor((box[3] + touch) / cell) + 1
+                ):
+                    yield (gx, gz)
+
         for box in boxes:
-            for other in out:
+            candidates = sorted(
+                {index for key in cells_of(box) for index in near.get(key, ())}
+            )
+            for index in candidates:
+                other = out[index]
                 apart = (
                     box[0] > other[2] + touch
                     or other[0] > box[2] + touch
@@ -816,9 +921,14 @@ def _merge_rects(
                     other[2] = max(other[2], box[2])
                     other[3] = max(other[3], box[3])
                     merged = True
+                    for key in cells_of(other):  # the grown box reaches further now
+                        near.setdefault(key, []).append(index)
                     break
             else:
                 out.append(box)
+                index = len(out) - 1
+                for key in cells_of(box):
+                    near.setdefault(key, []).append(index)
         boxes = out
     return [(box[0], box[1], box[2], box[3]) for box in boxes]
 
@@ -1218,12 +1328,24 @@ def _on_rail(
 
 
 def _project_rail(
-    rails: Sequence[tuple[str, float, float, float]], x: float, z: float
+    rails: Sequence[tuple[str, float, float, float]],
+    x: float,
+    z: float,
+    grid: Mapping[tuple[int, int], list[int]] | None = None,
 ) -> tuple[float, float, int]:
-    """The nearest point on the rail network to (x, z): (px, pz, rail index)."""
+    """The nearest point on the rail network to (x, z): (px, pz, rail index). With a rail grid
+    (``_rail_grid``) only the buckets around the point are read — the same nearest rail, and the
+    same tie for tie, as the scan of every rail."""
+    if not rails:
+        return (x, z, -1)
+    if grid is None:
+        scan: Iterable[int] = range(len(rails))
+    else:
+        scan = _near_rails(rails, grid, x, z)
     best: tuple[float, float, int] = (x, z, -1)
     best_squared = math.inf
-    for r, (axis, at, low, high) in enumerate(rails):
+    for r in scan:
+        axis, at, low, high = rails[r]
         if axis == "x":
             px, pz = min(max(x, low), high), at
         else:
@@ -1233,6 +1355,104 @@ def _project_rail(
             best_squared = squared
             best = (px, pz, r)
     return best
+
+
+PROJECT_BIN = 24.0  # world units per bucket of the nearest-rail lookup
+
+
+def _rail_grid(
+    rails: Sequence[tuple[str, float, float, float]]
+) -> dict[tuple[int, int], list[int]]:
+    """Every rail in the ground buckets its span covers, so a point can meet the few rails
+    near it instead of the whole network."""
+    bins: dict[tuple[int, int], list[int]] = {}
+    for r, (axis, at, low, high) in enumerate(rails):
+        x0, x1 = (low, high) if axis == "x" else (at, at)
+        z0, z1 = (at, at) if axis == "x" else (low, high)
+        for gx in range(math.floor(x0 / PROJECT_BIN), math.floor(x1 / PROJECT_BIN) + 1):
+            for gz in range(math.floor(z0 / PROJECT_BIN), math.floor(z1 / PROJECT_BIN) + 1):
+                bins.setdefault((gx, gz), []).append(r)
+    return bins
+
+
+def _near_rails(
+    rails: Sequence[tuple[str, float, float, float]],
+    grid: Mapping[tuple[int, int], list[int]],
+    x: float,
+    z: float,
+) -> list[int]:
+    """The rails that could be nearest to (x, z): ring after ring of buckets around the point
+    until the best rail found is nearer than any bucket left behind."""
+    home = (math.floor(x / PROJECT_BIN), math.floor(z / PROJECT_BIN))
+    found: set[int] = set()
+    out: list[int] = []
+    best_squared = math.inf
+    ring = 0
+    while True:
+        for gx in range(home[0] - ring, home[0] + ring + 1):
+            for gz in range(home[1] - ring, home[1] + ring + 1):
+                if ring and max(abs(gx - home[0]), abs(gz - home[1])) != ring:
+                    continue
+                for r in grid.get((gx, gz), ()):
+                    if r in found:
+                        continue
+                    found.add(r)
+                    out.append(r)
+                    axis, at, low, high = rails[r]
+                    if axis == "x":
+                        px, pz = min(max(x, low), high), at
+                    else:
+                        px, pz = at, min(max(z, low), high)
+                    squared = (px - x) ** 2 + (pz - z) ** 2
+                    if squared < best_squared:
+                        best_squared = squared
+        ring += 1
+        # a rail in a bucket the search has not read lies at least this far out
+        if out and (max(0, ring - 1) * PROJECT_BIN) ** 2 > best_squared + 1e-9:
+            break
+    return out
+
+
+def _rail_junction_pairs(
+    rails: Sequence[tuple[str, float, float, float]]
+) -> list[tuple[int, int]]:
+    """Every rail pair that can share a junction, found through buckets instead of every pair
+    of the network: collinear rails within ``JUNCTION_SNAP`` of each other, and crossing / T
+    pairs whose meeting point lies on both spans. The pairs come back in (i, j) order, so the
+    junction nodes number exactly as the scan of every pair numbered them."""
+    snap = JUNCTION_SNAP
+    pairs: set[tuple[int, int]] = set()
+    same: dict[str, list[tuple[float, int]]] = {"x": [], "z": []}
+    cross: dict[str, list[tuple[int, float, float, float]]] = {"x": [], "z": []}
+    for i, (axis, at, low, high) in enumerate(rails):
+        same[axis].append((at, i))
+        cross[axis].append((i, at, low, high))
+    # collinear: only rails within snap of each other can meet end to end
+    step = max(2.0 * snap, 1e-9)
+    for axis in ("x", "z"):
+        entries = sorted(same[axis])
+        bins: dict[int, list[int]] = {}
+        for at, i in entries:
+            bins.setdefault(math.floor(at / step), []).append(i)
+        for at, i in entries:
+            home = math.floor(at / step)
+            for cell in (home - 1, home, home + 1):
+                for j in bins.get(cell, ()):
+                    if j > i and abs(rails[j][1] - at) <= snap:
+                        pairs.add((i, j))
+    # crossing and T: the meeting point is (a rail's at) on the other's span, both ways
+    width = max(8.0, 4.0 * snap)
+    index: dict[int, list[int]] = {}
+    for j, at, low, high in cross["z"]:
+        for cell in range(math.floor((low - snap) / width), math.floor((high + snap) / width) + 1):
+            index.setdefault(cell, []).append(j)
+    for i, at, low, high in cross["x"]:
+        for cell in range(math.floor((low - snap) / width), math.floor((high + snap) / width) + 1):
+            for j in index.get(cell, ()):
+                _, bat, blow, bhigh = rails[j]
+                if low - snap <= bat <= high + snap and blow - snap <= at <= bhigh + snap:
+                    pairs.add((i, j) if i < j else (j, i))
+    return sorted(pairs)
 
 
 def _routes(
@@ -1263,40 +1483,40 @@ def _routes(
         ends = ((low, at), (high, at)) if axis == "x" else ((at, low), (at, high))
         for x, z in ends:
             rail_nodes[r].append(node(x, z))
-    for i in range(len(rails)):
-        for j in range(i + 1, len(rails)):
-            a, b = rails[i], rails[j]
-            if a[0] == b[0]:
-                # collinear streets meet end to end: a branch continues its lane out of the district
-                if abs(a[1] - b[1]) > JUNCTION_SNAP:
-                    continue
-                for first, second in ((a, b), (b, a)):
-                    for at in (first[2], first[3]):
-                        if second[2] - JUNCTION_SNAP <= at <= second[3] + JUNCTION_SNAP:
-                            corner = (at, first[1]) if first[0] == "x" else (first[1], at)
-                            shared = node(corner[0], corner[1])
-                            rail_nodes[i if first is a else j].append(shared)
-                            rail_nodes[j if first is a else i].append(shared)
+    for i, j in _rail_junction_pairs(rails):
+        a, b = rails[i], rails[j]
+        if a[0] == b[0]:
+            # collinear streets meet end to end: a branch continues its lane out of the district
+            if abs(a[1] - b[1]) > JUNCTION_SNAP:
                 continue
-            # crossing and T junctions both node: where a rail's end lies on another rail's span,
-            # the corner is shared or the graph fragments into islands and nothing routes
-            x, z = (b[1], a[1]) if a[0] == "x" else (a[1], b[1])
-            if _on_rail(a, x, z, JUNCTION_SNAP) and _on_rail(b, x, z, JUNCTION_SNAP):
-                shared = node(x, z)
-                rail_nodes[i].append(shared)
-                rail_nodes[j].append(shared)
             for first, second in ((a, b), (b, a)):
                 for at in (first[2], first[3]):
-                    corner = (at, first[1]) if first[0] == "x" else (first[1], at)
-                    if _on_rail(second, corner[0], corner[1], JUNCTION_SNAP):
+                    if second[2] - JUNCTION_SNAP <= at <= second[3] + JUNCTION_SNAP:
+                        corner = (at, first[1]) if first[0] == "x" else (first[1], at)
                         shared = node(corner[0], corner[1])
                         rail_nodes[i if first is a else j].append(shared)
                         rail_nodes[j if first is a else i].append(shared)
+            continue
+        # crossing and T junctions both node: where a rail's end lies on another rail's span,
+        # the corner is shared or the graph fragments into islands and nothing routes
+        x, z = (b[1], a[1]) if a[0] == "x" else (a[1], b[1])
+        if _on_rail(a, x, z, JUNCTION_SNAP) and _on_rail(b, x, z, JUNCTION_SNAP):
+            shared = node(x, z)
+            rail_nodes[i].append(shared)
+            rail_nodes[j].append(shared)
+        for first, second in ((a, b), (b, a)):
+            for at in (first[2], first[3]):
+                corner = (at, first[1]) if first[0] == "x" else (first[1], at)
+                if _on_rail(second, corner[0], corner[1], JUNCTION_SNAP):
+                    shared = node(corner[0], corner[1])
+                    rail_nodes[i if first is a else j].append(shared)
+                    rail_nodes[j if first is a else i].append(shared)
 
     plugs: dict[str, int] = {}
+    grid = _rail_grid(rails)
     for cell in cells:
         x, z = float(cell["plot"]["x"]), float(cell["plot"]["z"])
-        px, pz, rail = _project_rail(rails, x, z)
+        px, pz, rail = _project_rail(rails, x, z, grid)
         plugs[str(cell["id"])] = node(px, pz)
         if rail >= 0:
             rail_nodes[rail].append(plugs[str(cell["id"])])
@@ -1394,10 +1614,14 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
     by_handle: dict[int, dict[str, Any]] = {
         int(cell["handle"]): cell for cell in stream if cell["handle"] is not None
     }
+    # One walk of the stream: every cell's district, counted and bucketed for the placement
+    # pass below (the buckets replace a rescan of the stream per district).
+    in_region: dict[str, list[dict[str, Any]]] = {}
     for cell in stream:
         region = _region_of(regions, int(cell["offset"]))
         region["cell_count"] = int(region["cell_count"]) + 1
         region["empty"] = False
+        in_region.setdefault(str(region["id"]), []).append(cell)
 
     poison_runs = _poison_runs(raw, body)
     poisoned_at = _poison_hosts(stream, poison_runs)
@@ -1406,7 +1630,7 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
     placements: dict[int, tuple[float, float, int, int]] = {}
     for region in regions:
         here = sorted(
-            (cell for cell in stream if _region_of(regions, int(cell["offset"])) is region),
+            in_region.get(str(region["id"]), ()),
             key=lambda cell: int(cell["offset"]),
         )
         plot = region["plot"]
@@ -1431,6 +1655,7 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
             family = _family(kind, None, -1)
             name = path = None
             state = None
+            payload_bytes = b""
             identifier = f"c{offset}"
         else:
             handle = int(handle)
@@ -1439,8 +1664,10 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
             name = got["name"] or None
             path = got["path"]
             state = _state(int(cell["flags"]))
+            payload_bytes = got["payload"]
             identifier = f"h{handle}"
             cell_id[handle] = identifier
+        run_state, run_checksum = _run_words(family, payload_bytes)
         if kind == KIND_BLOCK:
             word = {1: "Index", 2: "Names"}.get(int(cell["block_kind"]), "Block")
         elif kind == KIND_DEAD:
@@ -1473,8 +1700,9 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
                 "footprint": footprint,
                 "height": height,
                 "state": state,
+                "run_state": run_state,
                 "claim": None,
-                "checksum": None,
+                "checksum": run_checksum,
                 "poisoned": poisoned,
                 "forward": int(cell["forward"]),
                 "index": int(cell["index"]),
@@ -1487,7 +1715,7 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
     cell_by_offset = {int(cell["offset"]): cell for cell in cells}
 
     voids: list[dict[str, Any]] = []
-    for start, length in _poison_runs(raw, body):
+    for start, length in poison_runs:
         host = cell_by_offset.get(start)
         if host is None:
             host = next(
@@ -1565,15 +1793,30 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
     ring_path = _ring_path(regions, cells, ring_rect)
     streets = _network(regions, cells, ring_rect)
     _routes(cells, edges, streets, ring_path)
+    # docs/23 §4.5: a tram is one run cell sitting in a ring slot (READY/RUNNING) and a PARKED run
+    # is off the road. The units are the ring's occupied slots — the run state words the image
+    # really carries — never one per tower and never a run the image does not place in a slot.
+    on_road = sorted(
+        (cell for cell in towers if cell["run_state"] in ON_ROAD),
+        key=lambda cell: int(cell["offset"]),
+    )
     trams = [
         {
             "id": f"t{i}",
             "run": str(cell["id"]),
-            "angle": _round(2 * math.pi * (i + 0.5) / max(1, len(towers))),
-            "state": None,
+            "angle": _round(2 * math.pi * (i + 0.5) / max(1, len(on_road))),
+            "state": str(cell["run_state"]),
         }
-        for i, cell in enumerate(sorted(towers, key=lambda cell: int(cell["offset"])))
+        for i, cell in enumerate(on_road)
     ]
+    carried = [str(cell["run_state"]) for cell in towers if cell["run_state"] is not None]
+    ring_state = {word: carried.count(word) for word in RUN_STATES} if carried else None
+    verdicts = [str(cell["checksum"]) for cell in cells if cell["checksum"] is not None]
+    if verdicts:
+        bad = verdicts.count("bad")
+        checksum_status = f"{len(verdicts) - bad} ok" + (f" · {bad} bad" if bad else "")
+    else:
+        checksum_status = None
 
     counts = {
         "cells": len(cells),
@@ -1618,7 +1861,8 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
             "center": center,
             "radius": _round(0.5 * math.hypot(span_x, span_z) + RING_MARGIN),
             "lanes": 1,
-            "state": None,
+            "state": ring_state,
+            "occupied": len(trams),
             "path": ring_path,
         },
         "trams": trams,
@@ -1628,9 +1872,9 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
             "carriers": None,
             "steps_per_s": None,
             "claim_spins": None,
-            "moved_cells": None,
+            "moved_cells": sum(1 for cell in cells if int(cell["forward"])),
             "refusals": None,
-            "checksum_status": None,
+            "checksum_status": checksum_status,
         },
         "counts": counts,
     }
@@ -1736,8 +1980,8 @@ def validate_scene(scene: Mapping[str, Any]) -> None:
             (
                 "id", "handle", "path", "name", "kind", "family", "offset", "size",
                 "payload_size", "generation", "region", "plot", "tile", "footprint", "height",
-                "state", "claim", "checksum", "poisoned", "forward", "index", "ref_count",
-                "anatomy",
+                "state", "run_state", "claim", "checksum", "poisoned", "forward", "index",
+                "ref_count", "anatomy",
             ),
             "cell",
         )
@@ -1758,6 +2002,10 @@ def validate_scene(scene: Mapping[str, Any]) -> None:
             and 0 <= int(cell["tile"]["z"]) < int(raster["rows"])
         ):
             raise SchemaError(f"cell {cell['id']!r}: tile is off the district raster")
+        if cell["run_state"] is not None and cell["run_state"] not in RUN_STATES:
+            raise SchemaError(f"cell {cell['id']!r}: run state {cell['run_state']!r}")
+        if cell["checksum"] is not None and cell["checksum"] not in ("ok", "bad"):
+            raise SchemaError(f"cell {cell['id']!r}: checksum verdict {cell['checksum']!r}")
         _anatomy_ok(cell)
 
     void_ids: set[str] = set()
@@ -1824,7 +2072,7 @@ def validate_scene(scene: Mapping[str, Any]) -> None:
 
     ring = scene["ring"]
     if ring is not None:
-        _need(ring, ("center", "radius", "lanes", "state", "path"), "ring")
+        _need(ring, ("center", "radius", "lanes", "state", "occupied", "path"), "ring")
         _need(ring["center"], ("x", "z"), "ring center")
         if not isinstance(ring["path"], list) or len(ring["path"]) < 4:
             raise SchemaError("ring: path is not a closed path of points")
@@ -1834,6 +2082,10 @@ def validate_scene(scene: Mapping[str, Any]) -> None:
         _need(tram, ("id", "run", "angle", "state"), "tram")
         if tram["run"] not in cell_ids:
             raise SchemaError(f"tram {tram['id']!r}: unknown run {tram['run']!r}")
+        if tram["state"] not in ON_ROAD:
+            raise SchemaError(f"tram {tram['id']!r}: state {tram['state']!r} is off the road")
+    if ring is not None and int(ring["occupied"]) != len(scene["trams"]):
+        raise SchemaError("ring: the occupied slots and the tram count disagree")
     if not isinstance(scene["carriers"], list):
         raise SchemaError("scene: carriers is not a list")
     _need(scene["metrics"], _REQUIRED_METRICS, "metrics")

@@ -8,7 +8,13 @@ with a fixed palette quantization so the files stay small and byte-reproducible.
 This is a capture tool, not runtime code: it runs on the system Python (Playwright + Pillow),
 not the package venv.
 
-    python -m pymergetic.rxf.world.capture_shots [--out DIR] [--colors N]
+    python -m pymergetic.rxf.world.capture_shots [--out DIR] [--colors N] [--scene demo|starter]
+
+``--scene`` is what the capture runs against. ``demo`` (the default) is the checked-in demo
+golden — the world the README pins. ``starter`` is the REAL starter image (``starter/``),
+exported live through the package in the same run: the capture path against real data, which
+needs the package importable in the capture interpreter and falls back to the demo scene with a
+note where it is not. The README shots stay on the demo scene: their captions name it.
 
 Shots (the pins of the README, plus the text proof at the extreme angles):
 
@@ -39,6 +45,7 @@ from typing import Any
 WORLD_DIR = Path(__file__).resolve().parent
 PKG_ROOT = WORLD_DIR.parents[3]  # packages/rxf
 GOLDEN = WORLD_DIR / "static" / "scene" / "demo-scene.json"
+STARTER = PKG_ROOT / "starter"
 DEFAULT_OUT = PKG_ROOT / "docs" / "images"
 
 SHOTS = (
@@ -130,10 +137,29 @@ def steady_shot(page: Any, frames: int = 24) -> bytes:
     return last
 
 
-def capture(out_dir: Path, colors: int) -> list[Path]:
+def scene_document(kind: str) -> tuple[bytes, dict[str, Any]]:
+    """The scene bytes the page boots on and the document the poses read: ``demo`` is the
+    checked-in golden, ``starter`` is the REAL starter image exported live in this run (the
+    capture path against real data). Where the capture interpreter cannot import the package,
+    the starter capture is not feasible here: the capture says so and runs the demo scene."""
+    if kind == "starter":
+        try:
+            from pymergetic.rxf.core import tree
+            from pymergetic.rxf.server.inspector import Inspector
+            from pymergetic.rxf.world.export import scene_json
+        except ImportError as error:  # the capture host's Python carries no compiled core
+            print(f"the starter capture is not feasible here ({error}); capturing the demo scene")
+        else:
+            raw = scene_json(Inspector(tree.load(STARTER))).encode()
+            return raw, json.loads(raw)
+    raw = GOLDEN.read_bytes()
+    return raw, json.loads(raw)
+
+
+def capture(out_dir: Path, colors: int, scene: str = "demo") -> list[Path]:
     from playwright.sync_api import sync_playwright
 
-    doc = json.loads(GOLDEN.read_text(encoding="utf-8"))
+    raw, doc = scene_document(scene)
     tower = next(
         (cell for cell in doc["cells"] if cell.get("path") == TOWER_PATH),
         next(cell for cell in doc["cells"] if cell["family"] == "tower"),
@@ -152,8 +178,21 @@ def capture(out_dir: Path, colors: int) -> list[Path]:
             # the world page is ONE dark theme (the scene is always dark ground); shoot it in
             # the dark scheme so the chrome and the datasheet pane read as they are designed
             page = browser.new_page(viewport={"width": 1440, "height": 900}, color_scheme="dark")
+            # the page boots on the capture's scene: the same page and the same config, served
+            # the document this run was asked for (demo golden or the real starter export)
+            page.route(
+                "**/demo-scene.json*",
+                lambda route: route.fulfill(
+                    status=200, content_type="application/json", body=raw
+                ),
+            )
             page.goto(f"http://127.0.0.1:{port}/static/scene/index.html")
-            page.wait_for_function("window.RXFWorld && window.RXFWorld.api", timeout=30000)
+            # the boot wait scales with the scene it boots on: the demo golden is one page,
+            # a real image's export is megabytes of buildings and cables to lay out first
+            page.wait_for_function(
+                "window.RXFWorld && window.RXFWorld.api",
+                timeout=30_000 + len(raw) // 1_000,
+            )
             page.evaluate("RXFWorld.api.setMotion(false)")  # frozen trams: byte-stable frames
 
             plan = (
@@ -199,9 +238,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="output directory")
     parser.add_argument("--colors", type=int, default=128, help="palette size for quantization")
+    parser.add_argument(
+        "--scene",
+        choices=("demo", "starter"),
+        default="demo",
+        help="the scene to capture: the demo golden or the real starter image",
+    )
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
-    for path in capture(args.out, args.colors):
+    for path in capture(args.out, args.colors, args.scene):
         print(f"{path} ({path.stat().st_size // 1024} KB)")
 
 
