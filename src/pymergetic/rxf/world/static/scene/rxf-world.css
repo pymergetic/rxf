@@ -1,0 +1,162 @@
+/* The chrome of the world page: HUD bars, minimap slot, and the theme.
+ * The scene is dark tactical ground; the HUD chrome is flat and theme-aware through the same
+ * custom properties the inspector uses (--bg, --panel, --line, --text, --muted, --accent, --hot),
+ * so a later stage can share one theme between the two pages. */
+
+:root {
+  color-scheme: dark;
+  --bg: #0b0f14;
+  --panel: #121820;
+  --line: #263140;
+  --text: #d7e2ea;
+  --muted: #7f909e;
+  --accent: #37e0c4;
+  --hot: #ffb454;
+  --seam: #5b6b78;
+  --bar-h: 44px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --line: #d8dce1;
+    --text: #1c2128;
+    --muted: #6a737d;
+    --accent: #05c;
+    --hot: #b8860b;
+    --seam: #a2acb5;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.45 "Inter", "Segoe UI", system-ui, sans-serif;
+}
+
+#rxf-world {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+#rxf-world-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  outline: none;
+  touch-action: none;
+}
+
+/* ---- the HUD: top resource bar, bottom status bar, minimap slot ---- */
+
+.hud-top,
+.hud-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 16px;
+  height: var(--bar-h);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  border-color: var(--line);
+  border-style: solid;
+  backdrop-filter: blur(6px);
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none; /* the chrome scrolls on narrow screens but never shows a bar */
+}
+
+.hud-top::-webkit-scrollbar,
+.hud-bottom::-webkit-scrollbar {
+  display: none;
+}
+
+.hud-top {
+  top: 0;
+  border-width: 0 0 1px;
+}
+
+.hud-bottom {
+  bottom: 0;
+  border-width: 1px 0 0;
+}
+
+.slot {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.slot b {
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+}
+
+.slot i {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.slot i.seam {
+  color: var(--seam);
+}
+
+.title {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.hud-lod {
+  position: absolute;
+  top: calc(var(--bar-h) + 12px);
+  left: 16px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.hud-minimap {
+  position: absolute;
+  right: 16px;
+  bottom: calc(var(--bar-h) + 16px);
+  width: 260px;
+  height: 170px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--panel);
+  cursor: crosshair; /* click jumps the camera to that part of the arena */
+}
+
+#rxf-world-minimap {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.keys {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
