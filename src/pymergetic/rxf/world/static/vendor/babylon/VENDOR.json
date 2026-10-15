@@ -1,0 +1,18 @@
+{
+  "name": "babylonjs",
+  "description": "Babylon.js UMD bundle (WebGL2 + WebGPU behind one API, PBR, GlowLayer)",
+  "version": "9.30.0",
+  "license": "LicenseRef-PolyForm-Noncommercial-1.0.0",
+  "license_file": "license.md",
+  "notice_file": "NOTICE.md",
+  "source": "https://registry.npmjs.org/babylonjs/-/babylonjs-9.30.0.tgz",
+  "retrieved": "2026-10-14",
+  "files": {
+    "babylon.js": {
+      "from": "package/babylon.js",
+      "sha256": "ff331103574d58a94e68353087721260628a4a6dd5521aa98949127bde73bbff",
+      "bytes": 8619713
+    }
+  },
+  "notes": "Vendored locally; the world page loads it from /world/static/vendor/babylon/babylon.js. No CDN script tag anywhere."
+}

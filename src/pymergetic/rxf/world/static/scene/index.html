@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>RXF World - Stufe A</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- The static demo entry: the same page templates/world.html builds, pointed at the
+         checked-in demo world. Same slots, same scripts, same boot (rxf-world.js reads
+         #rxf-world-config and wires RXFWorldHud itself). -->
+    <link rel="stylesheet" href="rxf-world.css" />
+    <script>
+      /* failures before (or while) the scene boots still land somewhere: the HUD error slot */
+      window.__rxErrors = [];
+      window.addEventListener("error", function (event) {
+        window.__rxErrors.push(String((event.error && event.error.stack) || event.message));
+        var hud = window.RXFWorldHud;
+        if (hud && hud.error) hud.error(event.error || new Error(event.message));
+      });
+      window.addEventListener("unhandledrejection", function (event) {
+        window.__rxErrors.push("rejection: " + String((event.reason && event.reason.stack) || event.reason));
+      });
+    </script>
+  </head>
+  <body>
+    <div id="rxf-world">
+      <canvas id="rxf-world-canvas" tabindex="0" aria-label="RXF world 3D view. 1-6 camera poses, O ortho, WASD camera-relative move, drag pan, right-drag orbit, wheel zoom, click select, minimap click jumps."></canvas>
+
+      <header class="hud-top">
+        <span class="title">RXF WORLD</span>
+        <span class="slot"><b>runs</b><i data-metric="runs">—</i></span>
+        <span class="slot"><b>carriers</b><i data-metric="carriers">—</i></span>
+        <span class="slot"><b>steps/s</b><i data-metric="steps_per_s">—</i></span>
+        <span class="slot"><b>claim spins</b><i data-metric="claim_spins">—</i></span>
+        <span class="slot"><b>moved cells</b><i data-metric="moved_cells">—</i></span>
+        <span class="slot"><b>refusals</b><i data-metric="refusals">—</i></span>
+        <span class="slot"><b>checksum</b><i data-metric="checksum_status">—</i></span>
+        <span class="slot"><b>cells</b><i data-count="cells">—</i></span>
+        <span class="slot"><b>cables</b><i data-count="edges">—</i></span>
+        <span class="slot"><b>ghosts</b><i data-count="stale_edges">—</i></span>
+        <span class="keys">1..6 poses · O ortho/fly · WASD move (camera-relative) · drag pan · right-drag orbit · wheel zoom · click select · minimap click jumps</span>
+      </header>
+
+      <div class="hud-lod" data-lod>—</div>
+
+      <aside class="hud-minimap">
+        <canvas id="rxf-world-minimap"></canvas>
+      </aside>
+
+      <footer class="hud-bottom">
+        <span class="slot"><b>selected</b><i data-selection>no selection</i></span>
+        <span class="slot"><b>id</b><i data-cell-field="id">—</i></span>
+        <span class="slot"><b>kind</b><i data-cell-field="kind">—</i></span>
+        <span class="slot"><b>family</b><i data-cell-field="family">—</i></span>
+        <span class="slot"><b>handle</b><i data-cell-field="handle">—</i></span>
+        <span class="slot"><b>gen</b><i data-cell-field="generation">—</i></span>
+        <span class="slot"><b>offset</b><i data-cell-field="offset">—</i></span>
+        <span class="slot"><b>payload</b><i data-cell-field="payload">—</i></span>
+        <span class="slot"><b>forward</b><i data-cell-field="forward">—</i></span>
+        <span class="slot"><b>state</b><i data-cell-field="state">—</i></span>
+        <span class="slot"><b>claim</b><i data-cell-field="claim">—</i></span>
+        <span class="slot"><b>checksum</b><i data-cell-field="checksum">—</i></span>
+        <span class="slot"><b>cables</b><i data-cell-field="edges">—</i></span>
+      </footer>
+    </div>
+
+    <script type="application/json" id="rxf-world-config">
+      {"sceneUrl": "demo-scene.json", "fallbackUrl": "demo-scene.json", "pose": "overview"}
+    </script>
+    <script src="../vendor/babylon/babylon.js"></script>
+    <script src="rxf-world-hud.js"></script>
+    <script src="rxf-world.js"></script>
+  </body>
+</html>

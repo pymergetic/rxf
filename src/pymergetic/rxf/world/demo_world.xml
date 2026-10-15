@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The demo world of the 3D world renderer: a real-shaped image (real types, real cells,
+     real references) that the exporter turns into static/scene/demo-scene.json.
+     demo.py adds the runtime traces a snapshot carries (a stale handle, the 0xA5 poison of
+     compaction) on top of this delta. -->
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Type name="Module" form="Form.Struct" size="0" align="1" node_kind="NodeKind.Module"/>
+  <Type name="Function" form="Form.Struct" size="8" align="8" node_kind="NodeKind.Fn">
+    <Field name="entry" value_type="uint64_t"/>
+  </Type>
+  <Type name="Code" form="Form.Struct" size="8" align="8" node_kind="NodeKind.Code">
+    <Field name="bytes" value_type="uint64_t"/>
+  </Type>
+  <Type name="Block" form="Form.Struct" size="16" align="8">
+    <Field name="size" value_type="uint64_t"/>
+    <Field name="link" value_type="uint64_t" offset="8" flags="FieldFlags.Optional|Ref"/>
+  </Type>
+  <Type name="Channel" form="Form.Struct" size="8" align="8" node_kind="NodeKind.Channel">
+    <Field name="peer" value_type="uint64_t" flags="FieldFlags.Optional|Ref"/>
+  </Type>
+  <Type name="Role" form="Form.Struct" size="0" align="1"/>
+  <Role name="calls"/>
+  <Role name="watches"/>
+  <Module name="system">
+    <Module name="heap">
+      <Block name="arena" size="4096" link="system.heap.pool"/>
+      <Block name="pool" size="2048"/>
+      <Block name="names" size="512"/>
+    </Module>
+    <Module name="runs">
+      <Function name="boot" entry="1">
+        <rxf:ref role="calls" index="0" kind="RefKind.Call" target="system.runs.tick"/>
+      </Function>
+      <Function name="tick" entry="2"/>
+      <Function name="sched" entry="3">
+        <rxf:ref role="calls" index="0" kind="RefKind.Call" target="system.runs.tick"/>
+      </Function>
+      <Code name="boot_code" bytes="96"/>
+      <Code name="tick_code" bytes="64"/>
+    </Module>
+    <Module name="net">
+      <Channel name="rx" peer="system.net.queue"/>
+      <Block name="queue" size="128" link="system.heap.pool"/>
+      <Block name="watchdog" size="64" link="system.net.timer"/>
+      <Block name="probe" size="32">
+        <rxf:ref role="watches" index="0" kind="RefKind.Data" target="system.net.timer"/>
+      </Block>
+      <Block name="timer" size="64"/>
+      <Block name="slag" size="256"/>
+    </Module>
+  </Module>
+  <rxf:entry path="system.runs.boot"/>
+</delta>
