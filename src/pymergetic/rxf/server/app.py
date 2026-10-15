@@ -149,9 +149,14 @@ def create_app(image: Image, *, session: Session | None = None) -> FastAPI:
     def editor_poke(body: PokeBody) -> dict[str, Any]:
         if session is None or session.world is None:
             return _no_session()
+        # A delta is compiled against its base and the image refuses a base that is not it
+        # (`live/front.py`: "the base of a delta that is not the image is refused"). What runs
+        # has moved on from the inspected snapshot (the boot of the front end, the image's own
+        # writes), so the poke is compiled against the running image, read through the seam.
+        running = Image.from_bytes(session.world.client.emit()[0])
         return editor.poke(
             session.world.client,
-            inspector.image,
+            running,
             body.path,
             body.field,
             body.value,
