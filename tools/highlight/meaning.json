@@ -1690,6 +1690,16 @@
         "expected_kind": "Module",
         "shape": "path",
         "resolves_to": "the Module that is the parent of a top-level element; only a top-level element names one (core/xml/xml.hpp). Without it the parent is the default parent of the document (its place in the tree), and without that the root"
+      },
+      {
+        "attribute": "callee",
+        "applies_to": [
+          "Call",
+          "SemanticOperation"
+        ],
+        "expected_kind": "Function",
+        "shape": "path",
+        "resolves_to": "the Function a call names (the CALL card of native/graph.h): a leaf-backed Function or a graph that is a program of its own, its return answering at depth > 0. An absolute path or an '@' path like the rest"
       }
     ]
   }

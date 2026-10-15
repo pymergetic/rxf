@@ -181,7 +181,7 @@
       ]
     },
     "reference-attribute": {
-      "begin": "(refusal_set|rxf:parent|signature)(=)(\")",
+      "begin": "(refusal_set|rxf:parent|signature|callee)(=)(\")",
       "beginCaptures": {
         "1": {
           "name": "entity.other.attribute-name.reference.rxfd"
