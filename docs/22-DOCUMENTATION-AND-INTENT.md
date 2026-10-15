@@ -357,3 +357,13 @@ object state. A TODO is a fact with a state, not a comment that rots.
    a `key=value` record (`path`, `lines`, optional `sha256`); the 24-byte reference carries no
    locator payload and the ABI is untouched. The permalink is derived from the record and the
    origin record it cites, never stored.
+6. **The policy topic tree's home and its writer** (slice 3): the S1..S11 tree lives at
+   `pymergetic.rxf.docs.execution` — one `DocKind.Topic` object per statement, its docstring the
+   statement of `docs/20` verbatim — and it is **ordinary content**: `tools/native/topics.py` is
+   the lift of `docs/20`'s sections, writing through the public API (`doc_add`, `doc_place`, the
+   delta that makes the module path) with the ground growing nothing. A statement's placements
+   are `DocRole.Attaches` edges **from its implementing objects** ("the standard attaches to the
+   instances"), pinned by `tests/test_docs_topics.py` against both the section texts of `docs/20`
+   and the graph. An implementer that is host-side C outside the image (the run-cell machine of
+   S1..S5, the edge shim of S9, the differential of S10) carries **no** placement — where the
+   implementation lives is said in the statement's builder record, and the graph stays honest.
