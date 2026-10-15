@@ -375,15 +375,17 @@ def test_the_extension_manifest_wires_the_final_extensions():
 
 def test_the_reference_shapes_drive_the_resolver():
     shapes = resolve.reference_shapes()
-    assert set(shapes) == {"signature", "refusal_set", "rxf:parent"}
+    assert set(shapes) == {"signature", "refusal_set", "rxf:parent", "callee"}
     assert {name: shape.expected_kind for name, shape in shapes.items()} == {
         "signature": "Signature",
         "refusal_set": "RefusalSet",
         "rxf:parent": "Module",
+        "callee": "Function",
     }
     assert set(resolve.attribute_keys()) == {
         "signature",
         "refusal_set",
+        "callee",
         "{urn:pymergetic:rxf}parent",
     }
 
@@ -441,6 +443,23 @@ def test_the_triple_delta_resolves_against_the_starter(world: resolve.World):
     assert by_attribute["signature"].found_kind == "Signature"
     assert by_attribute["refusal_set"].target == "pymergetic.rxf.foundation.StdlibRefusals"
     assert by_attribute["refusal_set"].found_kind == "RefusalSet"
+
+
+def test_the_call_reference_of_a_graph_resolves_to_its_callee(world: resolve.World):
+    """The CALL card names its callee by path (native/graph.h): a `callee=` value must
+    resolve to the Function it names, a leaf-backed one or a graph that is a program of
+    its own. The two calls of `selfedit.double` name a library Function and a checked
+    add, both Functions."""
+    text = (SELFEDIT / "double.xml").read_text()
+    references = resolve.check_document(text, known=world, source="tests/selfedit/double.xml")
+    callees = [r for r in references if r.attribute == "callee"]
+    assert {r.value for r in callees} == {
+        "pymergetic.rxf.library.checkout_total",
+        "pymergetic.rxf.numeric.checked.add_uint32_t",
+    }
+    assert all(r.resolved and r.found_kind == "Function" for r in callees), [
+        (r.value, r.problem) for r in callees if not r.resolved
+    ]
 
 
 @pytest.mark.parametrize(

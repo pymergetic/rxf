@@ -62,6 +62,7 @@
 <header>
   <b>RXF</b> <span id="info"></span>
   <a class="button" href="/model" title="How the run-cell machine and the object model work">Model</a>
+  <a class="button" href="/editor" title="EDIT a function: live symbol check, compile + one-delta install, faces, Netzansicht, cell-poke">Editor</a>
   <button id="reset" title="Show the whole arena again">Reset zoom</button>
   <span class="summary" id="summary"></span>
 </header>
@@ -346,7 +347,9 @@ function renderDetail(d) {
     </tr>`).join("");
   const used = d.used_by.map((u) => `<tr><td>${esc(u.how)}</td><td>${link(u.path)}</td></tr>`).join("");
   $("main").innerHTML = `
-    <h3>${esc(d.path || "(root)")}</h3>
+    <h3>${esc(d.path || "(root)")}
+      <a class="button" href="/editor?path=${encodeURIComponent(d.path || "")}" title="Open this cell in the Editor: edit source, live symbol check, compile + one-delta install, faces, Netzansicht, poke">Edit</a>
+    </h3>
     <table>
       <tr><th>handle</th><td><code>#${d.handle}</code> · index ${d.handle} · generation ${d.generation}</td></tr>
       <tr><th>kind</th><td><span class="badge">${esc(d.kind)}</span> (${d.kind_value})</td></tr>

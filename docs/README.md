@@ -219,6 +219,18 @@ word shows up in — with a link back to the cell in the inspector.
 
 ![The anatomy figure with a live cell's real header words laid over it](images/model-anatomy.png)
 
+### Editor
+
+The inspector's `/editor` edits a function's source in place: tokens are marked red/green as
+you type against the single meaning table (`tools/highlight/meaning.json`), the source
+compiles through the running image's in-image front end, and **one** delta installs the
+Function — the delta is shown before it is sent. Read-only faces (Pseudo, C, C++, Python)
+are honest projections that refuse to fake a body they cannot know, and the Netzansicht
+draws a function and its environment (references, callees incl. the graph-to-graph `CALL`
+card) as a network. Cell-poke writes `payload`/`flags` through the live channel and refuses
+`forward`/`generation`/`checksum` (and `name`, a rename) outright. All of it drives the one
+seam — `pymergetic.rxf.console.world` — with no second channel and no second truth.
+
 ## The 3D world
 
 The image renders as an RTS city over the same cells the inspector reads: every cell is a
