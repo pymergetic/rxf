@@ -154,6 +154,47 @@ name). `Image.module_children` lists a package's sub-modules in name order,
 one clear module (an alias spelling, an empty segment, an unknown root, a dead handle) raises
 `TreeError` instead of guessing.
 
+The shape of it, with the parts each strand owns (the Quad and the bare words as pinned by
+`tests/test_module_tree.py`; `pt.*`/`py.*` fill as the strands land):
+
+```mermaid
+graph TD
+    ROOT["arena root — ONE image, ONE namespace"]
+
+    ROOT --> PX["px — extern / CPython"]
+    ROOT --> PM["pm — mpy (the MicroPython core)"]
+    ROOT --> PT["pt — thirdparty"]
+    ROOT --> PY["py — micro (the guest's world)"]
+    ROOT --> APP["app — a top-level package (user code)"]
+    ROOT --> MATHB["math — a bare word: one program, self-contained"]
+
+    PX --> PXM["math — Module"]
+    PXM --> SIN["sin — Fn = an attribute"]
+    SIN --> BC["bytecode — Code view"]
+
+    PM --> GC["gc — Module (leaf)"]
+
+    PT --> LWIP["lwip — imported graphs"]
+    PT --> MBED["mbedtls — imported graphs"]
+
+    PY --> UA["uasyncio — was once Python"]
+    PY --> MACHINE["machine — C builtin via rximport"]
+
+    APP --> MAIN["main — Module"]
+    MAIN --> RUN["run — Fn = an attribute"]
+    MAIN --> CFG["cfg — sub-module"]
+    MAIN --> CONF["CONF — a named cell (a global)"]
+```
+
+A guest `import app.cfg` walks it as the trichotomy:
+
+```
+mp_import_stat("app")      → package   → keep walking
+mp_import_stat("app.cfg")  → module    → the cell is found
+app.cfg.CONF               → no import: an attribute read of the named cell CONF
+app.main.run               → none: a Fn is an attribute of its module, never a module name
+```
+
 ## Syntax highlighting
 
 `editors/rxf-highlight/` is a dependency-free Cursor/VS Code extension with TextMate grammars for
