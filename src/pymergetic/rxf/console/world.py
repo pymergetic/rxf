@@ -62,6 +62,15 @@ def forget(spec: str) -> None:
     _BUILDERS.pop(spec, None)
 
 
+def registered(spec: str) -> bool:
+    """Whether a runner runs at SPEC: `attach` would find the world of an image here.
+
+    A command that only speaks frames (`rxf live`) asks this before it opens a wire of its own:
+    the channel of the runner is the same link, and it is the only one that can run.
+    """
+    return spec in _BUILDERS
+
+
 def attach(spec: str, timeout: float = 30.0) -> World:
     """The world of the running image at SPEC (`pty:...`, `tty:...`, `fd:...`, `shm:name`)."""
     build = _BUILDERS.get(spec)

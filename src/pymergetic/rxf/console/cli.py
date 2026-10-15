@@ -25,6 +25,10 @@ def console(
 ) -> Any:
     """The terminal on a running image: type `.rxf`, the image compiles and installs it.
 
+    This is the world face of a link: compiling and installing runs the image (a run is not a
+    frame, docs/19), so it attaches the world of whoever runs it (`console/world`) — `rxf live`
+    is the frames face of the same link and works without a runner here.
+
     With SOURCE, that one file goes through the same path once. Without SOURCE the loop reads
     programs until a blank line ends each (a line of one `.` does too). An `include` names the
     `.rxf` sources beside SOURCE (or beside the terminal). `--inspect` only says what the image

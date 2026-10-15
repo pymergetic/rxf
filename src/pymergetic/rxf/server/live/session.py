@@ -8,9 +8,11 @@ takes the registration with it — the link gives no runner again, and a fresh r
 spec works. One link has one runner: a spec that is taken is refused with the seam's own refusal
 (`WorldIsRegistered` of `console/world.py`, the one registry) and keeps its runner.
 
-`rxf live` runs one session per image it drives; `rxf serve` runs one behind its inspector
-(`server/app.py` holds it for the lifetime of the app). The console does not own the channel of
-such a world, so attaching and leaving changes nothing about the registration.
+`rxf serve` runs one behind its inspector (`server/app.py` holds it for the lifetime of the app),
+and the host of `rxf live`'s channel (the harness, a rig) opens one at the link it serves — the
+commands of `rxf live` then speak on the same channel (`live/cli` finds it through this seam). The
+console does not own the channel of such a world, so attaching and leaving changes nothing about
+the registration.
 """
 
 from __future__ import annotations
