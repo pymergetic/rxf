@@ -327,6 +327,9 @@ the lanes land — the shape above is what their flags and Doc writes must satis
 
 ## 6. Risks and open decisions
 
+**All fourteen are decided or resolved (2026-10-15) — the ledger at the end of this section
+records each.** The items below stand as the risk statement that prompted them.
+
 1. **Value width.** The importer assumes 64-bit words ("the value-width policy for MicroPython's
    word (32- vs 64-bit) is the one open piece" — `rximport.py`). Most MicroPython ports run
    32-bit `mp_int_t`. Until this is decided, the breadth claim is x86-64/wasm32-shaped.
@@ -372,11 +375,54 @@ the lanes land — the shape above is what their flags and Doc writes must satis
     not claim the caller's lines for an inlined body. The lift cites the definition the body
     came from (per-function line maps survive inlining via debug info) or refuses the placement.
 12. **No filesystem is a refusal.** A guest that expects CPython's `sys.path`/`open()` import
-    gets an honest Refusal (the tree is the image, §4.6). Anything that needs source at runtime
-    is `rxf console`/delta territory. This is a design promise to keep, not a gap to paper over.
+    gets an honest Refusal (the tree is the image, §4.6). Until the filesystem of decision 12
+    lands, this is an honest stop — not a gap to paper over.
 13. **Vocabulary drift.** The corpus/tests speak of "slices 4-5" for runtime dispatch and
     "slice 1" for a leaf; this design and the owner speak of i2/i3. Pin one vocabulary when the
     slices land, in the tests first.
 14. **docs/19 is referenced but absent.** The self-editing path doc (README, docs/22) is not in
-    the tree; the Python strand's self-build story (the compiler compiling itself) depends on it.
+    the tree;     the Python strand's self-build story (the compiler compiling itself) depends on it.
     Track the lane; do not assume its content.
+
+### The decisions (2026-10-15)
+
+All fourteen are decided; two were answered by work that landed in the meantime.
+
+1. **Value width — decided: dual policy from the start.** 32- and 64-bit operand widths are
+   both first-class; the importer's operand policy carries the width. No deferral — the
+   breadth claim stops being x86-64/wasm32-shaped when the lanes land.
+2. **Frame budget — resolved by landed work.** Frames measure against `RXF_GRAPH_CELL_BYTES`
+   (8192); `qstr_from_strn` (1608 B) is its own program and no longer refused for a frame.
+3. **Wiring universe — decided: a link fact.** `function_wiring` survives import runs as
+   objects; a boot and its bodies may be separate imports, so the per-module provenance knob
+   stays clean.
+4. **lwIP pbufs — decided: pinned cells.** One arena: a pbuf is a pinned cell the sliding
+   pass (S8) skips (`foundation.heap.pin`/`unpin`); no second memory, no resolve-at-use tax.
+5. **Static initializers — decided: the importer learns them.** Real relocation support in
+   `rximport.py` for structs of callbacks; the `obj_port_boot` idiom remains the fallback
+   shape, not the only door.
+6. **Recursion — decided: one frame model.** C recursion uses heap frames like Python calls
+   (no depth-8 ceiling for it); the budgets stay honest (`RXF_GRAPH_CELL_BYTES`, the cell
+   budget) and a refused chain is still a budget refusal, never a stack overflow.
+7. **uasyncio semantics — decided: model everything.** The run model unifies threads and
+   async (S11 is no-GIL): `run_in_executor` spawns a run cell — no OS threads, no second
+   scheduler — timers and cancellation timing are modeled, and the S10 differential covers
+   task-level results.
+8. **The browser line — decided: `rxf net gateway`.** SLIP over WebSocket to a host gateway
+   (the router the browser dials); no gateway running is an honest refusal on seat B. A
+   `js.fetch` fill is not the card's proof and does not replace it.
+9. **The emitter — decided: extract now.** One shared emitter module; the window is open
+   (i2/i3 landed, no lane owns `rximport.py`), and the Python strand calls the same emitter.
+10. **The Python differential — decided: MicroPython is the reference.** Observable behavior
+    equals MicroPython's, not CPython's (int width, small-int identity, dict order included).
+11. **Inlined bodies and citations — decided: cite the caller's lines, marked as such.** An
+    inlined body's locator carries an inline marker naming the caller's lines; the citation
+    never silently claims them as the definition's.
+12. **The filesystem — decided: it is coming, as an RXF object world.** Files are cells,
+    mounts are subtrees (the module tree's shape); `open()`/`sys.path` resolve honestly over
+    it, and rump/virtio-blk drivers back real storage under it later. Until then guests get
+    honest refusals — a temporary stop, not the design promise it was drafted as.
+13. **Vocabulary — decided: i2/i3 is canonical.** One renaming pass makes the tests speak
+    i2/i3; the "slices 4-5"/"slice 1" wording retires there first.
+14. **docs/19 — resolved by landed work.** `docs/19-SELF-EDITING-PATH.md` is in the tree
+    (verified 2026-10-15; its links resolve).
