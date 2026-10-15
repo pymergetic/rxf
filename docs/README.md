@@ -83,6 +83,9 @@ Read in order:
 14. [The native snippets: a multi-platform binary](18-NATIVE-SNIPPETS.md)
 15. [The way to a self-editing image](19-SELF-EDITING-PATH.md)
 16. [The execution policy: suspension is a data property](20-EXECUTION-POLICY.md)
+17. [The unified web interface](21-UNIFIED-WEB-INTERFACE.md)
+18. [Documentation and intent](22-DOCUMENTATION-AND-INTENT.md)
+19. [MicroPython on RXF](23-MICROPYTHON-EXPANSION.md)
 
 These documents specify RXF independently of any runtime provider. The optional Metal binding
 is described separately in [`integrations/metal.md`](integrations/metal.md).

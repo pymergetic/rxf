@@ -3753,6 +3753,7 @@ def compile_c(source: str | Path) -> str:
         [CLANG, "-S", "-emit-llvm", "-O1", "-DRXF_IMPORT_FACES", str(source), "-o", "-"],
         capture_output=True,
         text=True,
+        check=False,
     )
     if done.returncode:
         raise ParseError(f"{CLANG} could not compile {source}: {done.stderr.strip()}")
@@ -3766,6 +3767,7 @@ def compile_cpp(source: str | Path) -> str:
         [CLANGXX, "-S", "-emit-llvm", "-O1", str(source), "-o", "-"],
         capture_output=True,
         text=True,
+        check=False,
     )
     if done.returncode:
         raise ParseError(f"{CLANGXX} could not compile {source}: {done.stderr.strip()}")
@@ -3786,6 +3788,7 @@ def compile_rs(source: str | Path) -> str:
              "panic=abort", str(Path(source).resolve()), "-o", "-"],
             capture_output=True,
             text=True,
+            check=False,
             cwd=own,
         )
     if done.returncode:
