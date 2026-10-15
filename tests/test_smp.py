@@ -97,7 +97,7 @@ def prove(mode: str = "", **knobs) -> tuple[dict, str]:
     args = [str(_binary(mode))]
     for name, value in knobs.items():
         args.append(f"--{name}={value}")
-    answer = subprocess.run(args, capture_output=True, text=True, timeout=600)
+    answer = subprocess.run(args, capture_output=True, text=True, timeout=600, check=False)
     assert answer.returncode == 0, answer.stderr[-2000:]
     return json.loads(answer.stdout), answer.stderr
 
