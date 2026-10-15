@@ -1,8 +1,14 @@
-"""FastAPI wiring of the core inspector: one image, read only."""
+"""FastAPI wiring of the core inspector: one image, read only.
+
+With a live session (`server/live`) the app runs what `rxf serve` runs: the world of the image is
+registered at the link of the session while the app serves, so `rxf console` attaches to it, and
+shut down takes the registration with it (docs/19, "who runs when").
+"""
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +17,7 @@ from fastapi.responses import HTMLResponse, Response
 
 from pymergetic.rxf.core.object import Image
 from pymergetic.rxf.server.inspector import Inspector
+from pymergetic.rxf.server.live.session import Session
 
 PAGE = Path(__file__).with_name("templates") / "inspector.html"
 MODEL_PAGE = Path(__file__).with_name("templates") / "model.html"
@@ -24,9 +31,25 @@ def found[Result](call: Callable[..., Result], *args: object) -> Result:
         raise HTTPException(404, f"no object at {error.args[0]!r}") from None
 
 
-def create_app(image: Image) -> FastAPI:
+def create_app(image: Image, *, session: Session | None = None) -> FastAPI:
+    """The inspector on one image, read only.
+
+    With `session`, the app runs what `rxf serve` runs: while it serves, the world of the image
+    that runs is registered at the link of the session (`rxf console --link=...` attaches to it),
+    and shutting down takes the registration with it. A link whose image already runs refuses the
+    registration with `WorldIsRegistered` instead of stealing it.
+    """
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        if session is None:
+            yield
+        else:
+            with session:
+                yield
+
     inspector = Inspector(image)
-    app = FastAPI(title="RXF inspector")
+    app = FastAPI(title="RXF inspector", lifespan=lifespan)
 
     def page() -> str:
         return PAGE.read_text(encoding="utf-8")

@@ -13,10 +13,14 @@ from __future__ import annotations
 import functools
 import io
 import json
+import os
 import struct
+import subprocess
+import sys
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, NamedTuple, TextIO
+from typing import NamedTuple, TextIO
 
 import graph_header
 import link
@@ -27,8 +31,10 @@ from pymergetic.rxf.cli import main
 from pymergetic.rxf.console import world
 from pymergetic.rxf.console.session import Console
 from pymergetic.rxf.core import tree
+from pymergetic.rxf.core.arena import HANDLE_ROOT
 from pymergetic.rxf.core.object import Image
 from pymergetic.rxf.live.front import Front, NotReady, Region, identity, value_of
+from pymergetic.rxf.server.live import Session
 
 from . import live_world as lw
 from .test_rxfc import MACHINES
@@ -342,3 +348,88 @@ def test_a_source_that_names_no_program_is_refused_by_the_terminal(solo: Seat):
     outcome = console.submit("const N = 1;\n")
     assert outcome["ok"] is False
     assert "names no program" in outcome["message"]
+
+
+# ---- what serve and live register (the seam of console/world.py) ---------------------------------
+
+
+def test_a_live_session_registers_the_world_of_the_image_it_runs(solo: Seat):
+    """The live instance (`rxf live` runs one) registers its world at its link (docs/19, "who
+    runs when"): `attach` answers the channel of the running image and its front end, the frame
+    and the root of the image answer, and what the console types is compiled by that image."""
+    booted(solo)  # what the image's own `rxf live` group boots before a console attaches
+    with Session("shm:live-runs", solo.channel.client, solo.front) as session:
+        attached = world.attach("shm:live-runs")
+        assert attached is session.world
+        assert attached.client.ping(b"the channel") == b"the channel"
+        assert attached.client.resolve("") == HANDLE_ROOT
+        assert attached.client.digest() == solo.channel.loaded().digest()
+        outcome = Console(attached.front, io.StringIO()).submit(TRIPLE)
+        assert outcome["ok"] is True
+        assert outcome["path"] == f"{MODULE}.triple"
+        assert call(solo, f"{MODULE}.triple", 7) == (0, 21)
+
+
+def test_the_cli_attaches_to_the_session_the_image_runs(
+    solo: Seat, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    """`rxf console --link=SPEC` attaches to a running session: the whole path against the world
+    the live instance registered, with no harness of the test in between."""
+    booted(solo)
+    file = tmp_path / "twice.rxf"
+    file.write_text(TWICE, encoding="utf-8")
+    with Session("shm:live-cli", solo.channel.client, solo.front):
+        assert main(["console", str(file), "--link=shm:live-cli"]) == 0
+    outcome = json.loads(capsys.readouterr().out)
+    assert outcome["ok"] is True
+    assert outcome["path"] == f"{MODULE}.twice"
+    assert words_of(solo, f"{MODULE}.twice") == rxfc.compile_source(TWICE)
+
+
+def test_the_registration_leaves_with_the_session(solo: Seat):
+    """Closing is clean: the link gives no runner again, closing twice is nothing, and a fresh
+    register at the same spec works."""
+    session = Session("shm:leaves-with-it", solo.channel.client, solo.front).open()
+    assert world.attach("shm:leaves-with-it") is session.world
+    session.close()
+    session.close()  # closing twice is not a second refusal
+    with pytest.raises(world.ConsoleError, match="gives no runner"):
+        world.attach("shm:leaves-with-it")
+    fresh = Session("shm:leaves-with-it", solo.channel.client, solo.front).open()
+    assert world.attach("shm:leaves-with-it") is fresh.world
+    fresh.close()
+
+
+def test_a_second_world_at_the_same_link_is_refused_not_stolen(solo: Seat):
+    """One link has one runner: a second registration is refused with the seam's own refusal,
+    and the runner that is there keeps its link until it closes."""
+    first = Session("shm:one-runner", solo.channel.client, solo.front).open()
+    second = Session("shm:one-runner", solo.channel.client, solo.front)
+    try:
+        with pytest.raises(world.WorldIsRegistered, match="shm:one-runner"):
+            second.open()
+        assert world.attach("shm:one-runner") is first.world
+    finally:
+        first.close()
+    second.open()  # the link is free again
+    assert world.attach("shm:one-runner") is second.world
+    second.close()
+
+
+def test_nothing_is_left_registered_when_a_runner_ends_without_closing():
+    """What runs the image takes its registration with it even when it ends without closing: no
+    process ends with a world still registered at its link (the exit hook of the session)."""
+    done = subprocess.run(
+        [sys.executable, "-m", "tests.session_at_exit"],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "PYTHONPATH": os.pathsep.join([str(ROOT / "tools" / "native"), str(ROOT)]),
+        },
+    )
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.strip() == "registered at exit: no"
