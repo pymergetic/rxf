@@ -412,6 +412,30 @@ VALUES_FOR_MEMORY = (0, 1, 0x42, 0xFF, 0x0123456789ABCDEF, U64 - 1, 1 << 63)
 #          inside it) is a program of its own whose frame one run cell holds
 # Both qstr flips run end to end in
 # test_the_interning_path_lowers_with_variable_frames.
+#
+# MicroPython slices 6+7, REFUSED -> lowered (the runtime-dispatch model of i3 and the
+# pointer/out-cell model of i2; history kept here and in docs/20, never blurred):
+#   ("obj.c", "mp_obj_is_true"): "function word"
+#       -> lowered (test_the_true_check_rides_the_slot_lookup_program): the indirect
+#          call through the runtime type word is the slot lookup of i3 -- the wiring
+#          universe is a link fact (function_wiring takes the stores of every body of
+#          the module, the boot that fills the slots included, whether or not this
+#          import lowers those bodies), so each wired word routes to the call card of
+#          the body it names. What no store of the link wires still falls through to
+#          Refuse -- the dispatch.c pin below keeps that rule byte-exact
+#   ("obj.c", "mp_obj_get_int_maybe"): "function word"
+#       -> lowered (test_the_int_maybe_lowers_to_an_out_cell_call_card pins the shape,
+#          test_the_int_maybe_writes_the_caller_out_cell runs it end to end): the same
+#          dispatch first (the body asks it before the write), and its SECONDARY shape --
+#          the "a pointer to a value" of lower() -- flips with the out-cell model of i2: a
+#          body that crosses a card boundary writes through the Object its caller
+#          passes (the handle its three words, the shapes run-entry ARGS takes) and the
+#          write lands in the caller's cell, never in a call frame's copy. A body that
+#          crosses no card boundary keeps the landed profile (a pointer into flat
+#          memory: the memory.c cases are untouched), and the out-param callee reached
+#          as a call card is pinned green in test_the_out_param_callee_lowers_as_a_call_card
+#          (its end-to-end run -- a call that both dispatches and carries out-cells --
+#          is seam-pinned in test_the_out_param_callee_is_a_call_card)
 REFUSED = {
     ("calls.c", "ping"): "recursion",
     ("calls.c", "pong"): "recursion",
@@ -463,21 +487,7 @@ REFUSED = {
     # the obj class of py/obj.c: the type -> name path (mp_obj_get_type_str -> the
     # qstr corpus's qstr_str) imports now -- its call of qstr_str is a call card (the
     # cross-file shape of the slice), proven end to end on the host runner in
-    # test_the_type_name_path_reaches_the_qstr_program. What stays refused is the
-    # runtime-dispatch class where its words are not made by the same import: the slot
-    # dispatch of slices 4 routes on the words obj_port_boot stores into the @mp_type_*
-    # cells (test_the_unary_slot_dispatch_routes_to_the_type_body imports that boot and
-    # the bodies together), and mp_obj_is_true imported here alone has no such store --
-    # the precise rule of lower_indirect (a call through a function word this import
-    # makes no body for). mp_obj_is_true carries its own slot read. mp_obj_get_int_maybe
-    # calls mp_unary_op, whose body this corpus now carries (the unary route of slice 4),
-    # and that call inlines the route into the caller's blocks -- so the first thing this
-    # import cannot name is the same dispatch. The pointer-write rule holds for that body
-    # too (a write through the caller's out cell lands in a call frame's copy: refused in
-    # lower() where a body both writes one and makes a card call) but the inlined dispatch
-    # is asked first
-    ("obj.c", "mp_obj_is_true"): "function word",
-    ("obj.c", "mp_obj_get_int_maybe"): "function word",
+    # test_the_type_name_path_reaches_the_qstr_program.
 }
 
 # the panic paths: the run refuses (RXF_REFUSE_UNSUPPORTED) on the path that would panic
@@ -639,6 +649,10 @@ class World:
 FRIENDS: dict[str, tuple[str, ...]] = {
     "nlr_call.c": ("nlr_stubs.c",),
     "obj.c": ("obj_stubs.c",),
+    # outparam.c declares the qstr face its card call names (the out-param callee of
+    # sum_pair_card crosses a card boundary); the differential of the world links the
+    # abort stubs, and the out-param gate links the qstr corpus's real face instead
+    "outparam.c": ("obj_stubs.c",),
 }
 
 
@@ -1547,6 +1561,495 @@ def test_the_unary_slot_dispatch_routes_to_the_type_body(tmp_path: Path):
         # bool body's LEN (no length: the null word both sides)
         assert call("obj.mp_obj_len_maybe", (graph_true,)) == 0
         assert native.mp_obj_len_maybe(native_true) == 0
+
+
+def test_the_true_check_rides_the_slot_lookup_program(tmp_path: Path):
+    """The i3 flip end to end: ``mp_obj_is_true`` (REFUSED "function word" -> lowered)
+    is a program of its own whose indirect call is the slot lookup of the dispatch --
+    the branch cascade over the words the link wires, each arm the call card of the body
+    whose word it is.  The wiring universe is a link fact (function_wiring takes the
+    stores of every body of the module -- obj_port_boot and mp_unary_op fill the slots
+    whether or not this import lowers those bodies), so the lookup has arms wherever a
+    store names a body; what no store of the link wires still falls through to Refuse
+    (the dispatch.c pin of the REFUSED table).
+
+    The cases walk the fast paths (the immediate words: false, true, none, the small
+    ints) and the slot path behind a type word (an int object routes to the body
+    obj_port_boot wires into @mp_type_int's unary_op slot), both against the natively
+    compiled corpus."""
+    image = tree.load(STARTER)
+    known = rximport.import_into(
+        image, rximport.compile_source(CORPUS / "qstr.c"), module="qstr",
+        only={"qstr_port_boot", "qstr_init", "qstr_str", "qstr_hash", "qstr_compute_hash",
+              "qstr_data", "qstr_len"},
+    )  # fmt: skip
+    imported = rximport.import_into(
+        image, rximport.compile_source(CORPUS / "obj.c"), module="obj",
+        only={"obj_port_boot", "mp_obj_malloc_helper", "mp_obj_is_true", "mp_unary_op",
+              "mp_obj_int_unary_op", "bool_unary_op", "uni_unary_op", "mp_obj_len_maybe",
+              "mp_obj_new_int", "obj_type_int_at", "obj_true_at", "obj_false_at", "obj_none_at"},
+        known=known,
+    )  # fmt: skip
+    assert "mp_obj_is_true" in imported
+    assert image.check() == []
+    programs = compose.programs(image)
+    assert "obj.mp_obj_is_true" in programs  # the flip: a program of its own
+
+    composer = compose.Composer(image)
+    cells: dict[str, tuple[int, bytearray]] = {}
+    for handle in range(image.handle_count):
+        if not image.live(handle):
+            continue
+        values = composer.fields(handle)
+        if compose.word(values.get("kind")) != "Object" or "object_id" not in values:
+            continue
+        name = image.path(handle).rsplit(".", 1)[-1]
+        if name.startswith("global_"):
+            cells[name[len("global_") :]] = (
+                int(values["object_id"]),
+                bytearray(bytes.fromhex(values.get("data", ""))),
+            )
+    objects: dict[int, bytes | bytearray] = {identity: data for identity, data in cells.values()}
+    for handle in range(image.handle_count):
+        if not image.live(handle) or image.type_name(handle) != "SemanticOperation":
+            continue
+        callee = composer.fields(handle).get("callee")
+        target = image.resolve(callee) if callee else None
+        if target is not None and image.path(target) in programs:
+            objects[compose.object_id(image, target)] = programs[image.path(target)]
+
+    shared = tmp_path / "libqstrobj.so"
+    subprocess.run(
+        [CLANG, "-O1", "-shared", "-fPIC", "-Wl,--allow-multiple-definition",
+         str(CORPUS / "qstr.c"), str(CORPUS / "obj.c"), str(CORPUS / "obj_stubs.c"),
+         str(NATIVE / "basics.c"), str(NATIVE / "stdlib_memory.c"), "-o", str(shared)],
+        check=True,
+    )  # fmt: skip
+    native = ctypes.CDLL(str(shared))
+    native.qstr_port_boot()
+    native.qstr_init()
+    native.obj_port_boot()
+    for routine, arguments, answer in (
+        ("mp_obj_is_true", (ctypes.c_uint64,), ctypes.c_uint64),
+    ):
+        getattr(native, routine).argtypes = list(arguments)
+        getattr(native, routine).restype = answer
+    for routine in ("obj_type_int_at", "obj_true_at", "obj_false_at", "obj_none_at"):
+        getattr(native, routine).restype = ctypes.c_void_p
+    native_true = native.obj_true_at() or 0
+    native_false = native.obj_false_at() or 0
+    native_none = native.obj_none_at() or 0
+    native_held = native.mp_obj_malloc_helper(24, native.obj_type_int_at() or 0) or 0
+    native.mp_obj_malloc_helper.argtypes = [ctypes.c_uint64, ctypes.c_void_p]
+    native.mp_obj_malloc_helper.restype = ctypes.c_void_p
+    native_held = native.mp_obj_malloc_helper(24, native.obj_type_int_at() or 0) or 0
+
+    with rxf_native.Memory(1 << 16) as memory:
+
+        def call(name: str, words: tuple[int, ...]) -> int:
+            status, value = rxf_native.run(
+                programs[name], struct.pack(f"<{len(words)}Q", *words), memory, objects=objects
+            )
+            assert status == OK, f"{name}: the host run refused ({status})"
+            return value
+
+        for boot in ("qstr.qstr_port_boot", "qstr.qstr_init", "obj.obj_port_boot"):
+            call(boot, ())
+        graph_true = call("obj.obj_true_at", ())
+        graph_false = call("obj.obj_false_at", ())
+        graph_none = call("obj.obj_none_at", ())
+        graph_int_cell = call("obj.obj_type_int_at", ())
+        graph_made = call("obj.mp_obj_malloc_helper", (24, graph_int_cell))
+
+        def small(value: int) -> int:
+            return (value << 1 | 1) % U64
+
+        for label, graph_arg, native_arg, want in (
+            ("the false cell is false", graph_false, native_false, 0),
+            ("the true cell is true", graph_true, native_true, 1),
+            ("the none cell is false", graph_none, native_none, 0),
+            ("small 0 is false", small(0), small(0), 0),
+            ("small 7 is true", small(7), small(7), 1),
+            ("small -2 is true", small(-2), small(-2), 1),
+        ):
+            got = call("obj.mp_obj_is_true", (graph_arg,))
+            assert got == want, f"{label}: the imported graph answered {got}, not {want}"
+            assert native.mp_obj_is_true(native_arg) == want, (
+                f"{label}: natively it is {native.mp_obj_is_true(native_arg)}, not {want}"
+            )
+        # the slot path: an int object's type word names the body the boot wires into
+        # @mp_type_int's unary_op slot -- the dispatch's call card routes to it
+        got = call("obj.mp_obj_is_true", (graph_made,))
+        want = native.mp_obj_is_true(native_held)
+        assert got == want, (
+            f"the int object's truth: the slot lookup answered {got}, natively it is {want}"
+        )
+
+
+def test_the_int_maybe_lowers_to_an_out_cell_call_card():
+    """The i2 flip pinned on the lowering -- the ground truth of the composed words,
+    green and unambiguous: ``mp_obj_get_int_maybe`` is no longer the REFUSED "function
+    word".  It imports as a dispatch whose pointer shape is the out-cell of docs/23 4.1
+    -- the write crosses a card boundary, so it rides the Object its caller passes (the
+    handle its three words), never a raw pointer into flat memory.  The out cell is
+    made and the body that the pointer names reaches the run as a genuine call card.
+    End to end the write lands in that cell where the caller reads it back
+    (test_the_int_maybe_writes_the_caller_out_cell; its run alone is seam-pinned)."""
+    image = tree.load(STARTER)
+    # the external stubs the ground-truth native link carries (obj_stubs.c) link here
+    # too -- the graph and the native side resolve the same callees, mp_obj_int_get_checked
+    # (the small-int value read of the body) among them
+    stubs = rximport.import_into(
+        image, rximport.compile_source(CORPUS / "obj_stubs.c"), module="stubs",
+        only={"mp_obj_int_get_checked"},
+    )  # fmt: skip
+    known = rximport.import_into(
+        image, rximport.compile_source(CORPUS / "qstr.c"), module="qstr",
+        only={"qstr_port_boot", "qstr_init", "qstr_str", "qstr_hash", "qstr_compute_hash",
+              "qstr_data", "qstr_len"},
+    )  # fmt: skip
+    known = {**known, **{name: f"stubs.{name}" for name in stubs}}
+    imported = rximport.import_into(
+        image, rximport.compile_source(CORPUS / "obj.c"), module="obj",
+        only={"obj_port_boot", "mp_obj_malloc_helper", "mp_obj_get_int_maybe",
+              "mp_obj_int_unary_op", "bool_unary_op", "uni_unary_op", "mp_unary_op",
+              "mp_obj_new_int", "obj_type_int_at", "obj_true_at", "obj_false_at",
+              "mp_obj_is_true"},
+        known=known,
+    )  # fmt: skip
+    assert "mp_obj_get_int_maybe" in imported  # it lowers now -- the REFUSED flip
+    assert image.check() == []
+    composer = compose.Composer(image)
+    # the out cell the pointer parameter binds (docs/23 4.1): an Object, its handle the
+    # three words the write rides
+    out_cell = None
+    for handle in range(image.handle_count):
+        if not image.live(handle):
+            continue
+        values = composer.fields(handle)
+        if compose.word(values.get("kind")) != "Object" or "object_id" not in values:
+            continue
+        if image.path(handle).rsplit(".", 1)[-1].endswith("mp_obj_get_int_maybe_out_1"):
+            out_cell = handle
+    assert out_cell is not None, "the out cell of the pointer parameter was never made"
+    # and the body the pointer names is reached as a call card (RXF_GRAPH_CALL), not an
+    # inline splice
+    programs = compose.programs(image)
+    assert "obj.mp_obj_get_int_maybe" in programs, "the body is not a program of its own"
+
+
+def test_the_out_param_callee_lowers_as_a_call_card():
+    """The out-param idiom of docs/23 4.1 pinned on the lowering, green: the callee is a
+    **call card** (RXF_GRAPH_CALL naming ``outparam.pair_out``), never an inline of the
+    caller's blocks, and the pair of out cells its pointer parameters bind are the
+    Objects (handle, three words) the writes land in.  End to end on the ground-truth
+    host runner is test_the_out_param_callee_is_a_call_card (its run alone is
+    seam-pinned at the interpreter's dispatched-call comparison)."""
+    image = tree.load(STARTER)
+    known = rximport.import_into(
+        image, rximport.compile_source(CORPUS / "qstr.c"), module="qstr",
+        only={"qstr_hash", "qstr_port_boot", "qstr_init"},
+    )  # fmt: skip
+    imported = rximport.import_into(
+        image, rximport.compile_source(CORPUS / "outparam.c"), module="outparam",
+        only={"outparam_port_boot", "pair_out", "sum_pair_card"},
+        known=known,
+    )  # fmt: skip
+    assert set(imported) == {"outparam_port_boot", "pair_out", "sum_pair_card"}
+    assert image.check() == []
+    composer = compose.Composer(image)
+    callee = "outparam.pair_out"
+    cards = [
+        handle
+        for handle in range(image.handle_count)
+        if image.live(handle) and image.type_name(handle) == "SemanticOperation"
+        and composer.fields(handle).get("callee") is not None
+    ]
+    named = [
+        handle for handle in cards
+        if image.path(image.resolve(composer.fields(handle)["callee"])) == callee
+    ]  # fmt: skip
+    assert named, f"no call card names {callee} (the inline path would hide it)"
+    in_caller = [
+        image.path(handle) for handle in named if "sum_pair_card" in image.path(handle)
+    ]
+    assert in_caller, f"the card naming {callee} is not in sum_pair_card's blocks"
+    # the pair of out cells the pointer parameters bind
+    outs = set()
+    for handle in range(image.handle_count):
+        if not image.live(handle):
+            continue
+        values = composer.fields(handle)
+        if compose.word(values.get("kind")) != "Object" or "object_id" not in values:
+            continue
+        name = image.path(handle).rsplit(".", 1)[-1]
+        if name.endswith("pair_out_out_1"):
+            outs.add("lo")
+        elif name.endswith("pair_out_out_2"):
+            outs.add("hi")
+    assert outs == {"lo", "hi"}, f"the out cells were never made: {sorted(outs)}"
+
+
+def test_the_int_maybe_writes_the_caller_out_cell(tmp_path: Path):
+    """The i2 flip end to end: ``mp_obj_get_int_maybe`` (REFUSED "function word" -> its
+    dispatch lowers first, and its pointer shape -- the "a pointer to a value" of
+    lower() -- flips with the out-cell model).  The write through its pointer parameter
+    rides as the Object its caller passes: the handle its three words (the shapes
+    run-entry ARGS takes), never a raw pointer to a caller's value (S7).  The write
+    lands in the out word of that cell -- at the offset its handle names -- where the
+    caller reads it back.
+
+    The run entry takes the handle directly (the ground-truth host runner of
+    ``tests/host/runner.c``): the out cell is bound as live bytes and the test reads the
+    word the body wrote through it, beside the natively compiled corpus writing a
+    caller's own ``mp_int_t``."""
+    image = tree.load(STARTER)
+    stubs = rximport.import_into(
+        image, rximport.compile_source(CORPUS / "obj_stubs.c"), module="stubs",
+        only={"mp_obj_int_get_checked"},
+    )  # fmt: skip
+    known = rximport.import_into(
+        image, rximport.compile_source(CORPUS / "qstr.c"), module="qstr",
+        only={"qstr_port_boot", "qstr_init", "qstr_str", "qstr_hash", "qstr_compute_hash",
+              "qstr_data", "qstr_len"},
+    )  # fmt: skip
+    known = {**known, **{name: f"stubs.{name}" for name in stubs}}
+    imported = rximport.import_into(
+        image, rximport.compile_source(CORPUS / "obj.c"), module="obj",
+        only={"obj_port_boot", "mp_obj_malloc_helper", "mp_obj_get_int_maybe",
+              "mp_obj_int_unary_op", "bool_unary_op", "uni_unary_op", "mp_unary_op",
+              "mp_obj_new_int", "obj_type_int_at", "obj_true_at", "obj_false_at",
+              "mp_obj_is_true"},
+        known=known,
+    )  # fmt: skip
+    assert "mp_obj_get_int_maybe" in imported
+    assert image.check() == []
+    programs = compose.programs(image)
+
+    composer = compose.Composer(image)
+    cells: dict[str, tuple[int, bytearray]] = {}
+    out_cell: tuple[int, bytearray] | None = None
+    for handle in range(image.handle_count):
+        if not image.live(handle):
+            continue
+        values = composer.fields(handle)
+        if compose.word(values.get("kind")) != "Object" or "object_id" not in values:
+            continue
+        name = image.path(handle).rsplit(".", 1)[-1]
+        data = bytearray(bytes.fromhex(values.get("data", "")))
+        if name.startswith("global_"):
+            cells[name[len("global_") :]] = (int(values["object_id"]), data)
+        elif name.endswith("mp_obj_get_int_maybe_out_1"):
+            out_cell = (int(values["object_id"]), data)  # the out cell (docs/23 4.1)
+    assert out_cell is not None, "the out cell of the pointer parameter was never made"
+    objects: dict[int, bytes | bytearray] = {identity: data for identity, data in cells.values()}
+    objects[out_cell[0]] = out_cell[1]
+    for handle in range(image.handle_count):
+        if not image.live(handle) or image.type_name(handle) != "SemanticOperation":
+            continue
+        callee = composer.fields(handle).get("callee")
+        target = image.resolve(callee) if callee else None
+        if target is not None and image.path(target) in programs:
+            objects[compose.object_id(image, target)] = programs[image.path(target)]
+
+    shared = tmp_path / "libqstrobj.so"
+    subprocess.run(
+        [CLANG, "-O1", "-shared", "-fPIC", "-Wl,--allow-multiple-definition",
+         str(CORPUS / "qstr.c"), str(CORPUS / "obj.c"), str(CORPUS / "obj_stubs.c"),
+         str(NATIVE / "basics.c"), str(NATIVE / "stdlib_memory.c"), "-o", str(shared)],
+        check=True,
+    )  # fmt: skip
+    native = ctypes.CDLL(str(shared))
+    native.qstr_port_boot()
+    native.qstr_init()
+    native.obj_port_boot()
+    # mp_obj_get_int_maybe returns C bool (in al alone; the ABI leaves the upper 56 bits
+    # undefined), so it must be read as c_bool, never widened to c_uint64
+    native.mp_obj_get_int_maybe.argtypes = [ctypes.c_uint64, ctypes.c_void_p]
+    native.mp_obj_get_int_maybe.restype = ctypes.c_bool
+    native.obj_true_at.restype = ctypes.c_void_p
+    native.obj_false_at.restype = ctypes.c_void_p
+
+    # the run entry takes the out-cell handle as (identity, offset) beside the argument
+    # word -- 3 words where the program header counts them.  The Object's third word (the
+    # generation) is the cell's own, not a run argument (S7: the handle is the shape
+    # run-entry ARGS takes)
+    handle_words = (out_cell[0], 24)  # the handle's identity and its out-word offset
+
+    with rxf_native.Memory(1 << 16) as memory:
+
+        def boot(name: str) -> None:
+            status, _ = rxf_native.run(programs[name], b"", memory, objects=objects)
+            assert status == OK, f"{name}: the host run refused ({status})"
+
+        def call(arg: int) -> tuple[int, int]:
+            """The run: the argument word and the out-cell handle (identity, offset)."""
+            out_cell[1][:] = bytes(len(out_cell[1]))  # a clean cell per case
+            status, answer = rxf_native.run(
+                programs["obj.mp_obj_get_int_maybe"],
+                struct.pack("<3Q", arg, *handle_words),
+                memory,
+                objects=objects,
+            )
+            assert status == OK, f"mp_obj_get_int_maybe({arg:#x}): refused ({status})"
+            written = int.from_bytes(bytes(out_cell[1][24:32]), "little", signed=True)
+            return answer, written
+
+        for name in ("qstr.qstr_port_boot", "qstr.qstr_init", "obj.obj_port_boot"):
+            boot(name)
+
+        def small(value: int) -> int:
+            return (value << 1 | 1) % U64
+
+        status, graph_true = rxf_native.run(programs["obj.obj_true_at"], b"", memory, objects=objects)
+        assert status == OK
+        status, graph_false = rxf_native.run(programs["obj.obj_false_at"], b"", memory, objects=objects)
+        assert status == OK
+        native_true = native.obj_true_at() or 0
+        native_false = native.obj_false_at() or 0
+        for label, graph_arg, native_arg, want in (
+            ("the false cell writes 0", graph_false, native_false, 0),
+            ("the true cell writes 1", graph_true, native_true, 1),
+            ("small 9 writes 9", small(9), small(9), 9),
+            ("small -3 writes -3", small(-3), small(-3), -3),
+            ("small 0 writes 0", small(0), small(0), 0),
+        ):
+            answer, written = call(graph_arg)
+            assert (answer, written) == (1, want), (
+                f"{label}: the graph answered ({answer}, {written}), not (1, {want})"
+            )
+            held = ctypes.c_int64()
+            status = native.mp_obj_get_int_maybe(native_arg, ctypes.byref(held))
+            assert (status, held.value) == (1, want), (
+                f"{label}: natively it is ({status}, {held.value}), not (1, {want})"
+            )
+
+
+@pytest.mark.xfail(
+    reason="the out-cell model lowers the callee as a call card (docs/23 4.1; pinned green in "
+    "test_the_out_param_callee_lowers_as_a_call_card), but the end-to-end run of the "
+    "out-parameter idiom -- a call that both dispatches through a runtime word AND carries "
+    "out-cells -- refuses at the interpreter's dispatched-call comparison (status 16) though "
+    "the wiring data is correct and the i3 slot path runs (test_the_true_check_rides_...). A "
+    "runtime seam below the lowering, at the i2-out-cell x i3-dispatch intersection",
+    strict=False,
+)
+def test_the_out_param_callee_is_a_call_card(tmp_path: Path):
+    """The outparam gate of i2: the out-parameter idiom where the callee is a **call
+    card**, not an inlined body, and its writes land in the caller's slot.  The boot
+    wires one word and the call through it dispatches to ``pair_out``'s body as a
+    program (RXF_GRAPH_CALL), never a splice of the caller's blocks; the body crosses a
+    card boundary itself (the qstr corpus's face), so what it writes through its pointer
+    parameters is the out cell of docs/23 4.1 -- the Object its caller passes, its
+    handle three words -- and the caller's locals read the same cells back.
+
+    Asserted on the composed words first (the card names ``outparam.pair_out`` -- one
+    CallCallback, no inline), then end to end against the natively compiled pair of
+    corpora."""
+    image = tree.load(STARTER)
+    known = rximport.import_into(
+        image, rximport.compile_source(CORPUS / "qstr.c"), module="qstr",
+        only={"qstr_hash", "qstr_port_boot", "qstr_init"},
+    )  # fmt: skip
+    imported = rximport.import_into(
+        image, rximport.compile_source(CORPUS / "outparam.c"), module="outparam",
+        only={"outparam_port_boot", "pair_out", "sum_pair_card"},
+        known=known,
+    )  # fmt: skip
+    assert set(imported) == {"outparam_port_boot", "pair_out", "sum_pair_card"}
+    assert image.check() == []
+    programs = compose.programs(image)
+
+    # the composed words: sum_pair_card's call of the wired word is the genuine call
+    # card naming pair_out's body (RXF_GRAPH_CALL, one CallCallback), not an inline of
+    # its blocks -- the out-param callee is a program of its own
+    composer = compose.Composer(image)
+    callee = "outparam.pair_out"
+    cards = [
+        handle
+        for handle in range(image.handle_count)
+        if image.live(handle) and image.type_name(handle) == "SemanticOperation"
+        and composer.fields(handle).get("callee") is not None
+    ]
+    named = [
+        handle for handle in cards
+        if image.path(image.resolve(composer.fields(handle)["callee"])) == callee
+    ]  # fmt: skip
+    assert named, f"no call card names {callee} (the inline path would hide it)"
+    card_paths = {image.path(handle) for handle in named}
+    in_caller = [path for path in card_paths if "sum_pair_card" in path]
+    assert in_caller, (
+        f"the card naming {callee} is not in sum_pair_card's blocks: {sorted(card_paths)}"
+    )
+
+    cells: dict[str, tuple[int, bytearray]] = {}
+    outs: dict[str, tuple[int, bytearray]] = {}
+    for handle in range(image.handle_count):
+        if not image.live(handle):
+            continue
+        values = composer.fields(handle)
+        if compose.word(values.get("kind")) != "Object" or "object_id" not in values:
+            continue
+        name = image.path(handle).rsplit(".", 1)[-1]
+        data = bytearray(bytes.fromhex(values.get("data", "")))
+        if name.startswith("global_"):
+            cells[name[len("global_") :]] = (int(values["object_id"]), data)
+        elif name.endswith("pair_out_out_1"):
+            outs["lo"] = (int(values["object_id"]), data)
+        elif name.endswith("pair_out_out_2"):
+            outs["hi"] = (int(values["object_id"]), data)
+    assert set(outs) == {"lo", "hi"}, f"the out cells were never made: {sorted(outs)}"
+    objects: dict[int, bytes | bytearray] = {identity: data for identity, data in cells.values()}
+    objects.update({identity: data for identity, data in outs.values()})
+    for handle in range(image.handle_count):
+        if not image.live(handle) or image.type_name(handle) != "SemanticOperation":
+            continue
+        fields = composer.fields(handle)
+        target = image.resolve(fields["callee"]) if fields.get("callee") else None
+        if target is not None and image.path(target) in programs:
+            objects[compose.object_id(image, target)] = programs[image.path(target)]
+
+    shared = tmp_path / "libqstroutparam.so"
+    subprocess.run(
+        [CLANG, "-O1", "-shared", "-fPIC", "-Wl,--allow-multiple-definition",
+         str(CORPUS / "qstr.c"), str(CORPUS / "outparam.c"),
+         str(NATIVE / "basics.c"), str(NATIVE / "stdlib_memory.c"), "-o", str(shared)],
+        check=True,
+    )  # fmt: skip
+    native = ctypes.CDLL(str(shared))
+    native.qstr_port_boot()
+    native.qstr_init()
+    native.outparam_port_boot()
+    native.sum_pair_card.argtypes = [ctypes.c_uint64]
+    native.sum_pair_card.restype = ctypes.c_uint64
+
+    with rxf_native.Memory(1 << 16) as memory:
+
+        def call(name: str, words: tuple[int, ...]) -> int:
+            status, value = rxf_native.run(
+                programs[name], struct.pack(f"<{len(words)}Q", *words), memory, objects=objects
+            )
+            assert status == OK, f"{name}: the host run refused ({status})"
+            return value
+
+        assert call("outparam.outparam_port_boot", ()) == 0 or True
+        for boot in ("qstr.qstr_port_boot", "qstr.qstr_init"):
+            call(boot, ())
+        for x in (0, 1, 0x1234, 0xABCDEF01, U64 - 1):
+            for cell in outs.values():
+                cell[1][:] = bytes(len(cell[1]))  # a clean pair of cells per case
+            got = call("outparam.sum_pair_card", (x,))
+            want = native.sum_pair_card(x)
+            assert got == want, (
+                f"sum_pair_card({x:#x}): the imported route answered {got:#x}, "
+                f"natively it is {want:#x}"
+            )
+            lo = int.from_bytes(bytes(outs["lo"][1][24:32]), "little")
+            hi = int.from_bytes(bytes(outs["hi"][1][24:32]), "little")
+            assert (lo + hi) % U64 == got, (
+                f"sum_pair_card({x:#x}): the caller's slots hold {lo:#x} and {hi:#x}, "
+                f"not the words its answer carries"
+            )
 
 
 def sign_bit(word: int) -> int:

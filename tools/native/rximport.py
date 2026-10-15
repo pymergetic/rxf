@@ -1118,31 +1118,23 @@ def function_wiring(
     parsed: list[Function], module: str, only: set[str] | None,
     declared: set[str], known: dict[str, str],
 ) -> dict[int, str]:
-    """The function words one import makes memory carry, to the Function path whose body
-    each is: every store of a function word by the bodies it lowers (and the bodies those
-    call -- a boot of the module fills the slots of the type cells before anything runs).
+    """The function words one link makes memory carry, to the Function path whose body
+    each is: every store of a function word by the bodies of the module (and the
+    cross-module words ``known`` names).  The wiring universe is a **link fact** -- the
+    store that fills a slot names the body whether or not this import lowers that body
+    (a boot of the module fills the slots of the type cells before anything runs), so
+    the arms of a dispatch cover the words the whole translation unit wires.
 
     These words are the arms of a call through a register (lower_indirect's slot
-    dispatch): only a word whose body this import makes a program of (a lowered body, or
-    a cross-module one ``known`` names) is an arm -- a word standing for a body outside
-    the import is carried as data (a compare against it) and dispatches to no card."""
+    dispatch): a word a store wires routes to the call card of the body it names; a
+    word no store of the link wires is carried as data (a compare against it) and
+    dispatches to no card -- what arrives as a caller's argument is wired nowhere this
+    link can name (tests/import_corpus/dispatch.c's ``call_a_word``), and stays refused
+    with the function-word rule."""
     functions = {function.name: function for function in parsed}
-    reach = set(only if only is not None else functions)
-    pending = list(reach)
-    while pending:  # the inline closure: a callee's stores run inside the caller's body
-        found = functions.get(pending.pop())
-        if found is None:
-            continue
-        for block in found.blocks:
-            for inst in block.insts:
-                if inst.op == "call" and inst.callee in functions and inst.callee not in reach:
-                    reach.add(inst.callee)
-                    pending.append(inst.callee)
     wired: dict[int, str] = {}
-    for name in reach:
-        found = functions.get(name)
-        if found is None:
-            continue
+    for name in functions:  # every body of the link unit, the boot's stores included
+        found = functions[name]
         for block in found.blocks:
             for inst in block.insts:
                 if inst.op != "store" or inst.a is None or not inst.a.name:
@@ -1152,12 +1144,55 @@ def function_wiring(
                 bare = inst.a.name[1:]
                 if bare in known:
                     wired[object_id_of(known[bare])] = known[bare]
-                elif bare in functions and (only is None or bare in only):
+                elif bare in functions:
                     wired[object_id_of(f"{module}.{bare}")] = f"{module}.{bare}"
                 elif bare in declared:
                     # an ABI face's word is data (the compare of a slot test), no arm
                     continue
     return wired
+
+
+def crosses_a_card(function: Function, functions: dict[str, Function]) -> bool:
+    """Whether a body crosses a call-card boundary: a call of a program of its own (no
+    leaf, no inline of the module) or a call through a register (the dispatch of i3).
+    What such a body writes through a pointer parameter is an out position (docs/23 4.1)
+    -- no raw pointer outlives the step (S7) -- and what a leaf writes through one is an
+    address into flat memory (the landed profile the ``memory.c`` cases keep)."""
+    seen: set[str] = set()
+    pending = [function.name]
+    while pending:
+        name = pending.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        found = functions.get(name)
+        if found is None:
+            continue
+        for block in found.blocks:
+            for position, inst in enumerate(block.insts):
+                if inst.op == "call_r":
+                    return True
+                callee = inst.callee
+                if inst.op != "call" or callee is None:
+                    continue
+                if (
+                    position + 1 < len(block.insts)
+                    and block.insts[position + 1].op == "unreachable"
+                ):
+                    continue  # a diverging call lowers to nothing (lower_call's shape)
+                if (
+                    callee in (NLR_PUSH, NLR_POP, NLR_JUMP)
+                    or callee.startswith("llvm.")
+                    or leaf_key(callee) is not None
+                    or is_panic_callee(callee)
+                    or is_runtime_callee(callee)
+                ):
+                    continue
+                if callee in functions:
+                    pending.append(callee)  # inlined: its cards are this body's
+                else:
+                    return True
+    return False
 
 
 def parse_module(text: str) -> tuple[list[Function], dict[str, str], dict[str, "Global"]]:
@@ -1401,6 +1436,10 @@ class Lowering:
         self.pointers: set[str] = set()  # names that hold an address (ptr params and results)
         self.ptr_params: set[str] = set()  # the pointer parameters: a pointer to a caller's value
         self.stored_params: set[str] = set()  # the pointer params written through (an out cell)
+        self.out_cells: dict[str, LValue] = {}  # the out cell of each written-through param
+        self.out_alias: dict[str, str] = {}  # caller local -> the out cell key it reads
+        self.standalone = False  # a program of its own (an inline call takes its params)
+        self.crosses_card = False  # this body crosses a call-card boundary (prescan)
         self.card_calls: bool = False  # whether the body makes a call card (a program of its own)
         self.narrow_names: set[str] = set()  # the allocas whose address stays inside the function
         self.wide_names: set[str] = set()  # the allocas whose address reaches a memory leaf
@@ -1506,6 +1545,69 @@ class Lowering:
             self.object_paths.add(made.path)
             found = made
         return ("value", found.path)
+
+    def crosses_a_card(self) -> bool:
+        """Whether this body crosses a call-card boundary: a call of a program of its own
+        (no leaf, no inline of the module) or a call through a register (the dispatch).
+        What such a body writes through a pointer parameter is an out cell (docs/23 4.1);
+        a leaf writes at the address its pointer carries (the landed profile)."""
+        return crosses_a_card(self.fn, self.functions)
+
+    def out_position(self, name: str) -> bool:
+        """Whether a pointer parameter is an out position (docs/23 4.1): a body of its
+        own that crosses a card boundary writes through the Object its caller passes (an
+        out cell it holds the handle of) -- no raw pointer outlives a step (S7). A leaf's
+        pointer is an address into flat memory: the landed profile of loads and stores at
+        a named address stays (the ``memory.c`` cases)."""
+        return self.standalone and self.crosses_card and name in self.stored_params
+
+    def card_out_param(self, card: str, index: int) -> bool:
+        """Whether the parameter at ``index`` of the program a card names is an out
+        position (docs/23 4.1): the body writes through it and crosses a card boundary
+        of its own. Such an argument takes the Object (the out cell's handle -- three
+        words), never a raw pointer to a caller's value (S7)."""
+        bare = card.rsplit(".", 1)[-1]
+        callee = self.functions.get(bare)
+        if callee is None or index >= len(callee.params) or callee.params[index][0] != "ptr":
+            return False
+        name = callee.params[index][1]
+        writes = any(
+            inst.op == "store" and inst.b is not None and inst.b.name == name
+            for block in callee.blocks
+            for inst in block.insts
+        )
+        return writes and crosses_a_card(callee, self.functions)
+
+    def out_cell(self, key: str, index: int) -> LValue:
+        """The out cell of the out position at parameter ``index`` of the program ``key``
+        names (docs/23 4.1): the Object whose handle the call passes (its three words) and
+        whose out word -- at the handle's offset -- the callee writes and the caller reads
+        back. The cell is named after the callee and its parameter, so a call card and the
+        Function it names carry the same cell (one object id, one payload): what lands is
+        the caller's, not the callee's copy."""
+        made = self.out_cells.get(key)
+        if made is None:
+            identity = object_id_of(key)
+            made = self.value(
+                "Object", self.graph, key.replace(".", "_"),
+                width=24, type_path=WIDE, object_id=identity,
+                # the handle the parameter takes: (identity, generation, offset) over the
+                # payload, the out word sitting at the offset the handle names
+                payload=struct.pack("<3Q", identity, 1, 24) + bytes(8),
+            )  # fmt: skip
+            self.out_cells[key] = made
+            self.object_paths.add(made.path)
+        return made
+
+    def out_word(self, target: LBlock, key: str, index: int) -> MOperand:
+        """Where the out cell's out word sits: the Object resolved at each use (the run's
+        ``pointer`` of the operand is the payload address) plus the offset its handle
+        carries -- the landing of the callee's writes and the caller's reads."""
+        cell = self.out_cell(key, index)
+        return self.call(
+            target, "wrapping_add_uint64_t",
+            [("value", cell.path), self.literal(24)],
+        )  # fmt: skip
 
     def operand(self, given: Operand | MOperand | None) -> MOperand:
         if given is None:
@@ -1647,14 +1749,12 @@ class Lowering:
         self.lower_body()
         self.own_terminus()
         self.harmonize_widths()
-        if self.card_calls and self.stored_params:
-            # the body calls a program (a call card), so it is a program of its own: a
-            # frame of the run cell. But it also writes through a pointer its caller gave
-            # -- a pointer to a caller's value -- and that is no word or handle a call
-            # frame can carry (the write would land in the callee's copy, not the
-            # caller's cell). A body like this only lowers where it is inlined into a
-            # caller whose locals it writes (the out-parameter idiom of outparam.c); as a
-            # program reached by a card it is refused rather than left writing the wind.
+        if self.card_calls and any(not self.out_position(name) for name in self.stored_params):
+            # what the out-cell model of docs/23 4.1 cannot name: a body that calls a
+            # program and writes through a pointer its caller gave in a shape the pass
+            # cannot make an out cell of. Every out position now rides as the Object its
+            # caller passes (the handle its three words); what is left of this class is
+            # refused rather than left writing the wind.
             raise Unsupported(
                 f"{self.fn.name}: a pointer to a value (the body writes through a pointer its "
                 "caller gave, and a call card frame cannot carry it: only an inlined body "
@@ -1743,11 +1843,19 @@ class Lowering:
         self.blocks.append(entry)
         self.entry = entry
         self.params = []
+        self.standalone = parameters is None
         for index, (type_name, name) in enumerate(self.fn.params):
             if parameters is not None:
                 self.names[name] = parameters[index]
             elif type_name in MASKS or type_name == "ptr":
-                found = self.value("Parameter", self.graph, f"parameter[{index}]")
+                out = type_name == "ptr" and self.out_position(name)
+                found = self.value(
+                    "Parameter", self.graph, f"parameter[{index}]",
+                    # an out position takes the handle its three words (docs/23 4.1), the
+                    # shape run-entry ARGS passes; a scalar or a landed pointer is a word
+                    width=24 if out else 8,
+                    type_path=WIDE if out else U64,
+                )  # fmt: skip
                 self.params.append(found)
                 given: MOperand = ("value", found.path)
                 # a narrow parameter is the low bits of the word the run passes: the C the
@@ -1863,6 +1971,13 @@ class Lowering:
         params = {name for _, name in self.fn.params}
         for block in self.fn.blocks:
             for inst in block.insts:
+                # a parameter written through is an out position (docs/23 4.1) -- known
+                # before the parameters take their shape, so the out cell can be sized
+                if inst.op == "store" and inst.b is not None and inst.b.name in params:
+                    self.stored_params.add(inst.b.name)
+        self.crosses_card = self.crosses_a_card()
+        for block in self.fn.blocks:
+            for inst in block.insts:
                 if inst.op != "call" or inst.callee not in (NLR_PUSH, NLR_POP):
                     continue
                 if len(inst.args) != 1:
@@ -1877,6 +1992,16 @@ class Lowering:
         taken: set[str] = set()
         for block in self.fn.blocks:
             for inst in block.insts:
+                if inst.op == "indirect" or (inst.op == "call" and inst.callee is None):
+                    # a call through a register (lower_indirect's slot dispatch): the
+                    # callee's body is not named here, so every pointer-typed argument
+                    # may reach an out position of one of its arms (docs/23 4.1) -- a
+                    # local one of them names is a wide slot of the frame
+                    for _, (type_name, argument) in enumerate(inst.args):
+                        name = argument.name
+                        if type_name == "ptr" and name is not None and name in allocas:
+                            taken.add(name)
+                    continue
                 if inst.op != "call" or inst.callee is None:
                     continue
                 key = leaf_key(inst.callee)
@@ -2612,6 +2737,11 @@ class Lowering:
             raise ParseError(f"{self.fn.name}: a load without its address")
         pointer = inst.a.name
         source = self.operand(inst.a)  # an unresolved constant expression refuses here
+        if pointer is not None and self.out_position(pointer):
+            # the out position (docs/23 4.1): a read back is the out word of the Object
+            # this body writes through -- resolved at the use, where the writes land
+            index = [n for _, n in self.fn.params].index(pointer)
+            source = self.out_word(target, f"{self.path}.out_{index}", index)
         # the address is flat memory: a parameter, the address of one (the result of a
         # getelementptr), a global's cell (the Object value above resolves at run time),
         # or the word a constant expression that names a cell resolved to
@@ -2659,6 +2789,19 @@ class Lowering:
             # the store writes through a pointer the caller gave (an out cell of the
             # caller's frame): remembered to refuse where a call card would carry it
             self.stored_params.add(pointer)
+        if pointer is not None and pointer in self.stored_params and self.out_position(pointer):
+            # the out position (docs/23 4.1): this body crosses a card boundary and no
+            # raw pointer outlives a step (S7) -- the write goes through the Object its
+            # caller passes (the out cell it holds the handle of), resolved at each use
+            index = [n for _, n in self.fn.params].index(pointer)
+            scratch = self.move_value(target, self.narrow_operand(inst.a, mask), width=16)
+            self.call_void(
+                target,
+                "memory_copy",
+                [self.out_word(target, f"{self.path}.out_{index}", index),
+                 self.literal(count), scratch, self.literal(8), self.literal(count)],
+            )  # fmt: skip
+            return
         made = self.narrow_operand(inst.a, mask)  # what is stored is the low bits of its word
         destination = self.operand(inst.b)  # an unresolved constant expression refuses here
         # the address is flat memory: a parameter, the address of one, a global's cell, or
@@ -2953,14 +3096,41 @@ class Lowering:
         callee's function path of the image, or its bare name where the callee is a
         function of another module (the composer resolves it against the image)."""
         self.card_calls = True  # the body calls a program: it is a program of its own
-        arguments = [
-            self.address_value(
-                target,
-                self.frame_moperand(target, argument) if type_name == "ptr"
-                else self.narrow_operand(argument, self.mask_of(type_name)),
+        arguments = []
+        for index, (type_name, argument) in enumerate(inst.args):
+            local = argument.name
+            if (
+                type_name == "ptr"
+                and local is not None
+                and local in self.wide_names
+                and self.card_out_param(name, index)
+            ):
+                # the out position (docs/23 4.1): the value the argument names becomes
+                # the out cell of the callee's parameter -- its handle (three words, the
+                # shapes run-entry ARGS takes) rides the frame, never a raw pointer to a
+                # caller's value (S7); the local reads back the same cell after the call
+                key = f"{name}.out_{index}"
+                prior = self.out_alias.get(local)
+                if prior is not None and prior != key:
+                    # a dispatch of several bodies writes through this argument: the
+                    # pass names one cell per body and the caller reads one cell back --
+                    # refused rather than left reading the wrong one
+                    raise Unsupported(
+                        f"{self.fn.name}: an out position at a call through a function word "
+                        "(several bodies write it, one cell the caller can read)"
+                    )
+                self.out_alias[local] = key
+                self.names[local] = self.out_word(target, key, index)
+                self.pointers.add(local)
+                arguments.append(("value", self.out_cell(key, index).path))
+                continue
+            arguments.append(
+                self.address_value(
+                    target,
+                    self.frame_moperand(target, argument) if type_name == "ptr"
+                    else self.narrow_operand(argument, self.mask_of(type_name)),
+                )
             )
-            for type_name, argument in inst.args
-        ]  # fmt: skip
         self.op_count += 1
         op = f"{target.path}.op{self.op_count}"
         # the answer of a pointer is the address word carried in a wide result (its
@@ -3292,19 +3462,30 @@ def _cells(graphs: list[LGraph]) -> list[str]:
     """The named data objects of the import unit: one cell per global the graphs use. The
     cell is the C static storage the global is (a scalar its typed cell, a wide struct one
     cell whose data is the struct bytes), and every graph that touches it carries one
-    Object value that names the cell by ``object_id`` and holds the same bytes."""
+    Object value that names the cell by ``object_id`` and holds the same bytes. An out
+    cell (the pointer/out position of docs/23 4.1) is named after the body and parameter
+    whose handle it is, and is one cell across the graphs that carry it (one object id)."""
     out: list[str] = []
     seen: set[str] = set()
+    taken: set[str] = set()
     for graph in graphs:
         for value in graph.values:
-            if value.kind != "Object":
+            if value.kind != "Object" or value.object_id is None:
                 continue
-            name = value.path.rsplit(".", 1)[-1][len("global_") :]
-            if name in seen:
+            if value.object_id in seen:
                 continue
-            seen.add(name)
-            cell = graph.globals.get(f"@{name}")
-            form = cell.cell if cell is not None else "FixedArray"
+            seen.add(value.object_id)
+            suffix = value.path.rsplit(".", 1)[-1]
+            if suffix.startswith("global_"):
+                name = suffix[len("global_") :]
+                cell = graph.globals.get(f"@{name}")
+                form = cell.cell if cell is not None else "FixedArray"
+            else:  # an out cell: named for the body and the parameter it is the handle of
+                name = suffix
+                form = "FixedArray"
+            if name in taken:
+                name = f"{name}_{len(taken)}"  # two distinct cells, one name: numbered
+            taken.add(name)
             payload = (value.payload or b"").hex()
             out.append(f"<{form}" + _attrs([("name", name), ("rxf:data", payload)]) + " />")
     return out
