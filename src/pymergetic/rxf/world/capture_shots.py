@@ -1,9 +1,13 @@
 """Re-capture the world README shots: headless, deterministic, palette-quantized.
 
 One script, one truth: it serves ``static/scene`` from this package over loopback, drives the
-same page the user opens (WebGL only — SwiftShader raster, no GPU, no network), freezes the
-tram animation (``setMotion(false)``), flies the named screenshot poses, and writes the PNGs
-with a fixed palette quantization so the files stay small and byte-reproducible.
+same page the user opens (WebGL only — no network), freezes the tram animation
+(``setMotion(false)``), flies the named screenshot poses, and writes the PNGs with a fixed
+palette quantization so the files stay small and byte-reproducible.
+
+The raster is probed, not assumed: a machine with a GPU stack renders through it (the full
+Chromium's hardware WebGL first), and only where no GPU stack answers does the capture fall
+back to SwiftShader — it prints which raster drew the shots and never pretends otherwise.
 
 This is a capture tool, not runtime code: it runs on the system Python (Playwright + Pillow),
 not the package venv.
@@ -156,6 +160,68 @@ def scene_document(kind: str) -> tuple[bytes, dict[str, Any]]:
     return raw, json.loads(raw)
 
 
+GPU_ARGS = [
+    "--use-gl=angle",
+    "--use-angle=gl",
+    "--enable-gpu",
+    "--ignore-gpu-blocklist",
+    "--enable-unsafe-swiftshader",  # in-process fallback allowed; the probe still reports truth
+]
+SWIFTSHADER_ARGS = [
+    "--use-gl=angle",
+    "--use-angle=swiftshader",
+    "--enable-unsafe-swiftshader",
+]
+SOFTWARE_MARKERS = ("swiftshader", "llvmpipe", "software")
+
+
+def _webgl_renderer(page: Any) -> str:
+    """The renderer string of the page's WebGL context: the honest name of the raster."""
+    return page.evaluate(
+        """() => {
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        if (!gl) return 'no-webgl';
+        const ext = gl.getExtension('WEBGL_debug_renderer_info');
+        return ext
+            ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)
+            : String(gl.getParameter(gl.RENDERER));
+        }"""
+    )
+
+
+def _launch_raster(playwright: Any) -> tuple[Any, str]:
+    """Launch on the best raster this machine has: hardware WebGL first, SwiftShader last.
+
+    Every candidate is probed on an empty page before a single byte of scene is loaded; a
+    candidate that fails to launch or answers with a software raster is dropped for the next.
+    The returned string names the raster that actually draws the shots."""
+    candidates = (
+        ("chromium-gpu", {"channel": "chromium", "args": GPU_ARGS}),
+        ("chromium-gpu-headful", {"channel": "chromium", "headless": False, "args": GPU_ARGS}),
+        ("swiftshader", {"args": SWIFTSHADER_ARGS}),
+    )
+    for name, kwargs in candidates:
+        try:
+            browser = playwright.chromium.launch(**kwargs)
+            probe = browser.new_page()
+            renderer = _webgl_renderer(probe)
+            probe.close()
+        except Exception as miss:  # noqa: BLE001 - a missing channel or GPU stack is an expected miss
+            print(f"raster miss ({name}): {miss}")
+            continue
+        if _is_software(renderer) and name != "swiftshader":
+            browser.close()
+            continue
+        return browser, f"{name}: {renderer}"
+    raise RuntimeError("no WebGL raster answered — neither a GPU stack nor SwiftShader")
+
+
+def _is_software(renderer: str) -> bool:
+    lowered = renderer.lower()
+    return any(marker in lowered for marker in SOFTWARE_MARKERS)
+
+
 def capture(out_dir: Path, colors: int, scene: str = "demo") -> list[Path]:
     from playwright.sync_api import sync_playwright
 
@@ -168,13 +234,8 @@ def capture(out_dir: Path, colors: int, scene: str = "demo") -> list[Path]:
     written: list[Path] = []
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
-                args=[
-                    "--use-gl=angle",
-                    "--use-angle=swiftshader",
-                    "--enable-unsafe-swiftshader",
-                ]
-            )
+            browser, raster = _launch_raster(playwright)
+            print(f"raster: {raster}")
             # the world page is ONE dark theme (the scene is always dark ground); shoot it in
             # the dark scheme so the chrome and the datasheet pane read as they are designed
             page = browser.new_page(viewport={"width": 1440, "height": 900}, color_scheme="dark")
