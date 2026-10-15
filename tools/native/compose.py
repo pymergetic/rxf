@@ -294,7 +294,11 @@ class Plan:
             found.slot = offset
             offset += max(found.width, 1) + -max(found.width, 1) % 8
         self.frame = max(offset, 8)
-        if self.frame > c.layout["GRAPH_FRAME"]:
+        if self.frame > c.layout["GRAPH_CELL_BYTES"]:
+            # the run cell is the budget (native/graph.h): the frames of the active call
+            # chain are variable-length (base, size) links of one RXF_GRAPH_CELL_BYTES
+            # cell, so a frame is composed only where a cell can hold it (the fixed
+            # 1024-byte wall of RXF_GRAPH_FRAME is gone -- docs/20, the wall casualties)
             raise ComposeError(
                 f"{self.name}: a frame of {self.frame} bytes is too large"
             )

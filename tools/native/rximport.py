@@ -1,10 +1,13 @@
 """The C/C++/Rust -> RXF importer: a minimal LLVM-IR subset as a semantic graph of the image.
 
-Phase 6 groundwork (a prototype): a function is compiled to textual LLVM IR -- ``clang-18
--S -emit-llvm -O1`` for C, ``clang++-18`` for C++, ``rustc --emit=llvm-ir -C opt-level=0
--C panic=abort`` for Rust (``compile_source`` picks the compiler by the suffix) -- the
-textual ``.ll`` is parsed, and the SSA of one function is lowered to a ``SemanticGraph``
-of the image -- the same objects the starter describes in XML. ``tools/native/compose.py``
+Phase 6 groundwork (a prototype): a function arrives as textual LLVM IR and the SSA of one
+function is lowered to a ``SemanticGraph`` of the image -- the same objects the starter
+describes in XML. The entrance format is the ``.ll`` itself (docs/22): ``compile_source``
+reads a raw ``.ll`` as it stands and runs no compiler on it, while the language suffixes
+are convenience doors that run the matching compiler first -- ``clang-18 -S -emit-llvm
+-O1`` for ``.c``, ``clang++-18`` for ``.cpp``, ``rustc --emit=llvm-ir -C opt-level=0
+-C panic=abort`` for ``.rs``. The IR text is ephemeral (never stored in the image; the
+provenance records are the record). ``tools/native/compose.py``
 turns that graph into program words like any other graph, and the words run on the interpreter
 of ``native/graph.c`` through ``tests/rxf_native.py``.
 
@@ -214,15 +217,20 @@ What is NOT supported (and why), for the full importer:
                                   LLVM are ignored (wrapping), so the import is *more* defined
     shift counts >= 64            undefined in C, outside the contract; the leaf refuses with
                                   RXF_REFUSE_SHIFT_COUNT instead of poison
-    frames over 1024 bytes        RXF_GRAPH_FRAME of native/graph.h; ``lower()`` refuses a frame
-                                  that overflows it rather than misplace values at run time (the
-                                  explicit frame-size policy is the section below)
+    frames past the run cell     RXF_GRAPH_CELL_BYTES of native/graph.h: the run cell carries
+                                 the active chain's frames as variable-length (base, size)
+                                 links, so ``lower()`` refuses a frame that cannot fit one
+                                 cell rather than misplace values at run time (the explicit
+                                 frame-size policy is the section below; the 1024-byte wall
+                                 of RXF_GRAPH_FRAME is gone -- history in docs/20)
     edge copies over 256 bytes    RXF_GRAPH_COPY of native/graph.h: the run stages one edge's
                                   argument copies in a 256-byte buffer (native/graph.c), so an
                                   edge that would copy more refuses at import
     inline copies over 48 words   the inline budget: a callee whose inlined body would add
-                                  more than 48 words to the caller's frame refuses the call
-                                  (the composer's inline path has no call to fall back on)
+                                  more than 48 words to the caller's frame is not inlined --
+                                  the call goes as the call card of graph.h instead (the
+                                  callee is a program of its own; only a callee whose frame
+                                  would not fit a whole run cell is refused outright)
 
 Frame-size policy (what a MicroPython C frame maps to):
 
@@ -241,15 +249,21 @@ Frame-size policy (what a MicroPython C frame maps to):
                     (``local_round`` of slots.c passes ``&t`` to ``memory_copy``).
 
     The frame of a function is the sum over every non-literal value of its width rounded up to
-    8 bytes (a wide slot counts 16). The budget is ``RXF_GRAPH_FRAME`` (1024 bytes,
-    native/graph.h). When a function's frame exceeds it, ``lower()`` refuses with ``Unsupported``
+    8 bytes (a wide slot counts 16). The budget is the run cell: ``RXF_GRAPH_CELL_BYTES`` (8192
+    bytes, native/graph.h) must hold the frame -- the run carves the active chain's frames as
+    variable-length (base, size) links of one cell, and refuses a chain whose sum does not fit
+    (RXF_REFUSE_CELL_BUDGET), never spilled and never split. When a function's frame cannot fit
+    the cell, ``lower()`` refuses with ``Unsupported``
     ("a frame of N bytes is too large") at import time -- before any words are emitted -- rather
     than misplace values at run time. Inlining is counted: an inlined callee's values add to the
-    caller's frame, so a deeply inlined call chain (``wide.c``: six bodies of ~30 values each)
-    refuses (asserted in ``test_outside_the_subset_is_refused``). Two more budgets keep the
+    caller's frame, so a deeply inlined call chain can refuse that way -- ``wide.c`` (six bodies
+    of ~30 values each, 1264 bytes) does not: it fits the cell and imports (the wall casualties
+    of the fixed 1024-byte frame flip with the variable frames, docs/20).
+    Two more budgets keep the
     counting honest: one edge may stage at most ``RXF_GRAPH_COPY`` bytes of argument copies
     (256, native/graph.h), and one inlined callee may add at most ``INLINE_WORDS`` (48) words to
-    the caller -- past either the import refuses (``test_outside_the_subset_is_refused``).
+    the caller -- past the copy budget the import refuses, past the inline budget the call is
+    not inlined and goes as a call card instead (``test_outside_the_subset_is_refused``).
 
     A load of the flat space stages its bytes in a wide slot before the word is read out of it
     (OP_MOVE reads operands, not the memory an address names). The staging is filled right
@@ -260,9 +274,12 @@ Frame-size policy (what a MicroPython C frame maps to):
     This is the policy the MicroPython core import gives: a MicroPython C frame is not a flat
     stack block but this word-per-value layout, so the frame a function needs is sized by its
     SSA value count plus its address-taken locals (16 bytes each), not by its C stack frame.
-    A MicroPython function whose SSA values plus wide slots exceed 1024 bytes refuses at import
-    exactly like ``wide.c``; a value-width policy for MicroPython's word (32- vs 64-bit) is the
-    one open piece (the pass assumes 64-bit words today).
+    A MicroPython function whose SSA values plus wide slots cannot fit a run cell
+    (``RXF_GRAPH_CELL_BYTES``) refuses at import; anything below the cell lowers -- the
+    interning path of ``qstr.c`` (qstr_from_strn's 1608-byte body) is the proof, imported
+    where the fixed 1024-byte wall used to refuse it (docs/20). A value-width policy for
+    MicroPython's word (32- vs 64-bit) is the one open piece (the pass assumes 64-bit words
+    today).
 
 Next steps for the full importer: the flat memory profile for load/store is in (getelementptr
 arithmetic, loads and stores at a named address -- including a select or phi of addresses -- and
@@ -392,11 +409,18 @@ SEMANTIC = "pymergetic.rxf.roles.semantic"
 REFUSAL_SET = "pymergetic.rxf.foundation.StdlibRefusals"
 U64 = "uint64_t"
 U32 = "uint32_t"
-GRAPH_FRAME = graph_header.numbers()["RXF_GRAPH_FRAME"]  # the frame budget of a run
+# The frame budget of a run is the run cell itself (native/graph.h): the frames of the
+# active call chain are variable-length (base, size) links carved from one cell of
+# RXF_GRAPH_CELL_BYTES, exact to the frame bytes a program declares. A frame is lowered
+# only where it can fit that cell; a chain whose frames together do not fit is refused
+# by the run (RXF_REFUSE_CELL_BUDGET), never spilled and never split. The 1024 of
+# RXF_GRAPH_FRAME is the fixed-region wall of the old format and measures nothing here.
+GRAPH_CELL_BYTES = graph_header.numbers()["RXF_GRAPH_CELL_BYTES"]  # the cell a frame must fit
 GRAPH_COPY = graph_header.numbers()["RXF_GRAPH_COPY"]  # what one edge's copies may stage
 # an inlined callee may add at most these many words to the caller's frame; past it the
-# call refuses instead of inlining a body the caller's frame was never meant to hold (the
-# composer's inline path calls only leaves, so a bigger callee is a refusal, not a call)
+# inline is undone and the call goes as the call card of graph.h instead -- the callee is
+# a program of its own, not a body the caller's frame was never meant to hold (only a
+# callee whose frame would not fit a whole run cell is refused outright in lower_inline)
 INLINE_WORDS = 48
 # an addressable local is 16 bytes of frame: the starter's own 16-byte array type names it
 WIDE = "pymergetic.rxf.stdlib.types.FixedArrayU8Of16"
@@ -1647,10 +1671,10 @@ class Lowering:
         for value in self.values:
             if value.kind not in ("Literal", "Object"):  # a Literal or a cell: no frame slot
                 frame += value.width + -value.width % 8
-        if frame > GRAPH_FRAME:
+        if frame > GRAPH_CELL_BYTES:
             raise Unsupported(
                 f"{self.fn.name}: a frame of {frame} bytes is too large "
-                f"(RXF_GRAPH_FRAME is {GRAPH_FRAME})"
+                f"(RXF_GRAPH_CELL_BYTES is {GRAPH_CELL_BYTES})"
             )
         widths = {value.path: value.width for value in self.values}
         for block in self.blocks:
@@ -2875,23 +2899,24 @@ class Lowering:
             for value in self.values[before:]
             if value.kind not in ("Literal", "Object")
         )
-        if copied > GRAPH_FRAME:
-            # a callee this big is not a program of its own either -- its frame would
-            # be past RXF_GRAPH_FRAME (1024), so the call can neither stay inlined nor
-            # become a card that names a program no run can hold. The caller is refused
-            # here rather than left a card that resolves to nothing at run time. This
-            # is the honest reason (a frame past the budget), not the inline budget.
+        if copied > GRAPH_CELL_BYTES:
+            # a callee this big is no program of its own either -- its frame would not
+            # fit even the empty run cell (RXF_GRAPH_CELL_BYTES), so the call can neither
+            # stay inlined nor become a card that names a program no run can hold. The
+            # caller is refused here rather than left a card that resolves to nothing at
+            # run time. This is the honest reason (a frame past the cell), not the
+            # inline budget.
             raise Unsupported(
                 f"{self.fn.name}: {callee.name} needs a frame of {copied} bytes "
-                f"(RXF_GRAPH_FRAME is {GRAPH_FRAME})"
+                f"(RXF_GRAPH_CELL_BYTES is {GRAPH_CELL_BYTES})"
             )
         if copied > INLINE_WORDS * 8:
             # the inline budget refuses to inline in favor of the call, not instead of
             # one: a body this big would become most of the caller's frame, so the
             # inline is undone and the call goes as the call card of graph.h (the
             # callee is a program of its own, named by the object id of its words).
-            # A callee whose frame fits RXF_GRAPH_FRAME is a program the run can hold;
-            # one past it is refused above.
+            # A callee whose frame fits RXF_GRAPH_CELL_BYTES is a program the run can
+            # hold; one past it is refused above.
             del self.values[before:]
             del self.blocks[blocks_before:]
             for key in set(self.literals) - literals_before:
@@ -3575,9 +3600,12 @@ def compile_rs(source: str | Path) -> str:
 
 
 def compile_source(source: str | Path) -> str:
-    """The textual LLVM IR of a source file of the corpus: the compiler by its suffix
-    (``.c`` is clang, ``.cpp`` is clang++, ``.rs`` is rustc)."""
+    """The textual LLVM IR of a source file of the corpus: the entrance format itself for a
+    ``.ll`` (read as it stands, no compiler runs -- docs/22), the compiler by its suffix for
+    the rest (``.c`` is clang, ``.cpp`` is clang++, ``.rs`` is rustc)."""
     suffix = Path(source).suffix
+    if suffix == ".ll":
+        return Path(source).read_text()
     if suffix == ".c":
         return compile_c(source)
     if suffix == ".cpp":
@@ -3649,5 +3677,6 @@ def import_c_file(
 def import_source_file(
     image, source: str | Path, module: str = "imported", only: set[str] | None = None
 ) -> dict[str, str]:
-    """Compile a C, C++ or Rust file (by its suffix) and import its functions."""
+    """Read a ``.ll`` (the entrance format, as-is) or compile a C, C++ or Rust file (by its
+    suffix) and import its functions."""
     return import_into(image, compile_source(source), module, only)

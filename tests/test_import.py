@@ -4,9 +4,11 @@ Every function of ``tests/import_corpus/`` (except the ones ``test_outside_the_s
 names, which are outside the subset on purpose) is imported two ways and run on the same
 inputs:
 
-* through the importer: the source compiled to textual LLVM IR (``clang-18 -S -emit-llvm
-  -O1`` for ``.c``, ``clang++-18`` for ``.cpp``, ``rustc --emit=llvm-ir -C opt-level=0
-  -C panic=abort`` for ``.rs``) -> the textual IR parsed and lowered to a ``SemanticGraph``
+* through the importer: the source as textual LLVM IR (the entrance format itself for a
+  raw ``.ll``, read as it stands with no compiler -- ``test_the_ll_entrance_is_read_as_is``;
+  ``clang-18 -S -emit-llvm -O1`` for ``.c``, ``clang++-18`` for ``.cpp``,
+  ``rustc --emit=llvm-ir -C opt-level=0 -C panic=abort`` for ``.rs``) -> the textual IR
+  parsed and lowered to a ``SemanticGraph``
   delta -> ``Image.apply`` -> ``compose.programs`` -> the program words ->
   ``rxf_native.run``, the real interpreter of ``native/graph.c``;
 * natively: the same source compiled by the same family of compiler into a shared library
@@ -17,11 +19,16 @@ inputs:
 The contract of the importer: deterministic code without undefined behavior has the same
 observable behavior on both sides. Each test compares ``(status, value)`` per input
 against the natively compiled function (and the bytes the memory cases write, both
-sides); nothing is skipped. The refused programs (recursion, a frame past the budget, the
-C++ exception/RTTI runtime calls and the values rustc keeps in memory at
-opt-level 0) are asserted to be refused at import, not guessed; the panic paths of Rust
-are asserted to refuse the *run* (``test_panic_paths_refuse_the_run``), one-sidedly --
-the natively compiled call would abort the process on those inputs.
+sides); nothing is skipped. The refused programs (recursion, a frame no run cell can hold,
+the pointer-write and function-word rules, the C++ exception/RTTI runtime calls and the
+values rustc keeps in memory at opt-level 0) are asserted to be refused at import, not
+guessed; the panic paths of Rust are asserted to refuse the *run*
+(``test_panic_paths_refuse_the_run``), one-sidedly --
+the natively compiled call would abort the process on those inputs. The wall casualties of
+the fixed 1024-byte frame (``wide.c``, ``qstr.c``'s qstr_from_str/qstr_from_strn) refused
+there before and lower now with the variable-length frames of the run cell --
+``REFUSED`` below records that history; ``test_the_interning_path_lowers_with_variable_
+frames`` runs the flip end to end (a 1608-byte frame in one cell, over a genuine call card).
 """
 
 from __future__ import annotations
@@ -33,6 +40,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import compose
+import graph_header
 import pytest
 import rximport
 
@@ -287,6 +295,13 @@ CASES: dict[str, tuple[str, list[tuple[int, ...]]]] = {
     "ten": ("wrapcall.c", [(1, 2, 3, 4, 5, 6, 7, 8, 9, 10), (0, 1, 2, 3, 4, 5, 6, 7, 8, 9)]),
     "ten_sum": ("wrapcall.c", [(a,) for a in VALUES[::2]]),
     "vol_const": ("volconst.c", [(a,) for a in VALUES[::2]]),
+    # the first wall casualty of the fixed 1024-byte frame, flipped (REFUSED's history):
+    # six inlined bodies of ~30 values each make a 1264-byte frame, refused by
+    # RXF_GRAPH_FRAME's wall before and lowered now that frames are variable-length
+    # (base, size) links of the run cell (RXF_GRAPH_CELL_BYTES, 8192). Every inline
+    # stays an inline (each is under INLINE_WORDS): what flips is the whole frame
+    # running where the wall said no -- run here against the natively compiled wide.c
+    "wide": ("wide.c", [(x,) for x in VALUES[::2]]),
     # the unsigned order of two address words (mp_binary_op's range check of an
     # immediate-object word): less_uint64_t on the words, like the integer compares
     "ptr_ult": ("ptrord.c", SPARSE),
@@ -379,12 +394,27 @@ FILLS = (
 VALUES_FOR_MEMORY = (0, 1, 0x42, 0xFF, 0x0123456789ABCDEF, U64 - 1, 1 << 63)
 
 # what the importer refuses at import time (a message, not a guess): mutual recursion, a
-# frame past the budget of a run, the C++ ABI shapes and runtimes, and what rustc keeps in
-# memory at opt-level 0
+# frame no run cell can hold, the C++ ABI shapes and runtimes, and what rustc keeps in
+# memory at opt-level 0.
+#
+# The frame wall's casualties, REFUSED -> lowered with variable frames (the frames of the
+# run cell are variable-length (base, size) links now, RXF_GRAPH_CELL_BYTES = 8192 where
+# RXF_GRAPH_FRAME's wall was 1024). These three entries left this table; each one now
+# lowers and runs (history kept here and in docs/20, never blurred):
+#   ("wide.c", "wide"): "frame"
+#       -> lowered (CASES["wide"]): a 1264-byte frame of six inlined bodies, run
+#          against the natively compiled wide.c
+#   ("qstr.c", "qstr_from_str"): "needs a frame"
+#       -> lowered with a genuine CALL card naming qstr_from_strn (the inline budget
+#          refuses to inline in favor of one, not instead of it)
+#   ("qstr.c", "qstr_from_strn"): "a frame of 1608 bytes is too large"
+#       -> lowered: the 1608-byte body (clang -O1 keeps the interning's qstr_add path
+#          inside it) is a program of its own whose frame one run cell holds
+# Both qstr flips run end to end in
+# test_the_interning_path_lowers_with_variable_frames.
 REFUSED = {
     ("calls.c", "ping"): "recursion",
     ("calls.c", "pong"): "recursion",
-    ("wide.c", "wide"): "frame",
     # a local whose join lives in memory (volatile keeps clang from promoting it)
     ("memory.c", "slot_join"): "carried through memory",
     # a body with no Return and a cycle the entry reaches (an endless loop answers
@@ -421,17 +451,15 @@ REFUSED = {
     ("nlr_call.c", "nlr_abuse_read"): "nlr buffer",
     ("nlr_call.c", "nlr_abuse_write"): "nlr buffer",
     # the interning path of MicroPython (qstr_from_str -> qstr_from_strn -> the helper):
-    # the call of qstr_find_strn is a call card now (the inline budget refuses to
-    # inline in favor of one, not instead of it), and the core the gate needs
-    # (qstr_compute_hash, qstr_find_strn, qstr_hash and the accessors of find_qstr)
-    # imports and runs below. What keeps these two refused is the frame, not the call:
-    # clang -O1 keeps the interning's qstr_add path inside qstr_from_strn itself (186
-    # instructions -> 195 frame values, 1608 bytes -- 1560 even packed, past
-    # RXF_GRAPH_FRAME's 1024; the composer refuses the same graph the importer does),
-    # so qstr_from_strn is no program of its own and qstr_from_str's call of it can
-    # neither stay inlined nor become a card that names one
-    ("qstr.c", "qstr_from_str"): "needs a frame",
-    ("qstr.c", "qstr_from_strn"): "a frame of 1608 bytes is too large",
+    # REFUSED -> lowered with variable frames (the flip history above): the frame wall
+    # was all that kept these two out -- clang -O1 keeps the interning's qstr_add path
+    # inside qstr_from_strn itself (186 instructions -> 195 frame values, 1608 bytes --
+    # 1560 even packed) and the wall was RXF_GRAPH_FRAME's 1024. What never changed: the
+    # call of qstr_find_strn is a call card (the inline budget refuses to inline in
+    # favor of one, not instead of it), and the core the gate needs (qstr_compute_hash,
+    # qstr_find_strn, qstr_hash and the accessors of find_qstr) imports and runs below.
+    # The two flip with the run cell's variable frames and run end to end in
+    # test_the_interning_path_lowers_with_variable_frames.
     # the obj class of py/obj.c: the type -> name path (mp_obj_get_type_str -> the
     # qstr corpus's qstr_str) imports now -- its call of qstr_str is a call card (the
     # cross-file shape of the slice), proven end to end on the host runner in
@@ -539,8 +567,12 @@ QSTR_PROGRAMS = (
     "qstr_compute_hash",
     "qstr_find_strn",
     "qstr_hash",
-    # the accessors of find_qstr: the callers of the core that import (the interning
-    # path is refused below, REFUSED's inline budget)
+    # the accessors of find_qstr: the callers of the core that import. The interning
+    # path (qstr_from_str -> qstr_from_strn, REFUSED -> lowered with variable frames) is
+    # NOT in this room: its arena cell (m_arena, the qstr_add chunk) outgrows the
+    # emulator world's payload room (graph_world.memory's fixed layout, the CellRun
+    # contract of one room per world), so its flip is pinned on the ground-truth host
+    # seat -- test_the_interning_path_lowers_with_variable_frames
     "qstr_len",
     "qstr_str",
     "qstr_data",
@@ -1581,3 +1613,232 @@ def test_with_overflow_bits_match_the_contract(world: World, name: str):
                 f"{name}({a:#x}, {b:#x}): the imported graph answered "
                 f"({status}, {value:#x}), the contract says ({OK}, {want:#x})"
             )
+
+
+def test_the_interning_path_lowers_with_variable_frames(tmp_path: Path):
+    """The wall casualties of the fixed 1024-byte frame, end to end on the host runner
+    (the ground truth seat of ``tests/host/runner.c``: ``rxf_graph_run`` with every
+    object of the run registered in its table), the same sequence of the natively
+    compiled corpus beside it. REFUSED -> lowered with variable frames: clang -O1 keeps
+    the interning's qstr_add path inside qstr_from_strn itself (186 instructions -> 195
+    frame values, 1608 bytes) -- a frame the wall (RXF_GRAPH_FRAME, 1024) refused and one
+    run cell holds (RXF_GRAPH_CELL_BYTES, 8192; the frames of the call chain are
+    variable-length (base, size) links of it, native/graph.c). qstr_from_strn runs its
+    own frame as a program of its own; qstr_from_str's call of it is past the inline
+    budget and goes as the genuine call card of graph.h (RXF_GRAPH_CALL) -- asserted
+    below on the composed words -- so the run steps two frames out of one cell.
+
+    The differential is the interning roundtrip: qstr_from_strn answers the same qstr id
+    as the native library (the pools are the corpus's own on both sides and the id is a
+    pool index, not an address), a second intern of the same bytes answers the first,
+    the search finds what was interned, and the NUL-terminated qstr_from_str (over the
+    strlen face) answers the same id."""
+    image = tree.load(STARTER)
+    wanted = {
+        "qstr_port_boot", "qstr_init", "qstr_from_str", "qstr_from_strn",
+        "qstr_find_strn", "qstr_len", "qstr_str",
+    }  # fmt: skip
+    imported = rximport.import_into(
+        image, rximport.compile_source(CORPUS / "qstr.c"), module="qstr", only=wanted
+    )
+    assert set(imported) == wanted, sorted(imported)
+    assert image.check() == []
+    programs = compose.programs(image)
+    numbers = graph_header.numbers()
+
+    # the flip on the composed words: qstr_from_strn's frame is the 1608 bytes the wall
+    # refused (word 1 of the program is the frame bytes it declares), inside the cell
+    # budget; and qstr_from_str names it with exactly one call card (RXF_GRAPH_CALL
+    # whose program operand is qstr_from_strn's object id), not an inline and not a leaf
+    callee = "qstr.qstr_from_strn"
+    callee_id = compose.object_id(image, image.resolve(callee))
+    strn_words = tuple(compose.describe(programs[callee]))
+    assert strn_words[1] == 1608, f"{callee} declares a frame of {strn_words[1]} bytes"
+    assert strn_words[1] > 1024 and strn_words[1] <= numbers["RXF_GRAPH_CELL_BYTES"]
+    words = tuple(compose.describe(programs["qstr.qstr_from_str"]))
+    cards = [
+        at for at in range(len(words) - 8)
+        if words[at] == numbers["RXF_OP_CALL"]
+        and words[at + 1] == numbers["RXF_GRAPH_CALL"]
+        and words[at + 6 : at + 9] == (numbers["RXF_OPERAND_OBJECT"], callee_id, 0)
+    ]  # fmt: skip
+    assert len(cards) == 1, f"qstr_from_str carries {len(cards)} call cards, one expected"
+
+    # the cells the running graphs name (the pools, their strings and the arena) as live
+    # bytearrays, and the programs the call cards name at their object ids (the host
+    # runner's table holds the run's secondaries: the cells and these, no more)
+    composer = compose.Composer(image)
+    cells: dict[str, tuple[int, bytearray]] = {}
+    for handle in range(image.handle_count):
+        if not image.live(handle):
+            continue
+        values = composer.fields(handle)
+        if compose.word(values.get("kind")) != "Object" or "object_id" not in values:
+            continue
+        path = image.path(handle)
+        if not path.startswith("qstr."):
+            continue
+        name = path.rsplit(".", 1)[-1]
+        if not name.startswith("global_"):
+            continue
+        cells[name[len("global_") :]] = (
+            int(values["object_id"]),
+            bytearray(bytes.fromhex(values.get("data", ""))),
+        )
+    objects: dict[int, bytes | bytearray] = {
+        identity: data for identity, data in cells.values()
+    }
+    for handle in range(image.handle_count):
+        if not image.live(handle) or image.type_name(handle) != "SemanticOperation":
+            continue
+        callee = composer.fields(handle).get("callee")
+        target = image.resolve(callee) if callee else None
+        if target is not None and image.path(target) in programs:
+            objects[compose.object_id(image, target)] = programs[image.path(target)]
+
+    def address_of(cell: str) -> int:
+        data = cells[cell][1]
+        return ctypes.addressof((ctypes.c_uint8 * len(data)).from_buffer(data))
+
+    with rxf_native.Memory(1 << 16) as memory:
+
+        def call(name: str, words: tuple[int, ...]) -> tuple[int, int]:
+            status, value = rxf_native.run(
+                programs[f"qstr.{name}"],
+                struct.pack(f"<{len(words)}Q", *words) if words else b"",
+                memory,
+                objects=objects,
+            )
+            return status, value
+
+        for boot in ("qstr_port_boot", "qstr_init"):
+            status, _ = call(boot, ())
+            assert status == OK, f"{boot}: the imported graph refused the boot ({status})"
+
+        # the same sequence natively: one library of the corpus and the very same C the
+        # graph ran (its statics keep the pools between the calls, like the cells do)
+        shared = tmp_path / "libqstr.so"
+        subprocess.run(
+            [CLANG, "-O1", "-shared", "-fPIC", str(CORPUS / "qstr.c"),
+             str(NATIVE / "basics.c"), str(NATIVE / "stdlib_memory.c"), "-o", str(shared)],
+            check=True,
+        )  # fmt: skip
+        native = ctypes.CDLL(str(shared))
+        for routine, arguments, answer in (
+            ("qstr_port_boot", [], None),
+            ("qstr_init", [], None),
+            ("qstr_from_strn", [ctypes.c_void_p, ctypes.c_uint64], ctypes.c_uint64),
+            ("qstr_from_str", [ctypes.c_void_p], ctypes.c_uint64),
+            ("qstr_find_strn", [ctypes.c_void_p, ctypes.c_uint64], ctypes.c_uint64),
+            ("qstr_len", [ctypes.c_uint64], ctypes.c_uint64),
+            ("qstr_str", [ctypes.c_uint64], ctypes.c_void_p),
+        ):
+            function = getattr(native, routine)
+            function.argtypes = arguments
+            function.restype = answer
+        native.qstr_port_boot()
+        native.qstr_init()
+
+        for text in QSTR_STRINGS:
+            raw = text + b"\0"
+            held = ctypes.create_string_buffer(raw)  # alive through both sides' calls
+            address = ctypes.addressof(held)
+
+            # the intern: one graph call, one native call, in lockstep (the pool state
+            # is the state the last intern left, both sides)
+            status, made = call("qstr_from_strn", (address, len(text)))
+            expect = native.qstr_from_strn(address, len(text))
+            assert (status, made) == (OK, expect), (
+                f"qstr_from_strn({text!r}): the imported graph answered "
+                f"({status}, {made:#x}), natively it is ({OK}, {expect:#x})"
+            )
+            status, again = call("qstr_from_strn", (address, len(text)))
+            assert (status, again) == (OK, made), (
+                f"qstr_from_strn({text!r}) twice: {again:#x} and {made:#x} -- a second "
+                "intern of the same bytes must answer the first"
+            )
+            status, found = call("qstr_find_strn", (address, len(text)))
+            assert (status, found) == (OK, made), (
+                f"qstr_find_strn({text!r}) after the intern: the search answers "
+                f"({status}, {found:#x}), the intern made {made:#x}"
+            )
+            # the strlen face of qstr_from_str stops at an embedded NUL (that is C's
+            # contract, not a graph quirk), so the plain face compares on the texts
+            # whose bytes are one string
+            if b"\0" not in text:
+                status, named = call("qstr_from_str", (address,))
+                assert (status, named) == (OK, native.qstr_from_str(address)) == (OK, made), (
+                    f"qstr_from_str({text!r}): the card call answers ({status}, "
+                    f"{named:#x}), the strn intern is {made:#x}"
+                )
+            # the string both sides interned reads back as the bytes of the case: the
+            # addresses name each side's own cells and cannot compare (the pool layout
+            # is the same, so the ids above do), the content can
+            status, pointed = call("qstr_str", (made,))
+            assert status == OK, f"qstr_str({text!r}): the graph refused ({status})"
+            expected_at = native.qstr_str(expect) or 0
+            assert bytes(ctypes.string_at(pointed, len(text))) == text == bytes(
+                ctypes.string_at(expected_at, len(text))
+            ), f"qstr_str({text!r}) reads back wrong on one side"
+            assert native.qstr_len(expect) == len(text)
+
+
+def test_the_ll_entrance_is_read_as_is(monkeypatch):
+    """The import entrance format is textual LLVM IR (docs/22): a ``.ll`` is read as it
+    stands and no compiler runs on it -- pinned here by breaking every subprocess the
+    door could take and importing anyway. What comes out is the same plan the ``.c``
+    door gives (byte-identical -- the two fixtures are the same program, entrance.c and
+    its hand-written IR entrance.ll), and the IR itself stays ephemeral: no line of it
+    rides into the plan (the provenance records are the record, never the IR text)."""
+    from_c = rximport.emit_delta(
+        list(
+            rximport.graphs_of(
+                rximport.compile_source(CORPUS / "entrance.c"),
+                module="entrance",
+                only={"entrance_mix"},
+            ).values()
+        ),
+        "entrance",
+    )
+    monkeypatch.setattr(
+        rximport.subprocess,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError(f"the .ll door ran a compiler: {args}")
+        ),
+    )
+    entrance = CORPUS / "entrance.ll"
+    text = rximport.compile_source(entrance)
+    assert text == entrance.read_text()
+    plan = rximport.emit_delta(
+        list(rximport.graphs_of(text, module="entrance", only={"entrance_mix"}).values()),
+        "entrance",
+    )
+    assert plan.encode() == from_c.encode(), (
+        "the .ll door and the .c door disagree on the plan of the same program"
+    )
+    assert not any(line.strip() and line.strip() in plan for line in text.splitlines()), (
+        "the IR text is a reading format, never part of the image"
+    )
+    # the whole door, as the corpus uses it: import_source_file takes the .ll itself
+    image = tree.load(STARTER)
+    imported = rximport.import_source_file(
+        image, entrance, module="entrance", only={"entrance_mix"}
+    )
+    assert imported == {"entrance_mix": "entrance.entrance_mix"}
+    assert image.check() == []
+
+
+def test_a_ll_outside_the_subset_is_refused():
+    """A raw ``.ll`` the subset cannot take refuses at import with the precise rule
+    (docs/22: what passes is decided by the subset of operations the importer lowers,
+    never the language the front end came from): garbage.ll's floating-point add has no
+    word of the graph to become, and the message names the rule -- an instruction
+    outside the subset -- never a guess and never a wrong word."""
+    with pytest.raises(
+        rximport.Unsupported, match="an instruction outside the subset"
+    ) as refused:
+        rximport.graphs_of(
+            (CORPUS / "garbage.ll").read_text(), module="garbage", only={"garbage_float"}
+        )
+    assert "fadd" in str(refused.value), refused.value

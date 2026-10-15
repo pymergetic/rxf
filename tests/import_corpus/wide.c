@@ -1,8 +1,12 @@
 #include <stdint.h>
 
-/* A frame over the budget of a run (RXF_GRAPH_FRAME is 1024 bytes): every value of a graph
-   takes 8 bytes of the frame, and inlining six bodies of ~30 values each is past 1024. The
-   import refuses wide at compile time (rximport.Unsupported) rather than misplace the frame. */
+/* A frame over the wall of the old run cell (RXF_GRAPH_FRAME was 1024 bytes): every value of a
+   graph takes 8 bytes of the frame, and inlining six bodies of ~30 values each made 1264. The
+   import refused wide at compile time (rximport.Unsupported) then rather than misplace the
+   frame. REFUSED -> lowered with variable frames: the frames of the run cell are variable-length
+   (base, size) links now and the budget is the cell (RXF_GRAPH_CELL_BYTES, 8192), so the same
+   body imports and runs -- tests/test_import.py's CASES["wide"] is the differential against the
+   natively compiled body of this file. */
 
 static __attribute__((noinline)) uint64_t b(uint64_t x) {
     volatile uint64_t t = x;

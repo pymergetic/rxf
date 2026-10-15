@@ -248,9 +248,26 @@ This is the allocator's own rule (S7) applied to run words: a cell is allocated 
 payload size its header records, and the arena's slot classes (base × factor) are placement policy
 only — they steer where a cell lands, never how big it is. The run cell is one cell whose payload
 carries the frames; a frame link is base + size, the size is the program's own word, and no level
-is padded to a class. What the lowerers refuse at import is their own budget and stays theirs
-(`RXF_GRAPH_FRAME`, the composer's and the importer's refusal tables — the follow-up lane flips
-those); the run enforces the cell budget instead, and refuses what does not fit with a status.
+is padded to a class. What the lowerers refuse at import used to be their own budget and stay
+theirs — the old text, kept as history: *"What the lowerers refuse at import is their own budget
+and stays theirs (`RXF_GRAPH_FRAME`, the composer's and the importer's refusal tables — the
+follow-up lane flips those); the run enforces the cell budget instead, and refuses what does not
+fit with a status."* That lane has flipped both tables to the cell budget
+(`RXF_GRAPH_CELL_BYTES`, 8192 — one source of truth, the number `native/graph.h` gives;
+`RXF_GRAPH_FRAME`'s 1024 is the wall of the fixed-region format and measures nothing anymore).
+
+The wall's casualties — **REFUSED -> lowered with variable frames** — import and run now:
+`tests/import_corpus/wide.c`'s 1264-byte frame of six inlined bodies (still inlines: every body is
+under the inline budget), `qstr.c`'s `qstr_from_strn` (clang -O1 keeps the interning's `qstr_add`
+path inside it — 186 instructions -> 195 frame values, 1608 bytes, a frame one cell holds) as a
+program of its own, and `qstr_from_str`'s call of it as the genuine call card (`RXF_GRAPH_CALL`),
+past the inline budget rather than past any wall
+(`tests/test_import.py`'s `test_the_interning_path_lowers_with_variable_frames` runs both against
+the natively compiled corpus). What the refusal tables keep is what cannot lower by any other rule
+— the `a pointer to a value` write-through rule, the function-word dispatch rule, recursion, the
+C++ ABI shapes and runtimes — exactly as before, unblurred. And the run still enforces the cell
+budget on the chain: a sum of frames past the cell is refused `RXF_REFUSE_CELL_BUDGET`, with a
+status.
 
 ## S7. Handles, claims, and no raw address across a safe point
 
