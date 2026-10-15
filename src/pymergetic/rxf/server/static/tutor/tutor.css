@@ -87,6 +87,7 @@ h2 { font-size: 13px; margin: 22px 0 6px; }
   padding: 0 8px;
   background: var(--panel);
   white-space: nowrap;
+  text-decoration: none;
 }
 .pin {
   font-family: var(--mono);
