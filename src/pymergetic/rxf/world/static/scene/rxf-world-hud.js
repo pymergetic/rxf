@@ -141,14 +141,69 @@
   }
 
   /* ---- the datasheet side pane: the clicked cell, spelled out ----------------------------- */
-  function datasheetRow(body, name, text, seam) {
+  /* the semantic hue of a value: identity in the accent, kind words in steel, byte bands and
+   * numbers in mono with their own hue, the state words colored by meaning (rxf-world.css) */
+  var ROW_STYLE = {
+    id: "v-accent",
+    name: "v-accent",
+    handle: "v-accent",
+    refs: "v-accent",
+    kind: "v-kind",
+    family: "v-kind",
+    region: "v-kind",
+    band: "v-data",
+    bytes: "v-data",
+    payload: "v-data",
+    generation: "v-data",
+    forward: "v-data",
+    claim: "v-data",
+    checksum: "v-data",
+    anatomy: "v-data",
+    floors: "v-data",
+    provenance: "v-prov",
+    mobility: "v-move"
+  };
+
+  function valueStyle(name, text) {
+    /* the four state words read by meaning: retain/clean in the good hues, refused/poisoned
+     * (and their family: tombstone, dirty) in red, the in-between words in between */
+    if (name === "disposition") {
+      return /retain|keep/i.test(text) ? "v-good" : /tombstone|refus/i.test(text) ? "v-bad" : "v-warn";
+    }
+    if (name === "cleanliness") {
+      return /dirty|poison/i.test(text) ? "v-bad" : /clean/i.test(text) ? "v-clean" : "v-warn";
+    }
+    return ROW_STYLE[name] || "";
+  }
+
+  function stateWordSpans(words) {
+    /* the bottom bar's state cell: one colored span per state word (the separator stays plain) */
+    var parts = [];
+    for (var i = 0; i < words.length; i++) {
+      if (i) parts.push({ text: " · ", style: "" });
+      parts.push(words[i]);
+    }
+    return parts;
+  }
+
+  function fillSpans(node, parts) {
+    node.textContent = "";
+    for (var part of parts) {
+      var span = global.document.createElement("span");
+      if (part.style) span.className = part.style;
+      span.textContent = part.text;
+      node.appendChild(span);
+    }
+  }
+
+  function datasheetRow(body, name, text, seam, style) {
     var line = global.document.createElement("div");
     line.className = "datasheet-row" + (seam ? " seam" : "");
     var key = global.document.createElement("span");
     key.className = "datasheet-key";
     key.textContent = name;
     var val = global.document.createElement("span");
-    val.className = "datasheet-value";
+    val.className = "datasheet-value " + (style || valueStyle(name, text));
     val.textContent = text;
     line.appendChild(key);
     line.appendChild(val);
@@ -203,7 +258,20 @@
         checksum: value(cell.checksum),
         edges: String(payload.edges.length)
       };
+      var stateWords = cell.state
+        ? [
+            { text: cell.state.provenance, style: "v-prov" },
+            { text: cell.state.disposition, style: valueStyle("disposition", cell.state.disposition) },
+            { text: cell.state.cleanliness, style: valueStyle("cleanliness", cell.state.cleanliness) },
+            { text: cell.state.mobility, style: "v-move" }
+          ]
+        : null;
       each("cell-field", function (node, name) {
+        if (name === "state" && stateWords) {
+          /* the four state words, each in its own meaningful hue */
+          fillSpans(node, stateWordSpans(stateWords));
+          return;
+        }
         node.textContent = value(fields[name]);
       });
       slot("[data-selection]", fields.name);
@@ -247,7 +315,8 @@
         datasheetRow(body, "state", "—", true);
       }
       datasheetRow(body, "forward", cell.forward ? "C_FORWARD " + cell.forward : "0");
-      datasheetRow(body, "poisoned", cell.poisoned ? "yes" : "—");
+      /* poisoned is the one row where "yes" is the bad hue and "—" is a seam */
+      datasheetRow(body, "poisoned", cell.poisoned ? "yes" : "—", !cell.poisoned, cell.poisoned ? "v-bad" : "");
       datasheetRow(body, "claim", value(cell.claim), cell.claim === null || cell.claim === undefined);
       datasheetRow(
         body,
@@ -258,7 +327,8 @@
       datasheetRow(body, "refs", value(cell.ref_count) + " row(s) · " + payload.edges.length + " cable(s)");
       for (var edge of payload.edges.slice(0, 8)) {
         var way = edge.from === cell.id ? "→ " + edge.to : "← " + edge.from;
-        datasheetRow(body, "cable", way + (edge.stale ? " (ghost)" : ""));
+        /* cables in the accent; a ghost cable is the bad hue (it leads nowhere) */
+        datasheetRow(body, "cable", way + (edge.stale ? " (ghost)" : ""), edge.stale, edge.stale ? "v-bad" : "v-accent");
       }
       if (payload.edges.length > 8) {
         datasheetRow(body, "cable", "+" + (payload.edges.length - 8) + " more", true);
@@ -266,7 +336,8 @@
       if (cell.anatomy && cell.anatomy.length) {
         datasheetRow(body, "anatomy", cell.anatomy.length + " floors");
         for (var band of cell.anatomy.slice(0, 12)) {
-          datasheetRow(body, band.role, hex(band.offset) + " +" + band.size + " B");
+          /* the anatomy floors are byte addresses: the data hue, in mono */
+          datasheetRow(body, band.role, hex(band.offset) + " +" + band.size + " B", false, "v-data");
         }
         if (cell.anatomy.length > 12) {
           datasheetRow(body, "floors", "+" + (cell.anatomy.length - 12) + " more", true);
