@@ -945,7 +945,8 @@
       dashMesh.alwaysSelectAsActiveMesh = true;
       dashMesh.thinInstanceSetBuffer("matrix", matrixBuffer(dashMatrices), 16, true);
 
-      /* tram units: one per run cell, riding the loop (run state is the later-stage seam) */
+      /* tram units: one per ring slot — a run the image places on the road (READY/RUNNING);
+       * a PARKED run is off the road and gets no unit (docs/23 §4.5) */
       tramMesh = BABYLON.MeshBuilder.CreateBox("trams", { size: 1 }, scene);
       tramMesh.material = roleMaterial("tram-material", CABLE_FRESH, 0.5);
       tramMesh.isPickable = false;

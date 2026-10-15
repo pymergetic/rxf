@@ -80,7 +80,10 @@ def test_every_cell_carries_the_schema_fields(scene):
         assert isinstance(cell["handle"], (int, type(None)))
         assert isinstance(cell["plot"]["x"], float) and isinstance(cell["plot"]["z"], float)
         assert cell["footprint"] > 0 and cell["height"] > 0
-        assert cell["claim"] is None and cell["checksum"] is None  # the v1 seams
+        assert cell["claim"] is None  # the v1 seam
+        # the run words stay null unless the payload really is smp_run_payload (docs/20, S1)
+        assert cell["run_state"] in (None, "FREE", "READY", "RUNNING", "PARKED", "TERMINAL")
+        assert cell["checksum"] in (None, "ok", "bad")
         assert cell["region"].startswith("r")
 
 
@@ -105,8 +108,14 @@ def test_run_cells_are_towers_named_cells_are_monuments(scene):
     assert any(cell["path"] == "system" for cell in monuments)  # a named cell under the root
     blocks = [cell for cell in scene["cells"] if cell["family"] == "block"]
     assert any(cell["kind"] == "Channel" for cell in blocks)
-    assert scene["trams"] and [tram["run"] for tram in scene["trams"]].count(towers[0]["id"]) <= 1
-    assert all(tram["state"] is None for tram in scene["trams"])  # the animation seam
+    # docs/23 §4.5: a tram is one run cell sitting in a ring slot (READY/RUNNING) and a PARKED
+    # run is off the road. The tram count is the ring's occupied slots — never one per tower.
+    on_road = {cell["id"] for cell in towers if cell["run_state"] in ("READY", "RUNNING")}
+    assert on_road and {tram["run"] for tram in scene["trams"]} == on_road
+    assert all(tram["state"] in ("READY", "RUNNING") for tram in scene["trams"])
+    assert len(scene["trams"]) == scene["ring"]["occupied"]
+    parked = {cell["id"] for cell in towers if cell["run_state"] == "PARKED"}
+    assert parked and parked.isdisjoint(on_road)  # the demo's parked run is off the road
 
 
 def test_poison_memory_becomes_rubble_and_void_tiles(scene):
@@ -249,16 +258,19 @@ def test_the_ring_road_never_runs_through_a_building(scene):
 def test_the_hud_metrics_are_wired_where_the_image_knows_them(scene):
     metrics = scene["metrics"]
     assert metrics["runs"] == scene["counts"]["towers"]  # available: wired
-    for seam in (
-        "carriers",
-        "steps_per_s",
-        "claim_spins",
-        "moved_cells",
-        "refusals",
-        "checksum_status",
-    ):
-        assert metrics[seam] is None  # clean seam: the live data arrives in a later stage
-    assert scene["carriers"] == [] and scene["ring"]["state"] is None
+    # filled from words the image really carries (docs/20 S1/S8, read from the cells): the demo's
+    # C_FORWARD compaction records and its three real run checksums
+    assert metrics["moved_cells"] == 4
+    assert metrics["checksum_status"] == "3 ok"
+    assert scene["ring"]["state"] == {
+        "FREE": 0, "READY": 1, "RUNNING": 1, "PARKED": 1, "TERMINAL": 0,
+    }
+    assert scene["ring"]["occupied"] == len(scene["trams"])
+    # clean seams: the counters live outside every cell (a run of the machine keeps them), so no
+    # image can carry them and the numbers stay null — never invented
+    for seam in ("carriers", "steps_per_s", "claim_spins", "refusals"):
+        assert metrics[seam] is None
+    assert scene["carriers"] == []
 
 
 # ---- exporter edge cases ---------------------------------------------------------------------------
@@ -299,6 +311,10 @@ def test_a_bare_ground_image_still_exports():
     validate_scene(world)
     assert world["regions"] and world["cells"]
     assert world["counts"]["towers"] == 0 and world["trams"] == []
+    # no run words in the image: no numbers invented from their absence
+    assert world["ring"]["state"] is None and world["ring"]["occupied"] == 0
+    assert world["metrics"]["checksum_status"] is None
+    assert world["metrics"]["moved_cells"] == 0
 
 
 # ---- the page assets -------------------------------------------------------------------------------

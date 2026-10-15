@@ -5,8 +5,9 @@ Two things were demo before this file pinned them otherwise:
 * the 3D world fell back to the checked-in synthetic scene (`world/static/scene/demo-scene.json`)
   no matter which image the app inspected — now `create_app` wires `attach_world` and
   `GET /world/scene.json` is the exported scene of the image under test, never the demo (the
-  full-starter pin runs behind `RXF_SLOW_WORLD=1` only because the world lane's `export.py`
-  currently takes many CPU minutes to export a real image's scale — its own problem, reported);
+  full-starter pin runs in the gate: `world/export.py` buckets the cell stream per district and
+  finds the rail junctions and nearest rails through indexes, so a real image's scene exports in
+  about a minute);
 * the editor's compile / install / poke answered "no running image" — now `rxf server serve`
   runs one (`server/live/runner.py`: the linked image, its own interpreter and live leaf, the
   front end seeded once per docs/19), and those same routes run FOR REAL against it.
@@ -19,7 +20,6 @@ of the installed Function is the image's interpreter executing it.
 from __future__ import annotations
 
 import json
-import os
 import struct
 import uuid
 from pathlib import Path
@@ -100,17 +100,10 @@ def test_the_world_serves_the_scene_of_the_inspected_image_not_the_demo():
     assert response.content != DEMO_GOLDEN.read_bytes()
 
 
-@pytest.mark.skipif(
-    os.environ.get("RXF_SLOW_WORLD") != "1",
-    reason="the full-starter scene alone takes many CPU minutes to export today: "
-    "world/export.py's placements pass rescans the whole cell stream per district through a "
-    "linear _region_of (17,903 cells x 1,318 districts) — the world lane owns export.py; "
-    "set RXF_SLOW_WORLD=1 to run this pin by hand",
-)
 def test_the_world_serves_the_scene_of_the_real_starter_tree_not_the_demo(image: Image):
     """The flagship pin: `GET /world/scene.json` of the real `starter/` tree equals its
-    `scene_json` and is not the demo golden. Blocked only by the world lane's export cost on a
-    real image's scale (see the skip reason) — the wiring is pinned above."""
+    `scene_json` and is not the demo golden — two exports of a real image's scale, in the
+    gate's normal time (the wiring is pinned above)."""
     response = TestClient(create_app(image)).get("/world/scene.json")
     assert response.status_code == 200
     served = response.json()
