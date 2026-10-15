@@ -3,11 +3,14 @@
  * "—" (a seam, not a lie). The scene fills what the image already knows (runs, counts) and the
  * later stages fill the rest through the same slots.
  *
- * The minimap is a real top-down projection of the scene document: district plates on their tile
- * grids, buildings as dots by family, void tiles in red, the camera's viewport as a rectangle,
- * and click-to-jump (the click hands the world coordinate back to the scene's camera rig).
+ * The minimap is a real top-down projection of the same document the scene draws: district
+ * plates on their tile grids, buildings as dots by family, void tiles in red, the camera's
+ * viewport as a rectangle, and click-to-jump (the click hands the world coordinate back to
+ * the scene's camera rig). The map is scene-relative: the scene draws world +X toward screen
+ * LEFT and +Z toward screen DOWN (verified against the camera), so the map's x axis is mirrored
+ * to match — the minimap must lay out exactly like the world looks from above.
  *
- * window.RXFWorldHud = { metrics, counts, status, lod, minimap, error }
+ * window.RXFWorldHud = { metrics, counts, status, sheet, lod, minimap, error }
  */
 (function (global) {
   "use strict";
@@ -32,8 +35,8 @@
     canvas: null,
     base: null,
     scale: 1,
-    originX: 0,
-    originZ: 0,
+    minX: 0,
+    minZ: 0,
     onJump: null,
     bounds: null
   };
@@ -47,9 +50,19 @@
   }
 
   function toMap(x, z) {
+    /* scene-relative orientation: x mirrored (world +X draws screen left), z straight down
+     * (world +Z draws screen down) — the minimap reads exactly like the top-down scene */
     return {
-      x: (x - map.originX) * map.scale,
-      y: (z - map.originZ) * map.scale
+      x: map.canvas.width - (x - map.minX) * map.scale,
+      y: (z - map.minZ) * map.scale
+    };
+  }
+
+  function invMap(px, py) {
+    /* the exact inverse of toMap: a minimap click hands a world coordinate to the rig */
+    return {
+      x: map.minX + (map.canvas.width - px) / map.scale,
+      z: map.minZ + py / map.scale
     };
   }
 
@@ -101,12 +114,21 @@
     if (view) {
       context.strokeStyle = "#37e0c4";
       context.lineWidth = 2;
-      context.strokeRect(
-        (view.x - view.w / 2 - map.originX) * map.scale,
-        (view.z - view.h / 2 - map.originZ) * map.scale,
-        view.w * map.scale,
-        view.h * map.scale
-      );
+      if (view.corners && view.corners.length === 4) {
+        /* the framed ground quad, yaw and all (the camera knows its own corners) */
+        context.beginPath();
+        for (var i = 0; i < view.corners.length; i++) {
+          var corner = toMap(view.corners[i].x, view.corners[i].z);
+          if (i === 0) context.moveTo(corner.x, corner.y);
+          else context.lineTo(corner.x, corner.y);
+        }
+        context.closePath();
+        context.stroke();
+      } else {
+        var a = toMap(view.x - view.w / 2, view.z - view.h / 2);
+        var b = toMap(view.x + view.w / 2, view.z + view.h / 2);
+        context.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+      }
     }
     if (selected) {
       var at = toMap(selected.plot.x, selected.plot.z);
@@ -114,6 +136,27 @@
       context.lineWidth = 2;
       context.strokeRect(at.x - 7, at.y - 7, 14, 14);
     }
+    var needle = global.document.querySelector("[data-compass-needle]");
+    if (needle && view) needle.style.transform = "rotate(" + -view.yaw + "deg)";
+  }
+
+  /* ---- the datasheet side pane: the clicked cell, spelled out ----------------------------- */
+  function datasheetRow(body, name, text, seam) {
+    var line = global.document.createElement("div");
+    line.className = "datasheet-row" + (seam ? " seam" : "");
+    var key = global.document.createElement("span");
+    key.className = "datasheet-key";
+    key.textContent = name;
+    var val = global.document.createElement("span");
+    val.className = "datasheet-value";
+    val.textContent = text;
+    line.appendChild(key);
+    line.appendChild(val);
+    body.appendChild(line);
+  }
+
+  function hex(byteOffset) {
+    return "0x" + Number(byteOffset).toString(16).toUpperCase();
   }
 
   var Hud = {
@@ -165,6 +208,72 @@
       });
       slot("[data-selection]", fields.name);
     },
+    sheet: function (payload) {
+      /* the datasheet side pane: every field the image knows about the selected cell, plus
+       * its cable list and its floor-stack anatomy. Seams show "—" and say so in grey. */
+      var pane = global.document.getElementById("rxf-world-datasheet");
+      if (!pane) return;
+      if (!payload) {
+        pane.classList.remove("open");
+        return;
+      }
+      var body = global.document.getElementById("datasheet-body");
+      var cell = payload.cell;
+      var region = payload.region;
+      body.textContent = "";
+      slot("[data-datasheet-title]", cell.path || cell.name || cell.id);
+      datasheetRow(body, "id", value(cell.id));
+      datasheetRow(body, "name", value(cell.path || cell.name));
+      datasheetRow(body, "handle", value(cell.handle));
+      datasheetRow(body, "kind", value(cell.kind));
+      datasheetRow(body, "family", value(cell.family));
+      datasheetRow(
+        body,
+        "region",
+        region ? region.name + " · " + region.id + " · " + region.band : value(cell.region)
+      );
+      if (region) {
+        datasheetRow(body, "band", hex(region.start) + "–" + hex(region.end));
+      }
+      datasheetRow(body, "bytes", hex(cell.offset) + "–" + hex(cell.offset + cell.size) + " (" + cell.size + " B)");
+      datasheetRow(body, "payload", cell.payload_size + " B");
+      datasheetRow(body, "generation", value(cell.generation));
+      if (cell.state) {
+        datasheetRow(body, "provenance", value(cell.state.provenance));
+        datasheetRow(body, "disposition", value(cell.state.disposition));
+        datasheetRow(body, "cleanliness", value(cell.state.cleanliness));
+        datasheetRow(body, "mobility", value(cell.state.mobility));
+      } else {
+        datasheetRow(body, "state", "—", true);
+      }
+      datasheetRow(body, "forward", cell.forward ? "C_FORWARD " + cell.forward : "0");
+      datasheetRow(body, "poisoned", cell.poisoned ? "yes" : "—");
+      datasheetRow(body, "claim", value(cell.claim), cell.claim === null || cell.claim === undefined);
+      datasheetRow(
+        body,
+        "checksum",
+        value(cell.checksum),
+        cell.checksum === null || cell.checksum === undefined
+      );
+      datasheetRow(body, "refs", value(cell.ref_count) + " row(s) · " + payload.edges.length + " cable(s)");
+      for (var edge of payload.edges.slice(0, 8)) {
+        var way = edge.from === cell.id ? "→ " + edge.to : "← " + edge.from;
+        datasheetRow(body, "cable", way + (edge.stale ? " (ghost)" : ""));
+      }
+      if (payload.edges.length > 8) {
+        datasheetRow(body, "cable", "+" + (payload.edges.length - 8) + " more", true);
+      }
+      if (cell.anatomy && cell.anatomy.length) {
+        datasheetRow(body, "anatomy", cell.anatomy.length + " floors");
+        for (var band of cell.anatomy.slice(0, 12)) {
+          datasheetRow(body, band.role, hex(band.offset) + " +" + band.size + " B");
+        }
+        if (cell.anatomy.length > 12) {
+          datasheetRow(body, "floors", "+" + (cell.anatomy.length - 12) + " more", true);
+        }
+      }
+      pane.classList.add("open");
+    },
     lod: function (level) {
       slot("[data-lod]", level.name + " · " + level.shows);
     },
@@ -184,17 +293,19 @@
       }
       var size = mapSize();
       map.scale = Math.min(size.width / (spanX * 1.1), size.height / (spanZ * 1.1));
-      map.originX = -((size.width / map.scale - spanX) / 2);
-      map.originZ = -((size.height / map.scale - spanZ) / 2);
+      map.minX = -((size.width / map.scale - spanX) / 2);
+      map.minZ = -((size.height / map.scale - spanZ) / 2);
       renderBase(doc);
       renderMap(null, null);
 
       canvas.addEventListener("pointerdown", function (event) {
         if (!map.onJump) return;
         var rect = canvas.getBoundingClientRect();
-        var x = ((event.clientX - rect.left) * (canvas.width / rect.width)) / map.scale + map.originX;
-        var z = ((event.clientY - rect.top) * (canvas.height / rect.height)) / map.scale + map.originZ;
-        map.onJump(x, z);
+        var at = invMap(
+          ((event.clientX - rect.left) * canvas.width) / rect.width,
+          ((event.clientY - rect.top) * canvas.height) / rect.height
+        );
+        map.onJump(at.x, at.z);
       });
     },
     error: function (error) {

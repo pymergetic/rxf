@@ -2,7 +2,8 @@
 
 What these pins hold, greppably:
 
-- (a) every template in ``server/templates/`` links the ONE stylesheet ``/static/ui/ui.css``, the
+- (a) every page — each template in ``server/templates/`` and the world page
+  (``world/templates/world.html``) — links the ONE stylesheet ``/static/ui/ui.css``, the
   live-slot script, and carries the ONE shell — byte-identical to ``server/static/ui/shell.html``
   except for the one allowed rewrite (the page's own nav entry becomes ``class="active"``);
 - (b) the design tokens are defined in exactly one file (``server/static/ui/ui.css``), and their
@@ -33,11 +34,15 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 SERVER = ROOT / "src" / "pymergetic" / "rxf" / "server"
 TEMPLATES = SERVER / "templates"
+WORLD_PAGE = ROOT / "src" / "pymergetic" / "rxf" / "world" / "templates" / "world.html"
 SHELL = SERVER / "static" / "ui" / "shell.html"
 UI_CSS = SERVER / "static" / "ui" / "ui.css"
 SPEC = ROOT / "docs" / "21-UNIFIED-WEB-INTERFACE.md"
 
-COVERED = sorted(p.name for p in TEMPLATES.glob("*.html"))
+# The covered pages by name: the retrofit templates and the world page (served at /world/ by the
+# same app — one service, one shell; the world page is where the shell once went missing).
+PAGES = {path.name: path for path in [*sorted(TEMPLATES.glob("*.html")), WORLD_PAGE]}
+COVERED = sorted(PAGES)
 
 SHELL_BEGIN = "<!-- ui:shell:begin"
 SHELL_END = "<!-- ui:shell:end -->"
@@ -56,6 +61,7 @@ FACES = {
     "model.html": "Model = explain",
     "editor.html": "Editor = edit",
     "tutor.html": "Tutor = teach",
+    "world.html": "World = render",
 }
 
 
@@ -98,7 +104,7 @@ def normalized(block: str) -> str:
 
 def test_every_page_links_the_one_stylesheet_and_the_live_slot():
     for name in COVERED:
-        text = read(TEMPLATES / name)
+        text = read(PAGES[name])
         assert 'href="/static/ui/ui.css"' in text, (
             f"{name} does not link the one stylesheet"
         )
@@ -114,7 +120,7 @@ def test_every_page_links_the_one_stylesheet_and_the_live_slot():
 def test_every_page_carries_the_one_shell():
     canonical = normalized(shell_block(read(SHELL)))
     for name in COVERED:
-        block = shell_block(read(TEMPLATES / name))
+        block = shell_block(read(PAGES[name]))
         assert normalized(block) == canonical, (
             f"{name} forked the shell; the one source of truth is {SHELL.relative_to(ROOT)}"
         )
@@ -135,7 +141,7 @@ def test_the_nav_is_the_five_surfaces_in_order():
 
 def test_the_live_slot_says_no_image_until_something_is_attached():
     for name in [*COVERED, SHELL.name]:
-        text = read(SHELL) if name == SHELL.name else read(TEMPLATES / name)
+        text = read(SHELL) if name == SHELL.name else read(PAGES[name])
         assert '<div class="live" id="live-slot">no image</div>' in text, (
             f"{name} does not carry the pinned default of the live slot (docs/21)"
         )
@@ -143,7 +149,7 @@ def test_the_live_slot_says_no_image_until_something_is_attached():
 
 def test_every_page_states_which_face_of_the_link_it_is():
     for name in COVERED:
-        assert f'class="face-note">{FACES[name]}' in read(TEMPLATES / name), (
+        assert f'class="face-note">{FACES[name]}' in read(PAGES[name]), (
             f"{name} does not state its face of the link (docs/21, the seam story)"
         )
 
@@ -192,7 +198,7 @@ CUSTOM_PROPERTY = re.compile(r"--[a-z][\w-]*\s*:")
 
 def test_no_template_keeps_a_private_color_or_type_block():
     for name in COVERED:
-        text = read(TEMPLATES / name)
+        text = read(PAGES[name])
         assert ":root" not in text, f"{name} keeps a private token block (:root)"
         assert not CUSTOM_PROPERTY.search(text), (
             f"{name} defines its own custom properties"
@@ -227,23 +233,34 @@ def _classes_defined(css: str) -> set[str]:
     return set(re.findall(r"\.([A-Za-z][\w-]*)", css))
 
 
-def _page_layout_css(html: str) -> str:
+def _page_layout_css(html: str, page: Path | None = None) -> str:
     """The page's own layout CSS: its inline ``<style>`` blocks and the stylesheets it links
-    under its own mounts (``/static/…``, ``/<page>/static/…``). docs/21 rule 1 allows per-page
-    layout CSS; the tutor keeps that layout in ``static/tutor/tutor.css`` while the retrofit
-    pages keep theirs inline — one tripwire, both shapes. (ui.css resolves too and is already
-    counted on its own.)"""
+    under its own mounts (``/static/…``, ``/<page>/static/…``, or relative to the mount it is
+    served under). docs/21 rule 1 allows per-page layout CSS; the tutor keeps that layout in
+    ``static/tutor/tutor.css`` while the retrofit pages keep theirs inline — one tripwire, both
+    shapes. (ui.css resolves too and is already counted on its own.)"""
     found = [
         m.group(1) for m in re.finditer(r"<style[^>]*>(.*?)</style>", html, re.DOTALL)
     ]
     for href in re.findall(r'<link rel="stylesheet" href="([^"]+)"', html):
+        href = href.split("?", 1)[0]  # a cache-buster query names no file
         if href.startswith("/static/"):
             sheet = SERVER / "static" / href.removeprefix("/static/")
-        else:
+        elif href.startswith("/"):
             mount = re.match(r"^/([^/]+)/static/(.+)$", href)
             if not mount:
                 continue
             sheet = SERVER / "static" / mount.group(1) / mount.group(2)
+            if not sheet.is_file():
+                # a mount may live in its own package instead of the server tree (the world:
+                # `app.mount("/world/static", world/static)`)
+                sheet = ROOT / "src" / "pymergetic" / "rxf" / mount.group(1) / "static" / mount.group(2)
+        elif page is not None:
+            # a page served under its own mount may link its assets relative to that mount
+            # (the world page at /world/: `static/scene/rxf-world.css` -> world/static/scene/…)
+            sheet = page.parent.parent / href
+        else:
+            continue
         if sheet.is_file():
             found.append(read(sheet))
     return " ".join(found)
@@ -256,8 +273,10 @@ def test_every_class_a_page_uses_is_defined_in_the_system():
     system again."""
     in_ui = _classes_defined(read(UI_CSS))
     for name in [*COVERED, SHELL.name]:
-        html = read(SHELL) if name == SHELL.name else read(TEMPLATES / name)
+        html = read(SHELL) if name == SHELL.name else read(PAGES[name])
         missing = sorted(
-            _classes_used(html) - in_ui - _classes_defined(_page_layout_css(html))
+            _classes_used(html)
+            - in_ui
+            - _classes_defined(_page_layout_css(html, None if name == SHELL.name else PAGES[name]))
         )
         assert not missing, f"{name} uses classes no stylesheet defines: {missing}"

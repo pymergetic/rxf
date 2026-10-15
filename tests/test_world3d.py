@@ -10,6 +10,7 @@ leaves behind (poison, stale handles, empty regions).
 from __future__ import annotations
 
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -195,6 +196,56 @@ def test_the_ring_road_is_a_closed_path_around_the_plots(scene):
         assert 0 <= tram["angle"] < 2 * 3.141593
 
 
+def test_the_ring_road_reads_as_a_clean_boulevard(scene):
+    """No needle spikes, no zigzag, no stutters: every leg is a leg and every turn is a
+    chamfer-scale bend (the ragged corner artifacts were miter spikes on micro legs)."""
+    path = [(point["x"], point["z"]) for point in scene["ring"]["path"]]
+    count = len(path)
+    assert count >= 8
+    for index in range(count):
+        previous, point, following = path[index - 1], path[index], path[(index + 1) % count]
+        legs = (
+            math.hypot(point[0] - previous[0], point[1] - previous[1]),
+            math.hypot(following[0] - point[0], following[1] - point[1]),
+        )
+        assert min(legs) >= 0.25, f"ring point {index} sits on a micro leg"
+        ux, uz = point[0] - previous[0], point[1] - previous[1]
+        vx, vz = following[0] - point[0], following[1] - point[1]
+        turn = math.degrees(math.atan2(ux * vz - uz * vx, ux * vx + uz * vz))
+        assert abs(turn) < 100, f"ring point {index} is a spike ({turn:.1f}°)"
+
+
+def test_the_ring_road_never_runs_through_a_building(scene):
+    """Footprint-aware, in the document itself: no ring segment enters a building volume."""
+    path = [(point["x"], point["z"]) for point in scene["ring"]["path"]]
+
+    def hits(a: tuple[float, float], b: tuple[float, float], rect: tuple[float, float, float, float]) -> bool:
+        x0, z0, x1, z1 = rect
+        low, high = 0.0, 1.0
+        for p, q, edge_low, edge_high in (
+            (a[0], b[0] - a[0], x0, x1),
+            (a[1], b[1] - a[1], z0, z1),
+        ):
+            if abs(q) < 1e-12:
+                if p < edge_low or p > edge_high:
+                    return False
+                continue
+            enter, leave = (edge_low - p) / q, (edge_high - p) / q
+            if enter > leave:
+                enter, leave = leave, enter
+            low, high = max(low, enter), min(high, leave)
+            if high <= low:
+                return False
+        return True
+
+    for cell in scene["cells"]:
+        half = float(cell["footprint"]) / 2 + 0.3
+        x, z = float(cell["plot"]["x"]), float(cell["plot"]["z"])
+        rect = (x - half, z - half, x + half, z + half)
+        for a, b in zip(path, path[1:] + path[:1]):
+            assert not hits(a, b, rect), f"the ring cuts through {cell['id']}"
+
+
 def test_the_hud_metrics_are_wired_where_the_image_knows_them(scene):
     metrics = scene["metrics"]
     assert metrics["runs"] == scene["counts"]["towers"]  # available: wired
@@ -256,7 +307,19 @@ def test_a_bare_ground_image_still_exports():
 def test_the_template_and_scripts_load_only_local_assets():
     html = WORLD_PAGE.read_text(encoding="utf-8")
     assert "http://" not in html and "https://" not in html and "cdn" not in html.lower()
-    for reference in re.findall(r'(?:src|href)="([^"]+)"', html):
+    # the assets the page loads: <link>/<script> references. The shell's nav anchors are
+    # navigation, not asset loads (the page is one surface of the ONE shell, docs/21), and the
+    # shell's own chrome comes from the app's /static/ui mount — the same service, still local.
+    shell_assets = {"/static/ui/ui.css", "/static/ui/ui.js"}
+    references = [
+        m.group(1) or m.group(2)
+        for m in re.finditer(
+            r'<link rel="stylesheet" href="([^"]+)"|<script src="([^"]+)"', html
+        )
+    ]
+    for reference in references:
+        if reference in shell_assets:
+            continue
         assert not reference.startswith(("/", "http", "//")), reference
         # cache-bust queries (?v=...) are the same local file — strip before the file check
         assert (WORLD_DIR / reference.split("?")[0]).is_file(), reference

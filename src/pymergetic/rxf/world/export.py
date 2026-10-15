@@ -239,22 +239,22 @@ VOID_TILE = 512  # a poison run longer than this becomes several void tiles
 # scale flexes — nothing in the document invents facts the image does not carry.
 DISTRICT_SPAN = 4096
 BYTE_SCALE = 4.5 / 1024.0
-DISTRICT_DEPTH = 22.0
-DISTRICT_GAP = 4.5
+DISTRICT_DEPTH = 26.0
+DISTRICT_GAP = 8.0
 DISTRICT_COLS = 4  # districts per row of the city-block layout
-GUTTER_WIDTH = 3.0  # an empty district: a gutter between the city blocks of used memory
-GUTTER_DEPTH = 6.0
-GRID_STEP = 3.4
-GRID_MARGIN = 1.5
-RING_MARGIN = 1.4  # the ring road hugs the city: the plots' bounds plus a sidewalk and a breath
-RING_WIDTH = 4.6  # the arterial's road width (the ready-ring is one queue, one wide road)
+GUTTER_WIDTH = 5.0  # an empty district: a gutter between the city blocks of used memory
+GUTTER_DEPTH = 9.0
+GRID_STEP = 3.9
+GRID_MARGIN = 2.4
+RING_MARGIN = 4.0  # the ring road keeps a wide breath around the plots' bounds
+RING_WIDTH = 5.6  # the arterial's road width (the ready-ring is one queue, one wide road)
 STREET_WIDTH = 3.2  # nominal avenue width; the actual width fits its gap
 LANE_WIDTH = 1.6  # nominal lane width (the streets between the buildings of a district)
 LANE_MIN = 0.8  # a gap narrower than this is a lot line, not a street
-CLEARANCE = 1.1  # road half-width: a building's keep-out grows this far beyond its footprint
+CLEARANCE = 1.6  # road half-width: a building's keep-out grows this far beyond its footprint
 JUNCTION_SNAP = 0.25  # streets are wide: near-miss ends still meet on the routing graph
-RING_BEVEL = 0.25  # the ring's detour corners are cut this much, and its corridors keep the room
-FP_RATIO = 0.55  # a building's footprint never exceeds this fraction of its tile step
+RING_BEVEL = 2.0  # the ring's corners are cut this clean, and its detour corridors keep the room
+FP_RATIO = 0.5  # a building's footprint never exceeds this fraction of its tile step
 BLOCK_BIN = 2  # tiles per city-block bin edge (block > building > floors)
 
 # Cell anatomy (model.html, figure 1): the 64-byte header word for word, then the payload padded
@@ -679,7 +679,7 @@ def _network(
                 if gap < LANE_MIN:
                     continue
                 at = (low + high) / 2
-                lane_width = min(2 * LANE_WIDTH, max(0.9, gap - 0.15))
+                lane_width = min(2 * LANE_WIDTH, max(0.9, gap - 0.5))
                 if axis == "x":
                     lane = _street("lane", "x", at, px + 0.2, px + pw - 0.2, lane_width)
                 else:
@@ -925,24 +925,85 @@ def _detour(
     return points
 
 
+def _lean(points: Sequence[tuple[float, float]]) -> list[tuple[float, float]]:
+    """The road's turns without its stutters: drop duplicate points, the near-collinear ones
+    (a point its neighbours do not miss), and the micro legs (a corner shorter than a leg is
+    noise, not a bend). Dropping a point moves the polyline by less than its leg — the detour
+    corridors keep that room."""
+    pts = [(x, z) for x, z in points]
+    out: list[tuple[float, float]] = []
+    for point in pts:
+        if not out or math.hypot(point[0] - out[-1][0], point[1] - out[-1][1]) > 0.05:
+            out.append(point)
+    pts = out
+    for _ in range(8):
+        count = len(pts)
+        if count <= 4:
+            break
+        dropped = False
+        kept: list[tuple[float, float]] = []
+        for index in range(count):
+            previous, point, following = pts[index - 1], pts[index], pts[(index + 1) % count]
+            leg = min(
+                math.hypot(point[0] - previous[0], point[1] - previous[1]),
+                math.hypot(following[0] - point[0], following[1] - point[1]),
+            )
+            segment = (following[0] - previous[0], following[1] - previous[1])
+            length = math.hypot(*segment) or 1.0
+            off = abs(
+                segment[0] * (point[1] - previous[1]) - segment[1] * (point[0] - previous[0])
+            ) / length
+            if leg < 0.6 or off < 0.08:
+                dropped = True
+                continue
+            kept.append(point)
+        if not dropped or len(kept) < 4:
+            break
+        pts = kept
+    return pts
+
+
 def _chamfer_closed(
     points: Sequence[tuple[float, float]], radius: float
 ) -> list[tuple[float, float]]:
-    """Cut every corner of a closed polyline at 45°, the way a ring road is chamfered."""
+    """Cut every corner of a closed polyline clean at 45°, the way a ring road is chamfered:
+    first the stutters go (``_lean``), then every real turn loses its tip to a bevel of an
+    adaptive radius (never longer than the legs allow), and a near-straight run loses its
+    point entirely — the path keeps its turns, and only its turns."""
+    pts = _lean(points)
     out: list[tuple[float, float]] = []
-    count = len(points)
-    for i in range(count):
-        previous = points[i - 1]
-        point = points[i]
-        following = points[(i + 1) % count]
+    count = len(pts)
+    for index in range(count):
+        previous, point, following = pts[index - 1], pts[index], pts[(index + 1) % count]
         ux, uz = point[0] - previous[0], point[1] - previous[1]
         vx, vz = following[0] - point[0], following[1] - point[1]
         u_length = math.hypot(ux, uz) or 1.0
         v_length = math.hypot(vx, vz) or 1.0
-        r = min(radius, u_length / 2, v_length / 2)
+        if (ux * vx + uz * vz) / (u_length * v_length) > math.cos(math.radians(12)):
+            continue  # a straight run: the point is the line, not a bend
+        r = min(radius, 0.45 * u_length, 0.45 * v_length)
         out.append((point[0] - (ux / u_length) * r, point[1] - (uz / u_length) * r))
         out.append((point[0] + (vx / v_length) * r, point[1] + (vz / v_length) * r))
-    return out
+    return out if len(out) >= 4 else pts
+
+
+def _corner_cut(
+    cells: Sequence[Mapping[str, Any]],
+    ring_rect: tuple[float, float, float, float],
+) -> float:
+    """One uniform 45° corner cut for the ring's octagon: the largest cut (capped by the
+    rectangle's size) whose diagonal keeps the road's width and the sidewalk clear of every
+    building. A chamfer that outruns its corner slices the edge towers of a district and
+    forces the ragged detours the ring must never show."""
+    x0, z0, x1, z1 = ring_rect
+    reach = RING_WIDTH / 2 + CLEARANCE
+    cut = min(18.0, 0.34 * min(x1 - x0, z1 - z0))
+    for corner in ((x0, z0), (x1, z0), (x1, z1), (x0, z1)):
+        for cell in cells:
+            u = abs(float(cell["plot"]["x"]) - corner[0])
+            v = abs(float(cell["plot"]["z"]) - corner[1])
+            cut = min(cut, u + v - math.sqrt(2) * (float(cell["footprint"]) / 2 + reach))
+    return max(1.5, cut)
 
 
 def _ring_path(
@@ -951,25 +1012,23 @@ def _ring_path(
     ring_rect: tuple[float, float, float, float],
 ) -> list[dict[str, float]]:
     """The ring road as a closed path around the city: the plots' bounds at RING_MARGIN, corners
-    chamfered at 45°, detoured around every building whose mass reaches the road (``_detour``) —
-    where the ring passes a tower it routes AROUND the footprint, never through it. On that path
-    the tram units ride. Eight points before the detours, deterministic from the world bounds."""
+    chamfered at 45° (``_corner_cut``: one cut that clears every building), detoured around every
+    building whose mass still reaches the road (``_detour``) — where the ring passes a tower it
+    routes AROUND the footprint, never through it. On that path the tram units ride. Eight points
+    before the detours, deterministic from the world bounds."""
     x0, z0, x1, z1 = ring_rect
-    corner = min(14.0, 0.32 * min(x1 - x0, z1 - z0))
-    basis = _chamfer_closed(
-        [
-            (x0 + corner, z0),
-            (x1 - corner, z0),
-            (x1, z0 + corner),
-            (x1, z1 - corner),
-            (x1 - corner, z1),
-            (x0 + corner, z1),
-            (x0, z1 - corner),
-            (x0, z0 + corner),
-        ],
-        1.6,
-    )
-    rects = _merge_rects([_keep_out(cell) for cell in cells])
+    corner = _corner_cut(cells, ring_rect)
+    basis = [
+        (x0 + corner, z0),
+        (x1 - corner, z0),
+        (x1, z0 + corner),
+        (x1, z1 - corner),
+        (x1 - corner, z1),
+        (x0 + corner, z1),
+        (x0, z1 - corner),
+        (x0, z0 + corner),
+    ]
+    rects = _merge_rects([_keep_out(cell) for cell in cells], touch=1.2)
     center = ((x0 + x1) / 2, (z0 + z1) / 2)
     routed = list(basis)
     for _ in range(5):  # until the road detours around every footprint it would cut
@@ -980,28 +1039,6 @@ def _ring_path(
         ):
             break
         routed = _detour(routed, rects, center, RING_WIDTH / 2)
-
-    # drop the detours' near-collinear noise: a road keeps its turns, not its stutters
-    for _ in range(3):
-        dropped = False
-        lean = []
-        for index in range(len(routed)):
-            previous, point, following = (
-                routed[index - 1],
-                routed[index],
-                routed[(index + 1) % len(routed)],
-            )
-            segment = (following[0] - previous[0], following[1] - previous[1])
-            length = math.hypot(*segment) or 1.0
-            off = abs(
-                segment[0] * (point[1] - previous[1]) - segment[1] * (point[0] - previous[0])
-            ) / length
-            if off < 0.05:
-                lean.append(index)
-                dropped = True
-        if not dropped or len(routed) - len(lean) < 8:
-            break
-        routed = [point for index, point in enumerate(routed) if index not in set(lean)]
 
     return [{"x": _round(x), "z": _round(z)} for x, z in _chamfer_closed(routed, RING_BEVEL)]
 

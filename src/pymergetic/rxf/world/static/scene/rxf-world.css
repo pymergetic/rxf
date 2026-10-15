@@ -160,3 +160,139 @@ body {
   color: var(--muted);
   font-size: 11px;
 }
+
+/* ---- the compass: the orientation cue above the minimap (the needle points world north,
+ * which is the direction the scene draws upward at yaw 0: the map and the view agree) ---- */
+
+.compass {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  pointer-events: none;
+}
+
+.compass-needle {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 50%; /* the HUD rotates it by the rig's -yaw */
+}
+
+.compass-needle::before {
+  /* the north head */
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 4px;
+  margin-left: -3.5px;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  border-bottom: 12px solid var(--hot);
+}
+
+.compass-needle::after {
+  /* the south tail */
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  margin-left: -1.5px;
+  width: 3px;
+  height: 12px;
+  background: var(--muted);
+}
+
+/* ---- the datasheet side pane: the clicked cell, spelled out ------------------------------ */
+
+.hud-datasheet {
+  position: absolute;
+  top: calc(var(--bar-h) + 16px);
+  right: 16px;
+  width: 320px;
+  max-height: calc(100% - var(--bar-h) * 2 - 212px); /* never over the minimap or the bars */
+  display: none;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  backdrop-filter: blur(6px);
+  overflow: hidden;
+}
+
+.hud-datasheet.open {
+  display: flex;
+}
+
+.datasheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.datasheet-title {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.datasheet-close {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 7px;
+  cursor: pointer;
+}
+
+.datasheet-close:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.datasheet-body {
+  padding: 8px 10px 10px;
+  overflow-y: auto;
+}
+
+.datasheet-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+  font-size: 11px;
+  border-bottom: 1px dotted color-mix(in srgb, var(--line) 60%, transparent);
+}
+
+.datasheet-row:last-child {
+  border-bottom: 0;
+}
+
+.datasheet-key {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+  flex: none;
+}
+
+.datasheet-value {
+  color: var(--text);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.datasheet-row.seam .datasheet-value {
+  color: var(--seam); /* a seam shows "—", never a lie */
+}

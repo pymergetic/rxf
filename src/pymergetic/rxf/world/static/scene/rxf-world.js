@@ -39,6 +39,7 @@
   var SCHEMA = "rxf-world-1";
   var FOV = 0.9;
   var TRAM_LAP = 90; /* seconds for one lap of the ring road */
+  var RING_ROAD_WIDTH = 5.6; /* matches export.py RING_WIDTH: the detours keep this room */
 
   /* ---- fixed camera poses: deterministic screenshots ---------------------------------------- */
   /* pitch: degrees above the ground plane (90 = straight down, the RTS look).
@@ -302,15 +303,34 @@
   };
 
   Rig.prototype.view = function () {
-    /* the ground rectangle the camera looks at (for the minimap viewport) */
+    /* the ground rectangle the camera looks at (for the minimap viewport), the four corners of
+     * the framed ground quad (the quad rotates with the yaw; the minimap draws the polygon),
+     * and the yaw itself (the HUD compass needle). Screen up on the ground is basis.up; screen
+     * right is the camera's true right = -basis.right (the rig's `right` is what D moves along,
+     * the lookAt hands the mirrored axis back — the minimap mirrors its x for the same reason). */
     var half = this.state.altitude * Math.tan(this.fov / 2);
     var slant = Math.max(0.45, Math.sin((this.state.pitch * Math.PI) / 180));
     var spanZ = (2 * half) / slant;
+    var basis = this.basis();
+    var up = basis.up;
+    var right = { x: -basis.right.x, z: -basis.right.z };
+    var halfW = (spanZ * this.aspect()) / 2;
+    var halfH = spanZ / 2;
+    var x = this.state.x;
+    var z = this.state.z;
+    function corner(u, r) {
+      return {
+        x: x + up.x * u * halfH + right.x * r * halfW,
+        z: z + up.z * u * halfH + right.z * r * halfW
+      };
+    }
     return {
-      x: this.state.x,
-      z: this.state.z,
+      x: x,
+      z: z,
       w: spanZ * this.aspect(),
-      h: spanZ
+      h: spanZ,
+      yaw: this.state.yaw,
+      corners: [corner(1, 1), corner(1, -1), corner(-1, -1), corner(-1, 1)]
     };
   };
 
@@ -341,6 +361,18 @@
       if (emissiveHex) {
         material.emissiveColor = BABYLON.Color3.FromHexString(emissiveHex).scale(emissiveScale);
       }
+      return material;
+    }
+    function flatPaint(name, hex, alpha) {
+      /* street paint: unlit, flat, semi-transparent — markings painted on the ground, never
+       * volumes with lit faces, side walls or their own shadows */
+      var material = new BABYLON.StandardMaterial(name, scene);
+      var shade = BABYLON.Color3.FromHexString(hex);
+      material.diffuseColor = shade;
+      material.emissiveColor = shade;
+      material.specularColor = new BABYLON.Color3(0, 0, 0);
+      material.disableLighting = true;
+      material.alpha = alpha === undefined ? 1 : alpha;
       return material;
     }
 
@@ -483,7 +515,7 @@
     );
     plinth.material = plinthMaterial;
     plinth.isPickable = false;
-    plinth.position = new BABYLON.Vector3(built.bounds.x, 0.02, built.bounds.z);
+    plinth.position = new BABYLON.Vector3(built.bounds.x, 0.06, built.bounds.z);
     plinth.scaling = new BABYLON.Vector3(built.bounds.w + 8, 0.12, built.bounds.d + 8);
 
     /* ---- districts: tiled floor plots (the placement raster of the exporter) --------------- */
@@ -506,7 +538,7 @@
     baseMesh.thinInstanceSetBuffer("matrix", matrixBuffer([]), 16, true);
     var baseMatrices = [];
     var rimMesh = BABYLON.MeshBuilder.CreateBox("plot-rims", { size: 1 }, scene);
-    rimMesh.material = roleMaterial("plot-rims-material", "#ffffff", 0.1);
+    rimMesh.material = roleMaterial("plot-rims-material", "#7fa4b4", 0.05);
     rimMesh.isPickable = false;
     rimMesh.alwaysSelectAsActiveMesh = true;
     rimMesh.thinInstanceSetBuffer("matrix", matrixBuffer([]), 16, true);
@@ -518,18 +550,18 @@
       var plot = region.plot;
       var raster = region.tiles;
       var bandName = tileMatrices[region.band] ? region.band : "cells";
-      baseMatrices.push(placed(plot.x + plot.w / 2, 0.05, plot.z + plot.d / 2, plot.w, 0.1, plot.d));
+      baseMatrices.push(placed(plot.x + plot.w / 2, 0.145, plot.z + plot.d / 2, plot.w, 0.05, plot.d));
       /* the district's own tint: one band family, one district — the floor reads as districts */
       var district = tintOf(bandName, region.start + plot.x * 16 + plot.z);
       var lit = region.empty ? 0.55 : 1;
       /* every tile of the district's raster: a floor plate with street-dark gaps */
-      var inset = 0.3;
+      var inset = 0.55;
       for (var row = 0; row < raster.rows; row++) {
         for (var col = 0; col < raster.cols; col++) {
           var tileX = plot.x + (col + 0.5) * raster.step_x;
           var tileZ = plot.z + (row + 0.5) * raster.step_z;
           tileMatrices[bandName].push(
-            placed(tileX, 0.13, tileZ, raster.step_x - inset, 0.14, raster.step_z - inset)
+            placed(tileX, 0.165, tileZ, raster.step_x - inset, 0.05, raster.step_z - inset)
           );
           var vary = 0.96 + 0.08 * hash(col * 31 + row * 17 + Math.round(plot.x * 7));
           tileColors[bandName].push(
@@ -540,15 +572,15 @@
           );
         }
       }
-      /* the district's edge: a legible rim on all four sides, at every zoom */
-      var edge = 0.3;
-      var rimTint = district.scale(region.empty ? 1.35 : 2.1);
-      var rimY = 0.14;
+      /* the district's edge: a quiet painted border, flat on the ground like the streets */
+      var edge = 0.26;
+      var rimTint = district.scale(region.empty ? 1.0 : 1.4);
+      var rimY = 0.185;
       var rimSides = [
-        [plot.x + plot.w / 2, rimY, plot.z + edge / 2, plot.w + edge, 0.22, edge],
-        [plot.x + plot.w / 2, rimY, plot.z + plot.d - edge / 2, plot.w + edge, 0.22, edge],
-        [plot.x + edge / 2, rimY, plot.z + plot.d / 2, edge, 0.22, plot.d - edge],
-        [plot.x + plot.w - edge / 2, rimY, plot.z + plot.d / 2, edge, 0.22, plot.d - edge]
+        [plot.x + plot.w / 2, rimY, plot.z + edge / 2, plot.w + edge, 0.05, edge],
+        [plot.x + plot.w / 2, rimY, plot.z + plot.d - edge / 2, plot.w + edge, 0.05, edge],
+        [plot.x + edge / 2, rimY, plot.z + plot.d / 2, edge, 0.05, plot.d - edge],
+        [plot.x + plot.w - edge / 2, rimY, plot.z + plot.d / 2, edge, 0.05, plot.d - edge]
       ];
       for (var side of rimSides) {
         rimMatrices.push(placed(side[0], side[1], side[2], side[3], side[4], side[5]));
@@ -666,7 +698,7 @@
     var voidMatrices = [];
     for (var tile of doc.voids) {
       voidMatrices.push(
-        placed(tile.plot.x, 0.16, tile.plot.z, tile.footprint, 0.22, tile.footprint)
+        placed(tile.plot.x, 0.235, tile.plot.z, tile.footprint, 0.05, tile.footprint)
       );
     }
     voidMesh.thinInstanceSetBuffer("matrix", matrixBuffer(voidMatrices), 16, true);
@@ -811,7 +843,6 @@
     /* ---- the ready-ring: the ring road of the document, with lanes and tram units --------- */
     var ringRoad = null;
     var dashMesh = null;
-    var curbMesh = null;
     var tramMesh = null;
     var trams = [];
     var loop = null;
@@ -819,68 +850,57 @@
       var ring = doc.ring;
       var path = ring.path;
       loop = makeLoop(path);
-      var laneWidth = 7;
 
-      /* the road: flat asphalt strips along the closed path, with glowing curbs */
-      var roadMatrices = [];
+      /* the road: ONE flat ribbon along the closed path. A stack of per-leg boxes wedges open
+       * on the outside of every chamfer (the black needle gaps at the corners) and spikes where
+       * short detour legs miter together; a clamped-miter band has no joints at all. */
+      var half = RING_ROAD_WIDTH / 2;
+      var leftEdge = [];
+      var rightEdge = [];
+      var points = path.length;
+      for (var leg = 0; leg < points; leg++) {
+        var previous = path[(leg - 1 + points) % points];
+        var point = path[leg];
+        var next = path[(leg + 1) % points];
+        var d0x = (point.x - previous.x) / (Math.hypot(point.x - previous.x, point.z - previous.z) || 1);
+        var d0z = (point.z - previous.z) / (Math.hypot(point.x - previous.x, point.z - previous.z) || 1);
+        var d1x = (next.x - point.x) / (Math.hypot(next.x - point.x, next.z - point.z) || 1);
+        var d1z = (next.z - point.z) / (Math.hypot(next.x - point.x, next.z - point.z) || 1);
+        /* the band's offset direction: the average of the legs' left normals */
+        var mx = -d0z - d1z;
+        var mz = d0x + d1x;
+        var mLength = Math.hypot(mx, mz) || 1;
+        var nx = mx / mLength;
+        var nz = mz / mLength;
+        var miter = half / Math.max(0.45, nx * -d1z + nz * d1x); /* clamped: no needle spikes */
+        leftEdge.push(new BABYLON.Vector3(point.x - nz * miter, 0.216, point.z + nx * miter));
+        rightEdge.push(new BABYLON.Vector3(point.x + nz * miter, 0.216, point.z - nx * miter));
+      }
+      ringRoad = BABYLON.MeshBuilder.CreateRibbon(
+        "ring-road",
+        { pathArray: [leftEdge, rightEdge], closePath: true, sideOrientation: BABYLON.Mesh.DOUBLESIDE },
+        scene
+      );
+      ringRoad.material = flatPaint("ring-asphalt", "#16202a", 0.66);
+      ringRoad.isPickable = false;
+
+      /* the lane markings: flat paint at an even arc-length rhythm along the whole loop */
       var dashMatrices = [];
-      var curbMatrices = [];
-      for (var leg = 0; leg < path.length; leg++) {
-        var a = path[leg];
-        var b = path[(leg + 1) % path.length];
-        var length = Math.hypot(b.x - a.x, b.z - a.z);
-        if (length < 0.01) continue;
-        var heading = Math.atan2(b.x - a.x, b.z - a.z);
-        roadMatrices.push(
+      for (var dashAt = 3; dashAt < loop.length - 3; dashAt += 7) {
+        var spot = loop.at(dashAt / loop.length);
+        dashMatrices.push(
           BABYLON.Matrix.Compose(
-            new BABYLON.Vector3(laneWidth, 0.1, length),
-            BABYLON.Quaternion.FromEulerAngles(0, heading, 0),
-            new BABYLON.Vector3((a.x + b.x) / 2, 0.24, (a.z + b.z) / 2)
+            new BABYLON.Vector3(2.2, 0.012, 0.34),
+            BABYLON.Quaternion.FromEulerAngles(0, spot.heading, 0),
+            new BABYLON.Vector3(spot.x, 0.222, spot.z)
           )
         );
-        for (var side of [-1, 1]) {
-          /* the curb: a thin glowing strip along each road edge */
-          var curbOffset = side * (laneWidth / 2 - 0.18);
-          curbMatrices.push(
-            BABYLON.Matrix.Compose(
-              new BABYLON.Vector3(0.22, 0.07, length),
-              BABYLON.Quaternion.FromEulerAngles(0, heading, 0),
-              new BABYLON.Vector3(
-                (a.x + b.x) / 2 + Math.cos(heading) * curbOffset,
-                0.30,
-                (a.z + b.z) / 2 - Math.sin(heading) * curbOffset
-              )
-            )
-          );
-        }
-        for (var dash = 3; dash < length - 3; dash += 7) {
-          var t = dash / length;
-          dashMatrices.push(
-            BABYLON.Matrix.Compose(
-              new BABYLON.Vector3(2.2, 0.08, 0.34),
-              BABYLON.Quaternion.FromEulerAngles(0, heading, 0),
-              new BABYLON.Vector3(a.x + (b.x - a.x) * t, 0.315, a.z + (b.z - a.z) * t)
-            )
-          );
-        }
       }
-      ringRoad = BABYLON.MeshBuilder.CreateBox("ring-road", { size: 1 }, scene);
-      ringRoad.material = pbr("asphalt", "#2b3540", 0.2, 0.8);
-      ringRoad.isPickable = false;
-      ringRoad.alwaysSelectAsActiveMesh = true;
-      ringRoad.thinInstanceSetBuffer("matrix", matrixBuffer(roadMatrices), 16, true);
-
       dashMesh = BABYLON.MeshBuilder.CreateBox("lanes", { size: 1 }, scene);
-      dashMesh.material = roleMaterial("dash-material", "#5c7482", 0.3);
+      dashMesh.material = flatPaint("dash-material", "#33505c", 0.85);
       dashMesh.isPickable = false;
       dashMesh.alwaysSelectAsActiveMesh = true;
       dashMesh.thinInstanceSetBuffer("matrix", matrixBuffer(dashMatrices), 16, true);
-
-      curbMesh = BABYLON.MeshBuilder.CreateBox("curbs", { size: 1 }, scene);
-      curbMesh.material = roleMaterial("curb-material", CABLE_FRESH, 0.22);
-      curbMesh.isPickable = false;
-      curbMesh.alwaysSelectAsActiveMesh = true;
-      curbMesh.thinInstanceSetBuffer("matrix", matrixBuffer(curbMatrices), 16, true);
 
       /* tram units: one per run cell, riding the loop (run state is the later-stage seam) */
       tramMesh = BABYLON.MeshBuilder.CreateBox("trams", { size: 1 }, scene);
@@ -903,63 +923,43 @@
     }
 
     /* ---- streets: the grid that connects every district to the ring road ------------------ */
+    /* flat paint only: hairline plates on the ground plane, dark and semi-transparent, with
+     * muted blue-grey markings — the city reads buildings first, streets second */
     var streetRoadMatrices = [];
     var streetDashMatrices = [];
-    var streetCurbMatrices = [];
     for (var street of doc.streets || []) {
       var alongX = street.axis === "x";
       var length = street.to - street.from;
       var centerX = alongX ? (street.from + street.to) / 2 : street.at;
       var centerZ = alongX ? street.at : (street.from + street.to) / 2;
       streetRoadMatrices.push(
-        placed(centerX, 0.16, centerZ, alongX ? length : street.width, 0.1, alongX ? street.width : length)
+        placed(centerX, 0.21, centerZ, alongX ? length : street.width, 0.012, alongX ? street.width : length)
       );
-      for (var side of [-1, 1]) {
-        /* the curb: a thin glowing strip along each street edge, the ring's road language */
-        var curbOffset = side * (street.width / 2 - 0.15);
-        streetCurbMatrices.push(
-          placed(
-            centerX + (alongX ? 0 : curbOffset),
-            0.265,
-            centerZ + (alongX ? curbOffset : 0),
-            alongX ? length : 0.2,
-            0.06,
-            alongX ? 0.2 : length
-          )
-        );
-      }
       for (var dashAt = 3; dashAt < length - 3; dashAt += 7) {
         var dashT = street.from + dashAt;
         streetDashMatrices.push(
           placed(
             alongX ? dashT : centerX,
-            0.275,
+            0.218,
             alongX ? centerZ : dashT,
             alongX ? 2.2 : 0.32,
-            0.07,
+            0.012,
             alongX ? 0.32 : 2.2
           )
         );
       }
     }
     var streetRoad = BABYLON.MeshBuilder.CreateBox("streets", { size: 1 }, scene);
-    streetRoad.material = pbr("street-asphalt", "#242e39", 0.2, 0.85);
+    streetRoad.material = flatPaint("street-asphalt", "#141c25", 0.62);
     streetRoad.isPickable = false;
     streetRoad.alwaysSelectAsActiveMesh = true;
-    streetRoad.receiveShadows = true;
     streetRoad.thinInstanceSetBuffer("matrix", matrixBuffer(streetRoadMatrices), 16, true);
 
     var streetDash = BABYLON.MeshBuilder.CreateBox("street-lanes", { size: 1 }, scene);
-    streetDash.material = roleMaterial("street-dash-material", "#5c7482", 0.3);
+    streetDash.material = flatPaint("street-dash-material", "#33505c", 0.85);
     streetDash.isPickable = false;
     streetDash.alwaysSelectAsActiveMesh = true;
     streetDash.thinInstanceSetBuffer("matrix", matrixBuffer(streetDashMatrices), 16, true);
-
-    var streetCurb = BABYLON.MeshBuilder.CreateBox("street-curbs", { size: 1 }, scene);
-    streetCurb.material = roleMaterial("street-curb-material", CABLE_FRESH, 0.22);
-    streetCurb.isPickable = false;
-    streetCurb.alwaysSelectAsActiveMesh = true;
-    streetCurb.thinInstanceSetBuffer("matrix", matrixBuffer(streetCurbMatrices), 16, true);
 
     /* ---- city blocks: the massing the wide views read (block > building > floors) -------- */
     var blockMatrices = [];
@@ -972,10 +972,10 @@
       blockMatrices.push(
         placed(
           blockPlot.x + blockPlot.w / 2,
-          0.45,
+          0.24,
           blockPlot.z + blockPlot.d / 2,
           blockPlot.w,
-          0.9,
+          0.12,
           blockPlot.d
         )
       );
@@ -986,7 +986,7 @@
       massMatrices.push(
         placed(
           blockPlot.x + blockPlot.w / 2,
-          0.9 + massHeight / 2,
+          0.3 + massHeight / 2,
           blockPlot.z + blockPlot.d / 2,
           blockPlot.w * 0.82,
           massHeight,
@@ -1023,6 +1023,7 @@
         total += span;
       }
       return {
+        length: total,
         at: function (fraction) {
           var want = (((fraction % 1) + 1) % 1) * total;
           for (var i = 0; i < lengths.length; i++) {
@@ -1114,6 +1115,47 @@
       return plane;
     }
 
+    var districtPlanes = []; /* district signs: name + byte band, above every plot */
+    var wayfindPlanes = []; /* street name plates along the main roads (L1 and closer) */
+    var bandAccent = { header: "#9fb4e8", index: "#8fc4dc", cells: "#9fd8c8" };
+    for (var signRegion of doc.regions) {
+      var signPlot = signRegion.plot;
+      districtPlanes.push(
+        label(
+          signRegion.id +
+            " · 0x" +
+            signRegion.start.toString(16).toUpperCase() +
+            "-0x" +
+            signRegion.end.toString(16).toUpperCase(),
+          new BABYLON.Vector3(signPlot.x + signPlot.w / 2, 15, signPlot.z + signPlot.d / 2),
+          13,
+          1.8,
+          bandAccent[signRegion.band] || bandAccent.cells,
+          0
+        )
+      );
+    }
+    for (var plate of doc.streets || []) {
+      if (plate.kind !== "avenue" && plate.kind !== "cross") continue; /* main roads only */
+      var plateX = plate.axis === "x";
+      wayfindPlanes.push(
+        label(
+          (plate.kind === "avenue" ? "AVE · " : "CROSS · ") +
+            (plateX ? "Z" : "X") +
+            Number(plate.at).toFixed(1),
+          new BABYLON.Vector3(
+            plateX ? (plate.from + plate.to) / 2 : plate.at,
+            3.2,
+            plateX ? plate.at : (plate.from + plate.to) / 2
+          ),
+          6.5,
+          1.3,
+          "#8fb8c4",
+          0
+        )
+      );
+    }
+
     var signPlanes = []; /* name signage: shown from L1 up (the city's signs) */
     var detailPlanes = []; /* checksum displays: L2 anatomy detail */
     var important = built.cellList
@@ -1168,12 +1210,12 @@
     var cables = group("cables");
     var labels = group("labels");
     var details = group("details");
+    var wayfind = group("wayfind");
     for (var tileBand of ["header", "index", "cells"]) tileMeshes[tileBand].parent = districts;
     baseMesh.parent = districts;
     rimMesh.parent = districts;
     streetRoad.parent = districts;
     streetDash.parent = districts;
-    streetCurb.parent = districts;
     blockBaseMesh.parent = districts;
     massMesh.parent = massing;
     if (ringRoad) ringRoad.parent = districts;
@@ -1184,13 +1226,15 @@
     graveMesh.parent = buildings;
     if (tramMesh) tramMesh.parent = districts;
     if (dashMesh) dashMesh.parent = districts;
-    if (curbMesh) curbMesh.parent = districts;
     baseTraces.parent = cables;
     freshTraces.parent = cables;
     staleTraces.parent = cables;
     padMesh.parent = cables;
-    for (var plane of signPlanes) plane.parent = labels;
-    for (var plane of detailPlanes) plane.parent = details;
+    /* label() hands back null past its budget: guard the parenting, never crash the build */
+    for (var plane of signPlanes) if (plane) plane.parent = labels;
+    for (var plane of districtPlanes) if (plane) plane.parent = labels;
+    for (var plane of wayfindPlanes) if (plane) plane.parent = wayfind;
+    for (var plane of detailPlanes) if (plane) plane.parent = details;
     built.labels = labelMeshes;
     built.signs = signPlanes;
     built.detailLabels = detailPlanes;
@@ -1225,6 +1269,21 @@
     built.selection = selection;
     built.halo = halo;
     built.box = box;
+
+    /* hover: the quiet outline that pairs with the pointer cursor (click then selects) */
+    var hover = new BABYLON.TransformNode("hover", scene);
+    var hoverBox = BABYLON.MeshBuilder.CreateBox("hover-box", { size: 1 }, scene);
+    hoverBox.enableEdgesRendering();
+    hoverBox.edgesColor = new BABYLON.Color4(0.45, 0.88, 0.8, 1);
+    hoverBox.edgesWidth = 3;
+    var hoverMaterial = new BABYLON.PBRMaterial("hover-box-material", scene);
+    hoverMaterial.albedoColor = new BABYLON.Color3(0.45, 0.88, 0.8);
+    hoverMaterial.alpha = 0.05;
+    hoverBox.material = hoverMaterial;
+    hoverBox.parent = hover;
+    hover.setEnabled(false);
+    built.hover = hover;
+    built.hoverBox = hoverBox;
 
     return built;
   }
@@ -1333,8 +1392,58 @@
               })
             }
           : null;
-        if (global.RXFWorldHud) global.RXFWorldHud.status(payload);
+        if (global.RXFWorldHud) {
+          global.RXFWorldHud.status(payload);
+          global.RXFWorldHud.sheet(payload); /* the datasheet pane: opens with the selection */
+        }
         for (var listener of listeners) listener(payload);
+      }
+
+      var hoverCell = null;
+      function setHover(cell) {
+        /* hover: the quiet outline + pointer cursor that say "this one is clickable" */
+        if (cell === hoverCell) return;
+        hoverCell = cell;
+        if (!cell) {
+          world.hover.setEnabled(false);
+          canvas.style.cursor = "";
+          return;
+        }
+        world.hover.setEnabled(true);
+        world.hover.position.x = cell.plot.x;
+        world.hover.position.z = cell.plot.z;
+        world.hoverBox.scaling.x = world.hoverBox.scaling.z = Math.max(1, cell.footprint + 1);
+        world.hoverBox.scaling.y = cell.height + 0.3;
+        world.hoverBox.position.y = cell.height / 2;
+        canvas.style.cursor = "pointer";
+      }
+
+      function pickCell(clientX, clientY) {
+        /* the ground point under the cursor, then the nearest building: one shared pick for
+         * click and hover so both always agree on what is under the pointer */
+        var picked = scene.createPickingRay(
+          clientX - canvas.getBoundingClientRect().left,
+          clientY - canvas.getBoundingClientRect().top,
+          BABYLON.Matrix.Identity(),
+          camera
+        );
+        /* vendored Babylon 9.30 hands back the Ray itself; be kind to either shape */
+        var ray = picked.ray || picked;
+        if (ray.direction.y === 0) return null;
+        var ground = -ray.origin.y / ray.direction.y;
+        if (ground <= 0) return null;
+        var point = ray.origin.add(ray.direction.scale(ground));
+        var best = 3.2;
+        var hitDistance = Infinity;
+        var hit = null;
+        for (var cell of world.cellList) {
+          var distance = Math.hypot(point.x - cell.plot.x, point.z - cell.plot.z) - cell.footprint * 0.5;
+          if (distance < best && distance < hitDistance) {
+            hitDistance = distance;
+            hit = cell;
+          }
+        }
+        return hit;
       }
 
       function targetOf(pose) {
@@ -1429,6 +1538,14 @@
       };
       api.select = select;
 
+      /* the datasheet pane's close button dismisses exactly like ESC and empty-ground clicks */
+      var closeButton = global.document.querySelector("[data-datasheet-close]");
+      if (closeButton) {
+        closeButton.addEventListener("click", function () {
+          select(null);
+        });
+      }
+
       /* click-to-select: the ground plane, then the nearest building */
       var pointer = { x: 0, y: 0, moved: 0, button: -1 };
       canvas.addEventListener("pointerdown", function (event) {
@@ -1450,44 +1567,23 @@
           rig.state.x = rig.goal.x;
           rig.state.z = rig.goal.z;
           rig.apply();
+          setHover(null); /* no hover highlight while the hand is dragging the world */
         } else if (pointer.button === 2 && (event.buttons & 2)) {
           rig.goal.yaw -= dx * 0.25;
           rig.goal.pitch = clamp(rig.goal.pitch + dy * 0.2, 22, 90);
           rig.state.yaw = rig.goal.yaw;
           rig.state.pitch = rig.goal.pitch;
           rig.apply();
+        } else {
+          setHover(pickCell(event.clientX, event.clientY));
         }
         pointer.x = event.clientX;
         pointer.y = event.clientY;
       });
       canvas.addEventListener("pointerup", function (event) {
         if (pointer.button === 0 && pointer.moved < 6) {
-          var picked = scene.createPickingRay(
-            event.clientX - canvas.getBoundingClientRect().left,
-            event.clientY - canvas.getBoundingClientRect().top,
-            BABYLON.Matrix.Identity(),
-            camera
-          );
-          /* vendored Babylon 9.30 hands back the Ray itself; be kind to either shape */
-          var ray = picked.ray || picked;
-          var hit = null;
-          if (ray.direction.y !== 0) {
-            var ground = -ray.origin.y / ray.direction.y;
-            if (ground > 0) {
-              var point = ray.origin.add(ray.direction.scale(ground));
-              var best = 3.2;
-              var hitDistance = Infinity;
-              for (var cell of world.cellList) {
-                var distance =
-                  Math.hypot(point.x - cell.plot.x, point.z - cell.plot.z) - cell.footprint * 0.5;
-                if (distance < best && distance < hitDistance) {
-                  hitDistance = distance;
-                  hit = cell;
-                }
-              }
-            }
-          }
-          select(hit);
+          /* click selects; the click on empty ground deselects and closes the datasheet */
+          select(pickCell(event.clientX, event.clientY));
         }
         pointer.button = -1;
       });
@@ -1506,6 +1602,10 @@
       });
 
       global.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") {
+          select(null); /* ESC dismisses the datasheet and the selection */
+          return;
+        }
         if (event.key >= "1" && event.key <= String(CAMERA_POSES.length)) {
           api.setPose(CAMERA_POSES[Number(event.key) - 1].name);
           return;
@@ -1572,6 +1672,7 @@
          * (the billboard keeps it upright), so the L0 massing overview carries the names too —
          * the round-3 hero shows shaded massing *and* the floating signs together */
         world.groups.labels.setEnabled(true);
+        world.groups.wayfind.setEnabled(level !== LOD_LEVELS[0]);
         world.groups.details.setEnabled(level === LOD_LEVELS[2] || level === LOD_LEVELS[3]);
         updateLabels(labelScale);
         if (level.name !== lastLevel) {
