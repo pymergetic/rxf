@@ -17,6 +17,7 @@ the world face cannot reach an image no runner here drives.
 from __future__ import annotations
 
 import sys
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -33,6 +34,13 @@ def _client(spec: str, timeout: float) -> Client:
     if world.registered(spec):
         return world.attach(spec, timeout=float(timeout)).client
     return link.connect(spec, timeout=float(timeout))
+
+
+def _held(client: Client) -> AbstractContextManager[None]:
+    """The world's transaction for one whole operation when the channel is a world's gated
+    view; a no-op on the raw wire, where a far end's serialization is the far end's own."""
+    transaction = getattr(client, "transaction", None)
+    return transaction() if transaction is not None else nullcontext()
 
 
 def info(spec: str, timeout: float = 30.0) -> dict[str, Any]:
@@ -76,26 +84,29 @@ def apply(
     """Applies the XML DELTA files to the running image as one atomic step.
 
     The image is dumped, the deltas are compiled against that dump into a physical delta, and the
-    image takes it. The report carries the digest the image answered with. With `--to=TARGET` the
+    image takes it. The dump-compile-take composite runs inside the world's transaction when the
+    channel is a world's (the gate travels with the view), so no mutation lands between the dump
+    and the take. The report carries the digest the image answered with. With `--to=TARGET` the
     result is dumped there afterwards.
     """
     client = _client(spec, timeout)
-    raw, _ = client.emit()
-    base = Image.from_bytes(raw)
-    texts = [(name, Path(name).read_text(encoding="utf-8")) for name in deltas]
-    compiled = physical.from_xml(base, *texts)
-    answered = client.apply(compiled.data)
-    report: dict[str, Any] = {
-        "digest": answered,
-        "creates": compiled.creates,
-        "sets": compiled.sets,
-        "deletes": compiled.deletes,
-        "entry": compiled.entry,
-    }
-    if to is not None:
-        after, _ = client.emit()
-        report["format"] = source.save(Image.from_bytes(after), to)
-        report["target"] = to
+    with _held(client):
+        raw, _ = client.emit()
+        base = Image.from_bytes(raw)
+        texts = [(name, Path(name).read_text(encoding="utf-8")) for name in deltas]
+        compiled = physical.from_xml(base, *texts)
+        answered = client.apply(compiled.data)
+        report: dict[str, Any] = {
+            "digest": answered,
+            "creates": compiled.creates,
+            "sets": compiled.sets,
+            "deletes": compiled.deletes,
+            "entry": compiled.entry,
+        }
+        if to is not None:
+            after, _ = client.emit()
+            report["format"] = source.save(Image.from_bytes(after), to)
+            report["target"] = to
     return report
 
 
@@ -169,10 +180,11 @@ def _line(client: Client, line: str) -> str | None:
         source.save(Image.from_bytes(raw), args[0], True)
         return f"{dumped} -> {args[0]}"
     if command == "apply":
-        raw, _ = client.emit()
-        texts = [(name, Path(name).read_text(encoding="utf-8")) for name in args]
-        compiled = physical.from_xml(Image.from_bytes(raw), *texts)
-        return client.apply(compiled.data)
+        with _held(client):
+            raw, _ = client.emit()
+            texts = [(name, Path(name).read_text(encoding="utf-8")) for name in args]
+            compiled = physical.from_xml(Image.from_bytes(raw), *texts)
+            return client.apply(compiled.data)
     raise ValueError(f"no command {command!r}; {HELP}")
 
 

@@ -32,6 +32,7 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -39,6 +40,7 @@ import pytest
 from pymergetic.rxf.console import world
 from pymergetic.rxf.core import tree
 from pymergetic.rxf.core.object import Image
+from pymergetic.rxf.live import cli, physical
 from pymergetic.rxf.live.front import identity
 from pymergetic.rxf.server.app import PokeBody, SourceBody, create_app
 from pymergetic.rxf.server.live.runner import Runner
@@ -93,7 +95,7 @@ def running(image: Image) -> Iterator[Runner]:
 # ---- firing requests at the same instant --------------------------------------------------------
 
 
-async def _feed_vs_mutation(app, mutate):
+async def _feed_vs_mutation(app, mutate) -> tuple[httpx.Response, list[httpx.Response], int]:
     """One mutation fired at the same instant two pollers hammer `GET /api/live` — the shell's
     live slot polling while the editor works. Returns the mutation's answer, every feed answer,
     and how many polls began while the mutation was in flight (that the race really raced)."""
@@ -126,7 +128,9 @@ async def _feed_vs_mutation(app, mutate):
     async with httpx.AsyncClient(transport=transport, base_url="http://app") as http:
         async with asyncio.timeout(300):
             results = await asyncio.gather(mutation(), *(feed() for _ in range(pollers)))
-    return results[0], answers, during
+    answered = results[0]
+    assert answered is not None
+    return answered, answers, during
 
 
 def _assert_feed_healthy(polls: list[httpx.Response]) -> None:
@@ -308,3 +312,61 @@ def test_two_racing_runner_attaches_race_to_exactly_one_runner(image: Image):
     finally:
         winner.close()
     assert world.registered(link) is False
+
+
+# ---- one composite holds the gate once ----------------------------------------------------------
+
+PROBE_DELTA = """\
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Type name="LiveGateProbe" form="Form.Struct" size="8" align="8">
+    <Field name="x" value_type="uint64_t"/>
+  </Type>
+  <LiveGateProbe name="gate_probe" x="7"/>
+</delta>
+"""
+
+
+def test_a_live_apply_holds_the_transaction_around_its_whole_composite(
+    image: Image, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """`rxf live apply` is one dump-compile-take composite; the world's transaction must be
+    held across the host-side compile gap, not just around each request. The probe stands in
+    that gap (inside `physical.from_xml`, between the dump and the take) and tries to take the
+    gate: post-wrap it waits until the composite is done, pre-wrap it took the gate instantly.
+    The exclusion is timed in the failing direction only (the console suite's 2 s margin)."""
+    link = _link()
+    runner = Runner(image, link)
+    try:
+        client: Any = world.attach(link).client
+        acquired = threading.Event()
+        probers: list[threading.Thread] = []
+
+        def probe_the_gate() -> None:
+            with client.transaction():
+                acquired.set()
+
+        real_from_xml = physical.from_xml
+
+        def standing_in_the_gap(*args: Any, **kwargs: Any) -> Any:
+            prober = threading.Thread(target=probe_the_gate)
+            probers.append(prober)
+            prober.start()
+            prober.join(timeout=2.0)
+            assert not acquired.is_set(), "the gate opened in the compile gap of rxf live apply"
+            return real_from_xml(*args, **kwargs)
+
+        monkeypatch.setattr(physical, "from_xml", standing_in_the_gap)
+        delta = tmp_path / "gate.xml"
+        delta.write_text(PROBE_DELTA, encoding="utf-8")
+
+        report = cli.apply(link, str(delta))
+        assert report["creates"] == 3, report  # the type cell, its field cell, the probe object
+        assert report["digest"], report
+
+        # once the composite has released, the probe's take goes through — the gate reopens
+        assert acquired.wait(timeout=30), "the transaction never reopened after rxf live apply"
+        for prober in probers:
+            prober.join(timeout=30)
+            assert not prober.is_alive()
+    finally:
+        runner.close()
