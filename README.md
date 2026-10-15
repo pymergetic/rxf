@@ -238,8 +238,21 @@ word shows up in — with a link back to the cell in the inspector.
 
 ## The 3D world
 
-A 3D world view of the running image is being built on these same seams; its screenshots land here.
-<!-- WORLD-SCREENS-PENDING -->
+The image renders as an RTS city over the same cells the inspector reads: every cell is a
+block-stack building whose floors are the cell anatomy in S1 payload coloring — checksum
+teal, poison red, generation gold — the reference edges are Manhattan-routed ground cables
+between the lots, and the run cells ride the ready-ring as tram units under glowing curbs.
+The minimap is a real top-down projection of the same document (districts, buildings by
+family, void tiles in red, the camera's viewport); clicking it jumps the camera, clicking a
+building selects its cell in the HUD, and WASD moves camera-relative. The scene draws the
+checked-in demo world — the `demo_world.xml`
+delta plus the traces a running snapshot carries (a stale handle's ghost cables, the 0xA5
+poison of compaction), exported to `demo-scene.json` as a byte-exact golden the tests pin —
+with no randomness behind any frame.
+
+![The world overview: block-stack buildings in S1 payload coloring, the ready-ring with its tram units, and the minimap](docs/images/world-overview.png)
+
+![Top-down tactical view: a selected run tower (system.runs.tick) with the HUD's live cell fields](docs/images/world-tactical.png)
 
 ## Layout
 
@@ -252,6 +265,7 @@ src/pymergetic/rxf/
   console/                     the console on a running image (`rxf console`) and the world seam
   live/                        the live channel: client, front end, and the commands of `rxf live`
   server/                      the inspector and the model page
+  world/                       the 3D world view: the demo world, the exporter, and the scene
 ```
 
 ## Develop
