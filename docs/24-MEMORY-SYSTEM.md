@@ -184,18 +184,20 @@ kind `AGENT` with the same faces.
 IdentityId = MemoryId   # an identity IS a cell
 
 class IdentityKind(StrEnum):
-    PERSON  = "person"
-    TEAM    = "team"
-    COMPANY = "company"
-    AGENT   = "agent"      # an AI author, exactly like a user
-    SYSTEM  = "system"     # the machinery itself (consolidate, decay write too)
+    PERSON     = "person"
+    TEAM       = "team"
+    COMPANY    = "company"
+    COLLECTIVE = "collective"  # an ad-hoc coauthorship group: humans and/or agents
+    AGENT      = "agent"       # an AI author, exactly like a user
+    SYSTEM     = "system"      # the machinery itself (consolidate, decay write too)
 
 class RelationKind(StrEnum):
-    AUTHORED_BY = "authored_by"   # a thought/change came from
-    MEMBER_OF   = "member_of"     # person/agent -> team -> company
-    OPERATED_BY = "operated_by"   # agent -> whoever runs it
-    SPEAKS_FOR  = "speaks_for"    # delegation of voice
-    REVIEWED_BY = "reviewed_by"
+    AUTHORED_BY    = "authored_by"    # a thought/change came from
+    CONTRIBUTED_BY = "contributed_by" # per-member credit inside a joint authorship
+    MEMBER_OF      = "member_of"      # person/agent -> collective/team -> company
+    OPERATED_BY    = "operated_by"    # agent -> whoever runs it
+    SPEAKS_FOR     = "speaks_for"     # delegation of voice
+    REVIEWED_BY    = "reviewed_by"
 
 @dataclass(frozen=True)
 class Identity:
@@ -236,13 +238,47 @@ The history of a thought is then a single readable structure: the supersession c
 (§6) with an `AUTHORED_BY` link at each step and each step's delta attributed — who
 thought what, who changed it, when, and why.
 
+### Coauthorship collectives
+
+A coauthorship group is an identity of kind `COLLECTIVE` — a cell, like everything
+else. Its members are humans and **any mix of humans and agents**: `MEMBER_OF` links
+from persons and agents alike, no distinction in the kind space.
+
+```python
+@dataclass(frozen=True)
+class Contribution:            # per-member credit inside a joint authorship
+    member: IdentityId         # person or agent
+    role: str                  # "drafted", "co-designed", "reviewed"
+    order: int | None          # author order if the convention needs it
+    weight: Score | None       # share, if anyone cares to claim one
+```
+
+Three properties make the group honest and cheap at once:
+
+1. **Membership is interval-valued** (`MEMBER_OF` links carry `valid`), so *who was in
+   the group when the thought was authored* is derivable from the graph — the
+   collective at time T is well-defined without snapshotting members into the thought.
+2. **Authorship composes**: one thought can carry `AUTHORED_BY` links to individuals
+   *and* to collectives at once (a human plus an agent team plus the company), with
+   `role`/`weight`/`order` facts on the links. A group-authored thought points at the
+   collective; per-member credit is optional (`CONTRIBUTED_BY`), so anonymous-by-choice
+   joint work stays representable while the membership history remains honest.
+3. **Changes inherit the same model**: a delta's `by` may be a collective identity —
+   a jointly authored change is attribution to the group cell, and the group's
+   membership interval says who that was.
+
+A collective is minted for a work and its intervals close when the work ships — an
+ad-hoc group needs no lifecycle beyond the floor (no deletion, ever).
+
 ### Identity mapping
 
 | concept | graph form |
 |---|---|
 | identity | a named cell (`*.id.<name>`) with an `Identity`/`AgentSpec` payload |
-| authorship | `AUTHORED_BY` link cell, facts: `at`, `role`, `weight` |
-| membership | `MEMBER_OF` link cells (person/agent → team → company) |
+| authorship | `AUTHORED_BY` link cell, facts: `at`, `role`, `weight`, `order` |
+| coauthorship group | a `COLLECTIVE` identity cell; `by` on a delta may name it |
+| per-member credit | `CONTRIBUTED_BY` link cells (facts: `role`, `order`, `weight`) |
+| membership | `MEMBER_OF` link cells (person/agent → collective/team → company) |
 | agent provenance | `AgentSpec` payload + `OPERATED_BY` link to its operator |
 | change | existing delta/successor cells + `by`/`at`/`why` attribution |
 | change history of a thought | supersession chain + per-step attribution |
@@ -275,6 +311,9 @@ Decided 2026-10-15:
 - **Authorship is a link** (`AUTHORED_BY`, a claim with a provenance tier); **change
   attribution is a fact on the existing delta chain** (`by`/`at`/`why`). Two different
   things, kept apart; `Change` is a view, not a store.
+- **Coauthorship groups are `COLLECTIVE` identities** — any mix of humans and agents as
+  members; membership intervals make the group-at-authoring-time derivable; per-member
+  credit via `CONTRIBUTED_BY` is optional; a delta's `by` may name the collective.
 
 Open:
 
@@ -289,5 +328,7 @@ Open:
 - temporal query shape (`around=` semantics: overlap, containment, or nearest);
 - identity-layer open points: how agent identities are minted and retired (lifecycle of
   an `AGENT` cell), whether `Change` stays a view or gets a materialized cell for
-  audit export, team consensus semantics behind `SPEAKS_FOR`, and when the signing
-  card arrives (what it replaces in the provenance tiers).
+  audit export, team consensus semantics behind `SPEAKS_FOR`, when the signing card
+  arrives (what it replaces in the provenance tiers), and the collective conventions:
+  what undisclosed membership does to the authorship claim's tier, credit-splitting
+  etiquette (`order`/`weight`), and mid-work membership changes.
