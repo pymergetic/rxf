@@ -50,7 +50,7 @@ A type is turned into **leaves**: unsigned, signed, bool, float, hex, enumeratio
 ## Mount: the object world as Python
 
 The self-description is what the mount synthesizes from — nothing else. `pymergetic.rxftk.mount`
-takes one image and makes its object world a Python face (`core/mount`, `rxftk/mount/finder.py`):
+takes one image and makes its object world a Python face (`core/mount`, `rxftk/mount`):
 
 - a `Type` object becomes a class named as the type, carrying one property per `Field`: the
   property reads the payload at the field's offset, out of the cell — a scalar as a number,

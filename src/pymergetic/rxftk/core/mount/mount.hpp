@@ -9,7 +9,7 @@
  * carrying `id` (its handle) and, through the class, the image it reads.
  *
  * The synthesizer is read-only (the editing verbs are a delta, docs/27) and belongs to one
- * image, which every face it makes keeps alive. The host import hook (rxftk/mount/finder.py)
+ * image, which every face it makes keeps alive. The host import hook (rxftk/mount)
  * and the guest's module walk read the same faces: one object world, one mapping, and no
  * second copy. What the text form writes and what the properties read is one layout
  * (meta/types.cpp), so a mount cannot drift from the image.
