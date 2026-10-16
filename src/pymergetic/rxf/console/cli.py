@@ -1,4 +1,4 @@
-"""The `rxf console` command: type `.rxf`, the running image compiles and installs it.
+"""The `rxf console` command: type `.rxfs`, the running image compiles and installs it.
 
 One command speaks for its group (the console lives in `console/cli.py`): `rxf console [FILE]`
 is the console itself, not `rxf console console [FILE]`.
@@ -23,7 +23,7 @@ def console(
     timeout: float = 30.0,
     inspect: bool = False,
 ) -> Any:
-    """The terminal on a running image: type `.rxf`, the image compiles and installs it.
+    """The terminal on a running image: type `.rxfs`, the image compiles and installs it.
 
     This is the world face of a link: compiling and installing runs the image (a run is not a
     frame, docs/19), so it attaches the world of whoever runs it (`console/world`) — `rxf live`
@@ -31,7 +31,7 @@ def console(
 
     With SOURCE, that one file goes through the same path once. Without SOURCE the loop reads
     programs until a blank line ends each (a line of one `.` does too). An `include` names the
-    `.rxf` sources beside SOURCE (or beside the terminal). `--inspect` only says what the image
+    `.rxfs` sources beside SOURCE (or beside the terminal). `--inspect` only says what the image
     has installed. `--link` is where the running image is (docs/19): `shm:name`,
     `pty:/dev/pts/3`, `tty:/dev/ttyUSB0`, `fd:3`. `--name` names the Function of SOURCE when
     its source names no program.

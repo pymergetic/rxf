@@ -23,7 +23,7 @@ from pymergetic.rxf.live import physical
 from . import live_world as lw
 from .snippets import STARTER
 
-DOUBLE = Path(__file__).parent / "selfedit" / "double.xml"
+DOUBLE = Path(__file__).parent / "selfedit" / "double.rxfd"
 FUNCTION = "pymergetic.rxf.selfedit.double"
 MAIN = "pymergetic.rxf.application.main"
 TOTAL = 570
@@ -98,7 +98,7 @@ def test_the_image_takes_a_function_of_existing_ones_and_the_successor_runs_it(
     assert machine.run(new)[0] != 0
 
     # one delta, applied by the image, which writes the entry of the new program itself
-    compiled = physical.from_xml(Image.from_bytes(base), ("double.xml", text))
+    compiled = physical.from_xml(Image.from_bytes(base), ("double.rxfd", text))
     assert compiled.creates > 0
     assert channel.client.apply(compiled.data) == expected.digest()
     assert number(machine.run(new)) == 2 * TOTAL

@@ -241,7 +241,7 @@ def steps() -> list[Step]:
 def stdlib_code() -> dict[str, dict[str, bytes]]:
     """The code of every stdlib leaf in the starter, per machine."""
     found: dict[str, dict[str, bytes]] = {}
-    for path in sorted(STARTER.rglob("*.xml")):
+    for path in sorted(STARTER.rglob("*.rxfd")):
         parts = path.relative_to(STARTER).with_suffix("").parts
         for function in ET.parse(path).getroot().iter("Function"):
             codes = {c.get("name"): c for c in function if c.tag == "Code"}

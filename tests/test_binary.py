@@ -36,9 +36,9 @@ def report(directory: Path) -> dict:
 
 
 def edit(directory: Path, module: str, function: str, change) -> None:
-    path = directory / (module.replace(".", "/") + ".xml")
+    path = directory / (module.replace(".", "/") + ".rxfd")
     if not path.exists():
-        path = directory / module.replace(".", "/") / "__init__.xml"
+        path = directory / module.replace(".", "/") / "__init__.rxfd"
     document = ET.parse(path)
     for element in document.getroot().iter("Function"):
         if element.get("name") == function:

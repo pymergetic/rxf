@@ -302,7 +302,7 @@ def check(
     table: Table | None = None,
 ) -> dict[str, Any]:
     """The whole check of the editor: the marks and a green/red summary. `language` is `rxfs` or
-    `rxfd` (the source form is still named `.rxf`/`.xml` until the extension rename)."""
+    `rxfd` (the old names `rxf`/`xml` are accepted as aliases)."""
     table = table or load_table()
     if language in ("rxfd", "xml", ".rxfd", ".xml"):
         marks = check_rxfd(text, known, default_parent, source, table)

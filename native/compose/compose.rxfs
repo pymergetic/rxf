@@ -2,19 +2,19 @@
 # tree) of the live image goes in; the words of a program of native/graph.h come out, byte
 # identical to what tools/native/compose.py writes for the same graph (tests/test_compose_corpus).
 #
-# The request is the one of native/compose/words.rxf: the arena the graph lies in, the handle to
+# The request is the one of native/compose/words.rxfs: the arena the graph lies in, the handle to
 # compose, and where the words go. The work memory holds the tables the composer builds while it
-# works. The module split is the one of the front end (native/front): words.rxf the numbers,
-# tree.rxf the reader of the arena, emit.rxf the writer, plan.rxf the graph, expr.rxf the call
-# body, hash.rxf the id of a durable object, and this file the entry and the dispatch.
+# works. The module split is the one of the front end (native/front): words.rxfs the numbers,
+# tree.rxfs the reader of the arena, emit.rxfs the writer, plan.rxfs the graph, expr.rxfs the call
+# body, hash.rxfs the id of a durable object, and this file the entry and the dispatch.
 #
-# What runs today is the reader of tree.rxf and the writer of emit.rxf: the entry resolves the
+# What runs today is the reader of tree.rxfs and the writer of emit.rxfs: the entry resolves the
 # target cell of the arena and writes its descriptor (its type, parent, name, payload size and its
 # references) through the writer, which is the ground the Plan reads a graph from. The Plan and the
 # Expression that turn that ground into program words are the work that follows; the corpus test
 # holds the words to what compose.py writes.
 
-include "words.rxf";
+include "words.rxfs";
 
 program compose(context, request) {
     var work, sp;
@@ -25,9 +25,9 @@ program compose(context, request) {
     var k0, k1, k2, k3, k4, k5, k6;        # child_named
     var n0, n1, n2, n3, n4, n5;            # the entry
     var v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10;   # read_value
-    var h0, h1, h2, h3, h4, h5, h6, h7, h8, h9;        # hash.rxf
+    var h0, h1, h2, h3, h4, h5, h6, h7, h8, h9;        # hash.rxfs
     var h10, h11, h12, h13, h14, h15, h16, h17, h18, h19;
-    var q0, q1, q2, q3, q4, q5, q6, q7, q8, q9;        # plan.rxf
+    var q0, q1, q2, q3, q4, q5, q6, q7, q8, q9;        # plan.rxfs
     var q10, q11, q12, q13, q14, q15, q16, q17, q18, q19;
     var q20, q21, q22, q23, q24, q25, q26, q27, q28, q29;
     var q30, q31, q32, q33, q34, q35, q36, q37, q38, q39;
@@ -153,8 +153,8 @@ program compose(context, request) {
     refuse BAD_SOURCE;
 }
 
-include "tree.rxf";
-include "emit.rxf";
-include "hash.rxf";
-include "plan.rxf";
-include "expr.rxf";
+include "tree.rxfs";
+include "emit.rxfs";
+include "hash.rxfs";
+include "plan.rxfs";
+include "expr.rxfs";

@@ -67,7 +67,7 @@ def digest(spec: str, timeout: float = 30.0) -> str:
 def emit(
     spec: str, to: str, overwrite: bool = False, timeout: float = 30.0
 ) -> dict[str, Any]:
-    """Dumps the running image to TO (`.xml` a delta, `.rxfb` image bytes, anything else a module tree)."""
+    """Dumps the running image to TO (`.rxfd` a delta, `.rxfb` image bytes, anything else a module tree)."""
     client = _client(spec, timeout)
     raw, dumped = client.emit()
     image = Image.from_bytes(raw)
@@ -133,7 +133,7 @@ def ping(spec: str, text: str = "ping", timeout: float = 30.0) -> str:
     return _client(spec, timeout).ping(str(text).encode()).decode()
 
 
-HELP = """ping TEXT | hello | digest | resolve PATH | path HANDLE | get PATH | children PATH | halt | go | emit FILE | apply DELTA.xml... | help | quit"""
+HELP = """ping TEXT | hello | digest | resolve PATH | path HANDLE | get PATH | children PATH | halt | go | emit FILE | apply DELTA.rxfd... | help | quit"""
 
 
 def _handle(client: Client, word: str) -> int:

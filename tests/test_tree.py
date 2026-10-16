@@ -40,22 +40,22 @@ def names(files):
 
 def test_files_are_laid_out_like_the_modules(image):
     files = dict(tree.files(image))
-    # A module with sub-modules is a package (alpha/__init__.xml); one without is a file (zz.xml).
+    # A module with sub-modules is a package (alpha/__init__.rxfd); one without is a file (zz.rxfd).
     assert list(files) == [
-        "__init__.xml",
-        "alpha/__init__.xml",
-        "alpha/beta.xml",
-        "zz.xml",
+        "__init__.rxfd",
+        "alpha/__init__.rxfd",
+        "alpha/beta.rxfd",
+        "zz.rxfd",
     ]
-    assert "<Module" not in files["__init__.xml"] and "<Type" in files["__init__.xml"]
-    assert 'name="two"' in files["alpha/__init__.xml"]
-    assert 'name="one"' not in files["alpha/__init__.xml"]
-    assert 'name="one"' in files["alpha/beta.xml"]
-    assert "<rxf:entry" in files["__init__.xml"]
+    assert "<Module" not in files["__init__.rxfd"] and "<Type" in files["__init__.rxfd"]
+    assert 'name="two"' in files["alpha/__init__.rxfd"]
+    assert 'name="one"' not in files["alpha/__init__.rxfd"]
+    assert 'name="one"' in files["alpha/beta.rxfd"]
+    assert "<rxf:entry" in files["__init__.rxfd"]
     # A file does not name its parent: the path of the file says it.
     assert (
-        "rxf:parent" not in files["alpha/beta.xml"]
-        and "rxf:parent" not in files["zz.xml"]
+        "rxf:parent" not in files["alpha/beta.rxfd"]
+        and "rxf:parent" not in files["zz.rxfd"]
     )
 
 
@@ -67,7 +67,7 @@ def test_write_then_load_is_the_same_image(image, tmp_path):
     assert loaded.delta_digest() == image.delta_digest()
     assert (
         loaded.entry_path == "zz.last"
-    )  # __init__.xml sorts before zz.xml, but is applied last
+    )  # __init__.rxfd sorts before zz.rxfd, but is applied last
 
 
 def test_the_result_does_not_depend_on_the_number_of_threads(image, tmp_path):
@@ -101,8 +101,8 @@ def test_a_module_below_an_object_is_still_a_file_of_its_own(tmp_path):
         '<Box name="box"/><Module name="inner" rxf:parent="box" rxf:kind="NodeKind.Module"/></delta>'
     )
     files = dict(tree.files(image))
-    assert "box.inner.xml" not in files and "box/inner.xml" in files
-    assert 'name="inner"' not in files["__init__.xml"]
+    assert "box.inner.rxfd" not in files and "box/inner.rxfd" in files
+    assert 'name="inner"' not in files["__init__.rxfd"]
     # The file does not say where it sits; the tree does.
     tree.write(image, tmp_path / "t")
     assert tree.load(tmp_path / "t").digest() == image.digest()
@@ -114,12 +114,12 @@ def test_a_used_directory_is_only_replaced_on_request(image, tmp_path):
     with pytest.raises(TreeError, match="not empty"):
         tree.write(image, target)
     (target / "notes.txt").write_text("keep")
-    (target / "stale.xml").write_text("<delta/>")
+    (target / "stale.rxfd").write_text("<delta/>")
     (target / "old").mkdir()
-    (target / "old" / "gone.xml").write_text("<delta/>")
+    (target / "old" / "gone.rxfd").write_text("<delta/>")
     tree.write(image, target, overwrite=True)
     assert (target / "notes.txt").read_text() == "keep"
-    assert not (target / "stale.xml").exists() and not (target / "old").exists()
+    assert not (target / "stale.rxfd").exists() and not (target / "old").exists()
     assert tree.load(target).digest() == image.digest()
 
 
@@ -130,16 +130,16 @@ def test_a_file_is_not_a_directory(image, tmp_path):
     with pytest.raises(TreeError, match="not a directory"):
         tree.load(tmp_path / "f")
     (tmp_path / "empty").mkdir()
-    with pytest.raises(TreeError, match="no .xml"):
+    with pytest.raises(TreeError, match="no .rxfd"):
         tree.load(tmp_path / "empty")
 
 
 def test_a_broken_file_is_named_and_nothing_is_loaded(image, tmp_path):
     tree.write(image, tmp_path / "t")
-    (tmp_path / "t" / "alpha" / "beta.xml").write_text("<delta><Thing")
-    with pytest.raises(TreeError, match=r"cannot parse alpha/beta\.xml: line 1"):
+    (tmp_path / "t" / "alpha" / "beta.rxfd").write_text("<delta><Thing")
+    with pytest.raises(TreeError, match=r"cannot parse alpha/beta\.rxfd: line 1"):
         tree.load(tmp_path / "t")
-    (tmp_path / "t" / "alpha" / "beta.xml").write_text(
+    (tmp_path / "t" / "alpha" / "beta.rxfd").write_text(
         '<delta xmlns:rxf="urn:pymergetic:rxf"><Module name="beta" rxf:kind="NodeKind.Module">'
         '<Thing name="x" other="nowhere"/></Module></delta>'
     )
@@ -149,10 +149,10 @@ def test_a_broken_file_is_named_and_nothing_is_loaded(image, tmp_path):
 
 def test_a_file_defines_its_module_and_nothing_else(image, tmp_path):
     tree.write(image, tmp_path / "t")
-    beta = tmp_path / "t" / "alpha" / "beta.xml"
+    beta = tmp_path / "t" / "alpha" / "beta.rxfd"
     beta.write_text('<delta><Thing name="x"/></delta>')
     with pytest.raises(
-        TreeError, match=r"alpha/beta\.xml: must start with the module 'alpha.beta'"
+        TreeError, match=r"alpha/beta\.rxfd: must start with the module 'alpha.beta'"
     ):
         tree.load(tmp_path / "t")
     beta.write_text(
@@ -168,11 +168,11 @@ def test_a_file_defines_its_module_and_nothing_else(image, tmp_path):
 
 def test_a_path_is_a_module_or_it_is_refused(image, tmp_path):
     tree.write(image, tmp_path / "t")
-    (tmp_path / "t" / "alpha.beta.xml").write_text("<delta/>")
+    (tmp_path / "t" / "alpha.beta.rxfd").write_text("<delta/>")
     with pytest.raises(TreeError, match="not the file of a module"):
         tree.load(tmp_path / "t")
-    (tmp_path / "t" / "alpha.beta.xml").unlink()
-    (tmp_path / "t" / "alpha.xml").write_text("<delta/>")  # next to alpha/__init__.xml
+    (tmp_path / "t" / "alpha.beta.rxfd").unlink()
+    (tmp_path / "t" / "alpha.rxfd").write_text("<delta/>")  # next to alpha/__init__.rxfd
     with pytest.raises(TreeError, match="a second time"):
         tree.load(tmp_path / "t")
 
@@ -206,10 +206,10 @@ def test_the_starter_tree_loads_clean():
     assert image.check() == []
     assert image.entry_path == "pymergetic.rxf.application.main"
     assert names(tree.files(image)) == [
-        "__init__.xml",
-        *sorted(n for n in names(tree.files(image)) if n != "__init__.xml"),
+        "__init__.rxfd",
+        *sorted(n for n in names(tree.files(image)) if n != "__init__.rxfd"),
     ]
-    assert len(tree.files(image)) == len(list(STARTER.rglob("*.xml")))
+    assert len(tree.files(image)) == len(list(STARTER.rglob("*.rxfd")))
 
 
 def test_a_delta_error_is_not_a_tree_error(image):

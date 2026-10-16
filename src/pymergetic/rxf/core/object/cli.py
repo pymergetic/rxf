@@ -1,6 +1,6 @@
 """Commands on one image: `rxf core object <command> SOURCE`.
 
-SOURCE is a module tree (directory), a delta (`.xml`), or RXFB 6 bytes.
+SOURCE is a module tree (directory), a delta (`.rxfd`), or RXFB 6 bytes.
 """
 
 from __future__ import annotations
@@ -32,6 +32,6 @@ def digest(src: str) -> dict[str, str]:
 
 
 def save(src: str, target: str, overwrite: bool = False) -> dict[str, str]:
-    """Writes the image to TARGET: `.xml` one delta, `.rxfb` bytes, else a module tree."""
+    """Writes the image to TARGET: `.rxfd` one delta, `.rxfb` bytes, else a module tree."""
     image = source.load(src)
     return {"target": target, "format": source.save(image, target, overwrite)}

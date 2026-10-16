@@ -282,7 +282,7 @@ def write_provenance(path: Path) -> None:
 def leaf_paths(starter: Path, known: set[str]) -> dict[str, str]:
     """Where each native Function is, by snippet key: ``runtime_read`` is ``...runtime.read``."""
     found: dict[str, str] = {}
-    for path in sorted(starter.rglob("*.xml")):
+    for path in sorted(starter.rglob("*.rxfd")):
         parts = path.relative_to(starter).with_suffix("").parts
         for module_path, function in graph_sync.functions_in(
             ET.parse(path).getroot(), graph_sync.module_prefix(parts)
@@ -300,7 +300,7 @@ def sync_bytecode(work: Path) -> int:
     """The program of every semantic function, from the graphs of the image."""
     programs = compose.programs(tree.load(work))
     done: list[str] = []
-    for path in sorted(work.rglob("*.xml")):
+    for path in sorted(work.rglob("*.rxfd")):
         parts = path.relative_to(work).with_suffix("").parts
         document = ET.parse(path)
         written = graph_sync.write_bytecode(document, parts, programs)
@@ -331,19 +331,19 @@ def sync(starter: Path, check: bool = False) -> tuple[int, bool]:
             },
         )
         total = 0
-        for path in sorted(work.rglob("*.xml")):
+        for path in sorted(work.rglob("*.rxfd")):
             parts = path.relative_to(work).with_suffix("").parts
             total += sync_file(path, parts, bytes_of, wasm)
-        write_provenance(work / "pymergetic" / "rxf" / "targets.xml")
+        write_provenance(work / "pymergetic" / "rxf" / "targets.rxfd")
         sync_bytecode(work)
         image = tree.load(work)
         canonical = Path(directory) / "canonical"
         tree.write(image, canonical)
         names = sorted(
-            p.relative_to(canonical).as_posix() for p in canonical.rglob("*.xml")
+            p.relative_to(canonical).as_posix() for p in canonical.rglob("*.rxfd")
         )
         current = sorted(
-            p.relative_to(starter).as_posix() for p in starter.rglob("*.xml")
+            p.relative_to(starter).as_posix() for p in starter.rglob("*.rxfd")
         )
         same = names == current and all(
             (canonical / n).read_bytes() == (starter / n).read_bytes() for n in names

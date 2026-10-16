@@ -159,7 +159,7 @@ fn xrow(n) = (((n) << 4) + ((n) << 3));
 fn xmap(n) = ((n) << 5);
 # 2048 * n (the stride of one level of the Expression call recursion)
 fn xfr(n) = ((n) << 11);
-# the cell offset of a handle, or HANDLE_NONE when the slot is free (tree.rxf answers this)
+# the cell offset of a handle, or HANDLE_NONE when the slot is free (tree.rxfs answers this)
 # align a byte count up to 16 (the payload of a cell)
 fn align16(n) = (((n) + 15) & ~15);
 fn wordsof(n) = (((n) + 7) >> 3);    # how many words hold n bytes
@@ -301,7 +301,7 @@ const W_CUR = (W_PLAN + 0x31800);    # the handle of the graph / block / op bein
 const W_LPC = (W_PLAN + 0x31900);    # the word index of block i (its pc in the program)
 const NEIN = 16;                     # the most inputs one operation takes
 const W_EIN = (W_PLAN + 0x33000);    # the value handle of input i of the operation being written
-const W_ECUR = (W_PLAN + 0x33100);   # the plan's own state as it lays a graph out (see plan.rxf)
+const W_ECUR = (W_PLAN + 0x33100);   # the plan's own state as it lays a graph out (see plan.rxfs)
 const NEREF = 32;                    # the most references one collector gathers
 const W_EREF = (W_PLAN + 0x33200);   # (target, index) of the references a collector gathered
 # ---- the word synthesis: where each writing proc keeps its state while it nests ---------------
@@ -365,7 +365,7 @@ const NX_BLOCKPARAMVALUE = 560;      # "BlockParameterValue" (3 words: 560, 568,
 const NX_SEMOP = 584;                # "SemanticOperation" (the type of a block's operations)
 const NX_SEMVAL = 608;               # "SemanticValue" (the type of a frame value)
 const NX_SEMBLK = 624;               # "SemanticBlock" (the type of a block)
-# the names the Expression face (M4) reads by (expr.rxf): the Function/Call/Argument model
+# the names the Expression face (M4) reads by (expr.rxfs): the Function/Call/Argument model
 const NX_EVR = 640;                  # "ValueReference" (the type of a function's value refs)
 const NX_EABISIG = 656;              # "ABISignature"
 const NX_EABILOC = 672;              # "ABIValueLocation"
@@ -462,7 +462,7 @@ const XM_B = 96;
 const W_XBRT = (W_EXPR + 0xB000);
 const NXBR = 64;
 
-# ---- the id of a durable object (hash.rxf): SHA-256 of its path ------------------------------
+# ---- the id of a durable object (hash.rxfs): SHA-256 of its path ------------------------------
 # A region of its own, clear of the plan (W_PLAN) and of the map. The message of the path is one
 # block (every path of the starter is < 56 bytes); the state and the schedule live here while the
 # hash runs. The constants of the round are two to a word (K[2i] in the high half).

@@ -1,4 +1,4 @@
-"""The `.rxf` front end as a graph target (`tools/native/rxfgraph.py`): every construct of
+"""The `.rxfs` front end as a graph target (`tools/native/rxfgraph.py`): every construct of
 the source becomes the semantic graph the composer takes, and the composer's words over
 that graph are held byte-identical to the compiler's own words.
 
@@ -283,13 +283,13 @@ def test_a_macro_a_fn_and_a_const_are_expanded_first():
 
 
 def test_an_include_is_the_tokens_of_the_other_file(tmp_path):
-    other = tmp_path / "other.rxf"
+    other = tmp_path / "other.rxfs"
     other.write_text("fn add3(a) = a + 3;\n")
     source = f'include "{other.name}";\nprogram p(q) {{ return add3(q); }}\n'
-    assert calls_of(source, str(tmp_path / "t.rxf")) == [
+    assert calls_of(source, str(tmp_path / "t.rxfs")) == [
         ("wrapping_add_uint64_t", ["q", "lit 3"], "s0008")
     ]  # the fn came from the other file
-    here = str(tmp_path / "t.rxf")
+    here = str(tmp_path / "t.rxfs")
     assert rxfgraph.words_of(source, here) == rxfc.compile_source(source, here)
 
 
@@ -325,24 +325,24 @@ def test_the_composers_words_over_the_graph_are_the_compilers_words(source):
 
 
 SAMPLES = Path(__file__).resolve().parent / "rxfc"
-TINY = Path(__file__).resolve().parents[1] / "native" / "tiny" / "tiny.rxf"
+TINY = Path(__file__).resolve().parents[1] / "native" / "tiny" / "tiny.rxfs"
 
 
 def test_the_corpus_of_the_compilers_is_refused_by_named_constructs():
     """Every source of the corpus is byte-identical or refused with the construct."""
     refused = {
-        SAMPLES / "branches.rxf": "an if label",  # a join the code falls into
-        SAMPLES / "procs.rxf": "call",  # the stack of ways back
-        SAMPLES / "table.rxf": "store32",  # a memory move
+        SAMPLES / "branches.rxfs": "an if label",  # a join the code falls into
+        SAMPLES / "procs.rxfs": "call",  # the stack of ways back
+        SAMPLES / "table.rxfs": "store32",  # a memory move
         TINY: "load64",  # a memory move
     }
     for path, construct in refused.items():
         with pytest.raises(rxfgraph.Refused, match=construct) as caught:
             rxfgraph.words_of(path.read_text(), str(path))
         assert caught.value.construct, path  # the refusal names the construct
-    # arith.rxf is the corpus source that composes byte-identically
-    words = rxfgraph.words_of((SAMPLES / "arith.rxf").read_text(), str(SAMPLES / "arith.rxf"))
-    assert words == rxfc.compile_file(SAMPLES / "arith.rxf")
+    # arith.rxfs is the corpus source that composes byte-identically
+    words = rxfgraph.words_of((SAMPLES / "arith.rxfs").read_text(), str(SAMPLES / "arith.rxfs"))
+    assert words == rxfc.compile_file(SAMPLES / "arith.rxfs")
 
 
 # ---- the refusals, by name --------------------------------------------------------------------

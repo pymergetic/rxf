@@ -1,6 +1,6 @@
 """The demo world: a real-shaped image for the checked-in demo scene and the tests.
 
-The delta in ``demo_world.xml`` builds the world a runtime snapshot would show: named modules
+The delta in ``demo_world.rxfd`` builds the world a runtime snapshot would show: named modules
 under the root (monuments), heap blocks, run cells (Function/Code), a channel frame, and the
 references between them. On top of that delta this module applies the traces a snapshot of a
 running arena carries, so the scene shows every face of the schema:
@@ -39,7 +39,7 @@ from pymergetic.rxf.world.export import (
     scene_json,
 )
 
-DELTA_FILE = WORLD_DIR / "demo_world.xml"
+DELTA_FILE = WORLD_DIR / "demo_world.rxfd"
 POISON_PAYLOAD = bytes([POISON_BYTE]) * (POISON_RUN * 4)  # 256 bytes: one run, one void tile
 
 RUN_PAYLOAD_BYTES = sum(weight for _, weight in RUN_PAYLOAD_REGIONS)  # smp_run_payload (S1)

@@ -3,11 +3,11 @@
   "sources": {
     "leaves": "native/graph.h (enum rxf_graph_leaf, shape_of): the ids are not invented here",
     "leaf_names": "tools/native/graph_header.py (RXF_LEAF_* names lowered)",
-    "operators": "tools/native/rxfc.py (BINARY, binary(), unary()); native/front is the self-hosted mirror and names the same leaves in native/front/words.rxf",
-    "enums": "starter/pymergetic/rxf/kinds.xml: the module pymergetic.rxf.kinds that attribute values name (pymergetic.rxf.kinds.FunctionImplementation.Semantic)",
-    "ground_enums": "starter/__init__.xml: the enumerations of the ground",
+    "operators": "tools/native/rxfc.py (BINARY, binary(), unary()); native/front is the self-hosted mirror and names the same leaves in native/front/words.rxfs",
+    "enums": "starter/pymergetic/rxf/kinds.rxfd: the module pymergetic.rxf.kinds that attribute values name (pymergetic.rxf.kinds.FunctionImplementation.Semantic)",
+    "ground_enums": "starter/__init__.rxfd: the enumerations of the ground",
     "core_enums": "src/pymergetic/rxf/core/kinds.pyi: pymergetic.rxf.core.kinds",
-    "refusal_sets": "starter/pymergetic/rxf/foundation/__init__.xml",
+    "refusal_sets": "starter/pymergetic/rxf/foundation/__init__.rxfd",
     "reference_shapes": "src/pymergetic/rxf/core/xml/xml.hpp and the deltas of starter/"
   },
   "leaves": {
@@ -762,7 +762,7 @@
   },
   "rxfd": {
     "extension": ".rxfd",
-    "scope_name": "text.xml.rxfd",
+    "scope_name": "text.rxfd.rxfd",
     "note": "the delta documents: element names are type names, 'name' is the name of the object, nesting is the parent, and every other unprefixed attribute is a field of the type (core/xml/xml.hpp)",
     "namespace": {
       "prefix": "rxf",
@@ -974,7 +974,7 @@
     "enums": [
       {
         "type": "AbiKind",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Aapcs64": 2,
@@ -984,7 +984,7 @@
       },
       {
         "type": "AbiPassing",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Borrowed": 4,
@@ -997,7 +997,7 @@
       },
       {
         "type": "AbiValueClass",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Float": 2,
@@ -1007,7 +1007,7 @@
       },
       {
         "type": "AbiValueFlags",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": true,
         "enumerators": {
           "CallerOwned": 4,
@@ -1017,7 +1017,7 @@
       },
       {
         "type": "AbiValueRole",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Argument": 2,
@@ -1028,7 +1028,7 @@
       },
       {
         "type": "ArchitectureKind",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Aarch64": 2,
@@ -1038,7 +1038,7 @@
       },
       {
         "type": "BindingKind",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Function": 1,
@@ -1047,7 +1047,7 @@
       },
       {
         "type": "CallingConvention",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "StatusOut": 1
@@ -1055,7 +1055,7 @@
       },
       {
         "type": "CanonicalOrderPolicy",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "AscendingSlotIndex": 1
@@ -1063,7 +1063,7 @@
       },
       {
         "type": "CapabilityKind",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Clock": 3,
@@ -1078,7 +1078,7 @@
       },
       {
         "type": "CapabilityRights",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": true,
         "enumerators": {
           "ClockMonotonic": 128,
@@ -1102,7 +1102,7 @@
       },
       {
         "type": "CapacityRule",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "PowerOfTwo": 1
@@ -1110,7 +1110,7 @@
       },
       {
         "type": "CodeFormat",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Bytecode": 3,
@@ -1120,7 +1120,7 @@
       },
       {
         "type": "Effects",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": true,
         "enumerators": {
           "Allocate": 4,
@@ -1132,7 +1132,7 @@
       },
       {
         "type": "Endianness",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Little": 1
@@ -1140,7 +1140,7 @@
       },
       {
         "type": "EnvironmentKind",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Bios": 3,
@@ -1151,7 +1151,7 @@
       },
       {
         "type": "FeatureKind",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Baseline": 1
@@ -1159,7 +1159,7 @@
       },
       {
         "type": "FunctionImplementation",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Capability": 3,
@@ -1170,7 +1170,7 @@
       },
       {
         "type": "FunctionLayer",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Application": 4,
@@ -1181,7 +1181,7 @@
       },
       {
         "type": "GenerationPolicy",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Monotonic": 1
@@ -1189,7 +1189,7 @@
       },
       {
         "type": "GenericParameterKind",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Type": 1
@@ -1197,7 +1197,7 @@
       },
       {
         "type": "HashAlgorithm",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Fnv1a64": 1
@@ -1205,7 +1205,7 @@
       },
       {
         "type": "HashRepresentation",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "U64Le": 1
@@ -1213,7 +1213,7 @@
       },
       {
         "type": "Intrinsic",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Break": 6,
@@ -1228,7 +1228,7 @@
       },
       {
         "type": "NumericOperation",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "BitAnd": 17,
@@ -1259,7 +1259,7 @@
       },
       {
         "type": "NumericPolicy",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": true,
         "enumerators": {
           "ArithmeticShift": 64,
@@ -1280,7 +1280,7 @@
       },
       {
         "type": "Opcode",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Allocate": 3,
@@ -1323,7 +1323,7 @@
       },
       {
         "type": "ProbePolicy",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Linear": 1
@@ -1331,7 +1331,7 @@
       },
       {
         "type": "RefusalCode",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Alignment": 7,
@@ -1352,7 +1352,7 @@
       },
       {
         "type": "RefusalPolicy",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Propagate": 1
@@ -1360,7 +1360,7 @@
       },
       {
         "type": "RegisterBank",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Float": 2,
@@ -1372,7 +1372,7 @@
       },
       {
         "type": "SeedPolicy",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Fixed": 1
@@ -1380,7 +1380,7 @@
       },
       {
         "type": "StdlibFlags",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": true,
         "enumerators": {
           "Native": 128,
@@ -1390,7 +1390,7 @@
       },
       {
         "type": "StdlibKind",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Algorithm": 7,
@@ -1403,7 +1403,7 @@
       },
       {
         "type": "TerminationRule",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "EmptySlot": 1
@@ -1411,7 +1411,7 @@
       },
       {
         "type": "Terminator",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Branch": 2,
@@ -1424,7 +1424,7 @@
       },
       {
         "type": "TraitRequirementKind",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Function": 1
@@ -1432,7 +1432,7 @@
       },
       {
         "type": "ValueKind",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Bound": 4,
@@ -1444,7 +1444,7 @@
       },
       {
         "type": "VisibilityPolicy",
-        "source": "starter/pymergetic/rxf/kinds.xml",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
         "enumerators": {
           "Published": 1
@@ -1452,7 +1452,7 @@
       },
       {
         "type": "AliasFlags",
-        "source": "starter/__init__.xml",
+        "source": "starter/__init__.rxfd",
         "flags": true,
         "enumerators": {
           "Reexport": 1
@@ -1460,7 +1460,7 @@
       },
       {
         "type": "ModuleCategory",
-        "source": "starter/__init__.xml",
+        "source": "starter/__init__.rxfd",
         "flags": false,
         "enumerators": {
           "Application": 3,
@@ -1470,7 +1470,7 @@
       },
       {
         "type": "ModuleFlags",
-        "source": "starter/__init__.xml",
+        "source": "starter/__init__.rxfd",
         "flags": true,
         "enumerators": {
           "Namespace": 1

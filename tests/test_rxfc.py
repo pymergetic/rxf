@@ -1,4 +1,4 @@
-"""The language `.rxf` (tools/native/rxfc.py): programs that a person writes, run as the interpreter runs them.
+"""The language `.rxfs` (tools/native/rxfc.py): programs that a person writes, run as the interpreter runs them.
 
 Each sample in ``tests/rxfc`` is made into a program, run by the Python simulator of
 ``rxf_sim``, by the interpreter of ``native/graph.c`` on x86_64 and aarch64 (in an emulator) and
@@ -119,7 +119,7 @@ RUNS = [
 
 
 def program(name: str) -> bytes:
-    return rxfc.compile_file(SAMPLES / f"{name}.rxf")
+    return rxfc.compile_file(SAMPLES / f"{name}.rxfs")
 
 
 @pytest.fixture(scope="module")

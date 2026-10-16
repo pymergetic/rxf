@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iterator>
 #include <set>
+#include <string_view>
 #include <thread>
 
 #include <pymergetic/rxf/core/xml/xml.hpp>
@@ -77,7 +78,7 @@ std::vector<std::string> split_path(const std::string &path) {
 
 bool is_part(const std::string &part) { return !part.empty() && part != kInitStem && part.find_first_of("/\\") == std::string::npos && part != "." && part != ".."; }
 
-/* `a.b.c` is `a/b/c.xml`, or `a/b/c/__init__.xml` when it has sub-modules. A name that could leave the directory has no file. */
+/* `a.b.c` is `a/b/c.rxfd`, or `a/b/c/__init__.rxfd` when it has sub-modules. A name that could leave the directory has no file. */
 bool file_for(const std::string &path, bool has_submodules, std::string *name) {
     std::string out;
     for (const std::string &part : split_path(path)) {
@@ -89,7 +90,7 @@ bool file_for(const std::string &path, bool has_submodules, std::string *name) {
     return true;
 }
 
-/* The module a file defines, and the parent that its top-level elements sit in. `__init__.xml` alone is the root. */
+/* The module a file defines, and the parent that its top-level elements sit in. `__init__.rxfd` alone is the root. */
 bool module_of(const std::string &name, std::string *module, std::string *parent, bool *is_root) {
     std::vector<std::string> parts;
     size_t start = 0;
@@ -101,10 +102,11 @@ bool module_of(const std::string &name, std::string *module, std::string *parent
     }
     std::string last = parts.back();
     parts.pop_back();
+    const std::string_view suffix = kFileSuffix;
     if (last == kInitFile) {
-        // pkg/__init__.xml is the module `pkg`; the one at the top is the root
-    } else if (last.size() > 4 && last.compare(last.size() - 4, 4, kFileSuffix) == 0) {
-        parts.push_back(last.substr(0, last.size() - 4));
+        // pkg/__init__.rxfd is the module `pkg`; the one at the top is the root
+    } else if (last.size() > suffix.size() && last.compare(last.size() - suffix.size(), suffix.size(), suffix) == 0) {
+        parts.push_back(last.substr(0, last.size() - suffix.size()));
     } else {
         return false;
     }
@@ -251,7 +253,7 @@ Status read(const fs::path &directory, delta::Delta *out, std::string *error, un
     std::set<std::string> defined;
     for (size_t i = 0; i < names.size(); i++) {
         if (!module_of(names[i], &places[i].module, &places[i].parent, &places[i].root)) {
-            *error = names[i] + " is not the file of a module (a.b.xml, or a/b/__init__.xml)";
+            *error = names[i] + " is not the file of a module (a.b.rxfd, or a/b/__init__.rxfd)";
             return Status::BadName;
         }
         if (!defined.insert(places[i].module).second) {

@@ -1,4 +1,4 @@
-"""`rxf console`: type `.rxf` source, the running image compiles it and installs the result.
+"""`rxf console`: type `.rxfs` source, the running image compiles it and installs the result.
 
 The path under test is the console's own, end to end: the source travels as one object of the
 arena (Phase 1: `rxf:data` through the rings), the image's own front end (`native/front`, the
@@ -41,10 +41,10 @@ from . import live_world as lw
 from .test_rxfc import MACHINES
 
 ROOT = Path(__file__).parents[1]
-FRONT = ROOT / "native" / "front" / "front.rxf"
+FRONT = ROOT / "native" / "front" / "front.rxfs"
 STARTER = ROOT / "starter"
 
-SCRATCH = 12 << 20  # the work memory of one request: its rows, then FRONT_WORK (words.rxf)
+SCRATCH = 12 << 20  # the work memory of one request: its rows, then FRONT_WORK (words.rxfs)
 MODULE = "pymergetic.rxf.selfedit"
 
 TRIPLE = """\
@@ -72,7 +72,7 @@ program broken(x) {
 """
 
 SCALED = """\
-include "scale.rxf";
+include "scale.rxfs";
 program scaled(x) {
     return x + SCALE;
 }
@@ -248,7 +248,7 @@ def test_the_loop_lists_what_the_image_has_installed(solo: Seat):
 
 def test_one_shot_file_mode_installs_the_program_of_the_file(solo: Seat, tmp_path: Path):
     """`rxf console FILE` takes the same path the loop takes, once."""
-    file = tmp_path / "triple.rxf"
+    file = tmp_path / "triple.rxfs"
     file.write_text(TRIPLE, encoding="utf-8")
     console = booted(solo)
     outcome = console.one_shot(file)
@@ -263,8 +263,8 @@ def test_one_shot_file_mode_installs_the_program_of_the_file(solo: Seat, tmp_pat
 def test_an_include_travels_with_the_request(solo: Seat, tmp_path: Path):
     """The files an `include` names go with the source (Phase 1): the image compiles a program
     whose words the host compiler only writes when it reads the same file."""
-    (tmp_path / "scale.rxf").write_text("const SCALE = 5;\n", encoding="utf-8")
-    file = tmp_path / "scaled.rxf"
+    (tmp_path / "scale.rxfs").write_text("const SCALE = 5;\n", encoding="utf-8")
+    file = tmp_path / "scaled.rxfs"
     file.write_text(SCALED, encoding="utf-8")
     console = booted(solo)
     outcome = console.one_shot(file)
@@ -278,9 +278,9 @@ def test_the_cli_runs_a_file_and_says_what_the_image_installed(
     solo: Seat, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ):
     """`rxf console FILE` and `rxf console --inspect`, the command as a user types it."""
-    file = tmp_path / "twice.rxf"
+    file = tmp_path / "twice.rxfs"
     file.write_text(TWICE, encoding="utf-8")
-    broken = tmp_path / "broken.rxf"
+    broken = tmp_path / "broken.rxfs"
     broken.write_text(BROKEN, encoding="utf-8")
     booted(solo)  # what the image's own `rxf live` group boots before a console attaches
     with running_console("shm:console-cli", solo):
@@ -383,7 +383,7 @@ def test_the_cli_attaches_to_the_session_the_image_runs(
     """`rxf console --link=SPEC` attaches to a running session: the whole path against the world
     the live instance registered, with no harness of the test in between."""
     booted(solo)
-    file = tmp_path / "twice.rxf"
+    file = tmp_path / "twice.rxfs"
     file.write_text(TWICE, encoding="utf-8")
     with Session("shm:live-cli", solo.channel.client, solo.front):
         assert main(["console", str(file), "--link=shm:live-cli"]) == 0
@@ -507,7 +507,7 @@ def test_the_frames_face_sees_what_the_world_face_installed(
     `rxf live console`) speaks on the same channel — the seam's, not a second wire — and sees
     the same image and the Function the world face installed."""
     booted(solo)
-    file = tmp_path / "twice.rxf"
+    file = tmp_path / "twice.rxfs"
     file.write_text(TWICE, encoding="utf-8")
     with Session("shm:two-faces", solo.channel.client, solo.front):
         assert main(["console", str(file), "--link=shm:two-faces"]) == 0

@@ -7,14 +7,14 @@ drift from the table. Every pin below names the file it guards:
 - the leaves: ``native/graph.h`` (the ids are not invented here) and
   ``tools/native/graph_header.py`` (the keys the tools use);
 - the operators: ``tools/native/rxfc.py`` (what every operator lowers to) and
-  the self-hosted mirror ``native/front/words.rxf``;
-- the enums: ``starter/pymergetic/rxf/kinds.xml`` (the module
-  ``pymergetic.rxf.kinds``), the ground of ``starter/__init__.xml`` and the core
+  the self-hosted mirror ``native/front/words.rxfs``;
+- the enums: ``starter/pymergetic/rxf/kinds.rxfd`` (the module
+  ``pymergetic.rxf.kinds``), the ground of ``starter/__init__.rxfd`` and the core
   stubs ``src/pymergetic/rxf/core/kinds.pyi``;
-- the refusal sets: ``starter/pymergetic/rxf/foundation/__init__.xml``;
+- the refusal sets: ``starter/pymergetic/rxf/foundation/__init__.rxfd``;
 - the grammars: regenerate with ``tools/highlight/grammar_gen.py`` and compare
   byte for byte;
-- the resolver: ``tests/selfedit/triple.xml`` and starter deltas must resolve,
+- the resolver: ``tests/selfedit/triple.rxfd`` and starter deltas must resolve,
   and a reference that does not resolve must say why.
 """
 
@@ -34,12 +34,12 @@ ROOT = Path(__file__).resolve().parents[1]
 from tools.highlight import grammar_gen, meaning, resolve
 
 GRAPH_H = ROOT / "native" / "graph.h"
-FRONT_WORDS = ROOT / "native" / "front" / "words.rxf"
+FRONT_WORDS = ROOT / "native" / "front" / "words.rxfs"
 RXFC = ROOT / "tools" / "native" / "rxfc.py"
-KINDS_XML = ROOT / "starter" / "pymergetic" / "rxf" / "kinds.xml"
-GROUND_XML = ROOT / "starter" / "__init__.xml"
+KINDS_XML = ROOT / "starter" / "pymergetic" / "rxf" / "kinds.rxfd"
+GROUND_XML = ROOT / "starter" / "__init__.rxfd"
 KINDS_PYI = ROOT / "src" / "pymergetic" / "rxf" / "core" / "kinds.pyi"
-FOUNDATION_XML = ROOT / "starter" / "pymergetic" / "rxf" / "foundation" / "__init__.xml"
+FOUNDATION_XML = ROOT / "starter" / "pymergetic" / "rxf" / "foundation" / "__init__.rxfd"
 STARTER = ROOT / "starter"
 SELFEDIT = ROOT / "tests" / "selfedit"
 GRAMMARS = ROOT / "editors" / "rxf-highlight" / "syntaxes"
@@ -88,12 +88,12 @@ def rxfc_constants() -> dict[str, Any]:
 
 
 def front_leaves() -> dict[str, str]:
-    """The leaves of native/front/words.rxf: ``const LEAF_ADD = RXF_LEAF_...;``"""
+    """The leaves of native/front/words.rxfs: ``const LEAF_ADD = RXF_LEAF_...;``"""
     return dict(re.findall(r"const (LEAF_\w+) = (RXF_LEAF_\w+);", FRONT_WORDS.read_text()))
 
 
 def front_no_leaf_operators() -> set[str]:
-    """The operators native/front/words.rxf says the language has no leaf for."""
+    """The operators native/front/words.rxfs says the language has no leaf for."""
     text = FRONT_WORDS.read_text()
     found = re.search(r"no leaf for \(([^)]*)\)", text)
     assert found, "the comment that names the operators without a leaf is gone"
@@ -182,8 +182,8 @@ def test_the_table_is_coherent_with_itself():
         assert refusal_set.variant_count == len(refusal_set.variants)
     sources = {entry.source for entry in TABLE.rxfd.enums}
     assert sources == {
-        "starter/pymergetic/rxf/kinds.xml",
-        "starter/__init__.xml",
+        "starter/pymergetic/rxf/kinds.rxfd",
+        "starter/__init__.rxfd",
         "src/pymergetic/rxf/core/kinds.pyi",
     }
 
@@ -198,7 +198,7 @@ def test_the_one_to_one_operators_are_the_b_table_of_rxfc():
 
 def test_the_operators_without_a_leaf_are_the_ones_the_front_names():
     desugared = {o.token for o in TABLE.rxfs.operators if o.mapping == "desugared"}
-    # `*` is not in the comment of words.rxf because it is a shift when it can be
+    # `*` is not in the comment of words.rxfs because it is a shift when it can be
     # (x * 2^k is x << k): the table says so in its lowering, and rxfc.py refuses
     # a multiplier that is not a constant power of two.
     assert front_no_leaf_operators() == desugared - {"*"}
@@ -220,7 +220,7 @@ def test_the_builtin_calls_are_the_memory_calls_of_rxfc():
 
 def test_the_front_names_the_same_operator_leaves():
     one_to_one = {leaf for o in TABLE.rxfs.operators for leaf in o.leaves if o.mapping == "one-to-one"}
-    one_to_one |= {"memory_copy", "memory_fill"}  # LEAF_COPY and LEAF_FILL of words.rxf
+    one_to_one |= {"memory_copy", "memory_fill"}  # LEAF_COPY and LEAF_FILL of words.rxfs
     assert set(front_leaves().values()) == {TABLE.leaf(name).c_symbol for name in one_to_one}
 
 
@@ -247,7 +247,7 @@ def test_the_frontend_lowers_the_way_the_table_says():
         "    return r;\n"
         "}\n"
     )
-    maker = rxfc.Maker(source, "p.rxf")
+    maker = rxfc.Maker(source, "p.rxfs")
     maker.parse()
     assert maker.leaf_used == {
         "wrapping_subtract_uint64_t",
@@ -265,7 +265,7 @@ def test_the_corpus_programs_reach_only_the_leaves_the_table_names():
     reachable = {leaf for o in TABLE.rxfs.operators for leaf in o.leaves}
     reachable |= {leaf for b in TABLE.rxfs.builtins for leaf in b.leaves}
     for name in ("arith", "branches", "procs", "table"):
-        path = ROOT / "tests" / "rxfc" / f"{name}.rxf"
+        path = ROOT / "tests" / "rxfc" / f"{name}.rxfs"
         maker = rxfc.Maker(path.read_text(), str(path))
         maker.parse()
         assert maker.leaf_used <= reachable, name
@@ -275,11 +275,11 @@ def test_the_corpus_programs_reach_only_the_leaves_the_table_names():
 
 
 def test_the_enum_vocab_is_the_kinds_module():
-    assert table_enums("starter/pymergetic/rxf/kinds.xml") == enums_of_xml(KINDS_XML)
+    assert table_enums("starter/pymergetic/rxf/kinds.rxfd") == enums_of_xml(KINDS_XML)
 
 
 def test_the_ground_enums_are_the_root_delta():
-    assert table_enums("starter/__init__.xml") == enums_of_xml(GROUND_XML)
+    assert table_enums("starter/__init__.rxfd") == enums_of_xml(GROUND_XML)
 
 
 def test_the_core_enums_are_the_python_stubs():
@@ -359,7 +359,7 @@ def test_the_extension_manifest_wires_the_final_extensions():
         for language in manifest["contributes"]["languages"]
     }
     # The final names are .rxfs and .rxfd: `pymergetic.rxf` is the Python package
-    # and never a file extension, and the old `.rxf` is not an extension either.
+    # and never a file extension, and the old `.rxfs` is not an extension either.
     assert languages == {"rxfs": [".rxfs"], "rxfd": [".rxfd"]}
     assert manifest["contributes"]["grammars"] == [
         {"language": "rxfs", "scopeName": "source.rxfs", "path": "./syntaxes/rxfs.tmLanguage.json"},
@@ -396,19 +396,19 @@ def world() -> resolve.World:
     known = resolve.corpus_world(STARTER)
     resolve.add_document(
         known,
-        (SELFEDIT / "double.xml").read_text(),
-        source="tests/selfedit/double.xml",
+        (SELFEDIT / "double.rxfd").read_text(),
+        source="tests/selfedit/double.rxfd",
     )
     return known
 
 
 def test_the_corpus_layout_gives_every_document_its_default_parent():
     at = lambda path: resolve.layout_default_parent(STARTER, STARTER / path)
-    assert at("pymergetic/rxf/foundation/__init__.xml") == "pymergetic.rxf"
-    assert at("pymergetic/rxf/library.xml") == "pymergetic.rxf"
-    assert at("pymergetic/rxf/numeric/convert/uint8_t.xml") == "pymergetic.rxf.numeric.convert"
-    assert at("pymergetic/__init__.xml") == ""
-    assert at("__init__.xml") == ""
+    assert at("pymergetic/rxf/foundation/__init__.rxfd") == "pymergetic.rxf"
+    assert at("pymergetic/rxf/library.rxfd") == "pymergetic.rxf"
+    assert at("pymergetic/rxf/numeric/convert/uint8_t.rxfd") == "pymergetic.rxf.numeric.convert"
+    assert at("pymergetic/__init__.rxfd") == ""
+    assert at("__init__.rxfd") == ""
 
 
 def test_the_corpus_declares_what_the_references_name(world: resolve.World):
@@ -426,8 +426,8 @@ def test_the_corpus_declares_what_the_references_name(world: resolve.World):
 
 
 def test_the_triple_delta_resolves_against_the_starter(world: resolve.World):
-    text = (SELFEDIT / "triple.xml").read_text()
-    references = resolve.check_document(text, known=world, source="tests/selfedit/triple.xml")
+    text = (SELFEDIT / "triple.rxfd").read_text()
+    references = resolve.check_document(text, known=world, source="tests/selfedit/triple.rxfd")
     assert {reference.attribute for reference in references} == {
         "signature",
         "refusal_set",
@@ -450,8 +450,8 @@ def test_the_call_reference_of_a_graph_resolves_to_its_callee(world: resolve.Wor
     resolve to the Function it names, a leaf-backed one or a graph that is a program of
     its own. The two calls of `selfedit.double` name a library Function and a checked
     add, both Functions."""
-    text = (SELFEDIT / "double.xml").read_text()
-    references = resolve.check_document(text, known=world, source="tests/selfedit/double.xml")
+    text = (SELFEDIT / "double.rxfd").read_text()
+    references = resolve.check_document(text, known=world, source="tests/selfedit/double.rxfd")
     callees = [r for r in references if r.attribute == "callee"]
     assert {r.value for r in callees} == {
         "pymergetic.rxf.library.checkout_total",
@@ -464,7 +464,7 @@ def test_the_call_reference_of_a_graph_resolves_to_its_callee(world: resolve.Wor
 
 @pytest.mark.parametrize(
     "relative",
-    ["pymergetic/rxf/foundation/safe.xml", "pymergetic/rxf/foundation/graph.xml"],
+    ["pymergetic/rxf/foundation/safe.rxfd", "pymergetic/rxf/foundation/graph.rxfd"],
 )
 def test_a_starter_delta_resolves(world: resolve.World, relative: str):
     path = STARTER / relative
@@ -482,7 +482,7 @@ def test_a_starter_delta_resolves(world: resolve.World, relative: str):
     ]
 
 
-TRIPLE = (SELFEDIT / "triple.xml").read_text()
+TRIPLE = (SELFEDIT / "triple.rxfd").read_text()
 
 
 @pytest.mark.parametrize(

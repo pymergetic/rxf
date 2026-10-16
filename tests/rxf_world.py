@@ -1,7 +1,7 @@
 """The world of a program that is longer than the programs of the starter: the interpreter, the leaves, and room.
 
 ``graph_world`` is the world of the starter's programs: a few kilobytes of program, a heap of 8 KB.
-The programs of ``.rxf`` (``tools/native/rxfc.py``), and the compiler that is one of them, need more.
+The programs of ``.rxfs`` (``tools/native/rxfc.py``), and the compiler that is one of them, need more.
 Here the program lies at ``PROGRAM_AT`` with room for 1 MB, and ``DATA`` is the rest of a 10 MB
 memory: what a program is given to read and where it writes. A ``Session`` is one machine that
 stays up for several steps, whatever the machine is: the interpreter runs a program, the compiler

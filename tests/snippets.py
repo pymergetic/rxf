@@ -235,7 +235,7 @@ class Machine:
 def snippets() -> list[dict]:
     """The numeric snippets of the starter: scalar arguments and one output."""
     found = []
-    for path in sorted(STARTER.rglob("*.xml")):
+    for path in sorted(STARTER.rglob("*.rxfd")):
         parts = path.relative_to(STARTER).with_suffix("").parts
         for function in ET.parse(path).getroot().iter("Function"):
             codes = {c.get("name"): c for c in function if c.tag == "Code"}

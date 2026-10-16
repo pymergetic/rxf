@@ -36,7 +36,7 @@ def run(capsys, *argv: str) -> tuple[int, str, str]:
 
 
 def source_of(tmp_path: Path) -> Path:
-    path = tmp_path / "small.xml"
+    path = tmp_path / "small.rxfd"
     path.write_text(DELTA, encoding="utf-8")
     return path
 

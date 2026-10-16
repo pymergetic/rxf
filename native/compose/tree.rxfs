@@ -9,7 +9,7 @@
 # What is here is the reader the composer stands on: a handle to its cell, the name of a cell, and
 # the child of an object with a given name. Arguments come in the shared words g0..g2; the answers
 # are R (and R0..R2 where more). Every proc keeps its own scratch in the words the program
-# declares (compose.rxf), so one proc may call another without its own state being disturbed.
+# declares (compose.rxfs), so one proc may call another without its own state being disturbed.
 
 # ---- a handle to its cell ----------------------------------------------------------------------
 # g0: handle. R: the arena offset of the cell, or HANDLE_NONE when the slot is free or out of range.

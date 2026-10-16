@@ -1,6 +1,6 @@
 """The front end in the image (docs/19): source in over the channel, the words of a Function out.
 
-`native/front/front.rxf` is the compiler front end as a program: what `tools/native/rxfc.py`
+`native/front/front.rxfs` is the compiler front end as a program: what `tools/native/rxfc.py`
 compiles from source is what it writes from the same source, byte for byte
 (`tests/test_front_corpus.py`). Here the image does it and everything it reads or writes travels
 as frames of the channel: the source, the table of the numbers it may use, and the room for its
@@ -10,7 +10,7 @@ rings; the image applies it on its journal and relinks itself. The new Function 
 interpreter and then as the code `tiny.compile` makes of the words that still lie in the arena,
 both without a restart, on x86_64, aarch64 and wasm32.
 
-What the harness still writes is the call block (the request of `native/front/words.rxf` and the
+What the harness still writes is the call block (the request of `native/front/words.rxfs` and the
 arguments) and the work memory of the request, both behind the lookup table of the live block:
 that is the memory the harness provider writes, docs/19. Content travels on the rings.
 
@@ -42,10 +42,10 @@ from .snippets import STARTER
 from .test_rxfc import MACHINES
 from .test_tiny import IDS
 
-FRONT = Path(__file__).parents[1] / "native" / "front" / "front.rxf"
-TRIPLE = Path(__file__).parent / "selfedit" / "triple.rxf"
-FRONT_XML = Path(__file__).parent / "selfedit" / "front.xml"
-TRIPLE_XML = Path(__file__).parent / "selfedit" / "triple.xml"
+FRONT = Path(__file__).parents[1] / "native" / "front" / "front.rxfs"
+TRIPLE = Path(__file__).parent / "selfedit" / "triple.rxfs"
+FRONT_XML = Path(__file__).parent / "selfedit" / "front.rxfd"
+TRIPLE_XML = Path(__file__).parent / "selfedit" / "triple.rxfd"
 SELFEDIT = "pymergetic.rxf.selfedit"
 FRONT_FUNCTION = f"{SELFEDIT}.front"
 TRIPLE_FUNCTION = f"{SELFEDIT}.triple"
@@ -53,7 +53,7 @@ TINY_FUNCTION = "pymergetic.rxf.foundation.tiny.compile"
 
 N = 7  # the argument of the Function the image compiles and runs: triple(7) is 21
 SCRATCH = 12 << 20  # the work memory of a request in the live block (link.LiveSpec.scratch)
-FRONT_WORK = 8_963_144  # WORK_BYTES of native/front/words.rxf
+FRONT_WORK = 8_963_144  # WORK_BYTES of native/front/words.rxfs
 TINY_WORK = w.WORK_BYTES  # and of native/tiny (tools/native/rxfc.py keeps the numbers here)
 OUT_ROOM = 0x10000  # the room the words of the program are written into
 
@@ -109,7 +109,7 @@ def send(channel: lw.Channel, expected: Image, text: str) -> int:
     """One delta over the channel: compiled against the state the image is in (the host mirrors
     it), and accepted as the image agrees. What the image writes itself the host mirrors by hand
     before the next delta (set_bytes)."""
-    compiled = physical.from_xml(Image.from_bytes(expected.to_bytes()), ("delta.xml", text))
+    compiled = physical.from_xml(Image.from_bytes(expected.to_bytes()), ("delta.rxfd", text))
     expected.apply(text)
     assert channel.client.apply(compiled.data) == expected.digest()
     return compiled.creates
@@ -184,7 +184,7 @@ def test_the_image_compiles_the_source_and_the_function_it_makes_runs(running, b
     )
     assert send(channel, expected, front_text) > 0
 
-    # the request of native/front/words.rxf: it points into the arena (the source, the names, the
+    # the request of native/front/words.rxfs: it points into the arena (the source, the names, the
     # out object) and into the work region behind the lookup table, where the front end keeps its
     # tables. The const rows name the addresses of the names object.
     source_at = value_at(channel, f"{SELFEDIT}.source")
@@ -286,22 +286,22 @@ def test_the_image_compiles_the_source_and_the_function_it_makes_runs(running, b
     assert status == 0 and value == 3 * N
 
 
-SOURCES = sorted((Path(__file__).parents[1] / "native" / "front").glob("*.rxf"))
+SOURCES = sorted((Path(__file__).parents[1] / "native" / "front").glob("*.rxfs"))
 
 
 def successor_sources() -> dict[str, bytes]:
     """The sources of the front end with the one change of the successor: a refusal answers its
-    words in the other order (emit.rxf). The same answers, different words -- and where they
+    words in the other order (emit.rxfs). The same answers, different words -- and where they
     differ is where the change is."""
     files = {p.name: p.read_bytes() for p in SOURCES}
     before, after = (
         b"st = OUT_OF_MEMORY;\n        at = load64(work + G_LASTLINE);",
         b"at = load64(work + G_LASTLINE);\n        st = OUT_OF_MEMORY;",
     )
-    text = files["emit.rxf"]
+    text = files["emit.rxfs"]
     assert text.count(before) >= 2
     head, _, tail = text.rpartition(before)  # the refusal answers in the other order
-    files["emit.rxf"] = head + after + tail
+    files["emit.rxfs"] = head + after + tail
     return files
 
 
@@ -321,7 +321,7 @@ def test_the_image_compiles_its_own_sources_and_installs_the_successor(
     program = rxfc.compile_file(FRONT)  # the host's compiler makes the front end that boots
     for filename, text in files.items():
         (tmp_path / filename).write_bytes(text)
-    successor = rxfc.compile_file(tmp_path / "front.rxf")  # what the change compiles to
+    successor = rxfc.compile_file(tmp_path / "front.rxfs")  # what the change compiles to
     changed = [i for i, (a, b) in enumerate(zip(program, successor)) if a != b]
     assert len(successor) == len(program) and changed
     assert max(changed) - min(changed) <= 512  # one refusal moved: that is all
@@ -343,7 +343,7 @@ def test_the_image_compiles_its_own_sources_and_installs_the_successor(
         program,
         FRONT.read_bytes(),
         (
-            blob("source", files["front.rxf"]),
+            blob("source", files["front.rxfs"]),
             blob("names", names),
             blob("files", table),
             blob("out", bytes(out_room)),
@@ -383,7 +383,7 @@ def test_the_image_compiles_its_own_sources_and_installs_the_successor(
         struct.pack(
             "<12Q",
             source_at,
-            len(files["front.rxf"]),  # R_SOURCE, R_SOURCE_SIZE
+            len(files["front.rxfs"]),  # R_SOURCE, R_SOURCE_SIZE
             out_at,
             out_room,  # R_OUT, R_OUT_CAPACITY
             work_at,

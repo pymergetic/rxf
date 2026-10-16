@@ -30,7 +30,7 @@ typedef uint64_t rxf_smp_handle;
 #define RXF_SMP_H_GENERATION(h) ((uint32_t)((h) >> 32))
 
 /* The 64-byte cell header of the arena (docs/17 "Arena and RXFB v6", the numbers of
- * native/compose/words.rxf): C_FORWARD at byte 48 is the compaction forwarding offset. */
+ * native/compose/words.rxfs): C_FORWARD at byte 48 is the compaction forwarding offset. */
 #define RXF_SMP_CELL_BYTES 64u
 #define RXF_SMP_C_TYPE 0u
 #define RXF_SMP_C_PAYLOAD_SIZE 16u
