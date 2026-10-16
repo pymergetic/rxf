@@ -1,0 +1,24 @@
+# pm_crypto — the cap.crypto card of the RXF net stack (docs/25 §11).
+#
+# One card, one defining lang (RS), one set of test vectors. The C ABI is
+# include/pm_crypto.h and is the card's only face; Python reaches it through
+# src/pymergetic/rxf/net/crypto.py (ctypes, the host fill).
+#
+# Dependency-free on purpose: every primitive below is written here from its
+# published specification, so this crate builds offline with a bare toolchain.
+
+[package]
+name = "pm_crypto"
+version = "0.1.0"
+edition = "2021"
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+publish = false
+
+[lib]
+# cdylib is the card's artifact (target/release/libpm_crypto.so). rlib exists
+# only so tests/vectors.rs links the SAME crate: one implementation, one set
+# of vectors — there is no second build of the primitives for the tests.
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+opt-level = 3
