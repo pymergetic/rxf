@@ -66,29 +66,24 @@ void pm_crypto_blake2s_keyed(uint8_t out[32], const uint8_t *key, size_t key_len
 
 /* X25519 (RFC 7748). */
 void pm_crypto_x25519_public(uint8_t out[32], const uint8_t scalar[32]);
-int32_t pm_crypto_x25519(uint8_t out[32], const uint8_t scalar[32],
-                         const uint8_t point[32]);
+int32_t pm_crypto_x25519(uint8_t out[32], const uint8_t scalar[32], const uint8_t point[32]);
 
 /* AEAD (cipher id 0 = CHACHA20-POLY1305, 1 = AES-256-GCM). */
-int32_t pm_crypto_aead_seal(int32_t cipher, uint8_t *out, size_t *out_len,
-                            const uint8_t key[32], const uint8_t nonce[12],
-                            const uint8_t *aad, size_t aad_len,
+int32_t pm_crypto_aead_seal(int32_t cipher, uint8_t *out, size_t *out_len, const uint8_t key[32],
+                            const uint8_t nonce[12], const uint8_t *aad, size_t aad_len,
                             const uint8_t *pt, size_t pt_len);
-int32_t pm_crypto_aead_open(int32_t cipher, uint8_t *out, size_t *out_len,
-                            const uint8_t key[32], const uint8_t nonce[12],
-                            const uint8_t *aad, size_t aad_len,
+int32_t pm_crypto_aead_open(int32_t cipher, uint8_t *out, size_t *out_len, const uint8_t key[32],
+                            const uint8_t nonce[12], const uint8_t *aad, size_t aad_len,
                             const uint8_t *ct, size_t ct_len);
 
 /* HKDF (RFC 5869). hash id 0 = SHA-256 (as the RFC), 1 = BLAKE2s-256 (this
  * card's HMAC-BLAKE2s instantiation — no RFC; vectors pinned, not claimed).
  * extract: a zero-length salt is the RFC's absent salt (HashLen zeros).
  * expand: refuses (-4) when out_len > 255 * 32. */
-int32_t pm_crypto_hkdf_extract(int32_t hash, uint8_t out[32],
-                               const uint8_t *salt, size_t salt_len,
+int32_t pm_crypto_hkdf_extract(int32_t hash, uint8_t out[32], const uint8_t *salt, size_t salt_len,
                                const uint8_t *ikm, size_t ikm_len);
-int32_t pm_crypto_hkdf_expand(int32_t hash, uint8_t *out, size_t out_len,
-                              const uint8_t prk[32], const uint8_t *info,
-                              size_t info_len);
+int32_t pm_crypto_hkdf_expand(int32_t hash, uint8_t *out, size_t out_len, const uint8_t prk[32],
+                              const uint8_t *info, size_t info_len);
 
 #ifdef __cplusplus
 }

@@ -4,9 +4,9 @@
  */
 #include "smp_sched.h"
 
+#include <inttypes.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -118,8 +118,8 @@ void smp_world_init(smp_world *w, rxf_smp_arena *arena, uint32_t n_runs, smp_ste
     w->step_ctx = step_ctx;
     /* The ready-ring cell holds head, tail, capacity and the counters before the slots. Room is
      * left for the harness to push stale handles on purpose (docs/20, S3: the ABA refusal). */
-    uint64_t ring_payload = offsetof(smp_ring_payload, slots) +
-                            (uint64_t)(n_runs + 16) * sizeof(rxf_smp_handle);
+    uint64_t ring_payload =
+        offsetof(smp_ring_payload, slots) + (uint64_t)(n_runs + 16) * sizeof(rxf_smp_handle);
     w->ring = rxf_smp_arena_alloc(arena, RXF_SMP_CELL_RING, ring_payload, 0);
     w->channel = rxf_smp_arena_alloc(arena, RXF_SMP_CELL_CHANNEL, 256, 0);
     w->runs = (rxf_smp_handle *)calloc(n_runs, sizeof(rxf_smp_handle));
@@ -167,8 +167,7 @@ int smp_wake(smp_world *w, rxf_smp_handle target, uint32_t waker) {
             if (run) {
                 want = RXF_SMP_STATE_READY;
                 atomic_compare_exchange_strong_explicit(&run->state, &want, RXF_SMP_STATE_PARKED,
-                                                        memory_order_acq_rel,
-                                                        memory_order_acquire);
+                                                        memory_order_acq_rel, memory_order_acquire);
                 rxf_smp_arena_release(w->arena, target);
             }
             return 2;
@@ -272,8 +271,7 @@ int smp_dispatch_one(smp_world *w, uint32_t carrier) {
         }
         uint32_t want = RXF_SMP_STATE_READY;
         if (!atomic_compare_exchange_strong_explicit(&run->state, &want, RXF_SMP_STATE_RUNNING,
-                                                     memory_order_acq_rel,
-                                                     memory_order_acquire)) {
+                                                     memory_order_acq_rel, memory_order_acquire)) {
             /* Enqueued twice or already taken: the ring gave it away, nothing is stepped twice. */
             atomic_fetch_add_explicit(&w->state_refused, 1, memory_order_relaxed);
             rxf_smp_arena_release(w->arena, h);
@@ -318,8 +316,7 @@ int smp_dispatch_one(smp_world *w, uint32_t carrier) {
              * sealed (above) before the transition. */
             want = RXF_SMP_STATE_RUNNING;
             if (atomic_compare_exchange_strong_explicit(&run->state, &want, RXF_SMP_STATE_TERMINAL,
-                                                        memory_order_acq_rel,
-                                                        memory_order_acquire))
+                                                        memory_order_acq_rel, memory_order_acquire))
                 atomic_fetch_add_explicit(&w->terminal, 1, memory_order_release);
         } else if (result == SMP_STEP_SELFWAKE) {
             /* The run woke itself at its own park: it is READY and the enqueue is ours. The cell

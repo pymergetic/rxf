@@ -26,7 +26,8 @@ template <class Job> void parallel_for(size_t count, unsigned threads, Job &&job
     workers = static_cast<unsigned>(std::min<size_t>(workers, count));
     std::atomic<size_t> next{0};
     const auto work = [&] {
-        for (size_t i = next.fetch_add(1); i < count; i = next.fetch_add(1)) job(i);
+        for (size_t i = next.fetch_add(1); i < count; i = next.fetch_add(1))
+            job(i);
     };
     if (workers <= 1) {
         work();
@@ -34,9 +35,11 @@ template <class Job> void parallel_for(size_t count, unsigned threads, Job &&job
     }
     std::vector<std::thread> pool;
     pool.reserve(workers - 1);
-    for (unsigned t = 1; t < workers; t++) pool.emplace_back(work);
+    for (unsigned t = 1; t < workers; t++)
+        pool.emplace_back(work);
     work();
-    for (std::thread &t : pool) t.join();
+    for (std::thread &t : pool)
+        t.join();
 }
 
 /* What one job leaves behind; each job writes only its own slot. */
@@ -47,7 +50,8 @@ struct Outcome {
 
 bool is_module(const Image &image, Handle h) {
     const pymergetic_rxf_cell *c = image.arena().cell(h);
-    return c != nullptr && ((c->flags >> PYMERGETIC_RXF_FLAG_KIND_SHIFT) & PYMERGETIC_RXF_FLAG_KIND_MASK) == PYMERGETIC_RXF_NODE_MODULE;
+    return c != nullptr && ((c->flags >> PYMERGETIC_RXF_FLAG_KIND_SHIFT) &
+                            PYMERGETIC_RXF_FLAG_KIND_MASK) == PYMERGETIC_RXF_NODE_MODULE;
 }
 
 /* The path of every Module object, wherever it sits. */
@@ -57,7 +61,8 @@ std::vector<std::string> module_paths(const Image &image) {
     while (!stack.empty()) {
         const Handle h = stack.back();
         stack.pop_back();
-        if (is_module(image, h)) paths.push_back(image.path(h));
+        if (is_module(image, h))
+            paths.push_back(image.path(h));
         const std::vector<Handle> kids = image.children(h);
         stack.insert(stack.end(), kids.begin(), kids.end());
     }
@@ -69,35 +74,46 @@ std::vector<std::string> split_path(const std::string &path) {
     size_t start = 0;
     while (true) {
         const size_t dot = path.find('.', start);
-        parts.push_back(path.substr(start, dot == std::string::npos ? std::string::npos : dot - start));
-        if (dot == std::string::npos) break;
+        parts.push_back(
+            path.substr(start, dot == std::string::npos ? std::string::npos : dot - start));
+        if (dot == std::string::npos)
+            break;
         start = dot + 1;
     }
     return parts;
 }
 
-bool is_part(const std::string &part) { return !part.empty() && part != kInitStem && part.find_first_of("/\\") == std::string::npos && part != "." && part != ".."; }
+bool is_part(const std::string &part) {
+    return !part.empty() && part != kInitStem && part.find_first_of("/\\") == std::string::npos &&
+           part != "." && part != "..";
+}
 
-/* `a.b.c` is `a/b/c.rxfd`, or `a/b/c/__init__.rxfd` when it has sub-modules. A name that could leave the directory has no file. */
+/* `a.b.c` is `a/b/c.rxfd`, or `a/b/c/__init__.rxfd` when it has sub-modules. A name that could
+ * leave the directory has no file. */
 bool file_for(const std::string &path, bool has_submodules, std::string *name) {
     std::string out;
     for (const std::string &part : split_path(path)) {
-        if (!is_part(part)) return false;
-        if (!out.empty()) out += '/';
+        if (!is_part(part))
+            return false;
+        if (!out.empty())
+            out += '/';
         out += part;
     }
     *name = has_submodules ? out + "/" + kInitFile : out + kFileSuffix;
     return true;
 }
 
-/* The module a file defines, and the parent that its top-level elements sit in. `__init__.rxfd` alone is the root. */
+/* The module a file defines, and the parent that its top-level elements sit in. `__init__.rxfd`
+ * alone is the root. */
 bool module_of(const std::string &name, std::string *module, std::string *parent, bool *is_root) {
     std::vector<std::string> parts;
     size_t start = 0;
     while (true) {
         const size_t slash = name.find('/', start);
-        parts.push_back(name.substr(start, slash == std::string::npos ? std::string::npos : slash - start));
-        if (slash == std::string::npos) break;
+        parts.push_back(
+            name.substr(start, slash == std::string::npos ? std::string::npos : slash - start));
+        if (slash == std::string::npos)
+            break;
         start = slash + 1;
     }
     std::string last = parts.back();
@@ -105,7 +121,8 @@ bool module_of(const std::string &name, std::string *module, std::string *parent
     const std::string_view suffix = kFileSuffix;
     if (last == kInitFile) {
         // pkg/__init__.rxfd is the module `pkg`; the one at the top is the root
-    } else if (last.size() > suffix.size() && last.compare(last.size() - suffix.size(), suffix.size(), suffix) == 0) {
+    } else if (last.size() > suffix.size() &&
+               last.compare(last.size() - suffix.size(), suffix.size(), suffix) == 0) {
         parts.push_back(last.substr(0, last.size() - suffix.size()));
     } else {
         return false;
@@ -114,8 +131,10 @@ bool module_of(const std::string &name, std::string *module, std::string *parent
     module->clear();
     parent->clear();
     for (size_t i = 0; i < parts.size(); i++) {
-        if (parts[i].find('.') != std::string::npos || !is_part(parts[i])) return false;
-        if (i + 1 < parts.size()) *parent += (parent->empty() ? "" : ".") + parts[i];
+        if (parts[i].find('.') != std::string::npos || !is_part(parts[i]))
+            return false;
+        if (i + 1 < parts.size())
+            *parent += (parent->empty() ? "" : ".") + parts[i];
         *module += (module->empty() ? "" : ".") + parts[i];
     }
     return true;
@@ -135,7 +154,8 @@ Status files_of(const Image &image, std::vector<File> *out, std::string *error, 
     std::set<std::string> with_children; // modules that have a module below them
     for (const std::string &path : modules) {
         for (size_t dot = path.find('.'); dot != std::string::npos; dot = path.find('.', dot + 1))
-            if (known.count(path.substr(0, dot)) != 0) with_children.insert(path.substr(0, dot));
+            if (known.count(path.substr(0, dot)) != 0)
+                with_children.insert(path.substr(0, dot));
     }
     std::vector<Job> jobs;
     for (const std::string &path : modules) {
@@ -145,13 +165,15 @@ Status files_of(const Image &image, std::vector<File> *out, std::string *error, 
             return Status::BadName;
         }
         const size_t dot = path.rfind('.');
-        if (dot != std::string::npos) job.parent = path.substr(0, dot);
+        if (dot != std::string::npos)
+            job.parent = path.substr(0, dot);
         jobs.push_back(std::move(job));
     }
     std::sort(jobs.begin(), jobs.end(), [](const Job &a, const Job &b) { return a.name < b.name; });
     for (size_t i = 1; i < jobs.size(); i++)
         if (jobs[i].name == jobs[i - 1].name) {
-            *error = "the modules '" + jobs[i - 1].module + "' and '" + jobs[i].module + "' have the same file";
+            *error = "the modules '" + jobs[i - 1].module + "' and '" + jobs[i].module +
+                     "' have the same file";
             return Status::NameTaken;
         }
     jobs.insert(jobs.begin(), Job{kInitFile, {}, {}});
@@ -163,8 +185,10 @@ Status files_of(const Image &image, std::vector<File> *out, std::string *error, 
         std::string problem;
         Outcome &outcome = outcomes[i];
         outcome.status = delta::export_image(image, &delta, &problem, &jobs[i].module);
-        if (outcome.status == Status::Ok) outcome.status = xml::write(delta, &files[i].text, &problem, &jobs[i].parent);
-        if (outcome.status != Status::Ok) outcome.message = jobs[i].name + ": " + problem;
+        if (outcome.status == Status::Ok)
+            outcome.status = xml::write(delta, &files[i].text, &problem, &jobs[i].parent);
+        if (outcome.status != Status::Ok)
+            outcome.message = jobs[i].name + ": " + problem;
         files[i].name = jobs[i].name;
     });
     for (const Outcome &outcome : outcomes) {
@@ -177,10 +201,12 @@ Status files_of(const Image &image, std::vector<File> *out, std::string *error, 
     return Status::Ok;
 }
 
-Status write(const Image &image, const fs::path &directory, bool overwrite, size_t *count, std::string *error, unsigned threads) {
+Status write(const Image &image, const fs::path &directory, bool overwrite, size_t *count,
+             std::string *error, unsigned threads) {
     std::vector<File> files;
     Status status = files_of(image, &files, error, threads);
-    if (status != Status::Ok) return status;
+    if (status != Status::Ok)
+        return status;
 
     std::error_code code;
     if (fs::exists(directory, code)) {
@@ -195,14 +221,18 @@ Status write(const Image &image, const fs::path &directory, bool overwrite, size
             }
             std::vector<fs::path> old;
             for (const auto &entry : fs::recursive_directory_iterator(directory, code))
-                if (entry.is_regular_file() && entry.path().extension() == kFileSuffix) old.push_back(entry.path());
-            for (const fs::path &path : old) fs::remove(path, code);
+                if (entry.is_regular_file() && entry.path().extension() == kFileSuffix)
+                    old.push_back(entry.path());
+            for (const fs::path &path : old)
+                fs::remove(path, code);
             std::vector<fs::path> folders;
             for (const auto &entry : fs::recursive_directory_iterator(directory, code))
-                if (entry.is_directory()) folders.push_back(entry.path());
+                if (entry.is_directory())
+                    folders.push_back(entry.path());
             std::sort(folders.rbegin(), folders.rend()); // deepest first
             for (const fs::path &folder : folders)
-                if (fs::is_empty(folder, code)) fs::remove(folder, code);
+                if (fs::is_empty(folder, code))
+                    fs::remove(folder, code);
         }
     }
 
@@ -214,7 +244,8 @@ Status write(const Image &image, const fs::path &directory, bool overwrite, size
         std::ofstream stream(target, std::ios::binary | std::ios::trunc);
         stream.write(files[i].text.data(), static_cast<std::streamsize>(files[i].text.size()));
         stream.close();
-        if (local || !stream) outcomes[i] = {Status::BadPath, "cannot write " + target.string()};
+        if (local || !stream)
+            outcomes[i] = {Status::BadPath, "cannot write " + target.string()};
     });
     for (const Outcome &outcome : outcomes) {
         if (outcome.status != Status::Ok) {
@@ -244,7 +275,8 @@ Status read(const fs::path &directory, delta::Delta *out, std::string *error, un
         *error = directory.string() + " holds no " + kFileSuffix + " files";
         return Status::BadPath;
     }
-    // The path of a file is the path of its module; the root file names the entry, which has to see every module before it.
+    // The path of a file is the path of its module; the root file names the entry, which has to see
+    // every module before it.
     struct Place {
         std::string module, parent;
         bool root = false;
@@ -262,7 +294,8 @@ Status read(const fs::path &directory, delta::Delta *out, std::string *error, un
         }
     }
     std::vector<size_t> order(names.size());
-    for (size_t i = 0; i < order.size(); i++) order[i] = i;
+    for (size_t i = 0; i < order.size(); i++)
+        order[i] = i;
     std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
         return places[a].root != places[b].root ? places[b].root : names[a] < names[b];
     });
@@ -271,7 +304,8 @@ Status read(const fs::path &directory, delta::Delta *out, std::string *error, un
     std::vector<Outcome> outcomes(names.size());
     parallel_for(names.size(), threads, [&](size_t i) {
         std::ifstream stream(directory / names[i], std::ios::binary);
-        const std::string text((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+        const std::string text((std::istreambuf_iterator<char>(stream)),
+                               std::istreambuf_iterator<char>());
         if (!stream && !stream.eof()) {
             outcomes[i] = {Status::BadPath, "cannot read " + names[i]};
             return;
@@ -283,20 +317,30 @@ Status read(const fs::path &directory, delta::Delta *out, std::string *error, un
             outcomes[i] = {status, "cannot parse " + names[i] + ": " + problem};
             return;
         }
-        if (place.root) return;
+        if (place.root)
+            return;
         // A module file holds its module, and only what is inside it.
-        const std::string last = place.module.substr(place.module.rfind('.') == std::string::npos ? 0 : place.module.rfind('.') + 1);
+        const std::string last = place.module.substr(
+            place.module.rfind('.') == std::string::npos ? 0 : place.module.rfind('.') + 1);
         for (size_t k = 0; k < parsed[i].ops.size(); k++) {
             const delta::Create *c = std::get_if<delta::Create>(&parsed[i].ops[k]);
-            const bool inside = c != nullptr && (c->parent == place.module || c->parent.compare(0, place.module.size() + 1, place.module + ".") == 0);
-            const bool head = k == 0 && c != nullptr && c->name == last && c->parent == place.parent;
+            const bool inside = c != nullptr && (c->parent == place.module ||
+                                                 c->parent.compare(0, place.module.size() + 1,
+                                                                   place.module + ".") == 0);
+            const bool head =
+                k == 0 && c != nullptr && c->name == last && c->parent == place.parent;
             if (!head && !inside) {
-                outcomes[i] = {Status::BadImage, names[i] + (k == 0 ? ": must start with the module '" + place.module + "'"
-                                                                   : ": defines something outside the module '" + place.module + "'")};
+                outcomes[i] = {
+                    Status::BadImage,
+                    names[i] +
+                        (k == 0 ? ": must start with the module '" + place.module + "'"
+                                : ": defines something outside the module '" + place.module + "'")};
                 return;
             }
         }
-        if (parsed[i].ops.empty()) outcomes[i] = {Status::BadImage, names[i] + ": must define the module '" + place.module + "'"};
+        if (parsed[i].ops.empty())
+            outcomes[i] = {Status::BadImage,
+                           names[i] + ": must define the module '" + place.module + "'"};
     });
     out->ops.clear();
     for (size_t index : order) {
@@ -304,15 +348,18 @@ Status read(const fs::path &directory, delta::Delta *out, std::string *error, un
             *error = outcomes[index].message;
             return outcomes[index].status;
         }
-        for (delta::Op &op : parsed[index].ops) out->ops.push_back(std::move(op));
+        for (delta::Op &op : parsed[index].ops)
+            out->ops.push_back(std::move(op));
     }
     return Status::Ok;
 }
 
-Status load(const fs::path &directory, uint64_t limit, std::unique_ptr<Image> *out, std::string *error, unsigned threads) {
+Status load(const fs::path &directory, uint64_t limit, std::unique_ptr<Image> *out,
+            std::string *error, unsigned threads) {
     delta::Delta all;
     Status status = read(directory, &all, error, threads);
-    if (status != Status::Ok) return status;
+    if (status != Status::Ok)
+        return status;
     std::unique_ptr<Image> image;
     status = delta::make_image(limit, 0, &image);
     if (status != Status::Ok) {

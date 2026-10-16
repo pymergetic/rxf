@@ -111,10 +111,10 @@ typedef struct {
 
 /* The result of one step of a run: what the program answers to the dispatcher. */
 enum {
-    SMP_STEP_AGAIN = 0,     /* more work: RUNNING to READY, back into the ring */
-    SMP_STEP_PARK = 1,      /* the run is PARKED (or was woken before it slept and requeued) */
-    SMP_STEP_DONE = 2,      /* the program ended: RUNNING to TERMINAL */
-    SMP_STEP_SELFWAKE = 3   /* the run woke itself at its own park; the dispatcher requeues it */
+    SMP_STEP_AGAIN = 0,   /* more work: RUNNING to READY, back into the ring */
+    SMP_STEP_PARK = 1,    /* the run is PARKED (or was woken before it slept and requeued) */
+    SMP_STEP_DONE = 2,    /* the program ended: RUNNING to TERMINAL */
+    SMP_STEP_SELFWAKE = 3 /* the run woke itself at its own park; the dispatcher requeues it */
 };
 
 struct smp_world;

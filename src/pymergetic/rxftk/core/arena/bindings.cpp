@@ -4,7 +4,8 @@
 
 namespace pymergetic::rxf::core::bindings {
 
-/* The ground layout as the compiled core sees it. ground.h is the only place that defines the constants. */
+/* The ground layout as the compiled core sees it. ground.h is the only place that defines the
+ * constants. */
 void bind_arena(nb::module_ &m) {
     m.attr("ARENA_VERSION") = PYMERGETIC_RXF_ARENA_VERSION;
     m.attr("CELL_ALIGN") = PYMERGETIC_RXF_CELL_ALIGN;

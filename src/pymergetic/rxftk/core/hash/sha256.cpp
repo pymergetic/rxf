@@ -38,9 +38,11 @@ Digest Sha256::finish() {
     const uint8_t pad = 0x80;
     update(&pad, 1);
     const uint8_t zero = 0;
-    while (fill_ != 56) update(&zero, 1);
+    while (fill_ != 56)
+        update(&zero, 1);
     uint8_t tail[8];
-    for (int i = 0; i < 8; i++) tail[i] = uint8_t(bits >> (56 - 8 * i));
+    for (int i = 0; i < 8; i++)
+        tail[i] = uint8_t(bits >> (56 - 8 * i));
     update(tail, 8);
     Digest out;
     for (size_t i = 0; i < 8; i++) {

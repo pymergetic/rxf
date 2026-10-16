@@ -21,28 +21,34 @@
 
 namespace pymergetic::rxf::core::object {
 
+using arena::align_up;
 using arena::Arena;
 using arena::CellSpec;
-using arena::Memory;
-using arena::Status;
-using arena::align_up;
 using arena::kMaxRefs;
 using arena::kPageSize;
+using arena::Memory;
+using arena::Status;
 
 /* Memory reserved up front and committed lazily; the base never moves. */
 class HostMemory {
-public:
+  public:
     static std::unique_ptr<HostMemory> reserve(uint64_t limit);
     ~HostMemory();
     HostMemory(const HostMemory &) = delete;
     HostMemory &operator=(const HostMemory &) = delete;
     Memory memory();
     bool commit(uint64_t bytes);
-    uint8_t *base() const { return base_; }
-    uint64_t limit() const { return limit_; }
-    uint64_t committed() const { return committed_; }
+    uint8_t *base() const {
+        return base_;
+    }
+    uint64_t limit() const {
+        return limit_;
+    }
+    uint64_t committed() const {
+        return committed_;
+    }
 
-private:
+  private:
     HostMemory() = default;
     uint8_t *base_ = nullptr;
     uint64_t limit_ = 0;
@@ -52,12 +58,12 @@ private:
 struct ObjectSpec {
     pymergetic_rxf_handle type = PYMERGETIC_RXF_HANDLE_NONE;
     pymergetic_rxf_handle parent = PYMERGETIC_RXF_HANDLE_NONE;
-    std::string name;               // empty only for the root
-    uint32_t kind = 0;              // NodeKind
-    uint32_t state = 0;             // packed object state, see PYMERGETIC_RXF_STATE_*
+    std::string name;   // empty only for the root
+    uint32_t kind = 0;  // NodeKind
+    uint32_t state = 0; // packed object state, see PYMERGETIC_RXF_STATE_*
     uint32_t owner_kind = PYMERGETIC_RXF_OWNER_SHARED;
     uint64_t generation = 0;
-    uint32_t index = 0;             // position among the ordered siblings
+    uint32_t index = 0; // position among the ordered siblings
     std::vector<uint8_t> payload;
     std::vector<pymergetic_rxf_ref> refs;
 };
@@ -77,20 +83,22 @@ class Image;
 /* A payload may hold handles (fields flagged REFERENCE). The object layer does
  * not know the types, so compaction asks this hook to rewrite them. */
 class PayloadRemap {
-public:
+  public:
     virtual ~PayloadRemap() = default;
     /* `payload` is a copy of the object's payload in the source image. `map`
      * gives the new handle of a source handle, or NONE when it is omitted.
      * Return Dangling when a mandatory handle maps to NONE. */
-    virtual Status remap(const Image &source, pymergetic_rxf_handle object, uint8_t *payload, uint64_t size,
-                         const std::function<pymergetic_rxf_handle(pymergetic_rxf_handle)> &map) const = 0;
+    virtual Status
+    remap(const Image &source, pymergetic_rxf_handle object, uint8_t *payload, uint64_t size,
+          const std::function<pymergetic_rxf_handle(pymergetic_rxf_handle)> &map) const = 0;
 };
 
 class Image {
-public:
+  public:
     static Status create(uint64_t limit, uint64_t index_capacity, std::unique_ptr<Image> *out);
     /* Canonical bytes of an image written by to_bytes(). */
-    static Status load(const uint8_t *bytes, uint64_t size, uint64_t limit, std::unique_ptr<Image> *out);
+    static Status load(const uint8_t *bytes, uint64_t size, uint64_t limit,
+                       std::unique_ptr<Image> *out);
     std::vector<uint8_t> to_bytes() const;
 
     Status add(const ObjectSpec &spec, pymergetic_rxf_handle *out);
@@ -109,14 +117,17 @@ public:
     Status set_type(pymergetic_rxf_handle handle, pymergetic_rxf_handle type);
     Status set_state(pymergetic_rxf_handle handle, uint32_t state);
 
-    pymergetic_rxf_handle resolve(const std::string &path) const; // PYMERGETIC_RXF_HANDLE_NONE when unknown
+    pymergetic_rxf_handle
+    resolve(const std::string &path) const; // PYMERGETIC_RXF_HANDLE_NONE when unknown
     std::string path(pymergetic_rxf_handle handle) const;
-    std::vector<pymergetic_rxf_handle> children(pymergetic_rxf_handle handle) const; // ordered by name
+    std::vector<pymergetic_rxf_handle>
+    children(pymergetic_rxf_handle handle) const; // ordered by name
     /* The child of `handle` with this name, PYMERGETIC_RXF_HANDLE_NONE when there is none. */
     pymergetic_rxf_handle child(pymergetic_rxf_handle handle, const std::string &name) const;
 
     /* A successor: retained objects only, in path order, handles 0 to n-1. */
-    Status compact(uint64_t index_capacity, std::unique_ptr<Image> *out, const PayloadRemap *remap = nullptr) const;
+    Status compact(uint64_t index_capacity, std::unique_ptr<Image> *out,
+                   const PayloadRemap *remap = nullptr) const;
     /* An independent copy with the same handles (bytes in, bytes out). */
     Status clone(std::unique_ptr<Image> *out) const;
     /* Exchanges everything with `other`; the arena and its memory move together. */
@@ -130,11 +141,17 @@ public:
     Status commit();
     Status rollback();
 
-    const Arena &arena() const { return arena_; }
-    Arena &arena() { return arena_; }
-    uint64_t limit() const { return memory_->limit(); }
+    const Arena &arena() const {
+        return arena_;
+    }
+    Arena &arena() {
+        return arena_;
+    }
+    uint64_t limit() const {
+        return memory_->limit();
+    }
 
-private:
+  private:
     Image() = default;
     Status rebuild_index();
 
@@ -142,7 +159,8 @@ private:
     std::unique_ptr<HostMemory> log_; // the undo log of a transaction, reserved on first use
     uint64_t log_limit_ = 0;
     Arena arena_;
-    std::unordered_map<pymergetic_rxf_handle, std::map<std::string, pymergetic_rxf_handle>> children_;
+    std::unordered_map<pymergetic_rxf_handle, std::map<std::string, pymergetic_rxf_handle>>
+        children_;
 };
 
 } // namespace pymergetic::rxf::core::object

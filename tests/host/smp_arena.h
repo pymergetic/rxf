@@ -5,7 +5,8 @@
  * The arena of the SMP proof (docs/20, "Suspension is a data property"): one cell stream, a handle
  * index (index | generation), and compaction that slides cells and records where each one went in
  * C_FORWARD. This is the persistence half of the policy. The persistent part names everything by
- * handle and offset, never by a raw address, so a cell may move while runs are parked or mid-flight.
+ * handle and offset, never by a raw address, so a cell may move while runs are parked or
+ * mid-flight.
  *
  * A claim word per slot bounds how long an address stays valid: a carrier resolves a handle to a
  * payload address and claims the cell, and that address is good until the claim is released, which
@@ -24,7 +25,7 @@
 typedef uint64_t rxf_smp_handle;
 
 #define RXF_SMP_HANDLE_NONE ((rxf_smp_handle)0)
-#define RXF_SMP_HANDLE(index, generation) \
+#define RXF_SMP_HANDLE(index, generation)                                                          \
     (((rxf_smp_handle)(uint32_t)(generation) << 32) | (uint32_t)(index))
 #define RXF_SMP_H_INDEX(h) ((uint32_t)(h))
 #define RXF_SMP_H_GENERATION(h) ((uint32_t)((h) >> 32))

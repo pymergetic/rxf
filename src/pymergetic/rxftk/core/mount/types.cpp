@@ -238,14 +238,16 @@ nb::object make_class(const std::shared_ptr<State> &state, const std::shared_ptr
     d["unset"] = nb::cpp_function(
         [state](nb::handle self, const std::string &field) {
             std::string error;
-            if (delta::edit_unset(*state->image, handle_of(self), field, &error) != object::Status::Ok)
+            if (delta::edit_unset(*state->image, handle_of(self), field, &error) !=
+                object::Status::Ok)
                 throw DeltaError(error);
         },
         nb::is_method(), nb::arg("field"), "An OPTIONAL field goes back to unset (docs/27).");
     d["rename"] = nb::cpp_function(
         [state](nb::handle self, const std::string &name) {
             std::string error;
-            if (delta::edit_rename(*state->image, handle_of(self), name, &error) != object::Status::Ok)
+            if (delta::edit_rename(*state->image, handle_of(self), name, &error) !=
+                object::Status::Ok)
                 throw DeltaError(error);
         },
         nb::is_method(), nb::arg("name"), "The name of this object changes (docs/27).");
@@ -277,8 +279,8 @@ nb::object make_class(const std::shared_ptr<State> &state, const std::shared_ptr
                 continue;
             if (leaf.name == "data")
                 has_data = true;
-            d[leaf.name.c_str()] = builtins.attr("property")(leaf_getter(state, leaf),
-                                                            leaf_setter(state, leaf));
+            d[leaf.name.c_str()] =
+                builtins.attr("property")(leaf_getter(state, leaf), leaf_setter(state, leaf));
         }
         for (const FieldInfo &m : t->members) {
             if (reserved(m.name))
@@ -286,7 +288,8 @@ nb::object make_class(const std::shared_ptr<State> &state, const std::shared_ptr
             if (m.name == "data")
                 has_data = true;
             d[m.name.c_str()] = builtins.attr("property")(
-                member_getter(state, faces, m.id), nb::cpp_function(
+                member_getter(state, faces, m.id),
+                nb::cpp_function(
                     [](nb::handle, nb::object) {
                         throw DeltaError("a declared list takes no value");
                     },
