@@ -17,9 +17,11 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from pymergetic.rxf import certify
 from pymergetic.rxf.core.object import Image
 
 from . import package
@@ -101,10 +103,25 @@ def build(
     out: Path,
     entry: str | None = None,
     work: Path | None = None,
+    *,
+    trust: certify.TrustStore | None = None,
+    statements: Sequence[certify.Statement] = (),
 ) -> dict[str, Any]:
-    """One artifact of one seat in ``out``; what the tests and the CLI report."""
+    """One artifact of one seat in ``out``; what the tests and the CLI report.
+
+    ``trust`` is the activation seam's Python half (docs/11, the shape the
+    certification lane pinned): with a trust store the statements' quorum over
+    the image must hold before anything is built or written — the same check
+    the boot path repeats in ``native/wrap/wrap_activate.c``. A certification
+    that does not hold refuses the build with its typed ``certify`` refusal.
+    """
+    if statements and trust is None:
+        raise BuildError("certification statements need a trust store")
+    if trust is not None:
+        certify.verify_quorum(image.digest(), image.delta_digest(), list(statements), trust)
     if target not in TARGETS:
         raise BuildError(f"no target {target}; the targets are {', '.join(TARGETS)}")
+    out.mkdir(parents=True, exist_ok=True)
     artifact = out / ARTIFACTS[target]
     with tempfile.TemporaryDirectory(prefix="rxf-build-") as temporary:
         here = work if work is not None else Path(temporary)
