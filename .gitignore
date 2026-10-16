@@ -9,6 +9,8 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
+# the editor's compile database (CMAKE_EXPORT_COMPILE_COMMANDS)
+build_clangd/
 develop-eggs/
 dist/
 downloads/
