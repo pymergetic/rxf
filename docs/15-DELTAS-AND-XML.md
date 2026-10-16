@@ -83,21 +83,21 @@ Documentation is a graph of recorded facts **inside the image**, not a comment t
 
 ## Module tree
 
-One file is not how a program is kept. `pymergetic.rxf.core.tree` (C++, `core/tree/`) writes an image as **one delta per module, laid out like Python modules**: the path of the file is the path of the module, a module with sub-modules is a package (`__init__.xml` in its folder), and one without is a plain file.
+One file is not how a program is kept. `pymergetic.rxf.core.tree` (C++, `core/tree/`) writes an image as **one delta per module, laid out like Python modules**: the path of the file is the path of the module, a module with sub-modules is a package (`__init__.rxfd` in its folder), and one without is a plain file.
 
 ```
 starter/
-  __init__.xml                         what sits at the root (the types, the entry)
-  pymergetic/__init__.xml              module pymergetic (it has sub-modules)
-  pymergetic/rxf/algorithms.xml        module pymergetic.rxf.algorithms
-  pymergetic/rxf/foundation/__init__.xml   module pymergetic.rxf.foundation
-  pymergetic/rxf/foundation/heap.xml       module pymergetic.rxf.foundation.heap
-  pymergetic/rxf/roles/call.xml        module pymergetic.rxf.roles.call
+  __init__.rxfd                         what sits at the root (the types, the entry)
+  pymergetic/__init__.rxfd              module pymergetic (it has sub-modules)
+  pymergetic/rxf/algorithms.rxfd        module pymergetic.rxf.algorithms
+  pymergetic/rxf/foundation/__init__.rxfd   module pymergetic.rxf.foundation
+  pymergetic/rxf/foundation/heap.rxfd       module pymergetic.rxf.foundation.heap
+  pymergetic/rxf/roles/call.rxfd        module pymergetic.rxf.roles.call
 ```
 
-A file **does not name its parent**: the path says where its module sits. A file defines its `Module` and everything below it that is not a module, and nothing else; the loader refuses a file that starts with something else, defines anything outside its module, or is a second file for the same module. **Every** `Module` object, wherever it sits, is a file of its own (`Image.export(module=path)`; `""` is the root). The files are independent texts, so the tree is **written and read on several threads** without the GIL: the image is only read while printing, and each file is parsed into its own operations before one atomic replay applies them all, the root `__init__.xml` last because it names the entry. `threads=0` is one thread per core.
+A file **does not name its parent**: the path says where its module sits. A file defines its `Module` and everything below it that is not a module, and nothing else; the loader refuses a file that starts with something else, defines anything outside its module, or is a second file for the same module. **Every** `Module` object, wherever it sits, is a file of its own (`Image.export(module=path)`; `""` is the root). The files are independent texts, so the tree is **written and read on several threads** without the GIL: the image is only read while printing, and each file is parsed into its own operations before one atomic replay applies them all, the root `__init__.rxfd` last because it names the entry. `threads=0` is one thread per core.
 
-Writing is canonical: the same image gives the same files, whatever the thread count, and a rewrite replaces only `.xml` files. A module name that could leave the directory (`/`, `\`) or is called `__init__` is refused before anything is written. The interface is `tree.files(image)`, `tree.write(image, directory, overwrite=False)`, and `tree.load(directory)`; the module's kind is the C++ enum, never a number in Python.
+Writing is canonical: the same image gives the same files, whatever the thread count, and a rewrite replaces only `.rxfd` files. A module name that could leave the directory (`/`, `\`) or is called `__init__` is refused before anything is written. The interface is `tree.files(image)`, `tree.write(image, directory, overwrite=False)`, and `tree.load(directory)`; the module's kind is the C++ enum, never a number in Python.
 
 ## Replay
 
@@ -132,10 +132,10 @@ Writing is canonical: the same image gives the same files, whatever the thread c
 rxf core object info   starter               # objects, entry, digests, problems (JSON)
 rxf core object check  starter               # link check; exit status 1 on problems
 rxf core object digest starter.rxfb          # image digest and delta digest
-rxf core object save   starter starter.rxfb  # .xml: one delta, .rxfb: bytes, else a module tree
+rxf core object save   starter starter.rxfb  # .rxfd: one delta, .rxfb: bytes, else a module tree
 rxf core delta show    starter --module=pymergetic.rxf.roles   # canonical XML of one module
-rxf core delta apply   starter patch.xml more.xml --to=out.rxfb # atomic replay of deltas
+rxf core delta apply   starter patch.rxfd more.rxfd --to=out.rxfb # atomic replay of deltas
 rxf server browse      starter --port=8420   # read-only inspector (needs the `server` extra)
 ```
 
-A SOURCE is a directory (a module tree), a `.xml` file (a delta on the empty image), or anything else (RXFB 6 bytes in canonical form). Exit status: 0 done, 1 the image has problems, 2 the input could not be used.
+A SOURCE is a directory (a module tree), a `.rxfd` file (a delta on the empty image), or anything else (RXFB 6 bytes in canonical form). Exit status: 0 done, 1 the image has problems, 2 the input could not be used.

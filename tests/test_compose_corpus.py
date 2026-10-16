@@ -1,6 +1,6 @@
 """The in-image composer reads the graphs the host composer reads (docs/19).
 
-``native/compose/compose.rxf`` is the composer as a program of the interpreter: it takes a Graph of
+``native/compose/compose.rxfs`` is the composer as a program of the interpreter: it takes a Graph of
 the live image and reads out the ground the host composer (``tools/native/compose.py``) reads for
 the same graph. Every graph of the starter is read twice -- by ``compose.py`` over its Image model,
 and by the composer as a program run on the interpreter of ``native/graph.c`` (``rxf_native``) over
@@ -29,7 +29,7 @@ from pymergetic.rxf.core import tree
 from . import rxf_native
 from .snippets import STARTER
 
-COMPOSE = Path(__file__).parents[1] / "native" / "compose" / "compose.rxf"
+COMPOSE = Path(__file__).parents[1] / "native" / "compose" / "compose.rxfs"
 REQUEST_AT = 0x10000
 ARENA_AT = 0x20000
 WORK_AT = 0x8000000

@@ -1,9 +1,9 @@
-"""The front end as a program: ``native/front/front.rxf`` run by the interpreter of
+"""The front end as a program: ``native/front/front.rxfs`` run by the interpreter of
 ``native/graph.c`` (``rxf_native``), and what it writes for a source. Every test compiles the same
 source with ``tools/native/rxfc.py`` and with the front end as a program, and holds the two to the
 same bytes.
 
-The request is the one of ``native/front/words.rxf``: source text, the numbers the source may use
+The request is the one of ``native/front/words.rxfs``: source text, the numbers the source may use
 (the ``RXF_*`` of ``native/graph.h``), and where the words of the program go.
 """
 
@@ -16,7 +16,7 @@ import rxfc
 
 from . import rxf_native
 
-FRONT = Path(__file__).parents[1] / "native" / "front" / "front.rxf"
+FRONT = Path(__file__).parents[1] / "native" / "front" / "front.rxfs"
 N = graph_header.numbers()
 
 # memory of a run: the request and what it names, below the frame of a run (0x100000)

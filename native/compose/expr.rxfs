@@ -1,14 +1,14 @@
-# expr.rxf -- the Expression of a Function: its body is a call, and every call to a native is an
+# expr.rxfs -- the Expression of a Function: its body is a call, and every call to a native is an
 # instruction. A callee that is itself such a function (its implementation is Semantic) is inlined,
 # so the program calls only leaves; a Bound value (a data object of a module) is moved from its
 # object into a slot; the status of every call is checked, and a refusal ends the run with it.
 # This is tools/native/compose.py's Expression face, word for word: the words of the program of the
-# same Function are byte identical (tests/test_compose_corpus). plan.rxf turns a SemanticGraph into
+# same Function are byte identical (tests/test_compose_corpus). plan.rxfs turns a SemanticGraph into
 # words; this turns the call graph of a Function whose body is one Call into them.
 #
 # g0..g2 carry the arguments, R (and R0..R2) the answers, W_XO the operand a proc answers with.
 # What must survive the calls that nest below lives in work memory: the scratch sub-regions of W_XS
-# for the procs that do not recurse (words.rxf names one per proc), and the frame of its level for
+# for the procs that do not recurse (words.rxfs names one per proc), and the frame of its level for
 # the call being written (expr_callproc). The recursion takes no frame word of the interpreter.
 #
 # The order is compose.py's: the arguments of a call resolve in the order their parameters are

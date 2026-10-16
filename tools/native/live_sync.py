@@ -9,7 +9,7 @@ UART provider (``native/uart.c``, leaf 30) is the second one, in the module ``ua
 compiler of programs (``native/compile.c``, leaf 31) is ``compile.program``; the safe point
 of compiled code (``native/safe.c``, leaf 38) is ``safe.point``.
 
-``tiny.compile`` is not native: it is the compiler of ``native/tiny/*.rxf`` as a program (a
+``tiny.compile`` is not native: it is the compiler of ``native/tiny/*.rxfs`` as a program (a
 Function of the Bytecode format that ``graph.run`` interprets), the one that, run by the
 interpreter, writes the code of any program for x86_64, aarch64 and wasm32, itself included.
 """
@@ -53,7 +53,7 @@ TINY_PATH = "pymergetic.rxf.foundation.tiny.compile"
 
 
 def tiny_files() -> list[Path]:
-    return sorted(TINY.glob("*.rxf")) + [ROOT / "native" / "graph.h"]
+    return sorted(TINY.glob("*.rxfs")) + [ROOT / "native" / "graph.h"]
 
 
 def tiny_digest() -> str:
@@ -78,16 +78,16 @@ def replace_text(root: ET.Element, old: str, new: str) -> None:
 
 
 def write_live(starter: Path) -> None:
-    """The modules of the providers (``foundation/live.xml``, ``foundation/uart.xml``)."""
+    """The modules of the providers (``foundation/live.rxfd``, ``foundation/uart.rxfd``)."""
     for module in MODULES:
         write_module(starter, module)
     write_tiny(starter)
 
 
 def write_module(starter: Path, name: str) -> None:
-    """``foundation/<module>.xml``: the module with its Function and the record of it."""
+    """``foundation/<module>.rxfd``: the module with its Function and the record of it."""
     name_of = MODULES[name][0]
-    source = ET.parse(starter / FOUNDATION / "runtime.xml").getroot()
+    source = ET.parse(starter / FOUNDATION / "runtime.rxfd").getroot()
     runtime = next(source.iter("Module"))
     function = copy.deepcopy(
         next(f for f in runtime.iter("Function") if f.get("name") == SOURCE)
@@ -120,13 +120,13 @@ def write_module(starter: Path, name: str) -> None:
             module.append(copied)
     module.extend((function, record))
     ET.ElementTree(root).write(
-        starter / FOUNDATION / f"{name}.xml", encoding="UTF-8", xml_declaration=True
+        starter / FOUNDATION / f"{name}.rxfd", encoding="UTF-8", xml_declaration=True
     )
 
 
 def write_tiny(starter: Path) -> None:
-    """``foundation/tiny.xml``: ``tiny.compile``, the compiler in ``native/tiny``, as Bytecode."""
-    source = ET.parse(starter / FOUNDATION / "compile.xml").getroot()
+    """``foundation/tiny.rxfd``: ``tiny.compile``, the compiler in ``native/tiny``, as Bytecode."""
+    source = ET.parse(starter / FOUNDATION / "compile.rxfd").getroot()
     compile_module = next(source.iter("Module"))
     function = ET.Element(
         "Function",
@@ -143,7 +143,7 @@ def write_tiny(starter: Path) -> None:
         next(e for e in compile_module.iter("Signature"))
     )  # a context and the request, a status back
     function.append(signature)
-    program = rxfc.compile_file(TINY / "tiny.rxf")
+    program = rxfc.compile_file(TINY / "tiny.rxfs")
     function.append(graph_sync.bytecode(function, "@tiny.compile", program))
     root = ET.Element("delta")
     module = ET.SubElement(root, "Module", dict(compile_module.attrib))
@@ -163,5 +163,5 @@ def write_tiny(starter: Path) -> None:
             module.append(copied)
     module.append(function)
     ET.ElementTree(root).write(
-        starter / FOUNDATION / "tiny.xml", encoding="UTF-8", xml_declaration=True
+        starter / FOUNDATION / "tiny.rxfd", encoding="UTF-8", xml_declaration=True
     )

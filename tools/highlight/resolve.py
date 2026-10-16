@@ -274,12 +274,12 @@ def layout_default_parent(root: Path, path: Path) -> str:
     ``pymergetic/rxf/foundation/__init__.xml`` declares the module ``foundation``
     under ``pymergetic.rxf`` (a package file names the directory it is in);
     ``pymergetic/rxf/library.xml`` declares ``library`` under the same; the
-    ``__init__.xml`` of the root declares at the root. That is why the starter
+    ``__init__.rxfd`` of the root declares at the root. That is why the starter
     never writes ``rxf:parent`` (``tests/test_starter_delta.py``)."""
     parts = list(path.relative_to(root).parts)
     if not parts:
         return ""
-    if parts[-1] == "__init__.xml":
+    if parts[-1] == "__init__.rxfd":
         parts = parts[:-2]  # the file, and the directory it names
     else:
         parts = parts[:-1]  # the file
@@ -289,7 +289,7 @@ def layout_default_parent(root: Path, path: Path) -> str:
 def corpus_world(root: Path) -> World:
     """Every declaration of the tree under `root`, laid out like ``starter/``."""
     world = World()
-    for path in sorted(root.rglob("*.xml")):
+    for path in sorted(root.rglob("*.rxfd")):
         add_document(
             world,
             path.read_text(),

@@ -1,4 +1,4 @@
-"""The compiler that is a program (docs/19, WP12): `native/tiny/*.rxf`, made into a program by
+"""The compiler that is a program (docs/19, WP12): `native/tiny/*.rxfs`, made into a program by
 `tools/native/rxfc.py`, and what it makes of itself.
 
 The program is run by the interpreter of each machine and writes the code of that machine (x86_64,
@@ -29,7 +29,7 @@ from .graph_programs import OP, assemble, lit, move, slot
 from .snippets import STARTER
 from .test_rxfc import MACHINES, SAMPLES, program
 
-TINY = Path(__file__).parents[1] / "native" / "tiny" / "tiny.rxf"
+TINY = Path(__file__).parents[1] / "native" / "tiny" / "tiny.rxfs"
 IDS = {"x86_64": 1, "aarch64": 2, "wasm32": 3}
 UNSUPPORTED = 16
 MORE = (
@@ -163,7 +163,7 @@ def compilers(stages: Stages):
     return stages.session, stages.I
 
 
-@pytest.mark.parametrize("name", sorted(p.stem for p in SAMPLES.glob("*.rxf")))
+@pytest.mark.parametrize("name", sorted(p.stem for p in SAMPLES.glob("*.rxfs")))
 def test_the_compiler_writes_what_the_compiler_of_the_image_writes(stages, name):
     session, compiler = compilers(stages)
     sample = program(name)

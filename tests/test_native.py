@@ -31,7 +31,7 @@ needs_clang = pytest.mark.skipif(
 def starter_code(known: set[str]) -> dict[tuple[str, str], str]:
     """``{(machine, snippet name): hex}`` as the starter says it, for every target."""
     found: dict[tuple[str, str], str] = {}
-    for path in STARTER.rglob("*.xml"):
+    for path in STARTER.rglob("*.rxfd"):
         parts = path.relative_to(STARTER).with_suffix("").parts
         for function in ET.parse(path).getroot().iter("Function"):
             for code in function.iter("Code"):
@@ -68,7 +68,7 @@ def test_the_starter_is_what_the_sync_makes_of_the_sources():
 
 def test_each_provenance_is_the_digest_of_the_recipe_of_its_machine():
     """No compiler: the recipe is data in native_build, and the starter records its digest."""
-    root = ET.parse(STARTER / "pymergetic" / "rxf" / "targets.xml").getroot()
+    root = ET.parse(STARTER / "pymergetic" / "rxf" / "targets.rxfd").getroot()
     recorded = {
         p.get("name"): (p.get("compiler_major"), p.get("recipe_digest"))
         for p in root.iter("CompilerProvenance")
@@ -81,7 +81,7 @@ def test_each_provenance_is_the_digest_of_the_recipe_of_its_machine():
 
 
 def test_each_code_names_the_provenance_of_its_machine():
-    for path in sorted(STARTER.rglob("*.xml")):
+    for path in sorted(STARTER.rglob("*.rxfd")):
         for code in ET.parse(path).getroot().iter("Code"):
             refs = {
                 sync.word(r.get("role")): sync.word(r.get("target"))

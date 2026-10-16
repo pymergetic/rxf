@@ -1,13 +1,13 @@
 """The composer in the image (docs/19): a Graph of the arena in, the ground of a program out.
 
-``native/compose/compose.rxf`` is the composer as a program: it walks the arena of the live image,
+``native/compose/compose.rxfs`` is the composer as a program: it walks the arena of the live image,
 finds the Graph the request names, and writes the ground the host composer (``tools/native/
 compose.py``) reads for that graph. Here the image does it and the arena it reads is its own: the
 composer is installed as a Function of the image by one delta, and the words it writes are read
 back and held to the same ground the host composer works from -- on x86_64, aarch64 and wasm32,
 no restart.
 
-What the harness writes is the call block (the request of ``native/compose/words.rxf`` and its
+What the harness writes is the call block (the request of ``native/compose/words.rxfs`` and its
 arguments) behind the lookup table of the live block; the composer reads the arena where the image
 keeps it. This is the reader and the field decoder of the composer -- the foundation the words of
 a program are written from. ``tests/test_compose_corpus.py`` holds it to the host composer on every
@@ -46,7 +46,7 @@ from .test_front_image import (
 )
 from .test_rxfc import MACHINES
 
-COMPOSE = Path(__file__).parents[1] / "native" / "compose" / "compose.rxf"
+COMPOSE = Path(__file__).parents[1] / "native" / "compose" / "compose.rxfs"
 SELFEDIT_OUT = "pymergetic.rxf.selfedit.out"
 OUT_ROOM = 0x10000
 REQUEST_AT_SHIFT = 0x100  # the request lives in the work region behind the lookup table
@@ -152,7 +152,7 @@ def test_the_image_composes_its_graphs_as_the_host_composer_does(running, base: 
     assert live is not None
     expected = Image.from_bytes(base)
 
-    # the composer becomes the image in one delta: the words of native/compose/compose.rxf, and an
+    # the composer becomes the image in one delta: the words of native/compose/compose.rxfs, and an
     # object for what it writes. The host makes the words with rxfc.py; the composer is a program
     # of the interpreter, so it runs wherever the interpreter does.
     words = rxfc.compile_file(COMPOSE)
@@ -241,7 +241,7 @@ def bound_targets(image: Image) -> list[int]:
 
 def test_the_image_object_id_is_the_sha256_of_the_path(running, base: bytes):
     """The id of a Bound value is the SHA-256 of the path of the object it stands for, computed in
-    the image by native/compose/hash.rxf -- the same ``object_id`` tools/native/compose.py reads,
+    the image by native/compose/hash.rxfs -- the same ``object_id`` tools/native/compose.py reads,
     on x86_64, aarch64 and wasm32. The request asks for the id of a handle (kind 2) and the answer
     is one word."""
     name, channel = running

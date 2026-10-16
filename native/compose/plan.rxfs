@@ -1,10 +1,10 @@
-# plan.rxf -- the plan of one SemanticGraph: every frame value in a slot and the blocks in order.
+# plan.rxfs -- the plan of one SemanticGraph: every frame value in a slot and the blocks in order.
 # This is the first increment of the composer's Plan (tools/native/compose.py); the words of the
 # program come next. What is here reads the arena of the graph and answers the slot of each frame
 # value and the order of the blocks, so the corpus test can hold it equal to compose.py's Plan.
 #
 # g0..g2 carry the arguments, R (and R0..R2) the answers. Scratch is the words q0..q39 the program
-# declares (compose.rxf); tree.rxf uses g/t/k/v/e and never touches q. Procs that nest use disjoint
+# declares (compose.rxfs); tree.rxfs uses g/t/k/v/e and never touches q. Procs that nest use disjoint
 # ranges: the reference readers q0..q2, the value readers and scanners q3..q10, place_one q11..q17,
 # block_parameters q18..q25, place_values and ordered_blocks q26..q35, plan_dump q36..q39.
 
@@ -504,7 +504,7 @@ proc plan_dump {
 # the operations and terminators clamp_graph uses -- a call (Read), a move (ReturnValue), and the
 # Branch / Return / Refuse terminators with their edge copies. Each new opcode class of M3 lands
 # here against its smallest carrier program. Every writing proc keeps its state in work memory (see
-# words.rxf), so none of this takes a frame word.
+# words.rxfs), so none of this takes a frame word.
 # =================================================================================================
 
 # ---- the packed names the writer compares to ---------------------------------------------------

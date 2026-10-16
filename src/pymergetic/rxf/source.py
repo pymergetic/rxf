@@ -8,7 +8,7 @@ from typing import Any
 from pymergetic.rxf.core import tree
 from pymergetic.rxf.core.object import Image
 
-DELTA_SUFFIX = ".xml"
+DELTA_SUFFIX = ".rxfd"
 IMAGE_SUFFIX = ".rxfb"
 
 
@@ -16,7 +16,7 @@ LIVE_PREFIX = "live:"
 
 
 def load(source: str | Path) -> Image:
-    """A directory is a module tree, `.xml` a delta on the empty image, `live:LINK` the dump of a
+    """A directory is a module tree, `.rxfd` a delta on the empty image, `live:LINK` the dump of a
     running image (`pty:/dev/pts/3`, `shm:name`, see `live.link`), else image bytes."""
     if isinstance(source, str) and source.startswith(LIVE_PREFIX):
         from pymergetic.rxf.live import link
@@ -35,7 +35,7 @@ def load(source: str | Path) -> Image:
 
 
 def save(image: Image, target: str | Path, overwrite: bool = False) -> str:
-    """Writes `.xml` as one delta, `.rxfb` as image bytes, anything else as a module tree."""
+    """Writes `.rxfd` as one delta, `.rxfb` as image bytes, anything else as a module tree."""
     path = Path(target)
     if path.suffix == DELTA_SUFFIX:
         path.write_text(image.export(), encoding="utf-8", newline="\n")

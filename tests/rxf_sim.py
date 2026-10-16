@@ -1,6 +1,6 @@
-"""A small interpreter of the programs of ``native/graph.h`` in Python, for the programs of ``.rxf``.
+"""A small interpreter of the programs of ``native/graph.h`` in Python, for the programs of ``.rxfs``.
 
-It runs what ``tools/native/rxfc.py`` makes and what the compiler in ``native/tiny.rxf`` does with
+It runs what ``tools/native/rxfc.py`` makes and what the compiler in ``native/tiny.rxfs`` does with
 it, on a flat memory, with the numeric and the memory leaves written here. It is a tool for
 writing such programs (a step is a Python call, not an emulated machine); what a program does on
 the real interpreter is what ``tests/test_tiny.py`` asks.

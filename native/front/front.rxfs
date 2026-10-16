@@ -4,11 +4,11 @@
 # tools/native/rxfc.py as a program that the interpreter runs: the same language, the same words,
 # byte for byte (tests/test_front.py).
 #
-# The request is the one of native/front/words.rxf: source, the files an `include` can name, the
+# The request is the one of native/front/words.rxfs: source, the files an `include` can name, the
 # numbers the source may use, and where the words go. The work memory holds the tables of the
 # names, the tokens, the labels and the patches -- everything that does not fit in the frame.
 
-include "words.rxf";
+include "words.rxfs";
 
 program front(context, request) {
     var sp;
@@ -125,8 +125,8 @@ program front(context, request) {
     refuse st;
 }
 
-include "lex.rxf";
-include "stream.rxf";
-include "emit.rxf";
-include "expr.rxf";
-include "parse.rxf";
+include "lex.rxfs";
+include "stream.rxfs";
+include "emit.rxfs";
+include "expr.rxfs";
+include "parse.rxfs";

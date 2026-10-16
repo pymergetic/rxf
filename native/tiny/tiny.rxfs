@@ -21,7 +21,7 @@
 # Everything here is variables of one frame: the procs take what they need in g0..g6 and answer in
 # R, st (a status) and wd (words), and keep their own names for what they use inside.
 
-include "words.rxf";
+include "words.rxfs";
 
 program tiny(context, request) {
     var sp;
@@ -167,8 +167,8 @@ program tiny(context, request) {
     return osz;
 }
 
-include "emit.rxf";
-include "front.rxf";
-include "x86.rxf";
-include "arm.rxf";
-include "wasm.rxf";
+include "emit.rxfs";
+include "front.rxfs";
+include "x86.rxfs";
+include "arm.rxfs";
+include "wasm.rxfs";

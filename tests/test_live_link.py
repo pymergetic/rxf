@@ -110,13 +110,13 @@ def test_a_change_made_from_the_other_process_is_in_the_shared_image(
     shm, image: Image, tmp_path
 ):
     name, raw = shm
-    delta = tmp_path / "wire.xml"
+    delta = tmp_path / "wire.rxfd"
     delta.write_text(DELTA, encoding="utf-8")
     wire = link.SharedMemory(name)
     client = Client(wire)
     expected = Image.from_bytes(raw)
     expected.apply(DELTA)
-    compiled = physical.from_xml(Image.from_bytes(raw), ("wire.xml", DELTA))
+    compiled = physical.from_xml(Image.from_bytes(raw), ("wire.rxfd", DELTA))
     assert client.apply(compiled.data) == expected.digest()
     # a second client of the same segment sees the change too
     other = link.SharedMemory(name)
@@ -159,7 +159,7 @@ def test_a_client_talks_to_the_image_over_a_pty(serial, image: Image):
 def test_the_rxf_live_commands_work_on_a_pty(serial, image: Image, tmp_path, capsys):
     path, _ = serial
     spec = f"pty:{path}"
-    delta = tmp_path / "wire.xml"
+    delta = tmp_path / "wire.rxfd"
     delta.write_text(DELTA, encoding="utf-8")
     assert main(["live", "digest", spec, "--timeout=60"]) == 0
     assert capsys.readouterr().out.strip().strip("'") == image.digest()
@@ -169,7 +169,7 @@ def test_the_rxf_live_commands_work_on_a_pty(serial, image: Image, tmp_path, cap
     expected.apply(DELTA)
     assert expected.digest() in applied
     # the dump of the running image, to the three forms
-    for name in ("run.xml", "run.rxfb", "run"):
+    for name in ("run.rxfd", "run.rxfb", "run"):
         target = tmp_path / name
         assert main(["live", "emit", spec, str(target), "--timeout=60"]) == 0
         capsys.readouterr()

@@ -1,7 +1,7 @@
 """The front end as a program on every program there is (docs/19).
 
 Every source of the corpus is compiled twice: by ``tools/native/rxfc.py``, and by
-``native/front/front.rxf`` run on the interpreter of ``native/graph.c`` (``rxf_native``). The two
+``native/front/front.rxfs`` run on the interpreter of ``native/graph.c`` (``rxf_native``). The two
 write the same bytes. ``tests/rxf_sim.py`` stays as a dev oracle, not as the engine of this run.
 
 The corpus is the samples of ``tests/rxfc``, the front end of ``native/front`` itself and the
@@ -18,12 +18,12 @@ from .test_front import FRONT, run_front
 
 ROOT = Path(__file__).parents[1]
 CORPUS = [
-    ROOT / "tests" / "rxfc" / "arith.rxf",
-    ROOT / "tests" / "rxfc" / "branches.rxf",
-    ROOT / "tests" / "rxfc" / "procs.rxf",
-    ROOT / "tests" / "rxfc" / "table.rxf",
-    ROOT / "native" / "tiny" / "tiny.rxf",
-    ROOT / "native" / "front" / "front.rxf",
+    ROOT / "tests" / "rxfc" / "arith.rxfs",
+    ROOT / "tests" / "rxfc" / "branches.rxfs",
+    ROOT / "tests" / "rxfc" / "procs.rxfs",
+    ROOT / "tests" / "rxfc" / "table.rxfs",
+    ROOT / "native" / "tiny" / "tiny.rxfs",
+    ROOT / "native" / "front" / "front.rxfs",
 ]
 LIMIT = 2_000_000  # thousand steps are a second of the simulator; this is a bound, not a budget
 STEPS_PER_BYTE = 1_500  # a source byte compiles in 320-470 steps; three times that stops a runaway
@@ -31,7 +31,7 @@ STEPS_PER_BYTE = 1_500  # a source byte compiles in 320-470 steps; three times t
 
 def files_of(path: Path) -> dict[str, bytes]:
     """The table of the files an `include` can name: the sources beside the file, by their names."""
-    return {p.name: p.read_bytes() for p in sorted(path.parent.glob("*.rxf"))}
+    return {p.name: p.read_bytes() for p in sorted(path.parent.glob("*.rxfs"))}
 
 
 @pytest.fixture(scope="module")

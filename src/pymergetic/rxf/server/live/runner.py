@@ -8,7 +8,7 @@ one seam (`server/live/session.py`) while the app serves, and shutting down take
 registration with it (`Session.close` is atexit-safe).
 
 The seed is the one docs/19 allows (the fixpoint): the host compiler (`tools/native/rxfc.py`)
-writes the words of the front end (`native/front/front.rxf`) once, and the image compiles
+writes the words of the front end (`native/front/front.rxfs`) once, and the image compiles
 everything from then on. The host tools are scripts of the checkout, not a package on any
 search path — they are loaded from their path here, the way `rxf` loads its own command
 modules (`pymergetic/rxf/cli.py`); a checkout-less install is refused plainly instead of booted
@@ -48,7 +48,7 @@ from pymergetic.rxf.server.live.session import Session
 
 SCRATCH = (
     12 << 20
-)  # the work memory of one request: its rows, then FRONT_WORK (words.rxf)
+)  # the work memory of one request: its rows, then FRONT_WORK (words.rxfs)
 GROWTH = (
     8 << 20
 )  # what the arena, the log and the stage grow by (link.LiveSpec in the tests)
@@ -61,12 +61,12 @@ def _checkout() -> Path:
     for start in (Path(__file__).resolve(), Path(pymergetic.rxf.__file__).resolve()):
         for parent in start.parents:
             if (parent / "tools" / "native" / "rxfc.py").is_file() and (
-                parent / "native" / "front" / "front.rxf"
+                parent / "native" / "front" / "front.rxfs"
             ).is_file():
                 return parent
     raise RuntimeError(
         "rxf serve needs the checkout to boot the image: tools/native (the host compiler that "
-        "seeds the front end, docs/19) and native/front/front.rxf are not in this install"
+        "seeds the front end, docs/19) and native/front/front.rxfs are not in this install"
     )
 
 
@@ -106,7 +106,7 @@ def _seed() -> tuple[bytes, bytes, dict[str, int]]:
     use (`graph_header`). What the image compiles after this one boot is the image's own work."""
     rxfc = _tool("rxfc")
     header = _tool("graph_header")
-    source = _checkout() / "native" / "front" / "front.rxf"
+    source = _checkout() / "native" / "front" / "front.rxfs"
     return rxfc.compile_file(source), source.read_bytes(), header.numbers()
 
 

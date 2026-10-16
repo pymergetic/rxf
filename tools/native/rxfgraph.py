@@ -1,6 +1,6 @@
-"""The graph target of the ``.rxf`` front end: source to a SemanticGraph, not to words.
+"""The graph target of the ``.rxfs`` front end: source to a SemanticGraph, not to words.
 
-Today ``tools/native/rxfc.py`` reads a ``.rxf`` program and writes the words of the
+Today ``tools/native/rxfc.py`` reads a ``.rxfs`` program and writes the words of the
 interpreter's program format directly. This module keeps that compiler exactly as it is
 and takes a second thing out of the same parse: the *semantic graph* of the program --
 blocks, operations and values as ordinary image objects (the kind ``tools/native/rxemit.py``

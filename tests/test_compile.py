@@ -197,7 +197,7 @@ def test_a_function_made_of_existing_ones_is_compiled_in_the_running_image(
     expected = Image.from_bytes(base)
     text = authored(expected)
     expected.apply(text)
-    compiled = physical.from_xml(Image.from_bytes(base), ("double.xml", text))
+    compiled = physical.from_xml(Image.from_bytes(base), ("double.rxfd", text))
     channel = lw.Channel(machine)
     assert channel.client.apply(compiled.data) == expected.digest()
     path = FUNCTION

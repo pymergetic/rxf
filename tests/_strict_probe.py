@@ -18,8 +18,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 import rxf_sim
 
 ROOT = Path(__file__).parents[1]
-FRONT = ROOT / "native" / "front" / "front.rxf"
-SOURCES = sorted((ROOT / "native" / "front").glob("*.rxf"))
+FRONT = ROOT / "native" / "front" / "front.rxfs"
+SOURCES = sorted((ROOT / "native" / "front").glob("*.rxfs"))
 
 # the addresses of the live machine's run (printed by the failing test)
 SOURCE_AT = 0x10A5D670
@@ -74,13 +74,13 @@ for name, body in list(rxf_sim.LEAF_RUN.items()):
 
 def main() -> None:
     files = {p.name: p.read_bytes() for p in SOURCES}
-    text = files["emit.rxf"]
+    text = files["emit.rxfs"]
     before, after = (
         b"st = OUT_OF_MEMORY;\n        at = load64(work + G_LASTLINE);",
         b"at = load64(work + G_LASTLINE);\n        st = OUT_OF_MEMORY;",
     )
     head, _, tail = text.rpartition(before)
-    files["emit.rxf"] = head + after + tail
+    files["emit.rxfs"] = head + after + tail
 
     program = rxfc.compile_file(FRONT)
     memory = Strict(
@@ -110,7 +110,7 @@ def main() -> None:
         encoded = filename.encode()
         spans.append((len(table), len(encoded), len(table) + len(encoded), len(source)))
         table += encoded + source
-    source = files["front.rxf"]
+    source = files["front.rxfs"]
     memory.write(NAMES_AT, names)
     memory.write(FILES_AT, table)
     memory.write(SOURCE_AT, source)

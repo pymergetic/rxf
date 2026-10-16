@@ -13,7 +13,7 @@ from pymergetic.rxf.core import tree
 from .snippets import STARTER
 
 RUN = "pymergetic.rxf.foundation.graph.run"
-TINY = "pymergetic.rxf.foundation.tiny.compile"  # a program of `.rxf`, not of a graph
+TINY = "pymergetic.rxf.foundation.tiny.compile"  # a program of `.rxfs`, not of a graph
 
 
 @pytest.fixture(scope="module")
@@ -78,7 +78,7 @@ def test_a_call_of_a_program_is_the_call_card(image, tmp_path: Path):
     program operand and the arguments). Here heap.pin's graph calls heap.pin itself, so
     the composed program carries one card and every other word is what it was."""
     shutil.copytree(STARTER, tmp_path / "starter")
-    path = tmp_path / "starter" / "pymergetic" / "rxf" / "foundation" / "heap.xml"
+    path = tmp_path / "starter" / "pymergetic" / "rxf" / "foundation" / "heap.rxfd"
     path.write_text(
         path.read_text().replace('callee="@runtime.pin"', 'callee="@heap.pin"')
     )
@@ -121,7 +121,7 @@ def test_a_call_of_no_leaf_and_no_program_is_refused(tmp_path: Path):
     no leaf of the interpreter (its name is in no leaf table) and to which no
     SemanticGraph answers."""
     shutil.copytree(STARTER, tmp_path / "starter")
-    path = tmp_path / "starter" / "pymergetic" / "rxf" / "foundation" / "heap.xml"
+    path = tmp_path / "starter" / "pymergetic" / "rxf" / "foundation" / "heap.rxfd"
     path.write_text(
         path.read_text().replace(
             'callee="@runtime.pin"', 'callee="@foundation.memory.load_u32"'
@@ -140,14 +140,14 @@ def test_the_composer_takes_the_new_arithmetic_leaves_for_calls(tmp_path: Path):
     leaves = graph_header.leaves()
     for path, was, now, old, new in (
         (
-            "library.xml",
+            "library.rxfd",
             "division.divide_uint32_t",
             "division.remainder_uint32_t",
             "divide_uint32_t",
             "remainder_uint32_t",
         ),
         (
-            "algorithms.xml",
+            "algorithms.rxfd",
             "wrapping.add_uint64_t",
             "wrapping.multiply_uint64_t",
             "wrapping_add_uint64_t",

@@ -26,7 +26,7 @@ DELTA = """<?xml version="1.0" encoding="UTF-8"?>
 
 @pytest.fixture
 def delta_file(tmp_path):
-    path = tmp_path / "small.xml"
+    path = tmp_path / "small.rxfd"
     path.write_text(DELTA, encoding="utf-8")
     return path
 
@@ -112,7 +112,7 @@ def test_info_check_and_digest_of_a_delta(capsys, delta_file):
 
 def test_show_is_canonical_and_can_be_one_module(capsys, delta_file, tmp_path):
     _, text, _ = run(capsys, "core", "delta", "show", str(delta_file))
-    again = tmp_path / "again.xml"
+    again = tmp_path / "again.rxfd"
     again.write_text(text, encoding="utf-8")
     assert run(capsys, "core", "delta", "show", str(again))[1] == text
     assert text.startswith('<?xml version="1.0" encoding="UTF-8"?>')
@@ -122,7 +122,7 @@ def test_show_is_canonical_and_can_be_one_module(capsys, delta_file, tmp_path):
 
 def test_save_writes_each_format_and_all_read_back_equal(capsys, delta_file, tmp_path):
     digest = core_digest(delta_file)
-    for name in ("copy.xml", "copy.rxfb", "copy"):
+    for name in ("copy.rxfd", "copy.rxfb", "copy"):
         target = tmp_path / name
         status, out, _ = run(
             capsys, "core", "object", "save", str(delta_file), str(target)
@@ -134,7 +134,7 @@ def test_save_writes_each_format_and_all_read_back_equal(capsys, delta_file, tmp
             ]
             == digest
         )
-    assert (tmp_path / "copy" / "__init__.xml").is_file()
+    assert (tmp_path / "copy" / "__init__.rxfd").is_file()
     assert (tmp_path / "copy.rxfb").read_bytes() == Image.from_bytes(
         (tmp_path / "copy.rxfb").read_bytes()
     ).compact().to_bytes()
@@ -160,7 +160,7 @@ def test_save_does_not_overwrite_a_used_directory(capsys, delta_file, tmp_path):
 
 
 def test_apply_replays_deltas_atomically(capsys, delta_file, tmp_path):
-    patch = tmp_path / "patch.xml"
+    patch = tmp_path / "patch.rxfd"
     patch.write_text('<delta><Point name="c" x="3" next="a"/></delta>')
     out = tmp_path / "result.rxfb"
     status, text, _ = run(
@@ -173,17 +173,17 @@ def test_apply_replays_deltas_atomically(capsys, delta_file, tmp_path):
 
 
 def test_apply_reports_a_broken_delta_and_writes_nothing(capsys, delta_file, tmp_path):
-    patch = tmp_path / "bad.xml"
+    patch = tmp_path / "bad.rxfd"
     patch.write_text('<delta><Point name="c" next="nowhere"/></delta>')
-    out = tmp_path / "never.xml"
+    out = tmp_path / "never.rxfd"
     status, _, err = run(
         capsys, "core", "delta", "apply", str(delta_file), str(patch), f"--to={out}"
     )
     assert status == 2 and "does not resolve" in err and not out.exists()
     status, _, err = run(
-        capsys, "core", "object", "check", str(tmp_path / "missing.xml")
+        capsys, "core", "object", "check", str(tmp_path / "missing.rxfd")
     )
-    assert status == 2 and "missing.xml" in err
+    assert status == 2 and "missing.rxfd" in err
 
 
 def test_check_exits_1_with_the_report_when_the_image_has_problems(
@@ -191,7 +191,7 @@ def test_check_exits_1_with_the_report_when_the_image_has_problems(
 ):
     broken = {"ok": False, "issues": [{"path": "a", "message": "broken"}]}
     monkeypatch.setattr(source, "report", lambda image: broken)
-    path = tmp_path / "x.xml"
+    path = tmp_path / "x.rxfd"
     path.write_text("<delta/>")
     status, out, _ = run(capsys, "core", "object", "check", str(path))
     assert status == 1 and json.loads(out) == broken  # ok and issues, nothing else

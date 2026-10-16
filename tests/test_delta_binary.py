@@ -32,7 +32,7 @@ def base() -> Image:
 
 @pytest.fixture
 def xml_file(tmp_path: Path) -> Path:
-    path = tmp_path / "change.xml"
+    path = tmp_path / "change.rxfd"
     path.write_text(XML, encoding="utf-8")
     return path
 
@@ -40,7 +40,7 @@ def xml_file(tmp_path: Path) -> Path:
 def test_xml_to_physical_to_image_to_xml_is_the_same_text(base: Image):
     reference = Image.from_bytes(base.to_bytes())
     reference.apply(XML)
-    compiled = physical.from_xml(base, ("change.xml", XML))
+    compiled = physical.from_xml(base, ("change.rxfd", XML))
     assert (compiled.creates, compiled.sets, compiled.deletes) == (3, 1, 0)
     result = harness.replay(base.to_bytes(), compiled.data)
     assert result.digest() == reference.digest()
@@ -49,8 +49,8 @@ def test_xml_to_physical_to_image_to_xml_is_the_same_text(base: Image):
 
 
 def test_the_physical_form_is_one_form(base: Image):
-    first = physical.from_xml(base, ("a.xml", XML))
-    second = physical.from_xml(base, ("b.xml", XML))
+    first = physical.from_xml(base, ("a.rxfd", XML))
+    second = physical.from_xml(base, ("b.rxfd", XML))
     assert first.data == second.data
     assert hashlib.sha256(first.data).hexdigest() == physical.digest_of(second.data)
     # it is decoded without the image: no handle in it, every object by its path
@@ -84,7 +84,7 @@ def test_a_delta_for_another_base_is_refused(base: Image):
 
     other = Image.from_bytes(base.to_bytes())
     other.apply(XML)
-    data = physical.from_xml(other, ("again.xml", XML.replace("demo", "second"))).data
+    data = physical.from_xml(other, ("again.rxfd", XML.replace("demo", "second"))).data
     with pytest.raises(Refused):
         harness.replay(base.to_bytes(), data)
 
@@ -111,7 +111,7 @@ def test_the_commands_convert_both_ways(
     assert status == 0 and '"creates": 3' in out and '"deletes": 0' in out
     status, out = run(capsys, "core", "delta", "inspect", str(binary))
     assert status == 0 and "pymergetic.rxf.demo.seven" in out
-    result = tmp_path / "result.xml"
+    result = tmp_path / "result.rxfd"
     status, out = run(
         capsys, "core", "delta", "patch", str(STARTER), str(binary), "--to", str(result)
     )

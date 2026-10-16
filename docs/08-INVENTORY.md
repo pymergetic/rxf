@@ -26,7 +26,7 @@ This document records what the RXF repository implements, and what it does not y
 
 ## Data
 
-- `starter/`: the default image, one XML file per module, laid out like Python modules (`__init__.xml` for a module with sub-modules): 58 files, 18,673 objects, 3.11 MB as an image. It is the source of truth. The enumerations of its data are in `pymergetic.rxf.kinds`.
+- `starter/`: the default image, one XML file per module, laid out like Python modules (`__init__.rxfd` for a module with sub-modules): 58 files, 18,673 objects, 3.11 MB as an image. It is the source of truth. The enumerations of its data are in `pymergetic.rxf.kinds`.
 
 ## Native
 
@@ -44,7 +44,7 @@ This document records what the RXF repository implements, and what it does not y
 - `test_image`: the starter linked as one memory image (`link.py`): functions of it, `application.main` included (570), run identically on the three machines and in the reference.
 - `test_native_wasm`, `test_native_emulated`, `test_native_stdlib`: the same inputs on x86_64, aarch64 and wasm32 (emulator and node), the 286 numeric snippets and the 30 stdlib leaves with a full memory comparison. They need `unicorn` (the `test` extra) and node.
 
-- `test_rxfc`, `test_tiny`: the language `.rxf` (`tools/native/rxfc.py`) and the compiler written in it (`native/tiny`): the same code as leaf 31 on three machines, on the whole corpus (`test_tiny_corpus`), and the fixpoint (interpreter, machine code, machine code again) with 3.14 and 3.12 alike.
+- `test_rxfc`, `test_tiny`: the language `.rxfs` (`tools/native/rxfc.py`) and the compiler written in it (`native/tiny`): the same code as leaf 31 on three machines, on the whole corpus (`test_tiny_corpus`), and the fixpoint (interpreter, machine code, machine code again) with 3.14 and 3.12 alike.
 - `test_live*`, `test_safe_points`, `test_self_edit`, `test_compile`: the live layer ([19](19-SELF-EDITING-PATH.md)): frames, reads, delta, journal, compaction, safe points and break (also in compiled loops), UART (eight devices) and shared-memory links, the first self-edit, and the compiled code of leaf 31, each on x86_64 and aarch64 (emulator) and wasm32 (node) where it touches native code.
 
 ## Not implemented

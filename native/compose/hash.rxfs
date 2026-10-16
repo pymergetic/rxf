@@ -9,7 +9,7 @@
 # those bytes. Every path of the starter is shorter than 56 bytes, so the message is one block and
 # the padding is done in place; a longer path would need a second block and is refused here.
 #
-# The words are the numbers of native/graph.h and of words.rxf. The arithmetic is 32-bit (SHA-256
+# The words are the numbers of native/graph.h and of words.rxfs. The arithmetic is 32-bit (SHA-256
 # works in words of 32 bits) done in 64-bit words and masked back. The state and the schedule live
 # in the work region at W_H*; the scratch of these procs is the words h0..h19 the entry declares.
 

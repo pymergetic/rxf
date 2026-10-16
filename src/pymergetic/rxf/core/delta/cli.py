@@ -21,7 +21,7 @@ def apply(
     """Replays the DELTA files on SOURCE, in the order given, as one atomic step.
 
     Nothing is written unless every delta applies and the result links. With
-    `--to=TARGET` the result is saved there (`.xml`, `.rxfb`, or a module tree).
+    `--to=TARGET` the result is saved there (`.rxfd`, `.rxfb`, or a module tree).
     """
     image = source.load(src)
     image.apply_all([(name, Path(name).read_text(encoding="utf-8")) for name in deltas])
@@ -80,7 +80,7 @@ def patch(
     """Replays a physical DELTA on SOURCE, with the code of the live layer, and saves the result.
 
     The result of `compile` then `patch` is the image that `apply` of the XML gives, and it can be
-    written as XML again with `--to=result.xml`.
+    written as XML again with `--to=result.rxfd`.
     """
     image = source.load(src)
     result = harness.replay(image.to_bytes(), Path(delta).read_bytes())

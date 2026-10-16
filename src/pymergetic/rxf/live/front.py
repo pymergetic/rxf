@@ -1,8 +1,8 @@
 """The front end of a running image driven over its channel (docs/19).
 
-The console types ``.rxf``; the image compiles it. The source travels as an object of the
+The console types ``.rxfs``; the image compiles it. The source travels as an object of the
 arena (one physical delta over the rings, ``rxf:data`` like every ByteBuffer), the request of
-``native/front/words.rxf`` points into its payload, the words come back as ``read`` frames, and
+``native/front/words.rxfs`` points into its payload, the words come back as ``read`` frames, and
 one delta installs the Function they name. Nothing here compiles: ``tools/native/rxfc.py`` is
 the same compiler on the host, and this path never calls it.
 
@@ -34,14 +34,14 @@ INTERPRETER = "pymergetic.rxf.foundation.graph.run"  # where a run of words goes
 MAGIC = 0x31475852  # "RXG1": the header of every program of the interpreter (native/graph.h)
 
 CELL_BYTES = 64  # the fixed part of a cell of the arena (the ground layout)
-REQUEST_BYTES = 96  # the request of one run: 12 words (native/front/words.rxf)
+REQUEST_BYTES = 96  # the request of one run: 12 words (native/front/words.rxfs)
 ROW_BYTES = 32  # CONST_ROW == FILE_ENTRY
 ROWS_AT = 0x100  # the rows of a request come after the request itself
 REQUEST_HEADROOM = 0x100000  # and before the work memory of the run
-FRONT_WORK = 8_963_144  # WORK_BYTES of native/front/words.rxf
+FRONT_WORK = 8_963_144  # WORK_BYTES of native/front/words.rxfs
 OUT_ROOM = 0x10000  # the room the words of the program are written into
 
-# the words of the request (native/front/words.rxf)
+# the words of the request (native/front/words.rxfs)
 R_SOURCE = 0
 R_SOURCE_SIZE = 8
 R_OUT = 16
@@ -366,7 +366,7 @@ class Front:
         as the image agrees with it. The mirror replays it with ``links=False``, the image's own
         policy — the image checks that the result links when it takes the delta."""
         state = self._image()
-        compiled = physical.from_xml(Image.from_bytes(state.to_bytes()), ("delta.xml", text))
+        compiled = physical.from_xml(Image.from_bytes(state.to_bytes()), ("delta.rxfd", text))
         state.apply(text, links=False)
         digest = self._client.apply(compiled.data)
         if digest != state.digest():
@@ -395,7 +395,7 @@ class Front:
 
 
 def _const_rows(names_at: int, names: bytes, values: bytes) -> bytes:
-    """The rows of the const table of a request: name, its length, value, 0 (words.rxf)."""
+    """The rows of the const table of a request: name, its length, value, 0 (words.rxfs)."""
     rows = b""
     offset = 0
     for name, (value,) in zip(
@@ -410,7 +410,7 @@ def _const_rows(names_at: int, names: bytes, values: bytes) -> bytes:
 
 def _file_rows(files: Mapping[str, bytes], blob_at: int) -> tuple[bytes, bytes]:
     """The table of the files an `include` can name: rows of name and text, then their bytes at
-    `blob_at` (words.rxf, FILE_ENTRY)."""
+    `blob_at` (words.rxfs, FILE_ENTRY)."""
     rows = b""
     blob = b""
     at = 0

@@ -31,7 +31,7 @@ def name_of(source: str) -> str | None:
 
 def beside(path: Path) -> dict[str, bytes]:
     """The table of the files an `include` can name: the sources beside the file (docs/19)."""
-    return {p.name: p.read_bytes() for p in sorted(path.parent.glob("*.rxf"))}
+    return {p.name: p.read_bytes() for p in sorted(path.parent.glob("*.rxfs"))}
 
 
 def report(installed: Installed) -> dict[str, Any]:
@@ -64,7 +64,7 @@ def refusal(verdict: Verdict, table: Mapping[str, int]) -> dict[str, Any]:
 
 
 class Console:
-    """The terminal on one running image: type `.rxf`, the image compiles and installs it.
+    """The terminal on one running image: type `.rxfs`, the image compiles and installs it.
 
     Every operation of the terminal runs inside the gate of the channel it speaks on — the
     transaction that travels with its front (`console/world.py` `World.front`) — so an editor
@@ -105,7 +105,7 @@ class Console:
             return report(self._front.install(wanted, verdict.words, data))
 
     def one_shot(self, path: str | Path, name: str | None = None) -> dict[str, Any]:
-        """One source file through the same path the loop takes. The `.rxf` sources beside the
+        """One source file through the same path the loop takes. The `.rxfs` sources beside the
         file travel with it: they are what an `include` of the program can name."""
         file = Path(path)
         return self.submit(
@@ -178,7 +178,7 @@ class Console:
             return False
         if word == ":help":
             self._out.write(
-                "a program of .rxf ends at a blank line (or a line of one `.`)\n"
+                "a program of .rxfs ends at a blank line (or a line of one `.`)\n"
                 ":list  what the image has installed\n"
                 ":quit  leave\n"
             )

@@ -1,4 +1,4 @@
-"""The compiler of the small language `.rxf`: source text to a program of the interpreter.
+"""The compiler of the small language `.rxfs`: source text to a program of the interpreter.
 
 A program of ``native/graph.h`` is a list of 64-bit words that only a tool can write. This is the
 tool for programs that are written by a person, in a language of statements over 64-bit
@@ -7,7 +7,7 @@ produces exactly the format the composer produces (the same header, the same ins
 the interpreter, the native compiler (``native/compile.c``) and the compiler that is itself a
 program run it like any other.
 
-    include "file.rxf";                         the tokens of another file, once
+    include "file.rxfs";                         the tokens of another file, once
     const NAME = expression;                    a number, known when the program is made
                                                 (every number of native/graph.h is one already)
     macro name(a, b) { ... }                    statements that are put in where it is used

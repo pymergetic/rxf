@@ -356,7 +356,7 @@ def test_a_live_apply_holds_the_transaction_around_its_whole_composite(
             return real_from_xml(*args, **kwargs)
 
         monkeypatch.setattr(physical, "from_xml", standing_in_the_gap)
-        delta = tmp_path / "gate.xml"
+        delta = tmp_path / "gate.rxfd"
         delta.write_text(PROBE_DELTA, encoding="utf-8")
 
         report = cli.apply(link, str(delta))

@@ -145,7 +145,7 @@ def write_interpreter(
     bytes_of: Mapping[str, Mapping[str, str]],
     leaf_paths: Mapping[str, str],
 ) -> None:
-    source = ET.parse(starter / FOUNDATION / "runtime.xml").getroot()
+    source = ET.parse(starter / FOUNDATION / "runtime.rxfd").getroot()
     runtime = next(source.iter("Module"))
     function, record = interpreter(runtime, bytes_of, leaf_paths)
     root = ET.Element("delta")
@@ -160,12 +160,12 @@ def write_interpreter(
             module.append(copied)
     module.extend((function, record))
     ET.ElementTree(root).write(
-        starter / FOUNDATION / "graph.xml", encoding="UTF-8", xml_declaration=True
+        starter / FOUNDATION / "graph.rxfd", encoding="UTF-8", xml_declaration=True
     )
 
 
 def module_prefix(parts: tuple[str, ...]) -> str:
-    """The path above the module a file defines (``__init__.xml`` defines its directory)."""
+    """The path above the module a file defines (``__init__.rxfd`` defines its directory)."""
     return ".".join(parts[:-2] if parts[-1] == "__init__" else parts[:-1])
 
 

@@ -13,8 +13,8 @@ from .support import resolved
 STARTER = Path(__file__).parents[1] / "starter"
 
 # Bump these two together with the files in starter/, never one alone.
-DIGEST = "15d67f1248381eec540ae4e6c8bca13cb79b9efdc4e60220f7063b1b5f545919"
-DELTA_DIGEST = "9606c9a68f4d1f880ddc8565a8cde1cee752e39567f457b94bfb1a3749359d81"
+DIGEST = "2846f88ff8a03c1926a7c76be699d4840fd28e910f53235565384cbe891a39da"
+DELTA_DIGEST = "58c5baa4ef7b5ba9416d1759014a7f75f5355813a44b0af7358501de01b79735"
 OBJECTS = 17863
 
 
@@ -33,10 +33,10 @@ def test_the_starter_replays_and_checks_clean(capsys):
 def test_the_starter_files_are_the_canonical_tree_of_the_image(tmp_path):
     image = tree.load(STARTER)
     tree.write(image, tmp_path / "again")
-    names = sorted(p.relative_to(STARTER).as_posix() for p in STARTER.rglob("*.xml"))
+    names = sorted(p.relative_to(STARTER).as_posix() for p in STARTER.rglob("*.rxfd"))
     assert names == sorted(
         p.relative_to(tmp_path / "again").as_posix()
-        for p in (tmp_path / "again").rglob("*.xml")
+        for p in (tmp_path / "again").rglob("*.rxfd")
     )
     for name in names:
         assert (STARTER / name).read_text() == (tmp_path / "again" / name).read_text()
@@ -66,19 +66,19 @@ def test_the_starter_names_roles_and_list_places_not_numbers():
 
 
 def test_the_starter_is_laid_out_like_python_modules():
-    names = sorted(p.relative_to(STARTER).as_posix() for p in STARTER.rglob("*.xml"))
-    assert "__init__.xml" in names and "pymergetic/__init__.xml" in names
+    names = sorted(p.relative_to(STARTER).as_posix() for p in STARTER.rglob("*.rxfd"))
+    assert "__init__.rxfd" in names and "pymergetic/__init__.rxfd" in names
     assert (
-        "pymergetic/rxf/foundation/__init__.xml" in names
+        "pymergetic/rxf/foundation/__init__.rxfd" in names
     )  # a module with sub-modules
-    assert "pymergetic/rxf/foundation/heap.xml" in names  # a module without
-    assert "pymergetic/rxf/foundation.xml" not in names
-    assert max(len(p.read_text().splitlines()) for p in STARTER.rglob("*.xml")) < 10000
+    assert "pymergetic/rxf/foundation/heap.rxfd" in names  # a module without
+    assert "pymergetic/rxf/foundation.rxfd" not in names
+    assert max(len(p.read_text().splitlines()) for p in STARTER.rglob("*.rxfd")) < 10000
 
 
 def test_the_starter_writes_words_not_numbers():
     """Enumerations are names; the only numbers are counts, sizes, indices, offsets, widths."""
-    text = "".join(p.read_text() for p in STARTER.rglob("*.xml"))
+    text = "".join(p.read_text() for p in STARTER.rglob("*.rxfd"))
     assert 'rxf:parent="' not in text.replace('xmlns:rxf="urn:pymergetic:rxf"', "")
     for word in ("kind", "category", "layer", "implementation", "opcode", "terminator"):
         assert not re.search(rf'\s{word}="\d', text), word
@@ -88,7 +88,7 @@ def test_the_starter_writes_words_not_numbers():
 
 def test_the_starter_shortens_paths_with_aliases():
     image = tree.load(STARTER)
-    library = (STARTER / "pymergetic/rxf/library.xml").read_text()
+    library = (STARTER / "pymergetic/rxf/library.rxfd").read_text()
     assert '<Alias name="kinds" target="pymergetic.rxf.kinds" />' in library
     assert 'layer="@kinds.FunctionLayer.Library"' in library
     # an alias is an object of the module; the image holds the absolute path
@@ -118,7 +118,7 @@ def test_the_root_holds_only_what_a_module_needs_to_exist():
 
 def test_the_starter_names_every_word_by_the_path_of_its_enumerator():
     """No bare `LIBRARY`, `DATA`, `STRUCT`: a value is `@kinds.Effects.Read|Write`, `RefKind.Data`."""
-    text = "".join(p.read_text() for p in STARTER.rglob("*.xml"))
+    text = "".join(p.read_text() for p in STARTER.rglob("*.rxfd"))
     bare = re.findall(
         r'\s(?!name=)[A-Za-z_:]+="[A-Z][A-Z0-9_]+(?:\|[A-Z][A-Z0-9_]+)*"', text
     )
