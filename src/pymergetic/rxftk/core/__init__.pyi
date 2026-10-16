@@ -5,6 +5,7 @@ from pymergetic.rxftk.core import (
     kinds as kinds,
     live as live,
     meta as meta,
+    mount as mount,
     object as object,
     tree as tree
 )

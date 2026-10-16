@@ -10,6 +10,7 @@
  *   core.delta   deltas: replay and canonical export (methods of Image)
  *   core.tree    an image as one delta per module
  *   core.live    the live layer of a running image (host build of the native leaf, for tests)
+ *   core.mount   the object world as Python: classes from Type objects, modules from cells
  */
 
 #include <string>
@@ -45,6 +46,7 @@ NB_MODULE(core, m) {
     nb::module_ delta = submodule(m, "delta", "Deltas: replay by path and canonical export.");
     nb::module_ tree = submodule(m, "tree", "An image as one delta per module.");
     nb::module_ live = submodule(m, "live", "The live layer: frames, reads, staged deltas, dumps.");
+    nb::module_ mount = submodule(m, "mount", "The object world as Python: classes, modules, instances.");
 
     bindings::bind_kinds(kinds);
     bindings::bind_arena(arena);
@@ -54,4 +56,5 @@ NB_MODULE(core, m) {
     bindings::bind_delta(delta, image);
     bindings::bind_tree(tree);
     bindings::bind_live(live);
+    bindings::bind_mount(mount, image);
 }

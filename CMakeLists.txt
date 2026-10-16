@@ -107,6 +107,9 @@ nanobind_add_module(
   ${RXF_CORE}/meta/bindings.cpp
   ${RXF_CORE}/delta/bindings.cpp
   ${RXF_CORE}/tree/bindings.cpp
+  ${RXF_CORE}/mount/types.cpp
+  ${RXF_CORE}/mount/modules.cpp
+  ${RXF_CORE}/mount/bindings.cpp
   ${RXF_CORE}/live/bindings.cpp)
 target_link_libraries(core PRIVATE rxf_tree rxf_hash rxf_live)
 set_target_properties(core PROPERTIES OUTPUT_NAME "__init__")
