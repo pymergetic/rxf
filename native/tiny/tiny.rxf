@@ -34,8 +34,10 @@ program tiny(context, request) {
     # what the procs take and give
     var A, V, N, R, st, wd, pc, g0, g1, g2, g3, g4, g5, g6;
     var ok, oa, ob, ooff, nd, vw, ea, el, eat, ew, leafid;
-    # the call that is being compiled
-    var pn, pcount, hasout, function, cl, cos, cow, css;
+    # the call that is being compiled (ops: where its operands are)
+    var pn, pcount, hasout, function, cl, cos, cow, css, ops;
+    # the call of a program that is being compiled
+    var k0, k1, k2, k3, k4, k5, k6;
     # locals of the procs (one set for a level of calls: a proc keeps its set while it calls a
     # proc of a higher level)
     var u0, u1;                                   # put, put_n, patch32

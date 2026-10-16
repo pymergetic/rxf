@@ -255,8 +255,10 @@ proc x_argument {
         x_mov(q5, RBX);
     } else if q6 == ARG_OUT {
         x_lea(q5, RBP, cos);
+    } else if q6 == ARG_STAGE {
+        x_lea(q5, RBP, STAGE_AT);
     } else {
-        operand(pc + 6 + triple(q6));
+        soperand(q6);
         if (q7 == T_BYTE) & (ok == LITERAL) {
             x_imm(q5, oa & 255);
         } else {
@@ -308,7 +310,7 @@ proc x_call {
     q1 = pn;
     while q1 > 0 {
         if load8(plantype + (q1 - 1)) == T_HANDLE {
-            operand(pc + 6 + triple(load64(planarg + ((q1 - 1) << 3))));
+            soperand(load64(planarg + ((q1 - 1) << 3)));
             call x_push_handle;
         }
         q1 = q1 - 1;
@@ -359,7 +361,19 @@ proc x_call {
         byte(0xC4);
         byte(q2 << 3);
     }
-    if css != NONE {
+    if css == UNCAUGHT {
+        byte(0x48);
+        byte(0x85);
+        byte(0xC0);             # test rax, rax
+        byte(0x0F);
+        byte(0x84);
+        q5 = size;
+        bytes(0, 4);            # jz past the answer, the distance patched below
+        call x_epilogue;
+        g0 = q5;
+        g1 = size - (q5 + 4);
+        call patch32;
+    } else if css != NONE {
         x_store(4, RAX, RBP, css);
     }
 }

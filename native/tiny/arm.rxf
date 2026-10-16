@@ -193,8 +193,10 @@ proc a_argument {
         a_mov(q5, X19);
     } else if q6 == ARG_OUT {
         a_add(q5, X20, cos);
+    } else if q6 == ARG_STAGE {
+        a_add(q5, X20, STAGE_AT);
     } else {
-        operand(pc + 6 + triple(q6));
+        soperand(q6);
         if (q7 == T_BYTE) & (ok == LITERAL) {
             a_imm(q5, oa & 255);
         } else {
@@ -225,7 +227,7 @@ proc a_call {
         q2 = load64(planarg + (q1 << 3));
         q3 = load8(plantype + q1);
         if q3 == T_HANDLE {
-            operand(pc + 6 + triple(q2));
+            soperand(q2);
             g0 = q1;
             g1 = q0;
             call a_handle;
@@ -243,7 +245,14 @@ proc a_call {
     }
     a_imm(X16, function);
     bytes(0xD63F0000 | (X16 << 5), 4);
-    if css != NONE {
+    if css == UNCAUGHT {
+        q5 = size;
+        bytes(0xB4000000, 4);   # cbz x0, past the answer, the distance patched below
+        call a_epilogue;
+        g0 = q5;
+        g1 = 0xB4000000 | ((((size - q5) >> 2) << 5));
+        call patch32;
+    } else if css != NONE {
         a_store(4, 0, X20, css);
     }
 }
