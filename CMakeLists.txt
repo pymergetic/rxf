@@ -70,6 +70,13 @@ target_link_libraries(rxf_delta PUBLIC rxf_meta)
 target_compile_options(rxf_delta PRIVATE -Wall -Wextra -Werror)
 set_target_properties(rxf_delta PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# pymergetic::rxf::core::delta::edit: the edit set (docs/27) — the typed verbs of the one
+# delta vocabulary, and the transaction that is one delta, written down as one .rxfd.
+add_library(rxf_edit STATIC ${RXF_CORE}/delta/edit.cpp)
+target_link_libraries(rxf_edit PUBLIC rxf_xml)
+target_compile_options(rxf_edit PRIVATE -Wall -Wextra -Werror)
+set_target_properties(rxf_edit PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 # pugixml 1.14 (MIT), vendored unmodified: the XML parser and printer.
 add_library(pugixml STATIC third_party/pugixml/pugixml.cpp)
 target_include_directories(pugixml SYSTEM PUBLIC third_party/pugixml)
@@ -111,7 +118,7 @@ nanobind_add_module(
   ${RXF_CORE}/mount/modules.cpp
   ${RXF_CORE}/mount/bindings.cpp
   ${RXF_CORE}/live/bindings.cpp)
-target_link_libraries(core PRIVATE rxf_tree rxf_hash rxf_live)
+target_link_libraries(core PRIVATE rxf_tree rxf_hash rxf_live rxf_edit)
 set_target_properties(core PROPERTIES OUTPUT_NAME "__init__")
 
 install(TARGETS core LIBRARY DESTINATION pymergetic/rxftk/core)

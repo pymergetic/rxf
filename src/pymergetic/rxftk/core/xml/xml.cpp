@@ -279,8 +279,12 @@ private:
                 op.has_refs = true;
             } else if (k == "rxf:data") {
                 op.attrs.push_back({meta::kDataAttr, a.second});
-            } else if (is_format(k) || k == "name") {
+            } else if (k == "rxf:parent") {
+                op.parent = a.second;
+            } else if (is_format(k)) {
                 return fail(e, k + " cannot be changed by <rxf:set>");
+            } else if (k == "name") {
+                op.name = a.second;
             } else {
                 op.attrs.push_back({k, a.second});
             }
@@ -496,6 +500,12 @@ private:
         open_.clear();
         pugi::xml_node n = root_.append_child("rxf:set");
         if (!attribute(n, "path", s.path)) return false;
+        if (s.name) {
+            if (!attribute(n, "name", *s.name)) return false;
+        }
+        if (s.parent) {
+            if (!attribute(n, "rxf:parent", *s.parent)) return false;
+        }
         if (s.mobility) {
             const std::string k = kinds::path_of(kinds::kMobilityType, kinds::mobilities, *s.mobility);
             if (k.empty()) return bad("<set> has an unknown mobility");

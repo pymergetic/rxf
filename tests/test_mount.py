@@ -196,4 +196,4 @@ def test_without_an_image_the_error_says_so():
 
 def test_one_image_at_a_time(mounted):
     with pytest.raises(ImportError, match="already mounted"):
-        mount.install(Image.create())
+        mount.install(Image.arena())

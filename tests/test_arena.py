@@ -18,7 +18,7 @@ PINNED = 1 << 4
 
 
 def booted(**kwargs):
-    image = Image.create(**kwargs)
+    image = Image.arena(**kwargs)
     image.bootstrap()
     return image
 
@@ -183,14 +183,14 @@ def test_index_grows_by_chunks():
 
 
 def test_index_full_and_out_of_memory():
-    image = Image.create(index_capacity=4096)  # directory of 8 chunks: 32768 handles
+    image = Image.arena(index_capacity=4096)  # directory of 8 chunks: 32768 handles
     image.bootstrap()
     with pytest.raises(ArenaError) as caught:
         for i in range(40000):
             data(image, 0, f"d{i}")
     assert str(caught.value) == "IndexFull"
     image.verify()
-    small = Image.create(limit=64 * 1024)
+    small = Image.arena(limit=64 * 1024)
     small.bootstrap()
     with pytest.raises(ArenaError) as caught:
         for i in range(10000):
@@ -315,7 +315,7 @@ def test_compaction_refuses_retained_child_of_omitted_parent():
 
 
 def test_compaction_into_a_larger_index():
-    image = Image.create(index_capacity=4096)
+    image = Image.arena(index_capacity=4096)
     image.bootstrap()
     for i in range(100):
         data(image, 0, f"d{i}")

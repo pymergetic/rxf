@@ -235,6 +235,16 @@ static Status replay(Image &image, const Delta &delta, Failure *failure, bool li
             if (h == kNone || h == PYMERGETIC_RXF_HANDLE_ROOT) return fail(failure, n, Status::BadPath, "no such object: " + s->path);
             if (meta::is_ground(*work, h)) return fail(failure, n, Status::Protected, "the ground cannot change: " + s->path);
             if (has_pending(h)) return fail(failure, n, Status::Dangling, s->path + " still has unresolved references; give them in its create");
+            if (s->parent) {
+                const Handle parent = work->resolve(*s->parent);
+                if (parent == kNone) return fail(failure, n, Status::BadPath, "no such parent: " + *s->parent);
+                status = work->set_parent(h, parent);
+                if (status != Status::Ok) return fail(failure, n, status, "cannot move " + s->path + ": " + arena::status_name(status));
+            }
+            if (s->name) {
+                status = work->rename(h, *s->name);
+                if (status != Status::Ok) return fail(failure, n, status, "cannot rename " + s->path + ": " + arena::status_name(status));
+            }
             const pymergetic_rxf_cell *cell = work->arena().cell(h);
             const Handle type = cell->type;
             if (!s->attrs.empty()) {

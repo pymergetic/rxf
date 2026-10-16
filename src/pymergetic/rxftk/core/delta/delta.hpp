@@ -51,9 +51,12 @@ struct Create {
     std::vector<RefSpec> refs;
 };
 
-/* Changes the attributes that are listed; the rest of the object stays. */
+/* Changes what is listed; the rest of the object stays. `name` renames the object and
+ * `parent` moves it under another one (docs/27: the text form is the same ops written down). */
 struct Set {
     std::string path;
+    std::optional<std::string> name;   // rename
+    std::optional<std::string> parent; // move
     std::vector<Attr> attrs;
     bool has_refs = false; // replaces all references when true
     std::vector<RefSpec> refs;

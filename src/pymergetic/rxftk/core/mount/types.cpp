@@ -4,6 +4,7 @@
 #include <nanobind/stl/vector.h>
 
 #include <pymergetic/rxftk/core/bindings.hpp>
+#include <pymergetic/rxftk/core/delta/edit.hpp>
 #include <pymergetic/rxftk/core/ground.h>
 #include <pymergetic/rxftk/core/mount/mount.hpp>
 
@@ -121,6 +122,23 @@ Handle handle_of(nb::handle self) {
     return nb::cast<Handle>(self.attr("id"));
 }
 
+/* The edit set (docs/27) on a mounted face: one mutation is one delta, refused exactly as the
+ * delta refuses it (the verbs of core/delta/edit.cpp are the one implementation). */
+void put_leaf(const std::shared_ptr<State> &state, Handle handle, const std::string &field,
+              const nb::object &value) {
+    std::string error;
+    if (delta::edit_put(*state->image, handle, field, bindings::value_text(value), &error) !=
+        object::Status::Ok)
+        throw DeltaError(error);
+}
+
+/* The names the face itself holds: a field of one of these names takes no property (the edit
+ * verbs and the instance slot win). */
+bool reserved(const std::string &name) {
+    return name == "id" || name == "put" || name == "ref" || name == "unset" || name == "rename" ||
+           name == "move" || name == "delete";
+}
+
 /* The value of one property: the leaf read from the object's payload at the field's
  * offset, straight out of the cell (no codec, no dict). */
 nb::object leaf_getter(const std::shared_ptr<State> &state, Leaf leaf) {
@@ -133,6 +151,18 @@ nb::object leaf_getter(const std::shared_ptr<State> &state, Leaf leaf) {
             return read_leaf(state, leaf, state->image->arena().payload(handle), c->payload_size);
         },
         nb::arg("self"));
+}
+
+/* The write side of one property: `alloc.size = 4096` is put (docs/27). A reference is
+ * written by ref() only — the one place a handle may be written. */
+nb::object leaf_setter(const std::shared_ptr<State> &state, Leaf leaf) {
+    return nb::cpp_function(
+        [state, leaf](nb::handle self, nb::object value) {
+            if (leaf.kind == LeafKind::Ref)
+                throw DeltaError("a reference is written by ref(): " + leaf.name);
+            put_leaf(state, handle_of(self), leaf.name, value);
+        },
+        nb::arg("self"), nb::arg("value"));
 }
 
 /* The value of one declared relation (Children, Inverse): its objects, in order, mounted.
@@ -187,24 +217,80 @@ nb::object make_class(const std::shared_ptr<State> &state, const std::shared_ptr
         },
         nb::is_method());
 
-    /* The payload values: one property per leaf, reading the cell at the field's offset.
-     * Derived leaves take no value (docs/27) and no property. Where the leaves end and the
-     * type is not fully covered, the tail bytes ride as `data` (a leaf of that name wins). */
+    /* The edit set (docs/27) as methods on every mounted class: one mutation is one delta,
+     * a property assignment is put, and a reference is written by ref() — the one place a
+     * handle may be written. */
+    d["put"] = nb::cpp_function(
+        [state](nb::handle self, const std::string &field, nb::object value) {
+            put_leaf(state, handle_of(self), field, value);
+        },
+        nb::is_method(), nb::arg("field"), nb::arg("value"), "One leaf is written (docs/27).");
+    d["ref"] = nb::cpp_function(
+        [state](nb::handle self, const std::string &field, nb::object to) {
+            std::string error;
+            if (delta::edit_ref(*state->image, handle_of(self), field,
+                                bindings::target_handle(*state->image, to),
+                                &error) != object::Status::Ok)
+                throw DeltaError(error);
+        },
+        nb::is_method(), nb::arg("field"), nb::arg("to"),
+        "The reference field of this object points at another (docs/27).");
+    d["unset"] = nb::cpp_function(
+        [state](nb::handle self, const std::string &field) {
+            std::string error;
+            if (delta::edit_unset(*state->image, handle_of(self), field, &error) != object::Status::Ok)
+                throw DeltaError(error);
+        },
+        nb::is_method(), nb::arg("field"), "An OPTIONAL field goes back to unset (docs/27).");
+    d["rename"] = nb::cpp_function(
+        [state](nb::handle self, const std::string &name) {
+            std::string error;
+            if (delta::edit_rename(*state->image, handle_of(self), name, &error) != object::Status::Ok)
+                throw DeltaError(error);
+        },
+        nb::is_method(), nb::arg("name"), "The name of this object changes (docs/27).");
+    d["move"] = nb::cpp_function(
+        [state](nb::handle self, nb::object parent) {
+            std::string error;
+            if (delta::edit_move(*state->image, handle_of(self),
+                                 bindings::target_handle(*state->image, parent),
+                                 &error) != object::Status::Ok)
+                throw DeltaError(error);
+        },
+        nb::is_method(), nb::arg("parent"), "This object sits under another parent (docs/27).");
+    d["delete"] = nb::cpp_function(
+        [state](nb::handle self) {
+            std::string error;
+            if (delta::edit_delete(*state->image, handle_of(self), &error) != object::Status::Ok)
+                throw DeltaError(error);
+        },
+        nb::is_method(), "This object and everything below it are removed (docs/27).");
+
+    /* The payload values: one property per leaf, reading the cell at the field's offset and
+     * writing it as put (docs/27). Derived leaves take no value (docs/27) and no property.
+     * Where the leaves end and the type is not fully covered, the tail bytes ride as `data`
+     * (a leaf of that name wins). */
     bool has_data = false;
     if (layout.error.empty()) {
         for (const Leaf &leaf : layout.leaves) {
-            if (leaf.derived || leaf.name == "id")
+            if (leaf.derived || reserved(leaf.name))
                 continue;
             if (leaf.name == "data")
                 has_data = true;
-            d[leaf.name.c_str()] = builtins.attr("property")(leaf_getter(state, leaf));
+            d[leaf.name.c_str()] = builtins.attr("property")(leaf_getter(state, leaf),
+                                                            leaf_setter(state, leaf));
         }
         for (const FieldInfo &m : t->members) {
-            if (m.name == "id")
+            if (reserved(m.name))
                 continue;
             if (m.name == "data")
                 has_data = true;
-            d[m.name.c_str()] = builtins.attr("property")(member_getter(state, faces, m.id));
+            d[m.name.c_str()] = builtins.attr("property")(
+                member_getter(state, faces, m.id), nb::cpp_function(
+                    [](nb::handle, nb::object) {
+                        throw DeltaError("a declared list takes no value");
+                    },
+                    nb::arg("self"), nb::arg("value")));
         }
     }
     if (!has_data) {

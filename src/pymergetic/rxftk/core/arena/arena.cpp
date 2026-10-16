@@ -152,6 +152,16 @@ Status Arena::intern(const char *text, uint64_t length, uint64_t *offset) {
     return Status::Ok;
 }
 
+Status Arena::set_name(pymergetic_rxf_handle handle, const char *text, uint64_t length) {
+    uint64_t at = 0;
+    Status status = intern(text, length, &at);
+    if (status != Status::Ok) return status;
+    pymergetic_rxf_cell *c = cell_w(handle);
+    if (c == nullptr) return Status::BadHandle;
+    c->name = at;
+    return Status::Ok;
+}
+
 Status Arena::slot_for_new(pymergetic_rxf_handle *handle) {
     if (header_->free_head != PYMERGETIC_RXF_HANDLE_NONE) {
         *handle = header_->free_head;

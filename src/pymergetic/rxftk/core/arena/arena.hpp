@@ -98,6 +98,9 @@ public:
     Status create(const CellSpec &spec, pymergetic_rxf_handle *out);
     /* Marks the cell TOMBSTONE and frees its slot. The bytes stay until compaction. */
     Status destroy(pymergetic_rxf_handle handle);
+    /* The name of a cell is repointed at freshly interned text (rename). The old bytes stay
+     * in the NAME block until compaction, as any other abandoned name. */
+    Status set_name(pymergetic_rxf_handle handle, const char *text, uint64_t length);
     /* A cell of another size in the same slot. The old cell is left as a
      * TOMBSTONE whose `forward` names the new one. */
     Status resize(pymergetic_rxf_handle handle, uint64_t payload_size, uint32_t ref_count);
