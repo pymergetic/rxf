@@ -88,6 +88,8 @@ Read in order:
 19. [MicroPython on RXF](23-MICROPYTHON-EXPANSION.md)
 20. [Memory: linked AI memories as graph cells](24-MEMORY-SYSTEM.md)
 21. [Network: devices, sockets, and the orchestration layer](25-NETWORK-ORCHESTRATION.md)
+22. [Recipes: how work gets into the object world](26-RECIPES.md)
+23. [Editing: one mutation is one delta](27-EDITING.md)
 
 These documents specify RXF independently of any runtime provider. The optional Metal binding
 is described separately in [`integrations/metal.md`](integrations/metal.md).
