@@ -341,7 +341,7 @@
       "name": "punctuation.definition.alias.rxfd"
     },
     "enum-value": {
-      "match": "(?:[A-Za-z_][A-Za-z0-9_]*\\.)*(FunctionImplementation|CanonicalOrderPolicy|GenericParameterKind|TraitRequirementKind|HashRepresentation|CallingConvention|ArchitectureKind|CapabilityRights|GenerationPolicy|NumericOperation|VisibilityPolicy|EnvironmentKind|TerminationRule|CapabilityKind|ModuleCategory|AbiValueClass|AbiValueFlags|FunctionLayer|HashAlgorithm|NumericPolicy|RefusalPolicy|AbiValueRole|CapacityRule|RegisterBank|BindingKind|FeatureKind|ModuleFlags|ProbePolicy|RefusalCode|StdlibFlags|AbiPassing|AliasFlags|CodeFormat|Endianness|FieldFlags|SeedPolicy|StdlibKind|Terminator|Intrinsic|OwnerKind|TypeFlags|ValueKind|Mobility|NodeKind|AbiKind|Binding|Effects|RefKind|Opcode|Form)\\.([A-Z][A-Za-z0-9_]*(?:\\|[A-Z][A-Za-z0-9_]*)*)",
+      "match": "(?:[A-Za-z_][A-Za-z0-9_]*\\.)*(FunctionImplementation|CanonicalOrderPolicy|GenericParameterKind|TraitRequirementKind|HashRepresentation|CallingConvention|ArchitectureKind|CapabilityRights|GenerationPolicy|NumericOperation|VisibilityPolicy|EnvironmentKind|TerminationRule|CapabilityKind|ModuleCategory|AbiValueClass|AbiValueFlags|FunctionLayer|HashAlgorithm|NumericPolicy|RefusalPolicy|AbiValueRole|CapacityRule|RegisterBank|BindingKind|FeatureKind|ModuleFlags|ProbePolicy|RefusalCode|StdlibFlags|AbiPassing|AliasFlags|CodeFormat|Endianness|FieldFlags|SeedPolicy|StdlibKind|Terminator|DocStatus|Intrinsic|OwnerKind|TypeFlags|ValueKind|DocCodec|Mobility|NodeKind|AbiKind|Binding|DocKind|DocRole|Effects|RefKind|Opcode|Form)\\.([A-Z][A-Za-z0-9_]*(?:\\|[A-Z][A-Za-z0-9_]*)*)",
       "captures": {
         "1": {
           "name": "support.type.enum.rxfd"

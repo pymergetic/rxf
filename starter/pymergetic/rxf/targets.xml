@@ -13,9 +13,9 @@
     <RuntimeTarget name="aarch64_linux_aapcs64" architecture="@targets.aarch64" abi="@targets.aapcs64" environment="@targets.linux" feature_set="@targets.aarch64_features" />
     <RuntimeTarget name="aarch64_uefi_aapcs64" architecture="@targets.aarch64" abi="@targets.aapcs64" environment="@targets.uefi" feature_set="@targets.aarch64_features" />
     <Environment name="bios" kind="@kinds.EnvironmentKind.Bios" version="1" />
-    <CompilerProvenance name="clang_aarch64" compiler_major="18" recipe_digest="7d026619692e588d83ba0a283342731a21120e6c496fbc03544da744ee330c4a" />
-    <CompilerProvenance name="clang_wasm32" compiler_major="18" recipe_digest="94ce497a65af701c1d2e36b2b43ad41b0e4365e0577efa8c1de99ddeb1034a4b" />
-    <CompilerProvenance name="clang_x86_64" compiler_major="18" recipe_digest="5a151c69ad28c6ced4fa267416ccaaedfdaa4c821e7269b0d246dc1505281848" />
+    <CompilerProvenance name="clang_aarch64" compiler_major="18" recipe_digest="a04a3fe35f5e4d4c874a880a9f2a817ba65b9f516e67c201d183147965ee62a4" />
+    <CompilerProvenance name="clang_wasm32" compiler_major="18" recipe_digest="23ec435401d8c1bba9b9f5f30738e013dfcf7def377b2e6a8df41f3ad318e9a2" />
+    <CompilerProvenance name="clang_x86_64" compiler_major="18" recipe_digest="bc533bf6004c15e89d8f26a20784afd930d35f27d93fac1614da2ba257c5df98" />
     <Environment name="linux" kind="@kinds.EnvironmentKind.Linux" version="1" />
     <ABI name="sysv" kind="@kinds.AbiKind.Sysv" version="1" calling_convention="@kinds.CallingConvention.StatusOut" architecture="@targets.x86_64" />
     <Environment name="uefi" kind="@kinds.EnvironmentKind.Uefi" version="1" />

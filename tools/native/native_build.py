@@ -49,6 +49,8 @@ FLAGS = (
     "-fno-addrsig",
     "-fno-pic",
     "-fno-jump-tables",
+    "-fno-vectorize",
+    "-fno-slp-vectorize",  # a vector constant pool would be a relocation (see CPP_FLAGS)
 )
 MEMORY = {
     "memory_copy",

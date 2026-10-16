@@ -27,8 +27,8 @@ typedef struct {
     rxf_u64 count;
     rxf_u64 base;        /* the frame link: where the frame is in the run cell's payload */
     rxf_u64 frame_bytes; /* ... and its size -- the exact bytes the program declared */
-    rxf_u64 pc;       /* the return link: the caller's word offset after its call step */
-    rxf_u64 out_slot; /* the caller's destination words (RXF_GRAPH_NONE: none) */
+    rxf_u64 pc;          /* the return link: the caller's word offset after its call step */
+    rxf_u64 out_slot;    /* the caller's destination words (RXF_GRAPH_NONE: none) */
     rxf_u64 out_width;
     rxf_u64 status_slot;
 } rxf_call_frame;
@@ -585,8 +585,8 @@ RXF_FUNCTION rxf_u32 rxf_graph_run(rxf_runtime_context *c, rxf_object_handle pro
     g.frame_bytes = g.code[1];
     g.frames[0].frame_bytes = g.frame_bytes;
     rxf_u64 parameters = g.code[2], words = g.code[3], pc = g.code[4];
-    if ((g.frame_bytes & 7) || words != argc ||
-        parameters > g.count || !have(&g, RXF_SLOT_WORDS, parameters * 2))
+    if ((g.frame_bytes & 7) || words != argc || parameters > g.count ||
+        !have(&g, RXF_SLOT_WORDS, parameters * 2))
         return RXF_REFUSE_OUT_OF_RANGE;
     if (g.frame_bytes > g.cell_bytes) /* the chain of one must fit the cell too */
         return RXF_REFUSE_CELL_BUDGET;

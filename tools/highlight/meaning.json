@@ -1479,6 +1479,46 @@
         }
       },
       {
+        "type": "DocCodec",
+        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "flags": false,
+        "enumerators": {
+          "Lz4": 0,
+          "Raw": 1
+        }
+      },
+      {
+        "type": "DocKind",
+        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "flags": false,
+        "enumerators": {
+          "Narrates": 0,
+          "Topic": 1,
+          "Todo": 2
+        }
+      },
+      {
+        "type": "DocRole",
+        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "flags": false,
+        "enumerators": {
+          "Narrates": 0,
+          "Attaches": 1,
+          "References": 2,
+          "Parent": 3,
+          "Related": 4
+        }
+      },
+      {
+        "type": "DocStatus",
+        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "flags": false,
+        "enumerators": {
+          "Open": 0,
+          "Resolved": 1
+        }
+      },
+      {
         "type": "FieldFlags",
         "source": "src/pymergetic/rxf/core/kinds.pyi",
         "flags": true,
@@ -1579,7 +1619,8 @@
           "Type": 3,
           "Import": 4,
           "Implementation": 5,
-          "Owner": 6
+          "Owner": 6,
+          "Doc": 7
         }
       },
       {
