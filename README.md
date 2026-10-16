@@ -1,9 +1,9 @@
 # RXF — Reversible eXecutable Format
 
-RXF treats a program as a **complete, self-describing object world** rather than a
-one-way compilation product. Types, modules, functions, calls, values, ownership,
-semantic graphs, target descriptions, ABI contracts, and live data are ordinary
-addressable objects in one binary image.
+RXF treats a program as a **complete, self-describing object world**, not a one-way
+compilation product. Types, modules, functions, calls, values, ownership, semantic graphs,
+target descriptions, ABI contracts, and live data are ordinary addressable objects in one
+binary image.
 
 The same image can be:
 
@@ -13,119 +13,156 @@ The same image can be:
 - digested twice: the image (compacted bytes) and the canonical text.
 
 The direction (see [the operating-system path](docs/17-OPERATING-SYSTEM-PATH.md)) is native
-Code for several architectures inside the same image, and executable wrappers that keep **RXF
-as the program** rather than a stripped binary with a metadata copy next to it.
+Code for several architectures inside the same image, and executable wrappers that keep
+**RXF as the program** — not a stripped binary with a metadata copy next to it.
 
-**Status.** RXF is a new version: a C++ core on one arena, with Python as orchestration
-(nanobind). What exists: the ground layout (`src/pymergetic/rxf/core/ground.h`, pinned for x86-64,
-AArch64, i386, and wasm32 in C11 and C++20); the arena and the host image (paths, names, roles,
-canonical copying compaction); the self-description (`Type` and `Field` objects read by one
-generic codec); deltas as XML ([pugixml](https://pugixml.org)) with atomic replay on a journal, a link check,
-and SHA-256 digests; a **live layer** that lets a running image be read and edited from outside
-(CRC-framed channel, physical delta, compaction and relink in the image, safe points and break,
-UART, shared-memory and pty providers, `rxf live`); a compiler leaf for every program (machine code on
-three machines); the **execution policy** ([20](docs/20-EXECUTION-POLICY.md)): suspension is a data
-property, proven by the host SMP harness (`tests/host/`); the **self-editing path** ([19](docs/19-SELF-EDITING-PATH.md)) under construction: the running
-image compiles its own front end and replaces the compiler from a delta (the fixpoint run, proven on
-x86-64, AArch64, and wasm32), and the in-image composer writes program words byte-identical to the host
-composer for all 58 programs of the corpus (53 graphs, 5 expressions); an **import lane**
-(`tools/native/rximport.py`) that lowers C, C++ and Rust source — or a raw `.ll`, read as it
-stands — onto the same semantic graphs and refuses by name what is outside its subset,
-`rximport --provenance` carrying the run's origin record, a citation per file (`path`, the line
-span, `sha256`) and every comment it lifts; the dispatch and out-cell flips (`mp_obj_is_true`,
-`mp_obj_get_int_maybe`, the last two MicroPython refusals) lowering as slot dispatch and an
-out-cell; an image as a **module tree**, one XML file per module (`starter/`), read back
-through the **hybrid module tree** (`Image.resolve_module`, `module_children`, `module_roots`
-— `package`|`module`|`none`, the exact `mp_import_stat` trichotomy under the Quad roots
-`px`/`pm`/`pt`/`py`); the
-`rxf` command line (Python Fire, command path = module path); syntax highlighting for the two text
-forms (`.rxfs`, `.rxfd`) generated from one meaning table (`editors/rxf-highlight`); a read-only
-inspector with an arena memory map, cell introspection, and a **model page** that documents and
-visualizes the run-cell machine (see below); the **web app** over the same image (see below):
-one shell on five surfaces, `/tutor` stepping the run-cell machine by hand, the live feed of a
-running image in the shell's live slot, and the editor's compile, install, poke and name
-search; and the
-build (CMake, scikit-build-core, nanobind 3, platform wheels through cibuildwheel). The compiler,
-native Code binding, and executable builders of the former v5 Python stack are not in the tree
-(its last state is the git tag `legacy-v5-python`) and are still to be rebuilt on the core
-([what is missing](docs/08-INVENTORY.md)). The package version stays `0.x` until then.
+## What you can build with RXF
 
-## Why
+Conventional executable formats keep enough to load the code and lose the authored
+structure. RXF is for systems where a running or bootable artifact must stay
+**explainable, transformable, movable, and certifiable**.
 
-Conventional executable formats preserve enough information to load code, but usually
-lose most of the program's authored structure. RXF is designed for systems where a
-running or bootable artifact should still be explainable, transformable, movable, and
-certifiable. The path of an object identifies it in every image and every delta, and
-image-local `uint64` handles keep references compact while payloads and Code move;
-signatures and target contracts make native binding explicit; copying compaction
-produces deterministic successor images.
+- **Artifacts that stay explainable** — open any image in [the inspector](#the-inspector-read-the-object-world):
+  the object tree, the arena as a map, and who points at whom.
+- **Live systems you can edit while they run** — [the console](#the-console-a-terminal-on-a-running-image)
+  and [the editor](#the-editor-source-in-one-delta-out) compile and install one delta into a
+  running image. No restart.
+- **Deterministic, certifiable builds** — the same deltas mint the same bytes; digests pin
+  the image and the canonical text.
+- **C, C++, and Rust in the same world** — `tools/native/rximport.py` lowers source (or a raw
+  `.ll`, read as it stands) onto the same semantic graphs and refuses by name what it cannot
+  take.
+- **MicroPython guests on the image's own module tree** — `import` walks the cells: one
+  storage, no filesystem, no second copy.
 
-## Core invariants
+## Quickstart
 
-([The operating-system path](docs/17-OPERATING-SYSTEM-PATH.md), [the object model](docs/01-OBJECT-MODEL.md).)
+```sh
+python -m venv .venv
+.venv/bin/pip install scikit-build-core nanobind setuptools-scm
+.venv/bin/pip install -e ".[test,server]" --no-build-isolation
 
-- the identity of an object is its path, unique per parent; handles are image-local `uint64` slots and never appear in a delta;
-- the root, `Type`, and `Field` have the fixed handles 0, 1, and 2; every other object is found by path;
-- one arena: an arena header, an index directory, and one cell stream (64-byte cell headers with inline 24-byte references, plus block cells for the index chunks and the names);
-- everything with identity is an object, and `Type` and `Field` describe themselves; so is a reference's **role** (an object named by path, never a number);
-- no DOMAIN semantic objects, arenas, regions, or per-domain heaps;
-- ownership is a kind in the cell flags plus an optional `OWNER` reference, separate from lifecycle state;
-- lifecycle is provenance × disposition × cleanliness × mobility;
-- pages are allocator geometry and policy, not semantic objects;
-- unknown limits never extend committed write authority; and
-- deltas (XML) are the storage and exchange format, and successors are produced by deterministic, non-mutating copying compaction in path order.
+.venv/bin/python -m pytest tests          # the suite
+.venv/bin/rxf core object info starter    # read the default image
+.venv/bin/rxf server browse starter       # the inspector on http://127.0.0.1:8420
+.venv/bin/rxf console                     # a terminal on a running image
+```
 
-## Architecture documentation
+Requires Python 3.12+. The `rxf` commands throughout this README assume `.venv/bin` on your
+`PATH`; otherwise prefix them with `.venv/bin/`.
 
-Read in order:
+## Features
 
-1. [Object model](docs/01-OBJECT-MODEL.md)
-2. [Allocator state](docs/03-ALLOCATOR-STATE.md)
-3. [References](docs/04-REFERENCES.md)
-4. [Semantic authority](docs/05-SEMANTIC-AUTHORITY.md)
-5. [Paths and views](docs/06-PATHS-AND-VIEWS.md)
-6. [Successor and activation](docs/07-SUCCESSOR-AND-ACTIVATION.md)
-7. [Current implementation inventory](docs/08-INVENTORY.md)
-8. [Operations and adapters](docs/10-FACE-AND-CHANNELS.md)
-9. [Bootstrap, verification, and trust](docs/11-BOOTSTRAP-AND-QUORUM.md)
-10. [Authoring](docs/12-AUTHORING.md)
-11. [Deltas, their XML form, and the module tree](docs/15-DELTAS-AND-XML.md)
-12. [Self-description](docs/16-SELF-DESCRIPTION.md)
-13. [Path to a self-contained operating system](docs/17-OPERATING-SYSTEM-PATH.md)
-14. [The native snippets: a multi-platform binary](docs/18-NATIVE-SNIPPETS.md)
-15. [The way to a self-editing image](docs/19-SELF-EDITING-PATH.md)
-16. [The execution policy: suspension is a data property](docs/20-EXECUTION-POLICY.md)
-17. [The unified web interface](docs/21-UNIFIED-WEB-INTERFACE.md)
-18. [Documentation and intent](docs/22-DOCUMENTATION-AND-INTENT.md)
-19. [MicroPython on RXF](docs/23-MICROPYTHON-EXPANSION.md)
+### The web app: one shell, five surfaces
 
-These documents specify RXF independently of any runtime provider. The optional Metal binding
-is described separately in [`docs/integrations/metal.md`](docs/integrations/metal.md).
+`rxf server serve` runs one web app on a real running image — the app and the image behind it
+share one link, and `rxf console --link=…` attaches to the same one. Inspector reads, Model
+explains, Editor edits, Tutor teaches, World renders: one nav, one shell, and the shell's
+live slot is the one live feed — `no image` while no image runs, then what the running image
+itself answers.
 
-## RXFB 6 binary model
+```sh
+rxf server serve starter --link=shm:rxf   # the app and a running image of the starter tree
+```
 
-An image is one arena: a 192-byte header, an index directory, and a cell stream. Object cells have a 64-byte header, the payload padded to 16 bytes, and 24-byte references (target, role, kind, binding, index); block cells carry the index chunks (4096 slots of 8 bytes) and the names. Identities, addresses, offsets, and sizes are 64-bit. The layout is defined once as C structs in `src/pymergetic/rxf/core/ground.h`, with the size and offset of every field pinned by static assertions. See [the arena and allocator state](docs/03-ALLOCATOR-STATE.md).
+![An object's detail: handles, paths and RefKind chips in the text register](docs/images/web-ui-inspector.png)
 
-## Names and formats
+### The inspector: read the object world
 
-"RXF" names several different things; the file suffixes and the words below keep them apart.
+`rxf server browse starter` serves a read-only inspector: the object tree on the left, the
+arena as a clickable memory map in the middle, full cell introspection on the right — flags,
+fields, a payload hex dump with reference slots highlighted, and who points at the object.
+Every detail opens with an **In the model** card that deep-links into the model page.
 
-| Name | What it is | Form |
-|---|---|---|
-| **`.rxf`** | the **source language** compiled by `tools/native/rxfc.py`: statements, `proc`/`macro`/`fn`, every operator one leaf call. The files in `native/tiny/`, `native/front/`, `tests/rxfc/` are this. | text |
-| **`.rxfb`** | an **RXFB 6 image**: one arena (header, index directory, cell stream). `starter.rxfb`, `rxf binary check`. | binary |
-| **`.xml`** | a **delta**, the storage and exchange form; one per module in the module tree. | text |
-| **program words** | what `rxfc.py` compiles a `.rxf` source into: a header and a sequence of 64-bit instructions (`native/graph.h`), run by the interpreter and turned into machine code by leaf 31 or `tiny.compile`. | binary, stored as a `Bytecode` object in the image |
+![The inspector: object tree, arena memory map, and the details of one cell](docs/images/inspector-overview.png)
 
-So `.rxf` is always source text and `.rxfb` is always an image; they differ by one letter. The compiled form of a `.rxf` program is **not a file**: it is bytes that live inside an RXFB 6 image (for example `tiny.compile` in `starter/…/foundation/tiny.xml`), never a `.rxf` file. The front end of the language (`native/front`) reads `.rxf` source and writes those program words inside
-a running image — the image compiles its own front end and the successor replaces it from a delta;
-`rxfc.py` is the same compiler on the host. The composer is moving in beside it (`native/compose`, 58 of its
-58 programs byte-identical with `tools/native/compose.py`), and `tools/native/rximport.py` lowers C through
-LLVM IR onto the same semantic graphs (C++ and Rust experimentally).
+![The details pane: the In the model guides over the flags and the cell words](docs/images/inspector-detail.png)
 
-## The module tree
+### The model page: the run-cell machine
 
-The default image is checked in as `starter/`, one XML file per module, laid out like Python modules:
+`/model` documents the run-cell machine inside the tool: six sections, each with its own
+figure, every fact citing its section of [the execution policy](docs/20-EXECUTION-POLICY.md).
+The pin chips carry real numbers — 41 constants read out of the C and pinned by
+`tests/test_model_doc.py`, so a constant that moves fails the test until the page follows.
+Follow a cell's **In the model** link and its real header words are laid over the anatomy
+figure, with a link back to the cell.
+
+![The model: contents, the six parts, and the cell anatomy figure](docs/images/model-overview.png)
+
+![The anatomy figure with a live cell's real header words laid over it](docs/images/model-anatomy.png)
+
+### The editor: source in, one delta out
+
+The editor compiles a function's source through the running image's own front end and
+installs it as **one** delta — the delta is shown before it is sent. Tokens are marked
+red/green as you type, and a refusal carries its reason. The read-only faces (Pseudo, C,
+C++, Python) refuse to fake a body they cannot know; cell-poke writes `payload`/`flags` and
+refuses `forward`/`generation`/`checksum` and `name` outright.
+
+![The editor: the source mirror in the rxfs register under the live check's marks](docs/images/web-ui-editor.png)
+
+![A refusal: red marks that carry their reason, and the badges that count them](docs/images/web-ui-diagnostics.png)
+
+![The one delta install would send, in the rxfd register](docs/images/web-ui-delta.png)
+
+![The C face of a function, in the c register](docs/images/web-ui-faces.png)
+
+### The console: a terminal on a running image
+
+Type `.rxf`; the program ends at a blank line (or a line of one `.`), travels as one object
+of the arena through the channel, and the image's own front end compiles it and installs the
+Function — one delta, no restart.
+
+```sh
+rxf console --link=shm:rxf
+rxf> program triple(x) {
+...     return x + x + x;
+...
+installed pymergetic.rxf.selfedit.triple (id 0x4e1a69dd971cf5a3, 328 bytes)
+rxf> :quit
+```
+
+`--link` is wherever the image runs (`shm:name`, `pty:/dev/pts/3`, `tty:/dev/ttyUSB0`,
+`fd:3`); `rxf console FILE` takes one source file through the same path once, `--inspect`
+lists what the image has installed. Whoever runs the image registers its machine in the one
+registry (`pymergetic.rxf.console.world`) — one link, one runner; a second world at the same
+link is refused (`WorldIsRegistered`), not stolen, and shutdown takes the registration with
+it.
+
+### The 3D world: the image as an RTS city
+
+The world view draws the checked-in demo world over the same cells the inspector reads:
+cells are block-stack buildings, references are street cables between the lots, and the
+ready-ring is the boulevard where the run cells ride. WASD moves camera-relative; the
+minimap is a real top-down projection of the same document.
+
+![The demo world from the north-east: the city diagonal, the ring, readable labels](docs/images/world-overview.png)
+
+![The street paint: cables and flat markings between the blocks](docs/images/world-streets.png)
+
+![The ring road's corner: clean chamfers, no spikes](docs/images/world-ring.png)
+
+Click a building and the image answers: the HUD's cell fields fill along the bottom, and the
+datasheet opens beside the scene — `IMAGE — read from the cell` above `WORLD — the view's own
+reading`.
+
+![Top-down on the selected run tower (system.runs.tick), the HUD's cell fields filled](docs/images/world-tactical.png)
+
+![The selected cell's datasheet pane open](docs/images/world-datasheet.png)
+
+The scene draws `demo_world.xml` plus the traces a running snapshot carries (a stale
+handle's ghost cables, the `0xA5` poison of compaction), exported to `demo-scene.json` as a
+byte-exact golden the tests pin — no randomness behind any frame. At the extreme angles the
+text stays readable: name labels and checksums hold at pitch 90 and pitch 68.
+
+![Pitch 90 straight down: name labels and checksums stay readable](docs/images/world-proof-topdown.png)
+
+![Steep inspect at pitch 68: name labels and checksums stay readable](docs/images/world-proof-inspect.png)
+
+### The module tree: one XML file per module
+
+The default image is checked in as `starter/`, one XML file per module, laid out like Python
+modules:
 
 ```
 starter/__init__.xml                         the types and the entry
@@ -142,23 +179,20 @@ starter/pymergetic/rxf/roles/call.xml       module pymergetic.rxf.roles.call
 </ABIValueLocation>
 ```
 
-Everything the format says itself is in the `rxf` XML namespace; an edge is said once (a field is the reference, the children are the list, the other direction is computed); roles are objects named by path; order among siblings is `rxf:index`; the n-th element of a list is `name[n]`; a word is the path of its enumerator (`kind="RefKind.Data"`, `layer="@kinds.FunctionLayer.Library"`), never a bare word or a number; a module may shorten long paths with aliases (`@call.Callee`); Types, enumerators, and roles are CamelCase, modules and fields snake_case. See [deltas and their XML form](docs/15-DELTAS-AND-XML.md).
+Everything the format says about itself is in the `rxf` XML namespace: an edge is said once
+(a field is the reference, the children are the list, the other direction is computed),
+roles are objects named by path, order among siblings is `rxf:index`, the n-th element of a
+list is `name[n]`, a word is the path of its enumerator and never a bare word, and Types and
+roles are CamelCase, modules and fields snake_case. See
+[deltas and their XML form](docs/15-DELTAS-AND-XML.md).
 
-The same named cells read back as the image's **module tree** (the hybrid one: `rximport`
-compiles modules into it and MicroPython reads it back, one storage, no filesystem and no
-second copy). A module is a named cell under one of the Quad roots — `px` (extern/cpython),
-`pm` (mpy), `pt` (thirdparty), `py` (micro) — and `Image.resolve_module` answers the exact
-trichotomy `mp_import_stat` gives: `package` for a Module cell with sub-modules, `module` for
-one without (a leaf, or a container whose children are programs — the semantic tree of one
-program; a bare word is such a self-contained module), `none` for anything else (a name that
-names nothing, or a program node — a Function is an attribute of its module, never a module
-name). `Image.module_children` lists a package's sub-modules in name order,
+The same named cells read back as the image's **module tree** — `rximport` compiles modules
+into it and MicroPython reads it back: one storage, no filesystem, no second copy. A module
+is a named cell under one of the Quad roots (`px` extern/cpython, `pm` mpy, `pt`
+thirdparty, `py` micro), and `Image.resolve_module` answers exactly the trichotomy
+`mp_import_stat` gives. `Image.module_children` lists a package's sub-modules in name order,
 `Image.module_roots` answers the four roots and nothing else, and a name that does not spell
-one clear module (an alias spelling, an empty segment, an unknown root, a dead handle) raises
-`TreeError` instead of guessing.
-
-The shape of it, with the parts each strand owns (the Quad and the bare words as pinned by
-`tests/test_module_tree.py`; `pt.*`/`py.*` fill as the strands land):
+one clear module raises `TreeError` instead of guessing.
 
 ```mermaid
 graph TD
@@ -198,25 +232,12 @@ app.cfg.CONF               → no import: an attribute read of the named cell CO
 app.main.run               → none: a Fn is an attribute of its module, never a module name
 ```
 
-## Syntax highlighting
+### The command line
 
-`editors/rxf-highlight/` is a dependency-free Cursor/VS Code extension with TextMate grammars for
-the two text forms under their final names: `.rxfs`, the program language `tools/native/rxfc.py`
-compiles, and `.rxfd`, the delta documents. The grammars are generated bytes, never edited by hand:
-one meaning table (`tools/highlight/meaning.json`) holds what every leaf of `native/graph.h` is,
-what every `.rxfs` operator lowers to (only 8 are 1:1; the rest desugar, and the grammar marks the
-rewritten form), and the words and reference shapes of `.rxfd`. `tests/test_highlight.py` pins the
-table back to `graph.h`, `rxfc.py`, and `words.rxf`, and the checked-in grammars are proven to be
-the generated ones (`python3 -m tools.highlight.grammar_gen --check`).
-
-```sh
-ln -s "$PWD/editors/rxf-highlight" ~/.cursor/extensions/pymergetic.rxf-highlight-0.1.0   # Cursor
-ln -s "$PWD/editors/rxf-highlight" ~/.vscode/extensions/pymergetic.rxf-highlight-0.1.0   # VS Code
-```
-
-## Command line
-
-`rxf` is one Python Fire entry point. A command lives next to what it operates on and its path is the module path: `core/object/cli.py` defines `rxf core object ...`, `server/cli.py` defines `rxf server ...`. A new `cli.py` is a new command group. `rxf` alone lists every command.
+`rxf` is one Python Fire entry point. A command lives next to what it operates on and its
+path is the module path: `core/object/cli.py` defines `rxf core object ...`,
+`server/cli.py` defines `rxf server ...`. A new `cli.py` is a new command group. `rxf`
+alone lists every command.
 
 ```sh
 rxf core object info   starter                 # objects, entry, digests, problems
@@ -233,171 +254,186 @@ rxf console  --inspect                         # what the image has installed (r
 
 A source is a module tree (directory), a `.xml` delta, or RXFB 6 bytes.
 
-### Console
+### Editor support: `.rxfs` and `.rxfd`
 
-`rxf console` is the terminal on a running image: a program of `.rxf` ends at a blank line (or a
-line of one `.`), travels as one object of the arena through the channel, and the image's own
-front end (`native/front`) compiles it and has the Function installed — one delta, no restart.
-The outcome is the path of the Function and its ids, or the line the front end stopped at.
-`:list` shows what the image has installed, `:help` the words of the loop, `:quit` leaves.
-
-```sh
-rxf console --link=shm:rxf
-rxf> program triple(x) {
-...     return x + x + x;
-...
-installed pymergetic.rxf.selfedit.triple (id 0x4e1a69dd971cf5a3, 328 bytes)
-rxf> :quit
-```
-
-`rxf console FILE` takes one source file through the same path once; the `.rxf` sources beside the
-file (or beside the terminal) are what an `include` can name. `rxf console --inspect` only lists
-what the image has installed. `--link` is where the running image is: `shm:name`, `pty:/dev/pts/3`,
-`tty:/dev/ttyUSB0`, `fd:3`. A run is not a frame: whoever runs the image registers its machine
-(`pymergetic.rxf.console.world.register`), and the console drives compile and install over the
-live channel.
-
-Whoever runs the image registers its world over the channel while it runs it: the serve instance
-behind the inspector (what `rxf serve` runs — `server/live.Session` holds the registration for the
-life of the app) and the host of `rxf live`'s channel (the harness or rig that runs the image —
-`rxf live`'s own commands only speak frames) register what they run in the one registry
-(`pymergetic.rxf.console.world`), and `rxf console --link=…` attaches to the running image through
-it. One link has one runner: a second world at the same link is refused (`WorldIsRegistered`), not
-stolen, and shutdown — or a runner that ends without closing — takes the registration with it.
-`rxf live` is the frames face of the same link — its commands work over any wire (and on the
-channel of a runner registered here), while compile and install need the runner's machine.
-
-### Inspector
-
-`rxf server browse` serves the read-only inspector: the object tree on the left, the arena
-as a memory map in the middle (cells colored by kind, fill by payload occupancy — click
-selects, double-click zooms, `Reset zoom` returns), and full cell introspection on the
-right: decoded kind/state/owner flags, the cell fields, a payload hex dump with
-type-declared reference slots highlighted, every reference row with its role and target,
-and who points at the object. Every detail opens with an **In the model** card: the
-sections of the model page that explain that cell's face and its words, each deep-linking
-to the figure.
-
-![The inspector: object tree, arena memory map, and the details of one cell](docs/images/inspector-overview.png)
-
-![The details pane: the In the model guides over the flags and the cell words](docs/images/inspector-detail.png)
-
-### The model: the run-cell machine
-
-`/model` (the **Model** button) is the in-tool documentation of the run-cell machine and
-the object model. Six sections — the substrate and the 64-byte cell anatomy, the two
-object faces (handles and REPR A), the step lifecycle, suspension, migration and
-compaction, the MicroPython seam, and what the proof pins — each carry an accessible
-inline SVG figure: the anatomy with its real offsets, the run payload's three regions, the
-step loop, the handle/ABA story, the compaction slide with `C_FORWARD` and the `0xA5`
-poison, and the pending protocol. Every fact cites its section of
-[the execution policy](docs/20-EXECUTION-POLICY.md) (S1–S11), and the numbers in the pin
-chips are read out of the C in `tests/host/` and `core/ground.h`: 41 documented constants
-are pinned by `tests/test_model_doc.py`, so a constant that moves in the C fails the test
-until this page is updated.
-
-The page is live in both directions: follow a cell's **In the model** link in the
-inspector (or append `?path=pymergetic.rxf` to the page's address) and that cell's real
-header words are laid over the anatomy figure, each row naming the live view field the
-word shows up in — with a link back to the cell in the inspector.
-
-![The model: contents, the six parts, and the cell anatomy figure](docs/images/model-overview.png)
-
-![The anatomy figure with a live cell's real header words laid over it](docs/images/model-anatomy.png)
-
-### Editor
-
-The inspector's `/editor` edits a function's source in place: tokens are marked red/green as
-you type against the single meaning table (`tools/highlight/meaning.json`), the source
-compiles through the running image's in-image front end, and **one** delta installs the
-Function — the delta is shown before it is sent. Read-only faces (Pseudo, C, C++, Python)
-are honest projections that refuse to fake a body they cannot know, and the network view
-draws a function and its environment (references, callees incl. the graph-to-graph `CALL`
-card) as a network. Cell-poke writes `payload`/`flags` through the live channel and refuses
-`forward`/`generation`/`checksum` (and `name`, a rename) outright. All of it drives the one
-seam — `pymergetic.rxf.console.world` — with no second channel and no second truth.
-
-### The web app
-
-`rxf server serve` runs one web app on a real running image: the app and the image behind it
-on one link (the image runs in the process with its own interpreter and live leaf;
-`rxf console --link=…` attaches to the same one, and Ctrl+C takes the registration with it).
+`editors/rxf-highlight/` is a dependency-free Cursor/VS Code extension with TextMate
+grammars for the two text forms: `.rxfs`, the program language `tools/native/rxfc.py`
+compiles, and `.rxfd`, the delta documents. The grammars are generated bytes from one
+meaning table (`tools/highlight/meaning.json`), never edited by hand; `tests/test_highlight.py`
+pins the table back to `graph.h`, `rxfc.py`, and `words.rxf`, and the checked-in grammars are
+proven to be the generated ones (`python3 -m tools.highlight.grammar_gen --check`).
 
 ```sh
-rxf server serve starter --link=shm:rxf   # the app and a running image of the starter tree
+ln -s "$PWD/editors/rxf-highlight" ~/.cursor/extensions/pymergetic.rxf-highlight-0.1.0   # Cursor
+ln -s "$PWD/editors/rxf-highlight" ~/.vscode/extensions/pymergetic.rxf-highlight-0.1.0   # VS Code
 ```
 
-One service, one shell: the five surfaces in one nav — Inspector reads, Model explains, Editor
-edits, Tutor teaches, World renders — and the shell's live slot is the one live feed
-(`static/ui/ui.js`). The slot reads exactly `no image` while the app runs no image; behind a
-session it shows what the running image itself answers — its image id, the interpreter
-version, its live leaf and state, the commit and reject counters — and polls while the app
-serves. `/tutor` steps the run-cell machine by hand on the same pinned facts the model page
-pins (the constants `tests/test_tutor.py` checks against `tests/host/`, `core/ground.h` and
-the execution policy). The editor's path field searches the image's own names as you type
-(`/api/search`, top-level browse on focus).
+## Status
 
-![The editor: the source mirror in the rxfs register under the live check's marks](docs/images/web-ui-editor.png)
+RXF is a new version: a C++ core on one arena, with Python as orchestration (nanobind).
 
-![A refusal: red marks that carry their reason, and the badges that count them](docs/images/web-ui-diagnostics.png)
+**In the tree today.**
 
-![The one delta install would send, in the rxfd register](docs/images/web-ui-delta.png)
+- the ground layout (`src/pymergetic/rxf/core/ground.h`) pinned for x86-64, AArch64, i386,
+  and wasm32 in C11 and C++20;
+- the arena and the host image (paths, names, roles, canonical copying compaction) and the
+  self-description (`Type` and `Field` objects read by one generic codec);
+- deltas as XML ([pugixml](https://pugixml.org)) with atomic replay on a journal, a link
+  check, and SHA-256 digests;
+- a **live layer** that lets a running image be read and edited from outside: CRC-framed
+  channel, physical delta, compaction and relink in the image, safe points and break, UART,
+  shared-memory and pty providers, `rxf live`;
+- a compiler leaf for every program (machine code on three machines), and the in-image
+  composer (`native/compose`) writing program words byte-identical to the host composer
+  (`tools/native/compose.py`) for all 58 programs of the corpus (53 graphs, 5 expressions);
+- the **execution policy** ([20](docs/20-EXECUTION-POLICY.md)): suspension is a data
+  property, proven by the host SMP harness (`tests/host/`);
+- the dispatch and out-cell flips (`mp_obj_is_true`, `mp_obj_get_int_maybe` — the last two
+  MicroPython refusals) lowering as slot dispatch and an out-cell;
+- an **import lane** (`tools/native/rximport.py`) that lowers C, C++ and Rust source — or a
+  raw `.ll`, read as it stands — onto the same semantic graphs and refuses by name what is
+  outside its subset, `rximport --provenance` carrying the run's origin record, a citation
+  per file (`path`, the line span, `sha256`) and every comment it lifts;
+- an image as a **module tree**, one XML file per module (`starter/`), read back through the
+  hybrid module tree (`Image.resolve_module`, `module_children`, `module_roots`);
+- the `rxf` command line (Python Fire, command path = module path), syntax highlighting for
+  the two text forms (`.rxfs`, `.rxfd`) generated from one meaning table
+  (`editors/rxf-highlight`), a read-only inspector with an arena memory map, cell
+  introspection, and a model page, the **web app** over the same image (one shell on five
+  surfaces, `/tutor` stepping the run-cell machine by hand, the live feed in the shell's live
+  slot, and the editor's compile, install, poke and name search), and the 3D world view; and
+- the build (CMake, scikit-build-core, nanobind 3, platform wheels through cibuildwheel).
 
-![The C face of a function, in the c register](docs/images/web-ui-faces.png)
+**Under construction.** The **self-editing path** ([19](docs/19-SELF-EDITING-PATH.md)): the
+running image compiles its own front end and replaces the compiler from a delta (the fixpoint
+run, proven on x86-64, AArch64, and wasm32).
 
-![An object's detail: handles, paths and RefKind chips in the text register](docs/images/web-ui-inspector.png)
+**Not yet rebuilt.** The compiler, native Code binding, and executable builders of the former
+v5 Python stack are not in the tree (its last state is the git tag `legacy-v5-python`) and are
+still to be rebuilt on the core ([what is missing](docs/08-INVENTORY.md)). The package version
+stays `0.x` until then.
 
-## The 3D world
+## The format
 
-The image renders as an RTS city over the same cells the inspector reads: every cell is a
-block-stack building whose floors are the cell anatomy in S1 payload coloring — checksum
-teal, poison red, generation gold — and the reference edges are ground cables routed along
-the street lanes between the lots (a cable never crosses a building that is not its own
-endpoint). The ready-ring is one clean boulevard loop: a single flat ribbon with clamped
-miters and 45° corner cuts, bright flat-paint edge ribbons and readable centerline dashes
-over the asphalt, no curbs, no walls, no shadows — the landmark of the map against the muted
-local streets. The minimap is a real top-down projection of the same document (districts,
-buildings by family, void tiles in red, the camera's viewport); clicking it jumps the camera,
-and clicking a building selects its cell: the pick is a bright warm volume outline with a
-bracketed footprint glow painted flat on the ground (hover stays the thin teal cue), the
-HUD's cell fields fill along the bottom, and the datasheet opens beside the scene — a dark
-pane that says who speaks: `IMAGE — read from the cell` (state, spans, words, cables, the
-byte anatomy of the floors) above `WORLD — the view's own reading` (the paint family, the
-district grid, the band), every entry colored by meaning. WASD moves camera-relative. The
-scene draws the checked-in demo world — the `demo_world.xml`
-delta plus the traces a running snapshot carries (a stale handle's ghost cables, the 0xA5
-poison of compaction), exported to `demo-scene.json` as a byte-exact golden the tests pin —
-with no randomness behind any frame.
+### RXFB 6 binary model
 
-![The world overview: block-stack buildings in S1 payload coloring, the ready-ring as a clean boulevard loop, and the minimap](docs/images/world-overview.png)
+An image is one arena: a 192-byte header, an index directory, and a cell stream. Object
+cells have a 64-byte header, the payload padded to 16 bytes, and 24-byte references (target,
+role, kind, binding, index); block cells carry the index chunks (4096 slots of 8 bytes) and
+the names. Identities, addresses, offsets, and sizes are 64-bit. The layout is defined once
+as C structs in `src/pymergetic/rxf/core/ground.h`, with the size and offset of every field
+pinned by static assertions. See [the arena and allocator state](docs/03-ALLOCATOR-STATE.md).
 
-![Top-down tactical view: the selected run tower (system.runs.tick) with the HUD's cell fields along the bottom](docs/images/world-tactical.png)
+### Names and formats
 
-![The datasheet: what the image says about the cell above what the view decided](docs/images/world-datasheet.png)
+"RXF" names several different things; the file suffixes and the words below keep them apart.
 
-## Layout
+| Name | What it is | Form |
+|---|---|---|
+| **`.rxf`** | the **source language** compiled by `tools/native/rxfc.py`: statements, `proc`/`macro`/`fn`, every operator one leaf call. The files in `native/tiny/`, `native/front/`, `tests/rxfc/` are this. | text |
+| **`.rxfb`** | an **RXFB 6 image**: one arena (header, index directory, cell stream). `starter.rxfb`, `rxf binary check`. | binary |
+| **`.xml`** | a **delta**, the storage and exchange form; one per module in the module tree. | text |
+| **program words** | what `rxfc.py` compiles a `.rxf` source into: a header and a sequence of 64-bit instructions (`native/graph.h`), run by the interpreter and turned into machine code by leaf 31 or `tiny.compile`. | binary, stored as a `Bytecode` object in the image |
+
+So `.rxf` is always source text and `.rxfb` is always an image; they differ by one letter.
+The compiled form of a `.rxf` program is **not a file**: it is bytes that live inside an RXFB
+6 image (for example `tiny.compile` in `starter/…/foundation/tiny.xml`), never a `.rxf` file.
+The front end of the language (`native/front`) reads `.rxf` source and writes those program
+words inside a running image — the image compiles its own front end and the successor
+replaces it from a delta; `rxfc.py` is the same compiler on the host.
+
+### Core invariants
+
+([The operating-system path](docs/17-OPERATING-SYSTEM-PATH.md), [the object model](docs/01-OBJECT-MODEL.md).)
+
+- the identity of an object is its path, unique per parent; handles are image-local `uint64` slots and never appear in a delta;
+- the root, `Type`, and `Field` have the fixed handles 0, 1, and 2; every other object is found by path;
+- one arena: an arena header, an index directory, and one cell stream (64-byte cell headers with inline 24-byte references, plus block cells for the index chunks and the names);
+- everything with identity is an object, and `Type` and `Field` describe themselves; so is a reference's **role** (an object named by path, never a number);
+- no DOMAIN semantic objects, arenas, regions, or per-domain heaps;
+- ownership is a kind in the cell flags plus an optional `OWNER` reference, separate from lifecycle state;
+- lifecycle is provenance × disposition × cleanliness × mobility;
+- pages are allocator geometry and policy, not semantic objects;
+- unknown limits never extend committed write authority; and
+- deltas (XML) are the storage and exchange format, and successors are produced by deterministic, non-mutating copying compaction in path order.
+
+## For contributors
+
+### How the repo is organized
 
 ```
 src/pymergetic/rxf/
   cli.py  source.py            the entry point and image I/O
+  binary/                      commands on the RXFB 6 bytes (`rxf binary …`)
   core/                        the compiled package pymergetic.rxf.core
-    arena/ object/ hash/ meta/ delta/ xml/ tree/    C++ modules, each with bindings.cpp and, where it has a CLI, cli.py
+    arena/ object/ hash/ meta/ delta/ xml/ tree/    C++ modules, each with bindings.cpp and, where it has one, cli.py
     *.pyi                      generated stubs, one per Python submodule
   console/                     the console on a running image (`rxf console`) and the world seam
   live/                        the live channel: client, front end, and the commands of `rxf live`
+  memory/                      linked AI memories as graph cells (docs/24)
+  net/                         devices, sockets, filters, transports (docs/25)
   server/                      the web app: the inspector, the model page, the editor, the tutor
   world/                       the 3D world view: the demo world, the exporter, and the scene
 ```
 
-## Develop
+Around it: `starter/` is the checked-in default image (the module tree above), `tests/` the
+suite with `tests/host/` the C harness behind the SMP proofs, `tools/native/` the host
+compilers (`rxfc.py`, `compose.py`, `rximport.py`), `editors/` the editor extensions, and
+`docs/` the specification.
+
+### Gates
 
 ```sh
-python -m venv .venv
-.venv/bin/pip install scikit-build-core nanobind setuptools-scm
-.venv/bin/pip install -e ".[test,server]" --no-build-isolation
-.venv/bin/python -m pytest tests
-.venv/bin/python tools/sanitize.py       # core tests under AddressSanitizer and UBSan
-.venv/bin/python -m nanobind.stubgen -m pymergetic.rxf.core -r -q -O src/pymergetic/rxf
+.venv/bin/python -m pytest       # the suite
+~/.local/bin/ruff check          # lint
+~/.local/bin/pyright             # types
 ```
 
-Rebuild with `pip install -e . --no-build-isolation` after every C++ change (and when a file is added: the editable install lists files). The inspector binds to `127.0.0.1` and is read-only.
+Deeper checks for changes that touch what they cover:
+
+```sh
+.venv/bin/python tools/sanitize.py                   # core tests under AddressSanitizer and UBSan
+.venv/bin/python -m nanobind.stubgen -m pymergetic.rxf.core -r -q -O src/pymergetic/rxf
+python3 -m tools.highlight.grammar_gen --check       # the checked-in grammars are the generated ones
+```
+
+Rebuild with `.venv/bin/pip install -e . --no-build-isolation` after every C++ change (and
+when a file is added: the editable install lists files). The inspector binds to `127.0.0.1`
+and is read-only.
+
+### How a change lands
+
+Changes land lane-wise: one coherent lane per change, tested. The gates above are the bar,
+and the claims in this README and the docs are pinned by tests — model constants against the
+C (`tests/test_model_doc.py`), tutor facts against the policy (`tests/test_tutor.py`), the
+highlight meaning table against `graph.h` (`tests/test_highlight.py`) — so a fact that drifts
+fails the suite until the text follows.
+
+## Documentation
+
+Read in order:
+
+1. [Object model](docs/01-OBJECT-MODEL.md)
+2. [Allocator state](docs/03-ALLOCATOR-STATE.md)
+3. [References](docs/04-REFERENCES.md)
+4. [Semantic authority](docs/05-SEMANTIC-AUTHORITY.md)
+5. [Paths and views](docs/06-PATHS-AND-VIEWS.md)
+6. [Successor and activation](docs/07-SUCCESSOR-AND-ACTIVATION.md)
+7. [Current implementation inventory](docs/08-INVENTORY.md)
+8. [Operations and adapters](docs/10-FACE-AND-CHANNELS.md)
+9. [Bootstrap, verification, and trust](docs/11-BOOTSTRAP-AND-QUORUM.md)
+10. [Authoring](docs/12-AUTHORING.md)
+11. [Deltas, their XML form, and the module tree](docs/15-DELTAS-AND-XML.md)
+12. [Self-description](docs/16-SELF-DESCRIPTION.md)
+13. [Path to a self-contained operating system](docs/17-OPERATING-SYSTEM-PATH.md)
+14. [The native snippets: a multi-platform binary](docs/18-NATIVE-SNIPPETS.md)
+15. [The way to a self-editing image](docs/19-SELF-EDITING-PATH.md)
+16. [The execution policy: suspension is a data property](docs/20-EXECUTION-POLICY.md)
+17. [The unified web interface](docs/21-UNIFIED-WEB-INTERFACE.md)
+18. [Documentation and intent](docs/22-DOCUMENTATION-AND-INTENT.md)
+19. [MicroPython on RXF](docs/23-MICROPYTHON-EXPANSION.md)
+20. [Memory: linked AI memories as graph cells](docs/24-MEMORY-SYSTEM.md)
+21. [Network: devices, sockets, and the orchestration layer](docs/25-NETWORK-ORCHESTRATION.md)
+
+These documents specify RXF independently of any runtime provider. The optional Metal
+binding is described separately in [`docs/integrations/metal.md`](docs/integrations/metal.md).
