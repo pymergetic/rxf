@@ -59,7 +59,7 @@ An RXF image can boot on bare metal, run its own services, and inspect and chang
 
 ### Trust
 - Semantic digests, provenance, reproducible builds: **[present]**
-- Signatures, trust policy, resource limits: **[partial]** (planned)
+- Signatures, trust policy: **[present]** (`certify`: Ed25519, M-of-N quorum, activation gates the build). Resource limits: **[partial]** (a slot in the statement, enforcement not written).
 - Secure boot and measurement: **[missing]**
 
 ### Self-modification and tooling

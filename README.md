@@ -312,11 +312,14 @@ Everything below it is present — the running image compiles its own front end 
 composer from source, installs the compiler from a delta, and proves the fixpoint on
 x86-64, AArch64, and wasm32.
 
-**Not yet rebuilt.** Executable packaging (ELF, PE/COFF, BIOS) and certification are
-designs only ([what is missing](docs/08-INVENTORY.md),
-[10](docs/10-FACE-AND-CHANNELS.md), [11](docs/11-BOOTSTRAP-AND-QUORUM.md),
-[17](docs/17-OPERATING-SYSTEM-PATH.md)); the former v5 Python stack's last state is
-the git tag `legacy-v5-python`. The package version stays `0.x` until then.
+**Built since.** Executable packaging (ELF, PE/COFF, BIOS, UEFI — QEMU boots both
+firmware images, [`tests/test_boot_qemu.py`](tests/test_boot_qemu.py)) and certification
+(Ed25519 statements, M-of-N quorum, the activation gates the build,
+[`tests/test_binary_activation.py`](tests/test_binary_activation.py)) are no longer
+designs. What remains before the package leaves `0.x`: resource limits in the trust
+policy (the slot exists, enforcement does not), and measured boot in the firmware
+([what is missing](docs/08-INVENTORY.md), [17](docs/17-OPERATING-SYSTEM-PATH.md)). The
+former v5 Python stack's last state is the git tag `legacy-v5-python`.
 
 ## The format
 
