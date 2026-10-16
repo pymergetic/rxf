@@ -210,7 +210,13 @@ enum rxf_graph_leaf {
     RXF_LEAF_CHECKED_MULTIPLY_INT64_T = 45,
     RXF_LEAF_REMAINDER_UINT32_T = 46,
     RXF_LEAF_DIVIDE_INT32_T = 47,
-    RXF_LEAF_REMAINDER_INT32_T = 48
+    RXF_LEAF_REMAINDER_INT32_T = 48,
+    /* The run of a program (native/graph.c) as a leaf: the code a program compiles to calls a
+     * program the way an interpreter run does -- the callee's handle, its arguments staged as
+     * the run's arguments, the words of the arguments, and the word its answer is written to.
+     * The callee runs in the run cell of a run of its own, and the call goes on where the
+     * answer() of the interpreter would leave it (docs/20 S7). */
+    RXF_LEAF_GRAPH_RUN = 49
 };
 
 #ifndef RXF_INLINE

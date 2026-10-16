@@ -28,7 +28,15 @@ READ_FROM_OBJECTS = {
 }
 # The pump of the live layer serves a channel; tests/test_live_native.py runs it.
 # The compiler writes machine code for a program; tests/test_compile.py runs it.
-NOT_IN_PROGRAMS = {"live_pump", "uart_pump", "compile_program", "safe_point"}
+# The run of a program is what compiled code calls (a call card, docs/20 S7);
+# tests/test_compile_cases.py runs it on every machine.
+NOT_IN_PROGRAMS = {
+    "live_pump",
+    "uart_pump",
+    "compile_program",
+    "safe_point",
+    "graph_run",
+}
 
 
 @pytest.fixture(scope="module")
@@ -134,7 +142,9 @@ def test_the_arithmetic_programs_compute_what_python_computes(cases, reference):
         assert words(runs[name], width, len(want)) == want, name
 
 
-def test_the_with_overflow_composition_reaches_the_flags_python_computes(cases, reference):
+def test_the_with_overflow_composition_reaches_the_flags_python_computes(
+    cases, reference
+):
     """llvm.uadd/usub.with.overflow as a wrapping operation and its carry or borrow, and
     llvm.sadd/ssub.with.overflow as the sign compare of the operands and the result: the four
     flags the program returns are the four Python computes (native/graph.h, the contract the

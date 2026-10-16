@@ -128,9 +128,15 @@ RXF_INLINE rxf_u32 pick(rxf_u64 left, rxf_u64 a, rxf_u64 b) {
 }
 
 /* The arguments of a call, in the order of the C function of the leaf: an operand of the call,
- * the context, or the output. The letters are those of the shapes of graph.c. */
+ * the context, the output, or the staged arguments of a program call (the words its callee is
+ * called with, staged at RXF_STAGE_AT). The letters are those of the shapes of graph.c. */
 #define ARG_CONTEXT 6U
 #define ARG_OUT 7U
+#define ARG_STAGE 8U
+
+/* A status a be_call is given where no slot catches the answer: a refusal the callee answers
+ * then ends the run with it (the uncaught shape of answer() in graph.c). */
+#define RXF_STATUS_UNCAUGHT (RXF_GRAPH_NONE - 1)
 
 RXF_INLINE rxf_u32 plan(rxf_u32 shape, rxf_u32 *arg, rxf_u32 *type) {
 /* volatile: the stores are not merged into a vector constant, which would be a relocation */
@@ -437,13 +443,16 @@ RXF_INLINE rxf_u32 x_argument_register(rxf_u32 i) {
     return i == 0 ? RDI : i == 1 ? RSI : i == 2 ? RDX : i == 3 ? RCX : i == 4 ? R8 : R9;
 }
 
-/* One argument of a call in a register: the context, the output, or an operand. */
+/* One argument of a call in a register: the context, the output, the staged arguments of a
+ * program call, or an operand. */
 RXF_INLINE void x_argument(rxf_cc *e, rxf_u32 reg, rxf_u32 which, rxf_u32 type,
                            const rxf_u64 *operands, const rxf_u64 *objects, rxf_u64 out_slot) {
     if (which == ARG_CONTEXT) {
         x_mov(e, reg, RBX);
     } else if (which == ARG_OUT) {
         x_lea(e, reg, RBP, (rxf_u32)out_slot);
+    } else if (which == ARG_STAGE) {
+        x_lea(e, reg, RBP, RXF_STAGE_AT);
     } else {
         const rxf_u64 *op = operands + which * RXF_OPERAND_WORDS;
         if (type == 'b' && op[0] == RXF_OPERAND_LITERAL)
@@ -517,8 +526,19 @@ RXF_INLINE void be_call(rxf_cc *e, const rxf_u32 *arg, const rxf_u32 *type, rxf_
         put(e, 0xC4);
         put(e, 8U * left);
     }
-    if (status != RXF_GRAPH_NONE)
+    if (status == RXF_STATUS_UNCAUGHT) {
+        put(e, 0x48); /* test rax, rax */
+        put(e, 0x85);
+        put(e, 0xC0);
+        put(e, 0x0F); /* jz past the answer */
+        put(e, 0x84);
+        rxf_u64 at = e->size;
+        put32(e, 0);
+        x_epilogue(e);
+        patch32(e, at, (rxf_u32)(e->size - (at + 4)));
+    } else if (status != RXF_GRAPH_NONE) {
         x_store(e, 4, RAX, RBP, (rxf_u32)status);
+    }
 }
 
 RXF_INLINE void be_return(rxf_cc *e, const rxf_u64 *src, rxf_u64 object, rxf_u64 width) {
@@ -805,6 +825,8 @@ RXF_INLINE void a_argument(rxf_cc *e, rxf_u32 reg, rxf_u32 which, rxf_u32 type,
         a_mov(e, reg, X19);
     } else if (which == ARG_OUT) {
         a_add(e, reg, X20, (rxf_u32)out_slot);
+    } else if (which == ARG_STAGE) {
+        a_add(e, reg, X20, RXF_STAGE_AT);
     } else {
         const rxf_u64 *op = operands + which * RXF_OPERAND_WORDS;
         if (type == 'b' && op[0] == RXF_OPERAND_LITERAL)
@@ -828,8 +850,17 @@ RXF_INLINE void be_call(rxf_cc *e, const rxf_u32 *arg, const rxf_u32 *type, rxf_
         a_zero(e, X20, out_slot, out_width);
     a_imm(e, X16, function);
     put32(e, 0xD63F0000U | (X16 << 5)); /* blr x16 */
-    if (status != RXF_GRAPH_NONE)
+    if (status == RXF_STATUS_UNCAUGHT) {
+        rxf_u64 at = e->size;
+        put32(e, 0xB4000000U); /* cbz x0, past the answer */
+        a_epilogue(e);
+        if (at + 4 <= e->cap) {
+            rxf_u32 skip = (rxf_u32)((e->size - at) / 4);
+            patch32(e, at, 0xB4000000U | (skip << 5));
+        }
+    } else if (status != RXF_GRAPH_NONE) {
         a_store(e, 4, 0, X20, (rxf_u32)status);
+    }
 }
 
 RXF_INLINE void be_return(rxf_cc *e, const rxf_u64 *src, rxf_u64 object, rxf_u64 width) {
@@ -1166,6 +1197,11 @@ RXF_INLINE void be_call(rxf_cc *e, const rxf_u32 *arg, const rxf_u32 *type, rxf_
             w_get(e, W_FRAME);
             w_i32(e, out_slot);
             put(e, 0x6A);
+        } else if (which == ARG_STAGE) {
+            w_get(e, W_FRAME);
+            w_i32(e, RXF_STAGE_AT);
+            put(e, 0x6A); /* i32.add */
+            put(e, 0xAD); /* i64.extend_i32_u: the staged words are a u64 address */
         } else {
             const rxf_u64 *op = operands + which * RXF_OPERAND_WORDS;
             if (kind == 'b' && op[0] == RXF_OPERAND_LITERAL) {
@@ -1183,7 +1219,17 @@ RXF_INLINE void be_call(rxf_cc *e, const rxf_u32 *arg, const rxf_u32 *type, rxf_
     put(e, 0x11); /* call_indirect */
     w_uleb(e, leaf - 1);
     put(e, 0x00);
-    if (status != RXF_GRAPH_NONE) {
+    if (status == RXF_STATUS_UNCAUGHT) {
+        put(e, 0x21); /* local.set temp */
+        w_uleb(e, W_TEMP);
+        w_get(e, W_TEMP);
+        put(e, 0x04); /* if */
+        put(e, 0x40);
+        w_get(e, W_TEMP);
+        w_leave(e);
+        put(e, 0x0F); /* return */
+        put(e, 0x0B);
+    } else if (status != RXF_GRAPH_NONE) {
         put(e, 0x21); /* local.set temp */
         w_uleb(e, W_TEMP);
         w_get(e, W_FRAME);
@@ -1446,8 +1492,102 @@ RXF_INLINE rxf_u32 terminal(rxf_cc *e, rxf_u64 at) {
     return RXF_OK;
 }
 
+/* A call of a program (word 1 is RXF_GRAPH_CALL): the callee runs in a run of its own -- the
+ * interpreter entry is leaf RXF_LEAF_GRAPH_RUN -- with its handle and its arguments staged at
+ * RXF_STAGE_AT the way a run binds them (a parameter's words, zeroed, the operand's bytes first).
+ * The answer comes back to the call's out word and the call goes on where answer() of graph.c
+ * leaves it: the status to its slot, or a refusal nothing catches ends the run. The compile
+ * resolves the callee where it stands: one published anew between this and the run refuses
+ * STALE_GENERATION -- the seam of a call that names its callee by the generation it has here. */
+RXF_INLINE rxf_u32 compile_program_call(rxf_cc *e, rxf_u64 at) {
+    const rxf_u64 *w = e->code + at;
+    rxf_u64 count = w[2], out_slot = w[3], out_width = w[4], status = w[5];
+    const rxf_u64 *name = w + RXF_CALL_HEADER;
+    const rxf_u64 *operands = name + RXF_OPERAND_WORDS;
+    if (name[0] != RXF_OPERAND_OBJECT || name[2] != 0)
+        return RXF_REFUSE_OUT_OF_RANGE;
+    rxf_object_entry *found = entry(e->c, name[1]);
+    if (!found || found->state != RXF_OBJECT_LIVE)
+        return RXF_REFUSE_UNBOUND;
+    if (found->payload & 7)
+        return RXF_REFUSE_OUT_OF_RANGE;
+    const rxf_u64 *callee = (const rxf_u64 *)(rxf_uptr)found->payload;
+    rxf_u64 callee_words = found->size / 8;
+    if (callee_words < RXF_SLOT_WORDS || callee[0] != RXF_GRAPH_MAGIC)
+        return RXF_REFUSE_TYPE_MISMATCH;
+    rxf_u64 parameters = callee[2], words = callee[3];
+    if (parameters != count || parameters > callee_words ||
+        RXF_SLOT_WORDS + parameters * 2 > callee_words)
+        return RXF_REFUSE_OUT_OF_RANGE;
+    if (out_slot != RXF_GRAPH_NONE && (out_width != 8 || !in_frame(e, out_slot, out_width)))
+        return RXF_REFUSE_UNSUPPORTED; /* the out of a call is one word where the compile goes */
+    if (status != RXF_GRAPH_NONE && (!in_frame(e, status, 4) || (status & 3)))
+        return (status & 3) ? RXF_REFUSE_UNSUPPORTED : RXF_REFUSE_OUT_OF_RANGE;
+    for (rxf_u64 i = 0; i + RXF_OPERAND_WORDS + 2 <= callee_words; i++)
+        if (callee[i] == RXF_OP_RETURN && callee[i + 4] > 8)
+            return RXF_REFUSE_UNSUPPORTED; /* an answer wider than the one word it comes to */
+    rxf_u64 function = find_leaf(e, RXF_LEAF_GRAPH_RUN);
+    if (!function)
+        return RXF_REFUSE_UNBOUND;
+    rxf_u64 used = 0;
+    for (rxf_u64 i = 0; i < parameters; i++) {
+        rxf_u64 width = callee[RXF_SLOT_WORDS + 2 * i + 1];
+        const rxf_u64 *op = operands + i * RXF_OPERAND_WORDS;
+        rxf_u64 object = 0;
+        rxf_u64 present = op[2] < width ? op[2] : width;
+        rxf_u32 refused = check(e, op, present, &object);
+        if (refused)
+            return refused;
+        if (width > RXF_GRAPH_COPY - RXF_HANDLE_BYTES - used)
+            return RXF_REFUSE_UNSUPPORTED;
+        be_move(e, RXF_STAGE_AT + used, width, op, object, present);
+        used += (width + 7) & ~(rxf_u64)7;
+    }
+    /* the handle the call names: the callee and the generation it has at this compile */
+    rxf_u64 handle[RXF_OPERAND_WORDS];
+    for (rxf_u32 word = 0; word < 3; word++) {
+        ((volatile rxf_u64 *)handle)[0] = RXF_OPERAND_LITERAL;
+        ((volatile rxf_u64 *)handle)[1] = word == 0 ? name[1] : word == 1 ? found->generation : 0;
+        ((volatile rxf_u64 *)handle)[2] = 8;
+        be_move(e, RXF_STAGE_AT + used + 8 * word, 8, handle, 0, 8);
+    }
+    rxf_u64 call[3 * RXF_OPERAND_WORDS] = {0};
+    rxf_u64 objects[3] = {0};
+    ((volatile rxf_u64 *)call)[0] = RXF_OPERAND_SLOT;
+    ((volatile rxf_u64 *)call)[1] = RXF_STAGE_AT + used;
+    ((volatile rxf_u64 *)call)[2] = RXF_HANDLE_BYTES;
+    ((volatile rxf_u64 *)call)[6] = RXF_OPERAND_LITERAL;
+    ((volatile rxf_u64 *)call)[7] = words;
+    ((volatile rxf_u64 *)call)[8] = 8;
+    rxf_u32 arg[5], type[5];
+#define PROGRAM_ARG(i, a, t)                                                                       \
+    (((volatile rxf_u32 *)arg)[i] = (a), ((volatile rxf_u32 *)type)[i] = (t))
+    PROGRAM_ARG(0, ARG_CONTEXT, 'c');
+    PROGRAM_ARG(1, 0, 'h');         /* the handle, the three words by address */
+    PROGRAM_ARG(2, ARG_STAGE, 'q'); /* the staged arguments */
+    PROGRAM_ARG(3, 2, 'q');         /* the words of them */
+    PROGRAM_ARG(4, ARG_OUT, 'o');   /* the answer: the call's out word */
+#undef PROGRAM_ARG
+    rxf_u64 answer = out_slot;
+    rxf_u32 zeroes = 1;
+    if (out_slot == RXF_GRAPH_NONE) {
+        answer = RXF_HANDLES_AT + RXF_HANDLE_BYTES; /* the run needs a word to answer to */
+        zeroes = 0;
+    }
+#if defined(__wasm32__)
+    be_call(e, arg, type, 5, function, RXF_LEAF_GRAPH_RUN, call, objects, zeroes, answer, 8,
+            status == RXF_GRAPH_NONE ? RXF_STATUS_UNCAUGHT : status);
+#else
+    be_call(e, arg, type, 5, function, call, objects, zeroes, answer, 8,
+            status == RXF_GRAPH_NONE ? RXF_STATUS_UNCAUGHT : status);
+#endif
+    return RXF_OK;
+}
+
 RXF_INLINE rxf_u32 compile_call(rxf_cc *e, rxf_u64 at) {
     const rxf_u64 *word = e->code + at;
+    if (word[1] == RXF_GRAPH_CALL)
+        return compile_program_call(e, at);
     rxf_u64 leaf = word[1], count = word[2], out_slot = word[3], out_width = word[4];
     rxf_u32 arg[RXF_MAX_ARGUMENTS], type[RXF_MAX_ARGUMENTS];
     rxf_u32 shape = shape_of(leaf), has_out = 0;
@@ -1515,12 +1655,15 @@ RXF_INLINE rxf_u32 instruction_size(const rxf_cc *e, rxf_u64 pc, rxf_u64 *words)
     rxf_u64 first, second, at;
     rxf_u32 status;
     switch (w[0]) {
-    case RXF_OP_CALL:
+    case RXF_OP_CALL: {
+        /* a program call carries the callee's operand before its arguments (graph.c) */
+        rxf_u64 named = w[1] == RXF_GRAPH_CALL ? RXF_OPERAND_WORDS : 0;
         if (!have(e, pc, RXF_CALL_HEADER) || w[2] > RXF_CALL_OPERANDS ||
-            !have(e, pc, RXF_CALL_HEADER + w[2] * RXF_OPERAND_WORDS))
+            !have(e, pc, RXF_CALL_HEADER + named + w[2] * RXF_OPERAND_WORDS))
             return RXF_REFUSE_OUT_OF_RANGE;
-        *words = RXF_CALL_HEADER + w[2] * RXF_OPERAND_WORDS;
+        *words = RXF_CALL_HEADER + named + w[2] * RXF_OPERAND_WORDS;
         return RXF_OK;
+    }
     case RXF_OP_MOVE:
     case RXF_OP_INCREMENT:
         *words = 6;
