@@ -6,8 +6,11 @@ authoring) order and applies first-match semantics down each chain:
 
 - a matched rule's verdict decides — `accept`, `drop`, `queue`, `reject` are
   terminal; `jump` runs its target chain and comes **back to the next rule** of
-  the calling chain (never to its end); `return` pops to the caller, and at base
-  chain depth it is the continue of §10 — the next rule, never a verdict;
+  the calling chain (never to its end); `continue` decides nothing and the walk
+  goes on to the next rule of the chain it stands in, at any depth — one rule
+  cell, wherever the continue stands; `return` pops to the caller, and at base
+  chain depth (no caller to return to) it falls through to the next rule, the
+  landed behavior the pins hold;
 - a chain that runs out of rules returns to its caller, and a base chain that runs
   out applies its policy — the policy is the fallback, never a second match;
 - `accept` from one base chain passes the packet to the next base chain at the
@@ -84,10 +87,12 @@ def _chain(
             if outcome is Verdict.RETURN:
                 continue  # back at the caller: its NEXT rule, never its end
             return outcome
+        if verdict is Verdict.CONTINUE:
+            continue  # decides nothing: on to the next rule of this chain, any depth
         if verdict is Verdict.RETURN:
             if len(stack) > 1:
                 return Verdict.RETURN  # pop to the caller's next rule
-            continue  # base chain depth: the continue of §10, the next rule
+            continue  # base chain depth: no caller to pop to — the next rule
         return verdict  # accept, drop, reject, queue — terminal
     if len(stack) > 1:
         return Verdict.RETURN  # a jumped-to chain that runs out returns
@@ -101,12 +106,14 @@ def _matches(
     deltas: list[CounterDelta],
 ) -> bool:
     """All atoms are read (no short-circuit) so every named set sees the packet:
-    a membership hit is a set counter delta whether or not the rule decides."""
+    a membership hit is a set counter delta at the set's `Set.counter` path,
+    whether or not the rule decides."""
     index = table.set_index()
     matched = True
     for m in matches:
         hit = match_holds(m, packet, index)
         if hit and m.op == "in" and isinstance(m.value, str):
-            deltas.append(CounterDelta(set_counter_path(m.value), 1, packet.length))
+            named = table.get_set(m.value)
+            deltas.append(CounterDelta(named.counter or set_counter_path(m.value), 1, packet.length))
         matched = matched and hit
     return matched

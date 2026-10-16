@@ -47,6 +47,7 @@ from ..schema import (
     Address,
     Device,
     Drift,
+    DriftEntry,
     Interval,
     IPPrefix,
     LinkState,
@@ -158,22 +159,8 @@ class Doc:
 
 
 # ---- field-wise drift: (path, expected, actual) triples ----------------------
-
-
-@dataclass(frozen=True)
-class DriftEntry:
-    """One field-wise difference over the device graph (§8): a `(path, expected,
-    actual)` triple.
-
-    A changed field names itself as `net/dev/lan0.mtu`; a whole missing or extra cell
-    names its cell path with the absent side None. `expected` is the authored word,
-    `actual` the graph's. The landed `Drift` type carries only path lists — these
-    triples are the view's honest detail (schema seam request in the report).
-    """
-
-    path: str
-    expected: object
-    actual: object
+# The triple is the frozen set's `DriftEntry` word (§3) — the view rides schema
+# words end to end, from `drift_entries` to `Drift.entries`.
 
 
 _RECONCILED: tuple[type, ...] = (Device, Port, Segment, Vlan, Address, Route)
@@ -400,18 +387,19 @@ def plan(desired: Doc, current: Graph) -> Plan:
 
 
 def drift_entries(desired: Doc, current: Graph) -> tuple[DriftEntry, ...]:
-    """The field-wise view (§8): `(path, expected, actual)` triples over the device
-    graph — missing and extra cells whole, changed cells one triple per differing
-    field. Changes nothing."""
+    """The field-wise view (§8): the schema's `(path, expected, actual)` triples over
+    the device graph — missing and extra cells whole, changed cells one triple per
+    differing field. Changes nothing."""
     return _diff(desired, current).entries
 
 
 def drift(desired: Doc, current: Graph) -> Drift:
-    """The schema's drift view (§8): the same field-wise truth as `drift_entries`,
-    projected onto the landed `Drift` shape (missing and extra as cell paths, changed
-    as `path.field` words)."""
+    """The schema's drift view (§8): the same field-wise truth as `drift_entries` —
+    the path words projected onto `missing`/`changed`/`extra` (changed as
+    `path.field` words) and the triples themselves carried whole in
+    `Drift.entries`."""
     view = _diff(desired, current)
-    return Drift(desired.path, view.missing, view.changed, view.extra)
+    return Drift(desired.path, view.missing, view.changed, view.extra, view.entries)
 
 
 def apply(staged: Plan, desired: Doc, current: Graph) -> None:

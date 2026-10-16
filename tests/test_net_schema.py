@@ -15,6 +15,7 @@ import pytest
 from pymergetic.rxf.net import schema
 from pymergetic.rxf.net.schema import (
     Address,
+    BondMode,
     Certificate,
     Chain,
     ChainType,
@@ -25,6 +26,7 @@ from pymergetic.rxf.net.schema import (
     Device,
     DeviceKind,
     Drift,
+    DriftEntry,
     Endpoint,
     Family,
     Hardware,
@@ -98,7 +100,12 @@ def test_enumeration_spellings() -> None:
         "bridge",
         "loopback",
         "wireguard",
+        "veth",
+        "bond",
+        "dummy",
+        "vlan",
     ]
+    assert [m.value for m in BondMode] == ["active-backup", "802.3ad"]
     assert [s.value for s in LinkState] == ["down", "up"]
     assert [f.value for f in SocketForm] == ["stream", "datagram", "raw"]
     assert [s.value for s in SocketState] == [
@@ -125,6 +132,7 @@ def test_enumeration_spellings() -> None:
         "queue",
         "jump",
         "return",
+        "continue",
     ]
     assert [r.value for r in Role] == ["client", "server"]
     assert [c.value for c in ConnState] == ["new", "established", "related", "invalid"]
@@ -326,6 +334,30 @@ def test_desired_state_cells() -> None:
     drift = Drift(plan.path, ("net/route/1",), ("net/route/0",), ("net/route/9",))
     assert drift.plan == plan.path
     assert drift.missing == ("net/route/1",)
+
+
+def test_the_added_words_carry_defaults() -> None:
+    """The words the lanes asked for land additively (§3): every new field carries a
+    default, so every construction site of the frozen set keeps working — a regular
+    chain says `hook=None`, a set names its counter cell, a device carries its bond
+    mode, hardware carries its enabled offload mask beside the declared set, and a
+    drift view carries its field-wise triples."""
+    scan = Chain("net/filter/tables/lan/chains/scan", Family.INET, None, 0, ChainType.FILTER, Verdict.RETURN, ())
+    blocked = Set("net/filter/tables/lan/sets/blocked", Family.INET, "inet_service", (Interval(23, 23),))
+    bond = Device("net/dev/bond0", DeviceKind.BOND, None, 1500, LinkState.DOWN)
+    hardware = Hardware("net/dev/eth0/hw", 1500, None, LinkState.DOWN, None, None, frozenset({"gso"}), None, None)
+    drift = Drift("net/plan/office.yaml", (), (), ())
+    assert scan.hook is None and Verdict.CONTINUE.value == "continue"
+    assert blocked.counter is None  # the <path>/counter convention, named on authoring
+    assert bond.mode is None and BondMode.ACTIVE_BACKUP.value == "active-backup"
+    assert hardware.offloads_enabled == frozenset()
+    assert drift.entries == ()
+    triple = DriftEntry("net/dev/lan0.mtu", 9000, 1500)
+    assert (triple.path, triple.expected, triple.actual) == ("net/dev/lan0.mtu", 9000, 1500)
+    named = Set("net/filter/tables/lan/sets/shared", Family.INET, "inet_service", (), "net/filter/counters/9")
+    assert named.counter == "net/filter/counters/9"
+    posed = Device("net/dev/bond1", DeviceKind.BOND, None, 1500, LinkState.DOWN, BondMode.IEEE_802_3AD)
+    assert posed.mode is BondMode.IEEE_802_3AD
 
 
 def test_refusals_are_exceptions() -> None:

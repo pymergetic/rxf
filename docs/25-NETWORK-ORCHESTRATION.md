@@ -57,6 +57,10 @@ class DeviceKind(Enum):
     BRIDGE = "bridge"
     LOOPBACK = "loopback"
     WIREGUARD = "wireguard"              # L3 tunnel over UDP
+    VETH = "veth"                        # a pair, authored whole
+    BOND = "bond"                        # with a BondMode word (active-backup, 802.3ad)
+    DUMMY = "dummy"
+    VLAN = "vlan"                        # 802.1Q, the tag on its Vlan cell
 
 class LinkState(Enum):
     DOWN = "down"
@@ -194,7 +198,8 @@ class Verdict(Enum):
     REJECT = "reject"                    # with the ICMP(v6) error to send
     QUEUE = "queue"                      # to userspace over cap.net.raw
     JUMP = "jump"
-    RETURN = "return"
+    RETURN = "return"                    # back to the caller; at base depth it falls through
+    CONTINUE = "continue"                # to the next rule of the same chain
 
 @dataclass(frozen=True)
 class Match:                             # one field test; sets reference by path

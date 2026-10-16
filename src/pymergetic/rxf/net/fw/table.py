@@ -11,8 +11,8 @@ this plane; this slice is the current image only.
 Counters are image words (§10): every rule and every named set carries a `Counter`
 cell of (packets, bytes). Evaluation never touches them — it hands back
 `CounterDelta` values and the caller authors the writes through `write_counter`.
-A set's counter lives at `<set path>/counter` (the landed `Set` cell names no
-counter path — a named schema seam); a rule's counter is its `Rule.counter` path.
+A set's counter is its `Set.counter` path (authored at the `<set path>/counter`
+convention, shareable by name); a rule's counter is its `Rule.counter` path.
 
 `ConntrackPlane` is TRANSIENT (§14): its `Conntrack` cells live under `net/ct/`
 and never enter a successor — the durable plane holds no conntrack path, ever.
@@ -105,8 +105,8 @@ def rule_counter_path(rule_path: str) -> str:
 
 
 def set_counter_path(set_path: str) -> str:
-    """Where a named set's counter cell lives — the derived convention until the
-    landed `Set` cell carries its own counter path (the named seam)."""
+    """Where a named set's counter cell lives unless its `Set.counter` says
+    otherwise — the convention `add_set` authors by default."""
     return f"{set_path}/counter"
 
 
@@ -205,19 +205,15 @@ class FilterTable:
         self._bases.setdefault(hook, []).append(path)
         return chain
 
-    def add_regular_chain(self, path: str, *, hook: Hook) -> Chain:
-        """A regular chain: reached by jump only, its run-out returns to the caller.
-
-        The landed `Chain.hook` cannot say "no hook" — a regular chain is anchored
-        at the hook its callers traverse and is never attached there (a named
-        schema seam request: `Hook | None`).
-        """
+    def add_regular_chain(self, path: str) -> Chain:
+        """A regular chain: reached by jump only, it attaches at no hook — its
+        `Chain.hook` is `None` — and its run-out returns to the caller."""
         return self._author_chain(
-            path, hook=hook, priority=0, type=ChainType.FILTER, policy=Verdict.RETURN
+            path, hook=None, priority=0, type=ChainType.FILTER, policy=Verdict.RETURN
         )
 
     def _author_chain(
-        self, path: str, *, hook: Hook, priority: int, type: ChainType, policy: Verdict
+        self, path: str, *, hook: Hook | None, priority: int, type: ChainType, policy: Verdict
     ) -> Chain:
         self._refuse_taken(path)
         chain = Chain(path, self.family, hook, priority, type, policy, ())
@@ -243,8 +239,9 @@ class FilterTable:
         must exist and must not close a cycle — refused here, typed, never during
         evaluation. A matched rule's verdict decides: `accept`, `drop`, `queue`,
         `reject` are terminal; `jump` runs its target and **returns to the next
-        rule** of this chain; `return` pops to the caller, and at base chain depth
-        (no caller) it is the continue of §10 — the next rule.
+        rule** of this chain; `continue` decides nothing and goes on to the next
+        rule of this chain at any depth; `return` pops to the caller, and at base
+        chain depth (no caller to return to) it falls through to the next rule.
         """
         chain_cell = self.get_chain(chain)
         rule_matches = tuple(matches)
@@ -276,21 +273,23 @@ class FilterTable:
         return rule
 
     def add_set(
-        self, path: str, kind: str, members: Iterable[Member] = ()
+        self, path: str, kind: str, members: Iterable[Member] = (), *, counter: str | None = None
     ) -> Set:
         """One named interval set (§10): its members are closed ranges (a port
         range, a prefix compiled by `prefix_interval`) or exact values, and its
-        counter cell is authored at `<set path>/counter`."""
+        counter cell is authored at `Set.counter` (default `<set path>/counter`,
+        shareable by name)."""
         if kind not in SET_KINDS:
             raise NotSupported(f"{kind!r} is outside this slice's interval kinds: {sorted(SET_KINDS)}")
         self._refuse_taken(path)
         cell_members = tuple(members)
         for member in cell_members:
             matchmod.check_member(kind, member)
-        cell = Set(path, self.family, kind, cell_members)
+        counter_path = counter or set_counter_path(path)
+        cell = Set(path, self.family, kind, cell_members, counter_path)
         self._sets[path] = cell
         self._index[path] = compile_set(cell)
-        self._counters.setdefault(set_counter_path(path), Counter(set_counter_path(path), 0, 0))
+        self._counters.setdefault(counter_path, Counter(counter_path, 0, 0))
         return cell
 
     def add_members(self, path: str, members: Iterable[Member]) -> Set:
@@ -300,7 +299,7 @@ class FilterTable:
         grown = tuple(members)
         for member in grown:
             matchmod.check_member(cell.kind, member)
-        superseded = Set(cell.path, cell.family, cell.kind, (*cell.members, *grown))
+        superseded = Set(cell.path, cell.family, cell.kind, (*cell.members, *grown), cell.counter)
         self._sets[path] = superseded
         self._index[path] = compile_set(superseded)
         return superseded

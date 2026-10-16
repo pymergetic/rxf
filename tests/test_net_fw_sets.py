@@ -118,6 +118,7 @@ def test_set_counters_count_membership_hits() -> None:
     table = FilterTable(LAN)
     table.add_base_chain(INPUT, hook=Hook.INPUT, policy=Verdict.DROP)
     table.add_set(BLOCKED, "inet_service", (Interval(23, 23), Interval(3128, 3130)))
+    assert table.get_set(BLOCKED).counter == set_counter_path(BLOCKED)  # the field names the cell
     table.add_rule(INPUT, (Match("tcp", "in", BLOCKED),), Verdict.DROP)
     hit = evaluate(table, packet(dport=3129))
     assert CounterDelta(set_counter_path(BLOCKED), 1, 60) in hit.counters

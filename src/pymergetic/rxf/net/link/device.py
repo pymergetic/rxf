@@ -109,10 +109,10 @@ class MemoryDriver(DeviceDriver):
     checked against the declared capability and recorded in `applied`. The only kernel
     behind this fill is a dictionary.
 
-    `Hardware.offloads` is the fill's declared honest set (§3), so the `OFFLOADS` knob
-    accepts any subset of it and is recorded in `applied`; the record keeps reporting
-    the declared capability set (schema seam request: `Hardware` has no enabled-mask
-    word beside the declared set).
+    `Hardware.offloads` is the fill's declared honest set (§3), so the `OFFLOADS`
+    knob takes any subset of it and lands in `Hardware.offloads_enabled` — the
+    enabled mask beside the declared set, which stands still — and `applied`
+    records the same intent.
     """
 
     def __init__(self, devices: Mapping[str, Hardware] | None = None) -> None:
@@ -168,7 +168,7 @@ class MemoryDriver(DeviceDriver):
         if knob is Knob.OFFLOADS:
             if isinstance(value, frozenset) and all(isinstance(name, str) for name in value):
                 if value <= record.offloads:
-                    return record  # a capability is not a state word; applied is the record
+                    return replace(record, offloads_enabled=value)  # the enabled mask, honest now
                 raise NotSupported("this fill declares its offloads honestly: one named here is not among them")
             raise NotSupported("the offloads knob takes a name set: this value is not one")
         if knob is Knob.RINGS:
