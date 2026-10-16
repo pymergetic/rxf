@@ -15,9 +15,9 @@ work is not "write it twice" — it is **write it once, seat it twice**.
 The card: `cap.crypto` ([25](25-NETWORK-ORCHESTRATION.md) §11, one defining lang (RS),
 one set of test vectors). Both TLS and WireGuard sit on it.
 
-**Status.** Steps 1–2 are in the tree with their gates green. Step 3 is the import lane and
-lands together with its measured results (the vector bytes, the refusals by name). Step 4
-follows step 3 and is spelled out as Recipe 2.
+**Status.** Steps 1–2 are in the tree with their gates green. Step 3 landed with its
+measured result (below): 4 of 70 functions import and run, 66 refuse by name — the ledger
+is pinned in the tests. Step 4 follows and is spelled out as Recipe 2.
 
 ### Step 1 — the card in its language, with its vectors
 
@@ -78,6 +78,17 @@ native card. A differential pin (same inputs, both seats, byte-equal outputs) pr
 definition really sits in two places. Functions the subset refuses stay named refusals in
 the test — a named gap, never a silent stub.
 
+**Measured on the crypto card (`tools/native/crypto_import.py`, `tests/test_crypto_import.py`).**
+4 of 70 functions import and run on the interpreter, byte-exact on published vectors:
+`pm_crypto_deinit` (the C-ABI entry, differential-pinned against the native seat) and three
+kernels — `quarter_round` (RFC 8439 §2.1.1, §2.2.1), `xtime` (FIPS 197 §4.2.1/§4.2.2),
+`blake2s::g` (RFC 7693 §3.1). The other 66 refuse by name, each pinned in a
+`REFUSAL_LEDGER` as (face, site, construct): aggregate/sret returns, indirect calls without
+a callee, globals without bytes, `getelementptr` of a local, `unreachable` without a handler.
+Whole primitives (SHA-256, X25519, HKDF, full BLAKE2s, the AEADs) import nothing yet —
+named, not faked. That ledger is the work list for growing the subset, and it is also the
+proof that a refusal is a first-class answer.
+
 ### Step 4 — retire the scaffolding, keep the record
 
 Once the image seat answers the vectors, the Rust tree stops being load-bearing:
@@ -106,9 +117,13 @@ The same recipe covers the TLS card and the WireGuard card ([25](25-NETWORK-ORCH
 
 ## Recipe 2: retiring `native/crypto/` (status)
 
-Not yet done — the honest order matters. It runs after Recipe 1 step 3 is measured green:
+Not yet done — and the honest order matters. The measured result of Recipe 1 step 3 shows
+*why* not: 66 of 70 functions refuse by name, so the image words cannot answer the card's
+vectors yet. `native/crypto/` is still the only seat that passes them; deleting it now would
+delete the truth. Recipe 2 runs when:
 
-1. the import tool reports every `pm_crypto_*` function as `imported` (or names what refuses);
+1. the import tool reports every `pm_crypto_*` function as `imported` (or names what refuses,
+   and the refused set is empty for the vector-bearing faces);
 2. the vector tests run against the image words (same pins, same bytes);
 3. `sync.py` regenerates the starter; `tests/test_starter_delta.py` pins are updated **in the
    same change** (a stale pin is a broken claim);
