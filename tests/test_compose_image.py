@@ -64,15 +64,15 @@ def cell_of_arena(arena: bytes, handle: int) -> dict:
     refs = [
         struct.unpack_from("<QQ", arena, refs_off + 24 * i) for i in range(ref_count)
     ]
-    return dict(
-        type=type_h,
-        parent=parent,
-        name_off=name_off,
-        payload_size=payload_size,
-        flags_word=flags | (ref_count << 32),
-        ref_count=ref_count,
-        refs=refs,
-    )
+    return {
+        "type": type_h,
+        "parent": parent,
+        "name_off": name_off,
+        "payload_size": payload_size,
+        "flags_word": flags | (ref_count << 32),
+        "ref_count": ref_count,
+        "refs": refs,
+    }
 
 
 def graph_handles(image: Image) -> list[int]:

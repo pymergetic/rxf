@@ -312,7 +312,7 @@ def test_the_image_compiles_its_own_sources_and_installs_the_successor(
     delta installs the compiler that runs next -- the same machine, no restart. The successor is
     the one program of the image whose change is known: one refusal answers its words in the other
     order,     and the words it writes differ from the first front end where that is."""
-    name, channel = running
+    _name, channel = running
     machine = channel.machine
     live = machine.linked.live
     assert live is not None

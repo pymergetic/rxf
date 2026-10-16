@@ -251,6 +251,7 @@ import json
 import math
 import struct
 from collections.abc import Iterable, Iterator, Mapping, Sequence
+from itertools import pairwise
 from typing import Any
 
 from pymergetic.rxf.core.arena import HANDLE_NONE, KIND_BLOCK, KIND_DEAD
@@ -711,7 +712,7 @@ def _network(
         for region in regions
     )
     # avenues: the free z bands between the rows of plots
-    for first, second in zip(z_bands, z_bands[1:], strict=False):
+    for first, second in pairwise(z_bands):
         gap = second[0] - first[1]
         if gap >= 1.2:
             out.append(_street("avenue", "x", (first[1] + second[0]) / 2, ring_x0, ring_x1, width(gap)))
@@ -725,10 +726,8 @@ def _network(
         ]
         z_from = ring_z0 if index == 0 else (z_bands[index - 1][1] + low) / 2
         z_to = ring_z1 if index == len(z_bands) - 1 else (high + z_bands[index + 1][0]) / 2
-        for first, second in zip(
-            _bands_of((float(r["plot"]["x"]), float(r["plot"]["x"]) + float(r["plot"]["w"])) for r in here),
-            _bands_of((float(r["plot"]["x"]), float(r["plot"]["x"]) + float(r["plot"]["w"])) for r in here)[1:],
-            strict=False,
+        for first, second in pairwise(
+            _bands_of((float(r["plot"]["x"]), float(r["plot"]["x"]) + float(r["plot"]["w"])) for r in here)
         ):
             gap = second[0] - first[1]
             if gap >= 1.2:
@@ -760,7 +759,7 @@ def _network(
             ]
             bands = _bands_of(runs)
             edges = [(lo, bands[0][0])] + [
-                (first[1], second[0]) for first, second in zip(bands, bands[1:], strict=False)
+                (first[1], second[0]) for first, second in pairwise(bands)
             ] + [(bands[-1][1], lo + span)]
             for low, high in edges:
                 gap = high - low
@@ -894,7 +893,7 @@ def _merge_rects(
         cell = max(1.0, 2.0 * touch)
         near: dict[tuple[int, int], list[int]] = {}
 
-        def cells_of(box: Sequence[float]) -> Iterator[tuple[int, int]]:
+        def cells_of(box: Sequence[float], cell: float = cell) -> Iterator[tuple[int, int]]:
             for gx in range(
                 math.floor((box[0] - touch) / cell), math.floor((box[2] + touch) / cell) + 1
             ):
@@ -959,7 +958,9 @@ def _detour(
         )
         for _ in range(2):  # repair passes: a detour may step into another corridor
             # start the walk at a point the corridor does not reach, so hits pair up linearly
-            def outside(p: tuple[float, float]) -> bool:
+            def outside(
+                p: tuple[float, float], detect: tuple[float, float, float, float] = detect
+            ) -> bool:
                 return not (detect[0] <= p[0] <= detect[2] and detect[1] <= p[1] <= detect[3])
 
             start = next((i for i, p in enumerate(points) if outside(p)), None)
@@ -982,7 +983,9 @@ def _detour(
                 if exit_i < enter_i or (exit_i == enter_i and exit_t <= enter_t):
                     continue
 
-                def lerp(i: int, t: float) -> tuple[float, float]:
+                def lerp(
+                    i: int, t: float, points: list[tuple[float, float]] = points
+                ) -> tuple[float, float]:
                     a, b = points[i], points[(i + 1) % len(points)]
                     return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
 
@@ -1001,7 +1004,13 @@ def _detour(
                     ((corridor[0], corridor[3]), 2 * width + depth),
                 ]
 
-                def perimeter(point: tuple[float, float]) -> float:
+                def perimeter(
+                    point: tuple[float, float],
+                    corridor: tuple[float, float, float, float] = corridor,
+                    width: float = width,
+                    depth: float = depth,
+                    half: float = half,
+                ) -> float:
                     choices = (
                         (abs(point[1] - corridor[1]), point[0] - corridor[0]),
                         (abs(point[0] - corridor[2]), width + point[1] - corridor[1]),
@@ -1404,8 +1413,7 @@ def _near_rails(
                     else:
                         px, pz = at, min(max(z, low), high)
                     squared = (px - x) ** 2 + (pz - z) ** 2
-                    if squared < best_squared:
-                        best_squared = squared
+                    best_squared = min(best_squared, squared)
         ring += 1
         # a rail in a bucket the search has not read lies at least this far out
         if out and (max(0, ring - 1) * PROJECT_BIN) ** 2 > best_squared + 1e-9:
@@ -1525,7 +1533,7 @@ def _routes(
     for r, rail in enumerate(rails):
         axis, at, low, high = rail
         along = sorted(set(rail_nodes[r]), key=lambda n: nodes[n][0] if axis == "x" else nodes[n][1])
-        for first, second in zip(along, along[1:], strict=False):
+        for first, second in pairwise(along):
             a, b = nodes[first], nodes[second]
             length = math.hypot(b[0] - a[0], b[1] - a[1])
             if length < 1e-9:

@@ -10,9 +10,8 @@ The request is the one of ``native/front/words.rxf``: source text, the numbers t
 import struct
 from pathlib import Path
 
-import pytest
-
 import graph_header
+import pytest
 import rxfc
 
 from . import rxf_native

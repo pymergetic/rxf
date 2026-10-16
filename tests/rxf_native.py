@@ -28,6 +28,7 @@ import shutil
 import struct
 import subprocess
 from pathlib import Path
+from typing import Self
 
 import graph_header
 
@@ -140,7 +141,7 @@ class Memory:
     def close(self) -> None:
         self.block.close()
 
-    def __enter__(self) -> Memory:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc: object) -> None:
@@ -165,7 +166,7 @@ def run(
     the tests run them.
     """
     assert len(program) % 8 == 0 and len(program) >= 40
-    magic, frame_bytes, parameters, words, _pc = struct.unpack_from("<5Q", program)
+    magic, _frame_bytes, _parameters, words, _pc = struct.unpack_from("<5Q", program)
     assert magic == MAGIC
     assert len(args) == words * 8
     code = (ctypes.c_uint64 * (len(program) // 8)).from_buffer_copy(program)

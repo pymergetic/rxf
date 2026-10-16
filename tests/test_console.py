@@ -436,19 +436,27 @@ def test_two_racing_registrations_produce_exactly_one_world(solo: Seat):
         barrier = threading.Barrier(2)
         outcomes: dict[str, object] = {}
 
-        def run(tag: str, work: Callable[[], world.World]) -> None:
+        def run(
+            tag: str,
+            work: Callable[[], world.World],
+            barrier: threading.Barrier = barrier,
+            outcomes: dict[str, object] = outcomes,
+        ) -> None:
             barrier.wait(timeout=60)
             try:
                 outcomes[tag] = work()
             except BaseException as problem:  # noqa: BLE001 - the race outcome is what is pinned
                 outcomes[tag] = problem
 
-        def take(which: int) -> world.World:
+        def take(which: int, spec: str = spec, made: list[world.World] = made) -> world.World:
             world.register(spec, lambda name, timeout: made[which])
             return made[which]
 
         if round_number % 2 == 0:  # the named race: a direct register against a Session.open
-            works = [("session", lambda: session.open().world), ("direct", lambda: take(0))]
+            works = [
+                ("session", lambda session=session: session.open().world),
+                ("direct", lambda: take(0)),
+            ]
         else:  # and the plain one: two direct registers
             works = [("one", lambda: take(0)), ("two", lambda: take(1))]
 
@@ -606,7 +614,7 @@ def test_two_console_operations_at_one_world_serialize_as_two_intact_installs(so
     the same gate: both land as intact commits — no install compiles against the other's tail
     and the image refuses nothing mid-race — and both Functions run afterwards."""
     booted(solo)
-    with Session("shm:console-race", solo.channel.client, solo.front) as session:
+    with Session("shm:console-race", solo.channel.client, solo.front):
         attached = world.attach("shm:console-race")
         before = attached.client.hello()
         barrier = threading.Barrier(2)

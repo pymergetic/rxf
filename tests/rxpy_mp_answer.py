@@ -15,7 +15,7 @@ import sys
 
 
 def main(argv, stdin, stdout):
-    namespace = {"__name__": "rxpy_corpus"}
+    namespace: dict = {"__name__": "rxpy_corpus"}
     for path in argv[1:]:
         with open(path) as source:
             text = source.read()
