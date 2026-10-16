@@ -21,6 +21,7 @@ is the machine's, not a table of this file."""
 
 from __future__ import annotations
 
+import hashlib
 import os
 import struct
 import subprocess
@@ -29,6 +30,7 @@ from pathlib import Path
 import compose
 import graph_header
 import pytest
+import rxemit
 import rximport
 import rxpy
 
@@ -92,7 +94,8 @@ def mp_lines(mpy: str, modules: tuple[str, ...], cases: list[tuple[str, tuple[in
     arguments = [mpy, str(DRIVER), *[str(CORPUS / f"{name}.py") for name in modules]]
     lines = [" ".join([entry, *(str(word) for word in words)]) for entry, words in cases]
     made = subprocess.run(
-        arguments, input="\n".join(lines) + "\n", capture_output=True, text=True, timeout=300
+        arguments, input="\n".join(lines) + "\n", capture_output=True, text=True, timeout=300,
+        check=False,
     )
     assert made.returncode == 0, f"{mpy}: the reference did not run: {made.stderr}"
     answered = [line for line in made.stdout.splitlines() if line.strip()]
@@ -180,8 +183,8 @@ IN_CASES: list[tuple[str, str, tuple[int, ...]]] = [
     # calls and recursion inside the call-card budget (chain.py)
     *cases_of("chain", "add_one", [(x,) for x in GRID]),
     *cases_of("chain", "double_it", [(x,) for x in GRID]),
-    *cases_of("chain", "fact", [(n,) for n in range(0, 9)]),
-    *cases_of("chain", "triangle", [(n,) for n in range(0, 8)]),
+    *cases_of("chain", "fact", [(n,) for n in range(9)]),
+    *cases_of("chain", "triangle", [(n,) for n in range(8)]),
     # a face of another import (borrow.py, against chain.double_it)
     *cases_of("borrow", "borrow", [(x,) for x in GRID]),
 ]
@@ -522,7 +525,8 @@ def test_the_import_records_the_claim_and_the_delta_links():
     mapping = rxpy.import_py_file(image, CORPUS / "branch.py", module="branch", provenance=made)
     assert mapping == {name: f"branch.{name}" for name in ("classify", "abs_of", "early", "signed_area")}
     assert image.check() == []
-    assert made.importer == "rxpy"  # the fact this strand stands on (a marker slot: a seam request)
+    assert made.importer == "rxpy"  # the fact this strand stands on
+    assert made.was_once_python is True  # docs/23 5's marker: this module was Python
     report = made.report()
     assert report.startswith("provenance: full\n")
     assert f"file: {CORPUS / 'branch.py'}" in report or "branch.py" in report
@@ -595,3 +599,149 @@ def test_the_cell_of_the_module_is_the_object_of_one_id():
         for found in cells:
             assert found.object_id == rximport.object_id_of("cells.COUNT")
             assert found.payload == (CELL_START & U64).to_bytes(8, "little")
+
+
+# ---- the seams: the status branch of a leaf, the marker, and the deltas' exact text ------------
+
+# Every corpus delta pinned to its text (sha256 of the delta the emitter writes). The
+# seams are additive: a delta that names none of the new wiring is byte-identical to the
+# pre-seam corpus, text and digest. Two deltas flip to the new wiring on purpose and say
+# so here, never blurred: words.py and loops.py divide (``//`` and ``%``) and their
+# division calls now carry the leaf's own status as a status branch (``LOp.status_value``
+# -- the starter's ``<op>_status``) where the guards pre-lowered the same checks by
+# hand. The pre-seam digests are named beside them; the guard-block path stays where the
+# leaf's own check is narrower than the contract (the shift count), so nothing else
+# moved and no refusal flipped (OUT_CASES pins both eras' statuses).
+DELTA_DIGESTS = {
+    "borrow.py": "2db7686d18799d195bc15d984f9daa2fce9086062a120a7d6683bc2031cb8d30",
+    "branch.py": "734d2afa1c473302e0c89c12b2e9e83ced2ce00d5054e74067d065ed4743c2e6",
+    "cells.py": "f5591f167b0d557201de219df4ea5d08038ec5dc9f816553ed1bf21e2aa23a00",
+    "chain.py": "7a2c7317f5f334d0343fc666d164861ac3054846c714a8543bf17adff85ce033",
+    "compare.py": "5cd4a15a8d877df7fb1b533287e9110da6a59d053663bd226f3256876ab6510a",
+    # flipped to the status branch (was e08e1dd83d5870848af94044db4b570676afb433abec115572c794d58f27680a)
+    "loops.py": "59a43506ca958b30f91dd22b78e2446b07f1bd08b581c0c89012de66240ec304",
+    "pair.py": "c87bc7d78b02ca880803f9fe82fb9ae6aa19d358ee6a5ec3ae1ebb07fabfc30d",
+    # flipped to the status branch (was 3325828d099b12951bbf9b210d2b222440b6b33500628a4ea59a76836aa01503)
+    "words.py": "f9b592b31cb7dad5134e6734fbefeb26e741f47d4ddcbfafba84df6dfec8c3d1",
+}
+
+
+def delta_of(module: str, known: dict[str, str] | None = None) -> str:
+    """One corpus module's delta as the corpus carries it (the text the digests hash)."""
+    source = CORPUS / f"{module}.py"
+    graphs = rxpy.graphs_of(source.read_text(), module, known=known)
+    return rxpy.emit_delta(list(graphs.values()), module)
+
+
+def test_the_corpus_deltas_keep_their_exact_text():
+    """The seams' hard rule: additive means byte-identical where the new wiring is not
+    named. Every corpus delta keeps its exact text and digest; the two that flip are
+    named in DELTA_DIGESTS and their wiring is pinned one call at a time below."""
+    for source in sorted(CORPUS.glob("*.py")):
+        known = KNOWN if source.stem == "borrow" else None
+        digest = hashlib.sha256(delta_of(source.stem, known).encode()).hexdigest()
+        assert digest == DELTA_DIGESTS[source.name], f"{source.name}: the delta text moved"
+
+
+def test_a_division_wires_the_leafs_status_as_a_status_branch():
+    """The status_value seam adopted where it is a clean win (divmod): the divide and
+    remainder calls carry the leaf's own status as a U32 value (the starter's
+    ``<op>_status`` slot), the call's block splits on it (the status is ``uint32_t``, so
+    status 0 takes the first edge and the run goes on), and the refusal path ends in a
+    Refuse carrying the same status word -- the leaf's own refusal, never a literal the
+    guard spelled ahead of it. words.calc mixes this with the guarded shift (below): one
+    module, both shapes, nothing rewritten."""
+    calc = rxpy.graphs_of((CORPUS / "words.py").read_text(), "words")["calc"]
+    wired = [
+        op for block in calc.blocks for op in block.ops if op.status_value is not None
+    ]
+    assert len(wired) == 4  # two division sites, each the quotient and remainder leaf
+    assert {op.callee for op in wired} == {
+        "pymergetic.rxf.numeric.division.divide_int64_t",
+        "pymergetic.rxf.numeric.division.remainder_int64_t",
+    }
+    by_path = {block.path: block for block in calc.blocks}
+    for op in wired:
+        status = op.status_value
+        assert status is not None
+        assert status.type_path == "uint32_t" and status.width == 4
+        assert status.owner_op == op.path and status.owner_block in by_path
+        block = by_path[status.owner_block]
+        assert block.terminator == "Branch" and block.condition == ("value", status.path)
+        [onward, refused] = [by_path[successor] for successor, _ in block.successors]
+        assert block.successors == [(onward.path, []), (refused.path, [])]
+        assert refused.terminator == "Refuse"
+        assert refused.terminator_value == ("value", status.path)  # the leaf's own word
+        assert onward.terminator != "Refuse"
+    # the flip's exact width, in the emitted text: two division sites (``//`` and ``%``),
+    # each lowering the two status-carrying leaves of floor semantics (quotient and
+    # remainder) -- four status words, and nothing else
+    text = rxpy.emit_delta(
+        list(rxpy.graphs_of((CORPUS / "words.py").read_text(), "words", only={"calc"}).values()),
+        "words",
+    )
+    assert text.count('status_value="') == 4
+    for op in wired:
+        assert op.status_value is not None
+        assert f'status_value="{op.status_value.path}"' in text
+        assert f'name="{op.status_value.path.rsplit(".", 1)[-1]}" value_type="uint32_t"' in text
+
+
+def test_the_guard_blocks_stay_where_the_leaf_check_is_narrower():
+    """The seam is additive, not a rewrite: a shift's count is guarded ahead of the call
+    (a leaf takes a u32 count where the domain is a word -- its own check is narrower
+    than the contract), those graphs move no byte, and no shift call carries a status
+    word. The run's statuses are pinned where they always were (OUT_CASES: SHIFT_COUNT)."""
+    words = rxpy.graphs_of((CORPUS / "words.py").read_text(), "words")
+    for name in ("shl", "shr"):
+        shifts = [
+            op for block in words[name].blocks for op in block.ops
+            if op.callee and "shift" in op.callee
+        ]  # fmt: skip
+        assert shifts, name
+        assert all(op.status_value is None for op in shifts)
+        assert any(block.terminator == "Refuse" for block in words[name].blocks)
+
+
+def test_without_a_status_value_the_emission_is_todays_exactly():
+    """None is today's behavior exactly: the field defaults to None on every op a
+    lowering builds without naming it, and such an op serializes with no status word --
+    the deltas of the corpus modules that do not divide are byte-identical to their
+    pre-seam text (the digests above pin it), and carry no status_value at all."""
+    plain = rxpy.graphs_of((CORPUS / "compare.py").read_text(), "compare")
+    assert all(
+        op.status_value is None
+        for graph in plain.values()
+        for block in graph.blocks
+        for op in block.ops
+    )
+    assert 'status_value="' not in delta_of("compare")
+
+
+def test_a_status_value_of_another_type_refuses_to_emit():
+    """A status branch is read by its type (the composer takes a Branch on a ``uint32_t``
+    value as MODE_ZERO): the emitter refuses to write a status word typed as anything
+    else -- loudly, never a flag that composes as an ordinary condition."""
+    graph = rxpy.graphs_of("def f(a, b):\n    return a // b\n", "m")["f"]
+    op = next(
+        op for block in graph.blocks for op in block.ops if op.status_value is not None
+    )
+    assert op.status_value is not None
+    op.status_value.type_path = "uint64_t"  # the wrong type, on purpose
+    with pytest.raises(rxemit.ParseError, match="a status value is typed"):
+        rxemit.emit_delta([graph], "m")
+
+
+def test_the_marker_was_once_python_rides_the_modules_provenance():
+    """docs/23 5's marker: the provenance record carries the slot (was_once_python) and
+    the Python strand sets it for every module it compiles -- whatever the tier, the
+    report speaks it. The C strand leaves the slot False and its report unmarked
+    (pinned in tests/test_import.py)."""
+    image = tree.load(STARTER)
+    made = rximport.Provenance.parse(
+        "full,repository=https://example.org/repo.git,commit=" + "a" * 40 + ",license=MIT"
+    )
+    assert made.was_once_python is False  # the slot's default: nothing sets it for C
+    rxpy.import_py_file(image, CORPUS / "branch.py", module="branch", provenance=made)
+    assert made.was_once_python is True
+    assert made.report().splitlines()[:2] == ["provenance: full", "marker: was once Python"]

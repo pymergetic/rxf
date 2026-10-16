@@ -297,8 +297,11 @@ the C++ and Rust subsets of their sections. What remains:
     a signed order of        addresses compare as words already (eq/ne as equal_uint64_t,
     addresses                  the unsigned orders as less_uint64_t); a signed order of
                                addresses stays refused ("icmp of ptr slt")
-    the status wiring          the status of a leaf call (status_value and a refusal branch,
-                               as the starter's graphs do)
+    the status wiring          the status of a leaf call as a status branch, as the starter's
+                               graphs do it -- the emitter's status_value field is in (rxpy's
+                               // and % lower through it, the leaf's own refusal as the
+                               branch); wiring this strand's own leaves through it is what
+                               remains here
     graph calls                what recursion needs, with the refusal/status wiring of the
                                starter
 
@@ -350,28 +353,27 @@ from pathlib import Path
 
 import graph_header
 import rxemit
-
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.kinds import DocKind, DocRole
 from rxemit import (
+    LP64,
+    U32,
+    U64,
+    UNDECIDED,
+    WIDE,
     DataModel,
     Global,
-    ILP32,
     LBlock,
     LGraph,
     LOp,
     LValue,
-    LP64,
     MOperand,
     ParseError,
-    U32,
-    U64,
-    UNDECIDED,
     ValueOperand,
-    WIDE,
     align,
     emit_delta,
 )
+
+from pymergetic.rxf.core import tree
+from pymergetic.rxf.core.kinds import DocKind, DocRole
 
 # ---- the leaves of the interpreter the importer wires -----------------------------------------
 
@@ -432,12 +434,9 @@ def is_panic_callee(callee: str) -> bool:
 def is_runtime_callee(callee: str) -> bool:
     """A C++ exception/RTTI runtime call, or a Rust runtime call (allocation, panic start):
     none of them has a leaf of the interpreter, so the import refuses by name."""
-    return (
-        callee.startswith(("__cxa_", "_Unwind", "_ZTI", "_ZTV", "_ZTS"))
-        or "dynamic_cast" in callee
-        or callee.startswith("__gxx_personality")
-        or callee.startswith("__rust")
-    )
+    return callee.startswith(
+        ("__cxa_", "_Unwind", "_ZTI", "_ZTV", "_ZTS", "__gxx_personality", "__rust")
+    ) or "dynamic_cast" in callee
 
 
 def is_runtime_symbol(name: str) -> bool:
@@ -476,7 +475,7 @@ GRAPH_COPY = graph_header.numbers()["RXF_GRAPH_COPY"]  # what one edge's copies 
 # a program of its own, not a body the caller's frame was never meant to hold (only a
 # callee whose frame would not fit a whole run cell is refused outright in lower_inline)
 INLINE_WORDS = 48
-FULL = (1 << 64) - 1
+FULL = rxemit.FULL  # the word's mask, one home (the emitter's narrow-integer helpers)
 # what a narrow (i1/i8/i16/i32) value is: the low bits of its word. Every operation of the
 # subset leaves its result in this form, so a value is always the zero-extension of the
 # integer it names, whatever width it is typed with
@@ -638,10 +637,10 @@ def struct_layout(
     packed struct takes no padding and aligns like one byte)."""
     at = 0
     align_of = 1
-    for field in fields:
-        here = 1 if packed else type_align(field, structs, model)
+    for member in fields:
+        here = 1 if packed else type_align(member, structs, model)
         at = align(at, here)
-        at += type_size(field, structs, model)
+        at += type_size(member, structs, model)
         align_of = max(align_of, here)
     return align(at, align_of), align_of
 
@@ -655,12 +654,12 @@ def field_offset(
         raise Unsupported(f"no field {index} of {ty}")
     fields, packed = body
     at = 0
-    for position, field in enumerate(fields):
-        here = 1 if packed else type_align(field, structs, model)
+    for position, member in enumerate(fields):
+        here = 1 if packed else type_align(member, structs, model)
         at = align(at, here)
         if position == index:
-            return at, field
-        at += type_size(field, structs, model)
+            return at, member
+        at += type_size(member, structs, model)
     raise Unsupported(f"no field {index} of {ty}")
 
 
@@ -741,7 +740,7 @@ def _read_constant(text: str) -> tuple[str, str]:
     text = text.strip()
     if not text:
         return "", ""
-    if text.startswith("c\"") or text.startswith('"'):
+    if text.startswith(("c\"", '"')):
         end = 1 if text.startswith('"') else 2
         while end < len(text):
             if text[end] == "\\":
@@ -785,7 +784,7 @@ def item_value(item: str) -> str:
     aggregate value and ``zeroinitializer`` carry no type of their own. The value alone is
     what the recursion of ``init_bytes`` takes."""
     text = item.strip()
-    if text.startswith(("c\"", '"')) or text.startswith(("zeroinitializer", "undef", "poison", "null")):
+    if text.startswith(("c\"", '"', "zeroinitializer", "undef", "poison", "null")):
         return text
     _, rest = split_type_init(text)
     return rest if rest else text
@@ -948,7 +947,7 @@ RE_GLOBAL = re.compile(
     r"(?:.*?\s+)?(?P<kind>global|constant)\s+(?P<rest>.+)$"
 )
 RE_LABEL = re.compile(rf"^(?P<name>{LABEL}):\s*$")
-RE_ASSIGN = re.compile(rf"^%(?P<name>[A-Za-z0-9_.$-]+)\s*=\s*(?P<rest>.+)$")
+RE_ASSIGN = re.compile(r"^%(?P<name>[A-Za-z0-9_.$-]+)\s*=\s*(?P<rest>.+)$")
 RE_BINOP = re.compile(
     rf"^(?P<op>add|sub|mul|udiv|sdiv|urem|srem|and|or|xor|shl|lshr|ashr)"
     rf"(?:\s+(?:nuw|nsw|exact|disjoint|nunw))*\s+"
@@ -1282,8 +1281,7 @@ def function_wiring(
         # actually wires one (a module that states no width wires none this pass can size)
         return object_id_of(path) & ((1 << (8 * pointer_width(model))) - 1)
 
-    for name in functions:  # every body of the link unit, the boot's stores included
-        found = functions[name]
+    for found in functions.values():  # every body of the link unit, the boot's stores included
         for block in found.blocks:
             for inst in block.insts:
                 if inst.op != "store" or inst.a is None or not inst.a.name:
@@ -1471,7 +1469,7 @@ def crosses_a_card(function: Function, functions: dict[str, Function]) -> bool:
 
 def parse_module(
     text: str, known: dict[str, str] | None = None,
-) -> tuple[list[Function], dict[str, str], dict[str, "Global"]]:
+) -> tuple[list[Function], dict[str, str], dict[str, Global]]:
     """The ``define`` functions of a textual LLVM module, its named struct types, and its
     module-level globals (the named data objects of the import unit).
 
@@ -1482,8 +1480,8 @@ def parse_module(
     model = module_model(text)  # the width model of the module's words (the datalayout)
     found: list[Function] = []
     structs: dict[str, str] = {}
-    globals_: dict[str, "Global"] = {}
-    pending: list[tuple[str, "Global", str]] = []  # resolved once every typedef is known
+    globals_: dict[str, Global] = {}
+    pending: list[tuple[str, Global, str]] = []  # resolved once every typedef is known
     raw_lines = text.splitlines()  # unstripped: a byte-string may hold a ``;`` of its own
     lines = [_strip(line) for line in text.splitlines()]
     at = 0
@@ -1633,6 +1631,28 @@ def parse_module(
 # importer fills it below and the one shared emitter writes it as the delta
 
 
+class BlockLeaves:
+    """One block of a Lowering as the emitter's shared helpers take it (``rxemit.Leaves``).
+
+    The narrow-integer and ashr helpers have one home (rxemit, for both lowerings) and
+    make their leaf calls through ``call(key, inputs, input_types)`` and ``literal``;
+    this importer's call names its block first, so ``Lowering.at`` binds one block."""
+
+    def __init__(self, lowering: Lowering, target: LBlock) -> None:
+        self.lowering = lowering
+        self.target = target
+
+    def call(
+        self, key: str, inputs: list[MOperand], input_types: list[str] | None = None
+    ) -> MOperand:
+        """One leaf call into the bound block."""
+        return self.lowering.call(self.target, key, inputs, input_types=input_types)
+
+    def literal(self, constant: int) -> MOperand:
+        """The Literal object of a constant (the Lowering's own, one per constant)."""
+        return self.lowering.literal(constant)
+
+
 class Lowering:
     """One function of the IR as a graph of blocks, operations and values."""
 
@@ -1640,12 +1660,12 @@ class Lowering:
         self,
         function: Function,
         module: str = "imported",
-        functions: dict[str, "Function"] | None = None,
+        functions: dict[str, Function] | None = None,
         stack: tuple[str, ...] = (),
-        host: "Lowering | None" = None,
+        host: Lowering | None = None,
         tag: str = "",
         structs: dict[str, str] | None = None,
-        globals: dict[str, "Global"] | None = None,
+        globals: dict[str, Global] | None = None,
         known: dict[str, str] | None = None,
         declared: set[str] | None = None,
         wiring: dict[int, str] | None = None,
@@ -1965,7 +1985,7 @@ class Lowering:
             base = base_found.group(1) if base_found else parts[1].strip()
             indices: list[int] = []
             for part in parts[2:]:
-                found = re.fullmatch(rf"i\d+\s+(-?\d+)", part.strip())
+                found = re.fullmatch(r"i\d+\s+(-?\d+)", part.strip())
                 if not found:
                     raise Unsupported(
                         f"{self.fn.name}: a getelementptr of a moving index ({text})"
@@ -2131,7 +2151,7 @@ class Lowering:
                 # differential runs takes its argument the same way (an i8 parameter is
                 # what the low byte of the register holds)
                 self.names[name] = (
-                    given if type_name == "ptr" else self.and_mask(entry, given, MASKS[type_name])
+                    given if type_name == "ptr" else rxemit.and_mask(self.at(entry), given, MASKS[type_name])
                 )
             else:
                 raise Unsupported(f"{self.fn.name}: a parameter of {type_name}, not an integer")
@@ -2660,54 +2680,12 @@ class Lowering:
             self.load_scratch.append(staged)
         return self.load_scratch[0]
 
-    def and_mask(self, target: LBlock, source: MOperand, mask: int) -> MOperand:
-        """The low bits of a word: what a narrow (i1/i8/i16/i32) value is."""
-        if mask == FULL:
-            return source
-        if source[0] == "literal":
-            return self.literal(source[1] & mask)
-        return self.call(target, "bit_and_uint64_t", [source, self.literal(mask)])
-
-    def sext_value(self, target: LBlock, source: MOperand, mask: int) -> MOperand:
-        """The sign-extension of a narrow word to 64 bits.
-
-        No sign-extending leaf exists; ``((x + 2^(n-1)) & (2^n - 1)) - 2^(n-1)`` is the
-        arithmetic: the add re-centers the word around the sign bit, the mask takes the
-        low n bits as a signed value, the subtract turns it back to a sign-extended word.
-        """
-        if mask == FULL:
-            return source
-        half = (mask + 1) >> 1
-        centered = self.call(target, "wrapping_add_uint64_t", [source, self.literal(half)])
-        return self.call(
-            target, "wrapping_subtract_uint64_t", [self.and_mask(target, centered, mask), self.literal(half)]
-        )
-
-    def xor_with_sign(self, target: LBlock, value: MOperand, sign: MOperand) -> MOperand:
-        """``value ^ sign`` when the sign word is 0 or all ones (no xor leaf exists):
-        ``x ^ 0`` is x and ``x ^ -1`` is the complement, so ``(x | s) & ~(x & s)`` is both."""
-        return self.call(target, "bit_and_uint64_t", [
-            self.call(target, "bit_or_uint64_t", [value, sign]),
-            self.call(target, "bit_not_uint64_t", [
-                self.call(target, "bit_and_uint64_t", [value, sign])
-            ]),
-        ])
-
-    def ashr_value(self, target: LBlock, source: MOperand, count: MOperand) -> MOperand:
-        """The arithmetic shift right of a 64-bit signed word: ``~(~a >> k)`` for a negative
-        ``a``, ``a >> k`` otherwise, written without a branch. With ``s = 0 - ((a >> 63) & 1)``
-        (0 or all ones), the answer is ``(a ^ s) >> k) ^ s`` and each xor of a 0-or-all-ones
-        word is ``xor_with_sign`` (the shift right leaf is logical)."""
-        sign = self.call(target, "wrapping_subtract_uint64_t", [
-            self.literal(0),
-            self.call(target, "bit_and_uint64_t", [
-                self.call(target, "shift_right_uint64_t", [source, self.literal(63)], input_types=[U64, U32]),
-                self.literal(1),
-            ]),
-        ])
-        flipped = self.xor_with_sign(target, source, sign)
-        shifted = self.call(target, "shift_right_uint64_t", [flipped, count], input_types=[U64, U32])
-        return self.xor_with_sign(target, shifted, sign)
+    def at(self, target: LBlock) -> BlockLeaves:
+        """This lowering's leaf calls into ``target``, as the emitter's shared helpers
+        take them (``rxemit.and_mask(self.at(target), source, mask)`` and kin). The
+        narrow-integer and ashr helpers have one home -- rxemit -- and no copy lives
+        here; the drift pin of ``tests/test_import.py`` holds that line."""
+        return BlockLeaves(self, target)
 
     def lower_binop(self, inst: Inst, target: LBlock) -> None:
         """The integer operations of the subset, of every width (i1/i8/i16/i32/i64)."""
@@ -2726,23 +2704,23 @@ class Lowering:
             "or": "bit_or_uint64_t",
         }.get(inst.op)
         if key is not None:  # wrapping 64-bit arithmetic kept in the low bits is iN arithmetic
-            self.note(name, self.and_mask(target, self.call(target, key, [a, b]), mask))
+            self.note(name, rxemit.and_mask(self.at(target), self.call(target, key, [a, b]), mask))
         elif inst.op in ("shl", "lshr"):  # the count is the leaf's u32 parameter (it truncates)
             key = "shift_left_uint64_t" if inst.op == "shl" else "shift_right_uint64_t"
-            self.note(name, self.and_mask(target, self.call(target, key, [a, b], input_types=[U64, U32]), mask))
+            self.note(name, rxemit.and_mask(self.at(target), self.call(target, key, [a, b], input_types=[U64, U32]), mask))
         elif inst.op == "ashr":  # of the sign-extended word, then back to the low bits
-            signed = self.sext_value(target, a, mask)
-            self.note(name, self.and_mask(target, self.ashr_value(target, signed, b), mask))
+            signed = rxemit.sext_value(self.at(target), a, mask)
+            self.note(name, rxemit.and_mask(self.at(target), rxemit.ashr_value(self.at(target), signed, b), mask))
         elif inst.op == "xor" and inst.b.constant == -1:  # xor with -1 is `not`
-            self.note(name, self.and_mask(target, self.call(target, "bit_not_uint64_t", [a]), mask))
+            self.note(name, rxemit.and_mask(self.at(target), self.call(target, "bit_not_uint64_t", [a]), mask))
         elif inst.op == "xor" and inst.a.constant == -1:
-            self.note(name, self.and_mask(target, self.call(target, "bit_not_uint64_t", [b]), mask))
+            self.note(name, rxemit.and_mask(self.at(target), self.call(target, "bit_not_uint64_t", [b]), mask))
         elif inst.op == "xor":
             # a ^ b is (a | b) - (a & b): no leaf for xor exists
             either = self.call(target, "bit_or_uint64_t", [a, b])
             both = self.call(target, "bit_and_uint64_t", [a, b])
             made = self.call(target, "wrapping_subtract_uint64_t", [either, both])
-            self.note(name, self.and_mask(target, made, mask))
+            self.note(name, rxemit.and_mask(self.at(target), made, mask))
         elif inst.op in ("mul", "udiv", "sdiv", "urem", "srem"):
             self.note(name, self.integer_op(target, inst.op, a, b, mask))
         else:
@@ -2761,7 +2739,7 @@ class Lowering:
         paths -- natively they are a SIGFPE, not an answer to compare against."""
         if op == "mul":
             made = self.call(target, "wrapping_multiply_uint64_t", [a, b])
-            return self.and_mask(target, made, mask)
+            return rxemit.and_mask(self.at(target), made, mask)
         if mask == MASKS["i32"]:
             key = {
                 "udiv": "divide_uint32_t",
@@ -2779,9 +2757,9 @@ class Lowering:
             "srem": "remainder_int64_t",
         }[op]
         if op in ("sdiv", "srem"):  # a signed divide is of the sign-extended words
-            a = self.sext_value(target, a, mask)
-            b = self.sext_value(target, b, mask)
-        return self.and_mask(target, self.call(target, key, [a, b]), mask)
+            a = rxemit.sext_value(self.at(target), a, mask)
+            b = rxemit.sext_value(self.at(target), b, mask)
+        return rxemit.and_mask(self.at(target), self.call(target, key, [a, b]), mask)
 
     def less(self, target: LBlock, left: MOperand, right: MOperand, signed: bool) -> MOperand:
         if signed:  # a + 2^63 turns a signed compare of full words into an unsigned one
@@ -2815,8 +2793,8 @@ class Lowering:
             return
         signed = inst.pred.startswith("s")
         if signed:
-            a = self.sext_value(target, a, mask)  # a signed compare is of the full words
-            b = self.sext_value(target, b, mask)
+            a = rxemit.sext_value(self.at(target), a, mask)  # a signed compare is of the full words
+            b = rxemit.sext_value(self.at(target), b, mask)
         order = {
             "ult": (a, b), "uge": (a, b), "ugt": (b, a), "ule": (b, a),
             "slt": (a, b), "sge": (a, b), "sgt": (b, a), "sle": (b, a),
@@ -2891,12 +2869,12 @@ class Lowering:
             if inst.op == "inttoptr" and inst.name is not None:
                 self.pointers.add(inst.name)  # the result is an address of the flat memory
         elif inst.op == "zext":
-            self.note(inst.name, self.and_mask(target, source, self.mask_of(inst.type)))
+            self.note(inst.name, rxemit.and_mask(self.at(target), source, self.mask_of(inst.type)))
         elif inst.op == "trunc":
-            self.note(inst.name, self.and_mask(target, source, self.mask_of(inst.to)))
+            self.note(inst.name, rxemit.and_mask(self.at(target), source, self.mask_of(inst.to)))
         elif inst.op == "sext":
-            extended = self.sext_value(target, source, self.mask_of(inst.type))
-            self.note(inst.name, self.and_mask(target, extended, self.mask_of(inst.to)))
+            extended = rxemit.sext_value(self.at(target), source, self.mask_of(inst.type))
+            self.note(inst.name, rxemit.and_mask(self.at(target), extended, self.mask_of(inst.to)))
         else:
             raise Unsupported(f"{self.fn.name}: {inst.op} to {inst.to}")
 
@@ -2974,7 +2952,7 @@ class Lowering:
             else:
                 word = self.operand(index)
                 if index_type != "i64":
-                    word = self.sext_value(target, word, self.mask_of(index_type))
+                    word = rxemit.sext_value(self.at(target), word, self.mask_of(index_type))
                 terms.append((word, stride))
         address = base
         if constant:
@@ -3044,7 +3022,7 @@ class Lowering:
             raise Unsupported(f"{self.fn.name}: a load of an address that is not a value")
         else:
             raise Unsupported(f"{self.fn.name}: a load that is not from a known slot")
-        self.note(inst.name, self.and_mask(target, made, mask))
+        self.note(inst.name, rxemit.and_mask(self.at(target), made, mask))
         if inst.type == "ptr" and inst.name is not None:
             self.pointers.add(inst.name)  # what is loaded is an address of the flat memory
 
@@ -3211,7 +3189,7 @@ class Lowering:
         return self.lower_card(inst, target, self.known.get(bare, bare))
 
     def lower_leaf_call(self, inst: Inst, target: LBlock, key: str) -> LBlock | None:
-        callee, arity, has_out, pointers = LEAVES[key]
+        _callee, arity, has_out, pointers = LEAVES[key]
         given = inst.args
         if len(given) != arity + (1 if has_out else 0):
             raise Unsupported(f"{self.fn.name}: {inst.callee} takes {arity} values")
@@ -3453,7 +3431,7 @@ class Lowering:
         if intrinsic.startswith("memset."):
             # llvm.memset.p0.i64(dst, value, len, volatile) -> the memory.fill leaf
             dst = self.frame_moperand(target, inst.args[0][1])
-            value = self.and_mask(target, self.operand(inst.args[1][1]), 0xFF)
+            value = rxemit.and_mask(self.at(target), self.operand(inst.args[1][1]), 0xFF)
             length = self.operand(inst.args[2][1])
             self.call_void(target, "memory_fill", [dst, length, value, length])
             return None
@@ -3493,12 +3471,12 @@ class Lowering:
                 )
             signed = kind == "smul"
             if signed:
-                a = self.sext_value(target, a, mask)
-                b = self.sext_value(target, b, mask)
+                a = rxemit.sext_value(self.at(target), a, mask)
+                b = rxemit.sext_value(self.at(target), b, mask)
             product = self.call(target, "wrapping_multiply_uint64_t", [a, b])
-            answer = self.and_mask(target, product, mask)
+            answer = rxemit.and_mask(self.at(target), product, mask)
             if width < 64:
-                back = self.sext_value(target, answer, mask) if signed else answer
+                back = rxemit.sext_value(self.at(target), answer, mask) if signed else answer
                 overflow = self.negate(
                     target, self.call(target, "equal_uint64_t", [product, back]), one
                 )
@@ -3520,7 +3498,7 @@ class Lowering:
             "wrapping_add_uint64_t" if kind in ("uadd", "sadd") else "wrapping_subtract_uint64_t",
             [a, b],
         )
-        answer = self.and_mask(target, total, mask)
+        answer = rxemit.and_mask(self.at(target), total, mask)
         if kind == "uadd":
             overflow = self.less(target, answer, a, signed=False)  # a carry: sum < a
         elif kind == "usub":
@@ -3540,9 +3518,9 @@ class Lowering:
             both = self.call(target, "bit_and_uint64_t", [left, right])
             return self.call(target, "wrapping_subtract_uint64_t", [either, both])
 
-        sa = self.sext_value(target, a, mask)  # the sign form reads the sign of the words
-        sb = self.sext_value(target, b, mask)
-        ss = self.sext_value(target, answer, mask)
+        sa = rxemit.sext_value(self.at(target), a, mask)  # the sign form reads the sign of the words
+        sb = rxemit.sext_value(self.at(target), b, mask)
+        ss = rxemit.sext_value(self.at(target), answer, mask)
         if kind == "sadd":
             joined = self.call(target, "bit_and_uint64_t", [mixed(sa, ss), mixed(sb, ss)])
         else:
@@ -3564,7 +3542,7 @@ class Lowering:
         index = int(inst.to)
         if fields is None or index >= len(aggregate) or index >= len(fields):
             raise ParseError(f"{self.fn.name}: an extractvalue of field {index} of {inst.type}")
-        self.note(inst.name, self.and_mask(target, aggregate[index], self.word_of(fields[index])))
+        self.note(inst.name, rxemit.and_mask(self.at(target), aggregate[index], self.word_of(fields[index])))
 
     def lower_insertvalue(self, inst: Inst, target: LBlock) -> None:
         """``insertvalue { ... } %agg, v, i``: the aggregate with field ``i`` replaced. A
@@ -3696,7 +3674,7 @@ class Lowering:
         the one count where the complementary shift degenerates to a shift by N (0
         after masking for N < 64, but 0 modulo 64 for N = 64)."""
         mask = self.mask_of(f"i{width}")
-        count = self.and_mask(target, c, width - 1)  # i1 keeps the count at 0
+        count = rxemit.and_mask(self.at(target), c, width - 1)  # i1 keeps the count at 0
         other = self.call(target, "wrapping_subtract_uint64_t", [self.literal(width), count])
         if left:
             hi = self.call(target, "shift_left_uint64_t", [a, count], input_types=[U64, U32])
@@ -3706,7 +3684,7 @@ class Lowering:
             hi = self.call(target, "shift_left_uint64_t", [a, other], input_types=[U64, U32])
             lo = self.call(target, "shift_right_uint64_t", [b, count], input_types=[U64, U32])
             base = b
-        shifted = self.and_mask(target, self.call(target, "bit_or_uint64_t", [hi, lo]), mask)
+        shifted = rxemit.and_mask(self.at(target), self.call(target, "bit_or_uint64_t", [hi, lo]), mask)
         zero = self.call(target, "equal_uint64_t", [count, self.literal(0)])
         return self.lower_select(zero, base, shifted, inst.name, target)
 
@@ -3963,7 +3941,9 @@ class Provenance:
     claim stands on -- the repository, the commit taken, the license -- are required; at
     ``hash`` the facts are refused (hash is identity without location). ``tier=None`` is the
     run that claims nothing (no flag at all): it lifts the comments and the report says
-    ``provenance: none``.
+    ``provenance: none``. ``was_once_python`` is the marker of docs/23 5 (docs/22: provenance
+    for code that was Python): the Python strand sets it for every module it compiles and
+    the report speaks it; every C, C++ and Rust import leaves it False.
     """
 
     tier: str | None = "cite"
@@ -3972,12 +3952,17 @@ class Provenance:
     license: str = ""
     upstream: str = ""
     importer: str = "rximport"
+    # the marker *was once Python* of docs/23 5 and docs/22 (a fact at every level --
+    # cheap and permanent): True where the strand compiled Python to the graphs, False
+    # for every C, C++ or Rust import. The slot is the record's own; the report speaks
+    # it, and a claim that names no tier still keeps the fact.
+    was_once_python: bool = False
     origin_name: str = "origin"
     files: list[dict] = field(default_factory=list)
     _origin: int | None = field(default=None, compare=False)
 
     @classmethod
-    def parse(cls, spec: "Provenance | str | Sequence[str]") -> "Provenance":
+    def parse(cls, spec: Provenance | str | Sequence[str]) -> Provenance:
         """The flag's spec as a run: ``full,repository=...,commit=...,license=...`` (or words)."""
         if isinstance(spec, Provenance):
             return spec
@@ -3998,7 +3983,14 @@ class Provenance:
         if tier not in ("full", "cite", "hash"):
             # The floor speaks first (docs/22): an anonymous or unknown word is refused by
             # the image itself at the first record -- no fact list buys past it.
-            return cls(tier=tier, **facts)
+            return cls(
+                tier=tier,
+                repository=facts.get("repository", ""),
+                upstream=facts.get("upstream", ""),
+                commit=facts.get("commit", ""),
+                license=facts.get("license", ""),
+                importer=facts.get("importer", "rximport"),
+            )
         if tier == "hash":
             if facts:
                 raise ValueError(
@@ -4128,6 +4120,8 @@ class Provenance:
         says what is recorded, never what was meant.
         """
         out = [f"provenance: {'none' if self.tier is None else self.tier}"]
+        if self.was_once_python:
+            out.append("marker: was once Python")
         if self._origin is not None:
             out.append(
                 f"origin: {self.origin_name} repository={self.repository}"
