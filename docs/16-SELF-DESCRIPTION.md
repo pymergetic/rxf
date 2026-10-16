@@ -47,6 +47,34 @@ A type is turned into **leaves**: unsigned, signed, bool, float, hex, enumeratio
 - every word of the format (kind, owner, mobility, reference kind and binding) has a name, or the object could not be written,
 - every `Alias` is used by a path of its module, or carries `Reexport` ([15](15-DELTAS-AND-XML.md); checked only when nothing else is wrong).
 
+## Mount: the object world as Python
+
+The self-description is what the mount synthesizes from — nothing else. `pymergetic.rxftk.mount`
+takes one image and makes its object world a Python face (`core/mount`, `rxftk/mount/finder.py`):
+
+- a `Type` object becomes a class named as the type, carrying one property per `Field`: the
+  property reads the payload at the field's offset, out of the cell — a scalar as a number,
+  an enumeration as the path of its enumerator, a reference as the handle it holds, raw bytes
+  as bytes. Where the leaves end and the type is not fully covered, the tail bytes ride as
+  `data`. One class per Type, one instance per object, and the instance slot is `id`;
+- a `Module` cell becomes a module object whose exported names are its children, with the
+  ground (the root's non-module children: `Type`, `Field`, ... — what a module needs to
+  exist) as its shared context; sub-modules and unwrapped names arrive lazily (PEP 562);
+- the names are exactly the ones the guest's import walk answers `package`/`module` for
+  (`Image.resolve_module`, [23](23-MICROPYTHON-EXPANSION.md) §4.6): one card, two seats. The
+  host's finder sits last in `sys.meta_path` (the host wins where both have the name); the
+  MicroPython guest needs no finder at all — it boots into this object world.
+
+What a property reads and what the text form writes is one layout (`meta/types.cpp`): the
+mount agrees, value for value, with the generic reader (`Image.fields`), and cannot drift
+from the image. The face is read-only — editing is one delta
+([27](27-EDITING.md)), never a property assignment.
+
+Backrefs close the loop: a mounted module carries `__image__` (the image it reads) and
+`__rxf_mount__` (the mark the uninstall checks), and its `__spec__.loader` reaches the
+synthesizer of its mount — held weakly, because a module must not keep an image alive. One
+image at a time; `uninstall()` drops the finder and every module it served.
+
 ## Why it is shaped like this
 
 An image is checked against its own description instead of per-type decoders: every payload type that has instances has `Field` objects, and a field says which `uint64` is a reference (`REFERENCE`). The starter carries all of its types this way.

@@ -230,3 +230,8 @@ class Image:
 
     def delta_digest(self) -> str:
         """SHA-256 of the canonical delta text."""
+
+    def mount_names(self) -> list[str]:
+        """
+        Every module name of the image (the path of every Module cell), sorted: the truth the guest's import walk and the host's mount both answer from.
+        """

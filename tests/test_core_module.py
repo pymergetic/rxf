@@ -57,7 +57,7 @@ def test_the_checked_in_stubs_match_the_module(tmp_path):
 
 
 def test_every_submodule_imports_by_its_path():
-    for name in ("kinds", "arena", "hash", "object", "meta", "delta", "tree"):
+    for name in ("kinds", "arena", "hash", "object", "meta", "delta", "tree", "mount"):
         module = importlib.import_module(f"pymergetic.rxftk.core.{name}")
         assert module.__name__ == f"pymergetic.rxftk.core.{name}"
         assert getattr(core, name) is module

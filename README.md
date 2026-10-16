@@ -232,6 +232,32 @@ app.cfg.CONF               → no import: an attribute read of the named cell CO
 app.main.run               → none: a Fn is an attribute of its module, never a module name
 ```
 
+### The mount: the object world as Python
+
+`pymergetic.rxftk.mount` mounts one image and `import` answers from it — the same
+trichotomy and the same objects the guest reads. What a Type object describes becomes a
+Python class whose properties read the cell at the field's offset (no dicts, no parsing);
+what a Module cell names becomes the module. The host wins where it has the name: the
+finder sits last in `sys.meta_path`.
+
+```python
+from pymergetic.rxftk import mount
+
+image = mount.image_open("starter")          # .rxfb bytes or a .rxfd tree
+
+import pymergetic.rxf.library.heap as heap   # the image answers the name
+dir(heap)                                    # what the module exports
+run = pymergetic.rxf.foundation.graph.run    # one face per object, named or imported
+run.implementations                          # a declared relation is a list of faces
+run.target                                   # a payload leaf read at its offset
+type(run).__name__                           # 'Function' — the class of its Type object
+```
+
+Open, import, inspect, call: the mount is read-only (edits are deltas,
+[docs/27](docs/27-EDITING.md)); one image at a time. The MicroPython guest needs no
+finder at all — it boots into this same object world
+([the self-description](docs/16-SELF-DESCRIPTION.md) makes the faces).
+
 ### The command line
 
 `rxf` is one Python Fire entry point. A command lives next to what it operates on and its

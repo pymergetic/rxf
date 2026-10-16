@@ -42,6 +42,7 @@ void bind_meta(nb::module_ &m, nb::class_<object::Image> &image);
 void bind_delta(nb::module_ &m, nb::class_<object::Image> &image);
 void bind_tree(nb::module_ &m);
 void bind_live(nb::module_ &m);
+void bind_mount(nb::module_ &m, nb::class_<object::Image> &image);
 
 } // namespace pymergetic::rxf::core::bindings
 
