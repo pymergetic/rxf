@@ -167,6 +167,15 @@ GPU_ARGS = [
     "--ignore-gpu-blocklist",
     "--enable-unsafe-swiftshader",  # in-process fallback allowed; the probe still reports truth
 ]
+VULKAN_ARGS = [
+    "--use-gl=angle",
+    "--use-angle=vulkan",
+    "--enable-features=Vulkan",
+    "--disable-vulkan-surface",  # headless: WebGL on the device, no window system to draw to
+    "--enable-gpu",
+    "--ignore-gpu-blocklist",
+    "--enable-unsafe-swiftshader",
+]
 SWIFTSHADER_ARGS = [
     "--use-gl=angle",
     "--use-angle=swiftshader",
@@ -198,6 +207,7 @@ def _launch_raster(playwright: Any) -> tuple[Any, str]:
     The returned string names the raster that actually draws the shots."""
     candidates = (
         ("chromium-gpu", {"channel": "chromium", "args": GPU_ARGS}),
+        ("chromium-vulkan", {"channel": "chromium", "args": VULKAN_ARGS}),
         ("chromium-gpu-headful", {"channel": "chromium", "headless": False, "args": GPU_ARGS}),
         ("swiftshader", {"args": SWIFTSHADER_ARGS}),
     )
