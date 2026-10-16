@@ -3,12 +3,11 @@ each, one verdict each — and the jump graph that has to stay loop-free.
 
 A verdict is one of: `accept`, `drop`, `queue`, `reject` (terminal); `jump` to a
 named chain, which comes **back** to the next rule of the calling chain when the
-target returns or runs out; and `return`. The one honest encoding note: the frozen
-`Verdict` set carries no `continue`, so a continue is `Verdict.RETURN` at base
-chain depth (where there is no caller to return to, it falls through to the next
-rule — the shape the doc's own `continue` describes). `Verdict.CONTINUE` is a named
-schema seam request; until it lands, a continue inside a regular chain is not
-expressible in one `Rule` cell.
+target returns or runs out; `continue`, which decides nothing and goes on to the
+next rule of the chain it stands in, at any depth — one `Rule` cell, wherever the
+continue stands; and `return`, which pops to the caller. At base chain depth
+(where there is no caller to return to) `return` falls through to the next rule —
+the landed behavior the pins hold — but `continue` is the word that says so.
 
 The jump graph is checked when the rule is **authored**, never while a packet is
 being evaluated: a jump that would close a cycle refuses `JumpCycle` at add time.

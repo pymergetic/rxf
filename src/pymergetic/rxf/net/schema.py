@@ -78,6 +78,23 @@ class DeviceKind(Enum):
     BRIDGE = "bridge"
     LOOPBACK = "loopback"
     WIREGUARD = "wireguard"  # L3 tunnel over UDP
+    VETH = "veth"  # one end of a veth pair (§7)
+    BOND = "bond"  # a link aggregation over members (§7)
+    DUMMY = "dummy"  # a link that exists as config and nothing more (§7)
+    VLAN = "vlan"  # a tagged link; its `Vlan` cell carries the tag (§7)
+
+
+class BondMode(Enum):
+    """How a bond's members carry traffic (§7): the policy word on the device cell.
+
+    Neutral descriptors, no vendor words: `active-backup` — one member carries
+    while the rest stand by; `802.3ad` — the members carry one negotiated
+    aggregation group. Every other policy is refused by name where a mode is
+    offered (§15) — never accepted and dropped.
+    """
+
+    ACTIVE_BACKUP = "active-backup"
+    IEEE_802_3AD = "802.3ad"
 
 
 class LinkState(Enum):
@@ -94,6 +111,7 @@ class Device:
     mac: Mac | None  # none on point-to-point (SLIP) and tunnels
     mtu: int
     link: LinkState
+    mode: BondMode | None = None  # the bond policy word (§7); none elsewhere
 
 
 @dataclass(frozen=True)
@@ -139,6 +157,7 @@ class Hardware:
     offloads: frozenset[str]  # checksum, gso, gro — the fill's honest set
     rings: tuple[int, int] | None
     wol: bool | None
+    offloads_enabled: frozenset[str] = frozenset()  # the enabled mask: which of `offloads` are on
 
 
 # ---- L3: addresses, routes, neighbors (one model, two families) ----
@@ -293,6 +312,7 @@ class Verdict(Enum):
     QUEUE = "queue"  # to userspace over cap.net.raw
     JUMP = "jump"
     RETURN = "return"
+    CONTINUE = "continue"  # nothing decided: on to the next rule of the chain (§10)
 
 
 @dataclass(frozen=True)
@@ -318,9 +338,12 @@ class Rule:
 
 @dataclass(frozen=True)
 class Chain:
+    """One filter chain (§10): a base chain attached at a hook, or a regular chain
+    a jump reaches — a regular chain attaches at no hook and its `hook` says so."""
+
     path: str
     family: Family
-    hook: Hook
+    hook: Hook | None
     priority: int
     type: ChainType
     policy: Verdict
@@ -336,12 +359,17 @@ class Table:
 
 @dataclass(frozen=True)
 class Set:
-    """Interval sets are first class (§10)."""
+    """Interval sets are first class (§10).
+
+    `counter` names its counter cell, like `Rule.counter`; a cell that names none
+    keeps the `<path>/counter` convention.
+    """
 
     path: str
     family: Family
     kind: str  # ipv4_addr, ipv6_addr, ether_addr, inet_service, ...
     members: tuple[Interval | Value, ...]
+    counter: str | None = None  # its counter cell path
 
 
 @dataclass(frozen=True)
@@ -454,13 +482,33 @@ class Plan:
 
 
 @dataclass(frozen=True)
+class DriftEntry:
+    """One field-wise difference of a drift view (§8): a `(path, expected, actual)`
+    triple.
+
+    A changed field names itself as `net/dev/lan0.mtu`; a whole missing or extra
+    cell names its cell path with the absent side `None`. `expected` is the
+    authored word, `actual` the graph's — a config word or a whole cell.
+    """
+
+    path: str
+    expected: object
+    actual: object
+
+
+@dataclass(frozen=True)
 class Drift:
-    """A VIEW: desired vs. current, changes nothing (§8)."""
+    """A VIEW: desired vs. current, changes nothing (§8).
+
+    The path words and the field-wise truth behind them: `entries` carries the
+    `(path, expected, actual)` triples, one per difference.
+    """
 
     plan: str
     missing: tuple[str, ...]
     changed: tuple[str, ...]
     extra: tuple[str, ...]
+    entries: tuple[DriftEntry, ...] = ()
 
 
 # ---- refusals (§15) and protocol errors (§12) ----

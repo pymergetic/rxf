@@ -31,6 +31,7 @@ from pymergetic.rxf.net.link.link import (
 from pymergetic.rxf.net.schema import (
     Address,
     AddressInUse,
+    BondMode,
     ConnState,
     Conntrack,
     ConnTuple,
@@ -77,21 +78,25 @@ def test_create_bridge_members_join_the_segment() -> None:
 
 
 def test_create_bond_shares_the_master_shape() -> None:
-    """A bond is a master like a bridge (§7) — its mode has no cell to land in yet
-    (schema seam request) and the plane never pretends to store one."""
+    """A bond is a master like a bridge (§7) — and its policy word lands on the
+    device cell (`Device.mode`); a word outside the landed `BondMode` set is
+    refused by name, never accepted and dropped."""
     graph = MemoryGraph()
     plane = LinkPlane(graph)
     plane.create_nic("lan0")
-    plane.create_bond("bond0", members=["lan0"])
+    plane.create_bond("bond0", members=["lan0"], mode=BondMode.IEEE_802_3AD)
     assert graph.get("net/port/lan0").segment == "net/seg/bond0"  # type: ignore[union-attr]
+    assert graph.get("net/dev/bond0").mode is BondMode.IEEE_802_3AD  # type: ignore[union-attr]
+    with pytest.raises(NotSupported):
+        plane.create_bond("bond1", mode="balance-tlb")  # type: ignore[arg-type]  # an unsupported mode, by name
 
 
 def test_the_kind_projection_is_pinned_not_silent() -> None:
-    """The authored §7 kinds project honestly onto the landed `DeviceKind` set —
-    pinned here so the schema gap (no veth/bond/dummy members) is never silent."""
-    assert schema_kind(LinkKind.BRIDGE) is DeviceKind.BRIDGE
-    for kind in (LinkKind.NIC, LinkKind.VETH, LinkKind.BOND, LinkKind.VLAN, LinkKind.DUMMY):
-        assert schema_kind(kind) is DeviceKind.NIC  # "a real or emulated link" (§3)
+    """The authored §7 kinds land one to one in the frozen `DeviceKind` set (§3):
+    the projection is identity — a veth end, a bond, a dummy, and a vlan link are
+    each their own kind now — and the pin keeps it that way."""
+    for kind in LinkKind:
+        assert schema_kind(kind) is DeviceKind(kind.value)
 
 
 def test_create_vlan_writes_the_tag_cell() -> None:
@@ -327,6 +332,35 @@ def test_the_memory_driver_declares_capabilities_honestly() -> None:
         ]  # the refusals applied nothing
         with pytest.raises(StaleHandle):
             hardware("net/dev/eth9")  # the device is gone (§7)
+    finally:
+        install_driver(None)
+
+
+def test_the_offloads_knob_lands_in_the_enabled_mask() -> None:
+    """The `OFFLOADS` knob is honest against the enabled-mask word (§7): a subset
+    of the declared set lands in `Hardware.offloads_enabled` while the declared set
+    stands still — and a name outside it is still refused by name."""
+    fill = MemoryDriver(
+        {
+            "net/dev/eth0": Hardware(
+                "net/dev/eth0/hw",
+                1500,
+                b"\x02\x00\x00\x00\x00\x01",
+                LinkState.UP,
+                1000,
+                True,
+                frozenset({"checksum", "gso"}),
+                (256, 256),
+                False,
+            ),
+        }
+    )
+    install_driver(fill)
+    try:
+        set_knob("net/dev/eth0", Knob.OFFLOADS, frozenset({"gso"}))
+        picture = hardware("net/dev/eth0")
+        assert picture.offloads == frozenset({"checksum", "gso"})  # the declared set, unchanged
+        assert picture.offloads_enabled == frozenset({"gso"})  # the intent, honest now
     finally:
         install_driver(None)
 

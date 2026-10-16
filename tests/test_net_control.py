@@ -228,7 +228,8 @@ def test_drift_is_exactly_field_wise_over_the_device_graph() -> None:
         ("net/if/lan0/addr/1",),
         ("net/dev/lan0.mtu", "net/route/0.via"),
         (),
-    )
+        entries,
+    )  # and the report carries the same triples in `Drift.entries`
 
 
 def test_drift_names_extra_words_too() -> None:
@@ -241,8 +242,9 @@ def test_drift_names_extra_words_too() -> None:
     plane.add_address("lan0", b"\xc0\x00\x02\x0a", 24)
     plane.add_address("lan0", b"\xc0\x00\x02\x63", 24)  # the doc never names this one
     desired = Doc("net/plan/office.yaml", devices=(DeviceSpec("lan0", LinkKind.NIC, addresses=(AddressSpec(b"\xc0\x00\x02\x0a", 24),)),))
-    assert drift(desired, graph) == Drift(desired.path, (), (), ("net/if/lan0/addr/1",))
-    assert DriftEntry("net/if/lan0/addr/1", None, graph.get("net/if/lan0/addr/1")) in drift_entries(desired, graph)
+    extra = DriftEntry("net/if/lan0/addr/1", None, graph.get("net/if/lan0/addr/1"))
+    assert drift(desired, graph) == Drift(desired.path, (), (), ("net/if/lan0/addr/1",), (extra,))
+    assert extra in drift_entries(desired, graph)
 
 
 def test_resyncing_clears_drift_to_empty() -> None:

@@ -35,6 +35,7 @@ from ..schema import (
     IP,
     Address,
     AddressInUse,
+    BondMode,
     Device,
     DeviceKind,
     Interval,
@@ -54,11 +55,8 @@ from ..schema import (
 
 class LinkKind(Enum):
     """The §7 kind set for authored links: a plain nic, a veth pair end, a bridge
-    (+members), a bond, a VLAN, a dummy.
-
-    The landed `DeviceKind` carries no veth/bond/dummy members (schema seam request,
-    named in the report); until it does, `schema_kind` projects honestly onto what the
-    landed set can say.
+    (+members), a bond, a VLAN, a dummy — one `DeviceKind` of the frozen set each,
+    one to one.
     """
 
     NIC = "nic"
@@ -70,14 +68,9 @@ class LinkKind(Enum):
 
 
 def schema_kind(kind: LinkKind) -> DeviceKind:
-    """The honest projection of an authored kind onto the landed `DeviceKind` set.
-
-    A veth end, a bond, and a dummy are emulated links — the landed set calls those
-    `NIC` ("a real or emulated link"); a bridge is `BRIDGE`; VLAN tagging lives on the
-    `Vlan` cell beside its `NIC` link. This projection is pinned in the tests so the
-    gap is never silent.
-    """
-    return DeviceKind.BRIDGE if kind is LinkKind.BRIDGE else DeviceKind.NIC
+    """The authored kind's `DeviceKind` word (§3): identity — the frozen set now
+    carries every §7 kind one to one, and this is where it is pinned."""
+    return DeviceKind(kind.value)
 
 
 # ---- the cell vocabulary of this plane -------------------------------------
@@ -353,11 +346,14 @@ class LinkPlane:
         ports join, and the members' port words — one commit."""
         return self._create_master(name, LinkKind.BRIDGE, members)
 
-    def create_bond(self, name: str, members: Sequence[str] = ()) -> Device:
-        """A bond and its members (§7). The bond *mode* has no cell to land in on the
-        landed type set (schema seam request) and is refused by name where the doc
-        shape offers it — never accepted and dropped."""
-        return self._create_master(name, LinkKind.BOND, members)
+    def create_bond(self, name: str, members: Sequence[str] = (), *, mode: BondMode | None = None) -> Device:
+        """A bond and its members (§7), and its policy word: `mode` lands on the
+        device cell (`Device.mode`) — `active-backup`, `802.3ad`, or none until one
+        is set. A word outside the landed `BondMode` set refuses `NotSupported` by
+        name — never accepted and dropped."""
+        if mode is not None and not isinstance(mode, BondMode):
+            raise NotSupported("the bond mode is active-backup or 802.3ad: this word is refused by name")
+        return self._create_master(name, LinkKind.BOND, members, mode=mode)
 
     def create_vlan(self, name: str, vid: int, on: str) -> Device:
         """802.1Q tagging as a cell (§7): the link, and its `Vlan` cell over the
@@ -491,10 +487,12 @@ class LinkPlane:
         )
         return link
 
-    def _create_master(self, name: str, kind: LinkKind, members: Sequence[str]) -> Device:
+    def _create_master(
+        self, name: str, kind: LinkKind, members: Sequence[str], *, mode: BondMode | None = None
+    ) -> Device:
         _check_name(name)
         self._claim(device_path(name), port_path(name), segment_path(name))
-        link = Device(device_path(name), schema_kind(kind), None, 1500, LinkState.DOWN)
+        link = Device(device_path(name), schema_kind(kind), None, 1500, LinkState.DOWN, mode)
         ports: list[Write] = []
         member_ports: list[str] = []
         for member in members:

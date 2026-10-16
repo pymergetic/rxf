@@ -7,9 +7,10 @@ the fallback, a jump comes back to the **next rule** of the calling chain and
 never to its end, a jump cycle is refused when the rule is authored (typed) and
 never on the packet path, a continue falls through to the next rule, and
 `evaluate` is pure — it hands back counter deltas and the caller authors the
-writes. The continue note: the frozen `Verdict` set has no `continue`, so the
-engine's continue is `Verdict.RETURN` at base chain depth (no caller to return
-to) — `Verdict.CONTINUE` is the named schema seam.
+writes. The continue note: `Verdict.CONTINUE` is one rule cell at any depth —
+inside a regular chain included; `Verdict.RETURN` at base chain depth (no caller
+to return to) falls through to the next rule as it always has, and that landed
+behavior is pinned below beside the new word.
 """
 
 from __future__ import annotations
@@ -75,7 +76,7 @@ def sample_table() -> FilterTable:
     """input: jump to scan for tcp, accept ssh, then drop — the jump test shape."""
     table = FilterTable(LAN)
     table.add_base_chain(INPUT, hook=Hook.INPUT, policy=Verdict.DROP)
-    table.add_regular_chain(SCAN, hook=Hook.INPUT)
+    table.add_regular_chain(SCAN)
     table.add_rule(INPUT, (Match("meta.protocol", "==", "tcp"),), Verdict.JUMP, jump=SCAN)
     table.add_rule(INPUT, (Match("tcp", "==", 22),), Verdict.ACCEPT)
     table.add_rule(INPUT, (), Verdict.DROP)
@@ -107,7 +108,7 @@ def test_return_pops_to_the_calling_chain() -> None:
     """An explicit `return` in a jumped chain pops to the caller's next rule."""
     table = FilterTable(LAN)
     table.add_base_chain(INPUT, hook=Hook.INPUT, policy=Verdict.DROP)
-    table.add_regular_chain(GUARD, hook=Hook.INPUT)
+    table.add_regular_chain(GUARD)
     table.add_rule(INPUT, (), Verdict.JUMP, jump=GUARD)
     table.add_rule(INPUT, (), Verdict.ACCEPT)
     table.add_rule(GUARD, (Match("meta.iif", "==", "lan0"),), Verdict.RETURN)
@@ -122,7 +123,7 @@ def test_a_jump_cycle_is_refused_at_add_time() -> None:
     never see one, because the jump graph stays a loop-free graph."""
     table = FilterTable(LAN)
     table.add_base_chain(INPUT, hook=Hook.INPUT, policy=Verdict.DROP)
-    table.add_regular_chain(SCAN, hook=Hook.INPUT)
+    table.add_regular_chain(SCAN)
     table.add_rule(INPUT, (), Verdict.JUMP, jump=SCAN)
     with pytest.raises(JumpCycle):
         table.add_rule(SCAN, (), Verdict.JUMP, jump=INPUT)  # back to the caller
@@ -152,11 +153,11 @@ def test_policy_applies_only_when_no_rule_matches() -> None:
 
 def test_continue_falls_through_to_the_next_rule() -> None:
     """A continue decides nothing and the walk goes on: the next rule still runs,
-    even one behind it that would drop. (The frozen set has no `Verdict.CONTINUE`;
-    the continue is `Verdict.RETURN` at base chain depth — the named seam.)"""
+    even one behind it that would drop. `Verdict.CONTINUE` says that in one rule
+    cell, at any depth."""
     table = FilterTable(LAN)
     table.add_base_chain(INPUT, hook=Hook.INPUT, policy=Verdict.DROP)
-    table.add_rule(INPUT, (Match("meta.iif", "==", "lan0"),), Verdict.RETURN)  # continue
+    table.add_rule(INPUT, (Match("meta.iif", "==", "lan0"),), Verdict.CONTINUE)  # continue
     table.add_rule(INPUT, (Match("tcp", "==", 22),), Verdict.ACCEPT)
     table.add_rule(INPUT, (), Verdict.DROP)
     decision = evaluate(table, tcp_packet(iif="lan0"))
@@ -170,10 +171,40 @@ def test_run_out_after_a_continue_applies_the_policy() -> None:
     decides"; pinned so the corner is never a surprise)."""
     table = FilterTable(LAN)
     table.add_base_chain(INPUT, hook=Hook.INPUT, policy=Verdict.DROP)
-    table.add_rule(INPUT, (Match("meta.iif", "==", "lan0"),), Verdict.RETURN)  # continue
+    table.add_rule(INPUT, (Match("meta.iif", "==", "lan0"),), Verdict.CONTINUE)  # continue
     decision = evaluate(table, tcp_packet(iif="lan0"))
     assert decision.verdict is Verdict.DROP
     assert decision.path == (f"{INPUT}/rules/0",)
+
+
+def test_a_continue_inside_a_regular_chain_is_one_rule_cell() -> None:
+    """The expressiveness the seam closed: a continue inside a regular chain is one
+    `Rule` cell — it falls to the next rule of its **own** chain (never straight
+    back to the caller), and the run-out keeps its meaning: back to the caller's
+    next rule."""
+    table = FilterTable(LAN)
+    table.add_base_chain(INPUT, hook=Hook.INPUT, policy=Verdict.DROP)
+    table.add_regular_chain(SCAN)
+    table.add_rule(INPUT, (), Verdict.JUMP, jump=SCAN)
+    table.add_rule(INPUT, (), Verdict.ACCEPT)  # the caller's next rule after the run-out
+    table.add_rule(SCAN, (Match("meta.iif", "==", "lan0"),), Verdict.CONTINUE)  # one cell
+    table.add_rule(SCAN, (Match("meta.iif", "==", "wan0"),), Verdict.DROP)  # examined, no match
+    decision = evaluate(table, tcp_packet(iif="lan0"))
+    assert decision.verdict is Verdict.ACCEPT
+    assert decision.path == (f"{INPUT}/rules/0", f"{SCAN}/rules/0", f"{SCAN}/rules/1", f"{INPUT}/rules/1")
+
+
+def test_return_at_base_chain_depth_falls_through() -> None:
+    """`return` at base chain depth has no caller to pop to — it falls through to
+    the next rule, the landed behavior kept whole now that `continue` is a word of
+    its own (expressiveness, not a redesign)."""
+    table = FilterTable(LAN)
+    table.add_base_chain(INPUT, hook=Hook.INPUT, policy=Verdict.DROP)
+    table.add_rule(INPUT, (Match("meta.iif", "==", "lan0"),), Verdict.RETURN)
+    table.add_rule(INPUT, (), Verdict.ACCEPT)
+    decision = evaluate(table, tcp_packet(iif="lan0"))
+    assert decision.verdict is Verdict.ACCEPT
+    assert decision.path == (f"{INPUT}/rules/0", f"{INPUT}/rules/1")
 
 
 def test_evaluate_is_pure_and_counters_are_authored_writes() -> None:
@@ -274,7 +305,7 @@ def test_a_verdict_and_its_target_must_agree() -> None:
     the cell has to say what it means)."""
     table = FilterTable(LAN)
     table.add_base_chain(INPUT, hook=Hook.INPUT, policy=Verdict.DROP)
-    table.add_regular_chain(SCAN, hook=Hook.INPUT)
+    table.add_regular_chain(SCAN)
     with pytest.raises(InvalidRule):
         table.add_rule(INPUT, (), Verdict.JUMP)
     with pytest.raises(InvalidRule):
