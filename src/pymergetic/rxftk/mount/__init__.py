@@ -15,10 +15,14 @@ the names it imports are exactly the names this mount serves — one card, two s
 from __future__ import annotations
 
 import importlib.abc
+import importlib.machinery
 import importlib.util
 import sys
+import types
 import weakref
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any, Protocol, cast
 
 from pymergetic.rxftk.core import mount as core_mount
 from pymergetic.rxftk.core import tree
@@ -26,11 +30,35 @@ from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.core.tree import TreeError
 
 __all__ = [
+    "Mounted",
     "image_open",
     "install",
     "mounted",
     "uninstall",
 ]
+
+
+class Mounted(Protocol):
+    """The face every mounted object carries (docs/27).
+
+    A Type object becomes a class and an object an instance of it: ``id`` is the handle of
+    the node it reads, the properties are the Type's leaves (a property assignment is
+    ``put``; the width comes from the field, not from Python), and the edit set rides as
+    methods. The classes are synthesized at runtime — this protocol is the shape they all
+    share, for callers and for the type checker.
+    """
+
+    id: int
+
+    def __getattr__(self, name: str) -> Any: ...
+    def __setattr__(self, name: str, value: object) -> None: ...
+
+    def put(self, field: str, value: object) -> None: ...
+    def ref(self, field: str, to: int | str | Mounted) -> None: ...
+    def unset(self, field: str) -> None: ...
+    def rename(self, name: str) -> None: ...
+    def move(self, parent: int | str | Mounted) -> None: ...
+    def delete(self) -> None: ...
 
 
 class ImageLoader(importlib.abc.Loader):
@@ -50,10 +78,12 @@ class ImageLoader(importlib.abc.Loader):
             raise RuntimeError("the mount this loader belonged to is gone")
         return synth
 
-    def create_module(self, spec):
-        return self.synthesizer.module(spec.name)
+    def create_module(
+        self, spec: importlib.machinery.ModuleSpec
+    ) -> types.ModuleType | None:
+        return cast("types.ModuleType", self.synthesizer.module(spec.name))
 
-    def exec_module(self, module) -> None:
+    def exec_module(self, module: types.ModuleType) -> None:
         """The module is complete when it is made: the face reads the image on demand."""
 
 
@@ -65,7 +95,12 @@ class ImageFinder(importlib.abc.MetaPathFinder):
         self.synthesizer = core_mount.Synthesizer(image)
         self._loader = ImageLoader(self.synthesizer)  # one loader per image
 
-    def find_spec(self, fullname, path=None, target=None):
+    def find_spec(
+        self,
+        fullname: str,
+        path: Sequence[str] | None = None,
+        target: types.ModuleType | None = None,
+    ) -> importlib.machinery.ModuleSpec | None:
         try:
             stat = self.image.resolve_module(fullname)
         except TreeError:  # no root of the image is spelled here: not ours

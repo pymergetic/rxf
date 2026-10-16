@@ -40,7 +40,7 @@ Reading (what editing needs to see):
 ```
 image.get(target, "a.b.c") -> value          # a leaf, through the generic reader
 image.members(target)                        # the declared lists, in order (docs/16)
-image.path(handle) / image.type_of(target)   # where it stands, what it is
+image.path(handle) / image.type_name(target)  # where it stands, what it is
 ```
 
 ## Rules
@@ -63,7 +63,7 @@ The set is defined once, in the object world. Every seat just reads it:
 - the host C++ face (`pm_image_edit_*`; `edit_init`/`edit_deinit`, `create`/`destroy` for the
   transaction objects),
 - the mounted Python face: the generated classes carry these verbs as methods — `alloc.size = 4096`
-  is `put`, `alloc.kind.ref(x)` is `ref`, `image.edit().commit()` stays the one transaction,
+  is `put`, `alloc.ref("kind", x)` is `ref`, `image.edit().commit()` stays the one transaction,
 - the microcontroller seat: the same card, its own interpreter ([23](23-MICROPYTHON-EXPANSION.md)),
 - the text form (`.rxfd`) is the same ops written down.
 
