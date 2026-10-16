@@ -11,10 +11,10 @@ import struct
 
 import pytest
 
-from pymergetic.rxf.core.delta import DeltaError
-from pymergetic.rxf.core.kinds import DocCodec, DocKind, DocRole, DocStatus, RefKind
-from pymergetic.rxf.core.object import Image
-from pymergetic.rxf.server.inspector import Inspector
+from pymergetic.rxftk.core.delta import DeltaError
+from pymergetic.rxftk.core.kinds import DocCodec, DocKind, DocRole, DocStatus, RefKind
+from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.server.inspector import Inspector
 
 from .support import resolved
 

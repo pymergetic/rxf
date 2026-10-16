@@ -35,8 +35,8 @@ from dataclasses import dataclass, field
 import graph_header
 from compose import object_id
 
-from pymergetic.rxf.core.object import Image
-from pymergetic.rxf.live.harness import table_slots
+from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.live.harness import table_slots
 
 HANDLE_NONE = (1 << 64) - 1
 CONTEXT_BYTES = 144

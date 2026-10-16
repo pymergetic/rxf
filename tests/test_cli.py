@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from pymergetic.rxf import source
-from pymergetic.rxf.cli import main, root
-from pymergetic.rxf.core.object import Image
+from pymergetic.rxftk import source
+from pymergetic.rxftk.cli import main, root
+from pymergetic.rxftk.core.object import Image
 
 STARTER = Path(__file__).parents[1] / "starter"
 
@@ -72,7 +72,7 @@ def test_the_command_tree_is_the_module_tree():
 
 
 def test_every_command_sits_in_the_cli_file_of_what_it_operates_on():
-    base = Path(__file__).parents[1] / "src/pymergetic/rxf"
+    base = Path(__file__).parents[1] / "src/pymergetic/rxftk"
     assert sorted(
         p.relative_to(base).parent.as_posix() for p in base.rglob("cli.py")
     ) == [

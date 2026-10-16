@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).parents[1]
-SOURCE = ROOT / "src" / "pymergetic" / "rxf" / "core" / "arena" / "arena.cpp"
+SOURCE = ROOT / "src" / "pymergetic" / "rxftk" / "core" / "arena" / "arena.cpp"
 TARGETS = (
     "x86_64-linux-gnu",
     "aarch64-linux-gnu",

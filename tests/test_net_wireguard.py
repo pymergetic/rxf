@@ -46,9 +46,9 @@ from collections.abc import Iterable
 
 import pytest
 
-from pymergetic.rxf.net import crypto, schema
-from pymergetic.rxf.net.link import wireguard
-from pymergetic.rxf.net.link.wireguard import (
+from pymergetic.rxftk.net import crypto, schema
+from pymergetic.rxftk.net.link import wireguard
+from pymergetic.rxftk.net.link.wireguard import (
     COOKIE_REPLY_SIZE,
     INITIATION_SIZE,
     RESPONSE_SIZE,
@@ -60,7 +60,7 @@ from pymergetic.rxf.net.link.wireguard import (
     transport_open,
     transport_seal,
 )
-from pymergetic.rxf.net.schema import (
+from pymergetic.rxftk.net.schema import (
     Endpoint,
     Interval,
     InvalidEndpoint,
@@ -75,7 +75,7 @@ from pymergetic.rxf.net.schema import (
     UnexpectedReply,
     WouldBlock,
 )
-from pymergetic.rxf.net.transport.datagram import MemoryDatagrams
+from pymergetic.rxftk.net.transport.datagram import MemoryDatagrams
 
 # ---- the corpus (centromere/cacophony vectors/cacophony.txt, noise_wiki Test-vectors):
 # the Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s vector, hex verbatim ----

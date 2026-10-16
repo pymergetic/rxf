@@ -1,6 +1,6 @@
 """The ground types keep their layout on every target and in both languages.
 
-The assertions live in src/pymergetic/rxf/core/ground.h; this test compiles the header and
+The assertions live in src/pymergetic/rxftk/core/ground.h; this test compiles the header and
 fails if any assertion fails.
 """
 

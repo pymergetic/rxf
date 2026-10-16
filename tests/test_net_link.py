@@ -13,14 +13,14 @@ from __future__ import annotations
 
 import pytest
 
-from pymergetic.rxf.net.link.device import (
+from pymergetic.rxftk.net.link.device import (
     Knob,
     MemoryDriver,
     hardware,
     install_driver,
     set_knob,
 )
-from pymergetic.rxf.net.link.link import (
+from pymergetic.rxftk.net.link.link import (
     DURABLE_KINDS,
     LinkKind,
     LinkPlane,
@@ -28,7 +28,7 @@ from pymergetic.rxf.net.link.link import (
     Write,
     schema_kind,
 )
-from pymergetic.rxf.net.schema import (
+from pymergetic.rxftk.net.schema import (
     Address,
     AddressInUse,
     BondMode,

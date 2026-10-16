@@ -4,8 +4,8 @@ import random
 
 import pytest
 
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.object import Image
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.object import Image
 
 from .snippets import STARTER
 

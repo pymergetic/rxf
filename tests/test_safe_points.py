@@ -15,9 +15,9 @@ from pathlib import Path
 import graph_header
 import pytest
 
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.object import Image
-from pymergetic.rxf.live import frames
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.live import frames
 
 from .snippets import STARTER
 from .test_compile import compile_program

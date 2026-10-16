@@ -1,5 +1,5 @@
 # The words of the in-image composer: the numbers of its request and work memory, the layout of
-# the arena it reads (RXFB v6, the structs of src/pymergetic/rxf/core/ground.h), and the few
+# the arena it reads (RXFB v6, the structs of src/pymergetic/rxftk/core/ground.h), and the few
 # expressions it repeats.
 #
 # The composer takes a Graph (a typed object tree) of the live image and writes the words of a

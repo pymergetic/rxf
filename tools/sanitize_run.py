@@ -2,7 +2,7 @@
 
 usage: sanitize_run.py BUILD_DIR PYTEST_ARGS...
 
-The sanitized extension is loaded as `pymergetic.rxf.core` before anything imports
+The sanitized extension is loaded as `pymergetic.rxftk.core` before anything imports
 the installed one; the tests then import it by its package path as usual.
 """
 
@@ -12,15 +12,15 @@ import sys
 
 import pytest
 
-import pymergetic.rxf as package
+import pymergetic.rxftk as package
 
 
 def main(build: str, arguments: list[str]) -> int:
     (library,) = glob.glob(f"{build}/__init__.cpython-*.so")
-    spec = importlib.util.spec_from_file_location("pymergetic.rxf.core", library)
+    spec = importlib.util.spec_from_file_location("pymergetic.rxftk.core", library)
     assert spec is not None and spec.loader is not None
     core = importlib.util.module_from_spec(spec)
-    sys.modules["pymergetic.rxf.core"] = core
+    sys.modules["pymergetic.rxftk.core"] = core
     spec.loader.exec_module(core)
     package.core = core  # type: ignore[attr-defined]
     return pytest.main(arguments)

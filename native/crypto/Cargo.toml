@@ -2,7 +2,7 @@
 #
 # One card, one defining lang (RS), one set of test vectors. The C ABI is
 # include/pm_crypto.h and is the card's only face; Python reaches it through
-# src/pymergetic/rxf/net/crypto.py (ctypes, the host fill).
+# src/pymergetic/rxftk/net/crypto.py (ctypes, the host fill).
 #
 # Dependency-free on purpose: every primitive below is written here from its
 # published specification, so this crate builds offline with a bare toolchain.

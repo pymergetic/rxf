@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from pymergetic.rxf.net.fw import (
+from pymergetic.rxftk.net.fw import (
     CounterDelta,
     FilterTable,
     InvalidPolicy,
@@ -28,7 +28,7 @@ from pymergetic.rxf.net.fw import (
     evaluate,
     rule_counter_path,
 )
-from pymergetic.rxf.net.schema import (
+from pymergetic.rxftk.net.schema import (
     IP,
     ChainType,
     ConnState,

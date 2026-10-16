@@ -4,7 +4,7 @@ A BIOS image starts with the boot sector the firmware jumps to, a UEFI applicati
 a PE/COFF of the EFI application subsystem, and the ELF is a static x86-64 executable.
 Each carries the same RXFW package in a section of its own. These tests build every
 target of the packaging layer and read the artifact back (the readers of
-pymergetic.rxf.binary.formats), so the proof does not trust the build.
+pymergetic.rxftk.binary.formats), so the proof does not trust the build.
 """
 
 import json
@@ -12,16 +12,16 @@ from pathlib import Path
 
 import pytest
 
-from pymergetic.rxf import certify, source
-from pymergetic.rxf.binary import builder, cli, formats, package
-from pymergetic.rxf.certify import (
+from pymergetic.rxftk import certify, source
+from pymergetic.rxftk.binary import builder, cli, formats, package
+from pymergetic.rxftk.certify import (
     NotEnoughVoices,
     Policy,
     TrustKey,
     TrustStore,
     WrongDigest,
 )
-from pymergetic.rxf.core import tree
+from pymergetic.rxftk.core import tree
 
 from .snippets import STARTER
 

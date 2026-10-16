@@ -14,9 +14,9 @@ import compose
 import graph_header
 import pytest
 
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.object import Image
-from pymergetic.rxf.live import physical
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.live import physical
 
 from . import live_world as lw
 from .graph_programs import OP, assemble, call, edge, lit, move, slot

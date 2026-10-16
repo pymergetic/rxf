@@ -28,14 +28,14 @@ import link
 import pytest
 import rxfc
 
-from pymergetic.rxf.cli import main
-from pymergetic.rxf.console import world
-from pymergetic.rxf.console.session import Console
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.arena import HANDLE_ROOT
-from pymergetic.rxf.core.object import Image
-from pymergetic.rxf.live.front import Front, NotReady, Region, identity, value_of
-from pymergetic.rxf.server.live import Session
+from pymergetic.rxftk.cli import main
+from pymergetic.rxftk.console import world
+from pymergetic.rxftk.console.session import Console
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.arena import HANDLE_ROOT
+from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.live.front import Front, NotReady, Region, identity, value_of
+from pymergetic.rxftk.server.live import Session
 
 from . import live_world as lw
 from .test_rxfc import MACHINES

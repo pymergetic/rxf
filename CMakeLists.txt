@@ -7,10 +7,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# One tree: C and C++ sit next to the Python modules under src/pymergetic/rxf/core/
-# and are included as <pymergetic/rxf/core/...>. C++ namespaces follow the same path.
+# One tree: C and C++ sit next to the Python modules under src/pymergetic/rxftk/core/
+# and are included as <pymergetic/rxftk/core/...>; the C++ namespace stays
+# pymergetic::rxf::core (the format's core, not the host toolchain's name).
 set(RXF_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-set(RXF_PKG ${RXF_SRC}/pymergetic/rxf)
+set(RXF_PKG ${RXF_SRC}/pymergetic/rxftk)
 set(RXF_CORE ${RXF_PKG}/core)
 
 # Ground types: header only, shared by the C++ layers, the nanobind module, and native/.
@@ -94,7 +95,7 @@ target_link_libraries(rxf_live PUBLIC rxf_arena)
 target_compile_options(rxf_live PRIVATE -fno-exceptions -fno-rtti -Wall -Wextra -Werror)
 set_target_properties(rxf_live PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# pymergetic.rxf.core: the compiled package body. The extension is the __init__ of the
+# pymergetic.rxftk.core: the compiled package body. The extension is the __init__ of the
 # package; each C++ module brings its Python face (bindings.cpp) as a submodule.
 nanobind_add_module(
   core NB_STATIC
@@ -110,4 +111,4 @@ nanobind_add_module(
 target_link_libraries(core PRIVATE rxf_tree rxf_hash rxf_live)
 set_target_properties(core PROPERTIES OUTPUT_NAME "__init__")
 
-install(TARGETS core LIBRARY DESTINATION pymergetic/rxf/core)
+install(TARGETS core LIBRARY DESTINATION pymergetic/rxftk/core)

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from pymergetic.rxf.net.control.netplan import (
+from pymergetic.rxftk.net.control.netplan import (
     AddressSpec,
     DeviceSpec,
     Doc,
@@ -32,8 +32,8 @@ from pymergetic.rxf.net.control.netplan import (
     plan,
     render,
 )
-from pymergetic.rxf.net.link.link import LinkKind, LinkPlane, MemoryGraph
-from pymergetic.rxf.net.schema import IPPrefix, LinkState, NotSupported, Plan
+from pymergetic.rxftk.net.link.link import LinkKind, LinkPlane, MemoryGraph
+from pymergetic.rxftk.net.schema import IPPrefix, LinkState, NotSupported, Plan
 
 
 def _rich() -> Doc:

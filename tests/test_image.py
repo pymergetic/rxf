@@ -5,7 +5,7 @@ import shutil
 import link
 import pytest
 
-from pymergetic.rxf.core import tree
+from pymergetic.rxftk.core import tree
 
 from . import graph_world as world
 from . import image_world as run

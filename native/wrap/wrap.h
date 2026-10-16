@@ -132,7 +132,7 @@ static inline rxf_u8 rxf_wrap_inb(rxf_u16 port) {
 #endif
 
 /*
- * The activation seam: the certification lane fills this in (src/pymergetic/rxf/certify
+ * The activation seam: the certification lane fills this in (src/pymergetic/rxftk/certify
  * owns the checks that live behind it). It answers 0 to pass the image, anything else
  * to refuse it; the wrapper reports an activation refusal and runs nothing.
  */

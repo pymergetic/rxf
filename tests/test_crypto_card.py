@@ -26,7 +26,7 @@ sys.path.insert(0, str(ROOT / "tools" / "native"))
 
 import crypto_build
 
-from pymergetic.rxf.net import crypto
+from pymergetic.rxftk.net import crypto
 
 pytestmark = pytest.mark.skipif(
     shutil.which("cargo") is None,

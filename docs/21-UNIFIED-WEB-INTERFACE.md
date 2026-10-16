@@ -47,7 +47,7 @@ RXF | Inspector · Model · Editor · Tutor · World | [live: session · cells �
   adding a surface adds one nav entry, not a new chrome.
 - The active surface is marked in the nav (accent underline or badge).
 - The **live slot** is the same seam everywhere: it shows the attached session
-  (`pymergetic.rxf.console.world`) or `no image` — one link, one truth, same wording.
+  (`pymergetic.rxftk.console.world`) or `no image` — one link, one truth, same wording.
 
 ## Component vocabulary (shared classes in `ui.css`)
 

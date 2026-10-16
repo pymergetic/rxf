@@ -1,6 +1,6 @@
 # The arena and allocator state
 
-An RXF image is one arena: an arena header, an index directory, and a cell stream that holds object cells and block cells (index chunks and name blocks) (layout in [the operating-system path](17-OPERATING-SYSTEM-PATH.md), "Arena and RXFB v6", and `src/pymergetic/rxf/core/ground.h`). Pages are allocator geometry and derived policy, not semantic objects or lifecycle boundaries. Ownership may guide page clustering, but clustering creates no identities and does not change parentage or lifetime.
+An RXF image is one arena: an arena header, an index directory, and a cell stream that holds object cells and block cells (index chunks and name blocks) (layout in [the operating-system path](17-OPERATING-SYSTEM-PATH.md), "Arena and RXFB v6", and `src/pymergetic/rxftk/core/ground.h`). Pages are allocator geometry and derived policy, not semantic objects or lifecycle boundaries. Ownership may guide page clustering, but clustering creates no identities and does not change parentage or lifetime.
 
 ## Identity and handles
 

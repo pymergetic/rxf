@@ -1,7 +1,7 @@
 """The 3D world renderer foundation: the scene exporter and the assets of the world page.
 
 The exporter turns one image into the scene input JSON ("rxf-world-1", documented in the
-docstring of ``pymergetic.rxf.world.export``). The world IS the arena — a projection, never a
+docstring of ``pymergetic.rxftk.world.export``). The world IS the arena — a projection, never a
 second truth — so these tests pin the projection: deterministic and golden (the checked-in
 ``static/scene/demo-scene.json``), schema-validated, and complete at the edges the runtime
 leaves behind (poison, stale handles, empty regions).
@@ -18,10 +18,10 @@ from pathlib import Path
 
 import pytest
 
-from pymergetic.rxf.core.kinds import NodeKind
-from pymergetic.rxf.core.object import Image
-from pymergetic.rxf.server.inspector import Inspector
-from pymergetic.rxf.world import (
+from pymergetic.rxftk.core.kinds import NodeKind
+from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.server.inspector import Inspector
+from pymergetic.rxftk.world import (
     SCHEMA,
     STATIC_DIR,
     VENDOR_BABYLON,
@@ -33,8 +33,8 @@ from pymergetic.rxf.world import (
     scene_json,
     validate_scene,
 )
-from pymergetic.rxf.world.demo import demo_inspector
-from pymergetic.rxf.world.export import POISON_BYTE, POISON_RUN
+from pymergetic.rxftk.world.demo import demo_inspector
+from pymergetic.rxftk.world.export import POISON_BYTE, POISON_RUN
 
 GOLDEN = STATIC_DIR / "scene" / "demo-scene.json"
 SCRIPTS = (STATIC_DIR / "scene" / "rxf-world.js", STATIC_DIR / "scene" / "rxf-world-hud.js")
@@ -58,7 +58,7 @@ def test_the_demo_export_is_deterministic():
 
 
 def test_the_demo_export_matches_the_checked_in_golden():
-    assert GOLDEN.is_file(), "regenerate with: python -m pymergetic.rxf.world.demo > demo-scene.json"
+    assert GOLDEN.is_file(), "regenerate with: python -m pymergetic.rxftk.world.demo > demo-scene.json"
     assert scene_json(demo_inspector()) == GOLDEN.read_text(encoding="utf-8")
 
 
@@ -380,7 +380,7 @@ def test_the_click_ray_accepts_the_vendored_babylon_ray_shape():
 def test_attach_world_registers_the_routes():
     from fastapi.routing import APIRoute, Mount
 
-    from pymergetic.rxf.server.app import create_app
+    from pymergetic.rxftk.server.app import create_app
 
     inspector = demo_inspector()
     app = create_app(inspector.image)

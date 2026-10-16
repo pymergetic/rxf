@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from pymergetic.rxf.net.fw import (
+from pymergetic.rxftk.net.fw import (
     ConntrackPlane,
     FilterTable,
     InvalidTransition,
@@ -24,7 +24,7 @@ from pymergetic.rxf.net.fw import (
     Packet,
     evaluate,
 )
-from pymergetic.rxf.net.schema import (
+from pymergetic.rxftk.net.schema import (
     ConnState,
     Hook,
     Match,

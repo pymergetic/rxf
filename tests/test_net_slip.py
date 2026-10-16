@@ -18,9 +18,9 @@ import random
 
 import pytest
 
-from pymergetic.rxf.net.link import slip as slip_module
-from pymergetic.rxf.net.link.device import Knob, hardware, install_driver
-from pymergetic.rxf.net.link.slip import (
+from pymergetic.rxftk.net.link import slip as slip_module
+from pymergetic.rxftk.net.link.device import Knob, hardware, install_driver
+from pymergetic.rxftk.net.link.slip import (
     DEFAULT_MTU,
     END,
     ESC,
@@ -33,7 +33,7 @@ from pymergetic.rxf.net.link.slip import (
     SlipLinePair,
     encode,
 )
-from pymergetic.rxf.net.schema import (
+from pymergetic.rxftk.net.schema import (
     Interest,
     LinkDown,
     LinkState,

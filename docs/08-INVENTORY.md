@@ -4,7 +4,7 @@ This document records what the RXF repository implements, and what it does not y
 
 ## The core (RXFB 6)
 
-`pymergetic.rxf.core` is the compiled package. Its C++ modules sit in subdirectories of `src/pymergetic/rxf/core/` (one namespace each, `pymergetic::rxf::core::<module>`), and each module with a Python face has a submodule of the same name, so the C++ structure *is* the Python structure. The extension is the `__init__` of the package; `core/*.pyi` are generated stubs (`python -m nanobind.stubgen -m pymergetic.rxf.core -r -O src/pymergetic/rxf`, checked by `tests/test_core_module.py`).
+`pymergetic.rxftk.core` is the compiled package. Its C++ modules sit in subdirectories of `src/pymergetic/rxftk/core/` (one namespace each, `pymergetic::rxf::core::<module>`), and each module with a Python face has a submodule of the same name, so the C++ structure *is* the Python structure. The extension is the `__init__` of the package; `core/*.pyi` are generated stubs (`python -m nanobind.stubgen -m pymergetic.rxftk.core -r -O src/pymergetic/rxftk`, checked by `tests/test_core_module.py`).
 
 - `ground.h`: the C layout (arena header, cell header, reference, `Type`, `Field`), pinned for four targets. `core.arena` holds its constants.
 - `kinds/`: the words of the format, once: `NodeKind`, `RefKind`, `Binding`, `OwnerKind`, `Mobility`, `Form`, `TypeFlags`, `FieldFlags` as name tables over the values of `ground.h`. The bootstrap, the XML, and the Python enums (`core.kinds`) are made from them.

@@ -4,9 +4,9 @@ import hashlib
 
 import pytest
 
-from pymergetic.rxf.core.delta import DeltaError
-from pymergetic.rxf.core.hash import sha256
-from pymergetic.rxf.core.object import Image
+from pymergetic.rxftk.core.delta import DeltaError
+from pymergetic.rxftk.core.hash import sha256
+from pymergetic.rxftk.core.object import Image
 
 from .support import resolved
 

@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from pymergetic.rxf import binary
-from pymergetic.rxf.cli import main
-from pymergetic.rxf.core import tree
+from pymergetic.rxftk import binary
+from pymergetic.rxftk.cli import main
+from pymergetic.rxftk.core import tree
 
 STARTER = Path(__file__).parents[1] / "starter"
 RXF = "urn:pymergetic:rxf"

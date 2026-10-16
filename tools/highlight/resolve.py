@@ -6,7 +6,7 @@ and the declarations the image already has, it says which ``signature=``,
 ``refusal_set=`` and ``rxf:parent=`` values resolve, to what, and why not when
 they do not.
 
-What a reference is (``src/pymergetic/rxf/core/xml/xml.hpp``): an attribute value
+What a reference is (``src/pymergetic/rxftk/core/xml/xml.hpp``): an attribute value
 is either an absolute dotted path (``pymergetic.rxf.foundation.StdlibRefusals``)
 or a path that starts with ``@``, which is an alias of the enclosing Module
 (``@foundation.StdlibRefusals``). An alias is visible in its own module and the

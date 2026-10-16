@@ -5,9 +5,9 @@ import random
 
 import pytest
 
-from pymergetic.rxf.core.arena import ArenaError
-from pymergetic.rxf.core.delta import DeltaError
-from pymergetic.rxf.core.object import Image
+from pymergetic.rxftk.core.arena import ArenaError
+from pymergetic.rxftk.core.delta import DeltaError
+from pymergetic.rxftk.core.object import Image
 
 Rejected = (DeltaError, ArenaError)
 # RXF_FUZZ=20 runs twenty times as many cases (the sanitizer build does this in CI).

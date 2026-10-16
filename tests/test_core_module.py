@@ -1,12 +1,12 @@
-"""The nanobind module reports the layout pinned in src/pymergetic/rxf/core/ground.h."""
+"""The nanobind module reports the layout pinned in src/pymergetic/rxftk/core/ground.h."""
 
 import importlib
 import subprocess
 import sys
 from pathlib import Path
 
-from pymergetic.rxf import core
-from pymergetic.rxf.core.arena import (
+from pymergetic.rxftk import core
+from pymergetic.rxftk.core.arena import (
     ARENA_HEADER_SIZE,
     ARENA_VERSION,
     BLOCK_INDEX,
@@ -26,9 +26,9 @@ from pymergetic.rxf.core.arena import (
     TYPE_SIZE,
 )
 
-CORE = Path(__file__).parents[1] / "src/pymergetic/rxf/core"
+CORE = Path(__file__).parents[1] / "src/pymergetic/rxftk/core"
 STUBGEN = (
-    "python -m nanobind.stubgen -m pymergetic.rxf.core -r -q -O src/pymergetic/rxf"
+    "python -m nanobind.stubgen -m pymergetic.rxftk.core -r -q -O src/pymergetic/rxftk"
 )
 
 
@@ -40,7 +40,7 @@ def test_the_checked_in_stubs_match_the_module(tmp_path):
             "-m",
             "nanobind.stubgen",
             "-m",
-            "pymergetic.rxf.core",
+            "pymergetic.rxftk.core",
             "-r",
             "-q",
             "-O",
@@ -58,8 +58,8 @@ def test_the_checked_in_stubs_match_the_module(tmp_path):
 
 def test_every_submodule_imports_by_its_path():
     for name in ("kinds", "arena", "hash", "object", "meta", "delta", "tree"):
-        module = importlib.import_module(f"pymergetic.rxf.core.{name}")
-        assert module.__name__ == f"pymergetic.rxf.core.{name}"
+        module = importlib.import_module(f"pymergetic.rxftk.core.{name}")
+        assert module.__name__ == f"pymergetic.rxftk.core.{name}"
         assert getattr(core, name) is module
 
 

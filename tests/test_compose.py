@@ -8,7 +8,7 @@ import compose
 import graph_header
 import pytest
 
-from pymergetic.rxf.core import tree
+from pymergetic.rxftk.core import tree
 
 from .snippets import STARTER
 

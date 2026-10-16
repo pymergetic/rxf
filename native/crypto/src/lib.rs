@@ -2,7 +2,7 @@
 //!
 //! One card, one defining lang (RS), one set of test vectors. This crate is the
 //! card's only implementation of its primitives; `include/pm_crypto.h` is its
-//! only face, and `src/pymergetic/rxf/net/crypto.py` is a ctypes fill over that
+//! only face, and `src/pymergetic/rxftk/net/crypto.py` is a ctypes fill over that
 //! face — there is no second implementation in any other language.
 //!
 //! Primitives:

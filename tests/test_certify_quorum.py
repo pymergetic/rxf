@@ -13,8 +13,8 @@ import dataclasses
 
 import pytest
 
-from pymergetic.rxf import certify
-from pymergetic.rxf.certify import (
+from pymergetic.rxftk import certify
+from pymergetic.rxftk.certify import (
     NotEnoughVoices,
     Policy,
     RevokedKey,

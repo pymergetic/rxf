@@ -2,7 +2,7 @@
  *
  * This header is the card's ONLY face: one card, one defining lang (RS), one
  * set of test vectors (docs/25 §11). Python reaches the card through the
- * ctypes fill in src/pymergetic/rxf/net/crypto.py; TLS and WireGuard lanes
+ * ctypes fill in src/pymergetic/rxftk/net/crypto.py; TLS and WireGuard lanes
  * code against exactly these names and signatures. Frozen — do not rename.
  *
  * Hash ids:  0 = SHA-256, 1 = BLAKE2s-256.

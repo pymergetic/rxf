@@ -37,13 +37,13 @@ from typing import Any
 import httpx
 import pytest
 
-from pymergetic.rxf.console import world
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.object import Image
-from pymergetic.rxf.live import cli, physical
-from pymergetic.rxf.live.front import identity
-from pymergetic.rxf.server.app import PokeBody, SourceBody, create_app
-from pymergetic.rxf.server.live.runner import Runner
+from pymergetic.rxftk.console import world
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.live import cli, physical
+from pymergetic.rxftk.live.front import identity
+from pymergetic.rxftk.server.app import PokeBody, SourceBody, create_app
+from pymergetic.rxftk.server.live.runner import Runner
 
 ROOT = Path(__file__).parents[1]
 STARTER = ROOT / "starter"

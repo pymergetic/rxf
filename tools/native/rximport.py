@@ -372,8 +372,8 @@ from rxemit import (
     emit_delta,
 )
 
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.kinds import DocKind, DocRole
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.kinds import DocKind, DocRole
 
 # ---- the leaves of the interpreter the importer wires -----------------------------------------
 
@@ -4155,7 +4155,7 @@ def import_into(
 ) -> dict[str, str]:
     """One delta onto the image; the C name of every imported function to its Function path.
 
-    ``image`` is a ``pymergetic.rxf.core.object.Image`` with the starter already in it (the
+    ``image`` is a ``pymergetic.rxftk.core.object.Image`` with the starter already in it (the
     leaves the graphs call live there); ``Image.apply`` is the only thing done to it.
     ``known`` maps the C name of a function of another module (already imported into the
     image) to the Function path it is at, so a call of one of them becomes a call card

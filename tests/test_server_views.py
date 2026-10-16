@@ -16,20 +16,20 @@ from typing import Any
 
 import pytest
 
-from pymergetic.rxf.console import world
-from pymergetic.rxf.console.session import Console
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.arena import (
+from pymergetic.rxftk.console import world
+from pymergetic.rxftk.console.session import Console
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.arena import (
     CELL_ALIGN,
     CELL_SIZE,
     HANDLE_NONE,
     HANDLE_ROOT,
     REF_SIZE,
 )
-from pymergetic.rxf.core.kinds import Binding, Mobility, NodeKind, OwnerKind, RefKind
-from pymergetic.rxf.core.object import Image
-from pymergetic.rxf.server.inspector import Inspector
-from pymergetic.rxf.server.live import Session
+from pymergetic.rxftk.core.kinds import Binding, Mobility, NodeKind, OwnerKind, RefKind
+from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.server.inspector import Inspector
+from pymergetic.rxftk.server.live import Session
 
 from .test_console import MACHINES, MODULE, TRIPLE, Seat, booted, seat_of
 
@@ -283,7 +283,7 @@ def test_an_object_without_references_says_none():
 def test_the_app_serves_memory_and_detail(inspector: Inspector):
     from fastapi.routing import APIRoute
 
-    from pymergetic.rxf.server.app import create_app
+    from pymergetic.rxftk.server.app import create_app
 
     app = create_app(inspector.image)
     handlers = {
@@ -318,7 +318,7 @@ def test_the_serve_instance_registers_the_world_while_it_serves(image: Image, so
     """What `rxf serve` runs: while the app serves, the world of the image is registered at its
     link — the console attaches the channel and the front end of the running image — and shutting
     down takes the registration with it."""
-    from pymergetic.rxf.server.app import create_app
+    from pymergetic.rxftk.server.app import create_app
 
     booted(solo)  # what the image's own `rxf live` group boots before a console attaches
     session = Session("shm:serve-runs", solo.channel.client, solo.front)
@@ -346,7 +346,7 @@ def test_the_serve_instance_registers_the_world_while_it_serves(image: Image, so
 def test_the_serve_instance_surfaces_a_taken_link_honestly(image: Image, solo: Seat):
     """A link whose image already runs refuses a second registration with the seam's own refusal
     — typed, and naming the link — and the runner that is there keeps it."""
-    from pymergetic.rxf.server.app import create_app
+    from pymergetic.rxftk.server.app import create_app
 
     first = Session("shm:taken-link", solo.channel.client, solo.front).open()
     try:
@@ -375,7 +375,7 @@ def live_feed(image: Image, session: Session | None):
     """The endpoint behind the shell's live slot (`GET /api/live`), called as the app calls it."""
     from fastapi.routing import APIRoute
 
-    from pymergetic.rxf.server.app import create_app
+    from pymergetic.rxftk.server.app import create_app
 
     app = create_app(image, session=session)
     handlers = {
@@ -450,8 +450,8 @@ def test_the_live_feed_reports_a_session_whose_channel_is_gone(image: Image, sol
     wording invented for a dead link)."""
     import os
 
-    from pymergetic.rxf.live.client import Client
-    from pymergetic.rxf.live.link import FdLink
+    from pymergetic.rxftk.live.client import Client
+    from pymergetic.rxftk.live.link import FdLink
 
     read_end, write_end = os.pipe()  # a link nothing answers on, as a rig gone quiet
     try:
@@ -471,7 +471,7 @@ def test_the_editor_and_the_inspector_render_the_one_feed_through_the_shell():
     """The wiring of the live slot: `static/ui/ui.js` is the ONE feed component of
     `GET /api/live`, and the editor and the inspector are its two consumers — both carry the
     shell's slot and link the feed, neither keeps a page-local copy of it (docs/21)."""
-    server = Path(__file__).parents[1] / "src" / "pymergetic" / "rxf" / "server"
+    server = Path(__file__).parents[1] / "src" / "pymergetic" / "rxftk" / "server"
     feed = (server / "static" / "ui" / "ui.js").read_text(encoding="utf-8")
     assert "/api/live" in feed
     assert "no image" in feed  # the default the shell's slot holds until the feed knows better
@@ -489,14 +489,14 @@ def test_the_editor_and_the_inspector_render_the_one_feed_through_the_shell():
 # docs/15 deltas, docs/22 docs): a handle or cell reference is addressable, a RefKind value is
 # what an edge is for, an opcode word is what runs, a Doc marker is recorded intent. The
 # vocabulary is data and must not drift from the format: the core enumerations are pinned to
-# pymergetic.rxf.core.kinds at runtime, the starter enumerations to the one meaning table
+# pymergetic.rxftk.core.kinds at runtime, the starter enumerations to the one meaning table
 # tools/highlight/meaning.json. node runs the module's pure surface (the classifier never
 # touches the DOM), so these pins need node; the markup pins below do not.
 
-HIGHLIGHT = Path(__file__).parents[1] / "src/pymergetic/rxf/server/static/ui/highlight.js"
+HIGHLIGHT = Path(__file__).parents[1] / "src/pymergetic/rxftk/server/static/ui/highlight.js"
 HIGHLIGHT_UI = HIGHLIGHT.parent
 MEANING = Path(__file__).parents[1] / "tools/highlight/meaning.json"
-TEMPLATES = Path(__file__).parents[1] / "src/pymergetic/rxf/server/templates"
+TEMPLATES = Path(__file__).parents[1] / "src/pymergetic/rxftk/server/templates"
 
 needs_node = pytest.mark.skipif(
     shutil.which("node") is None, reason="node runs the highlighter's pure surface"
@@ -558,7 +558,7 @@ def classify_values(values: list[str]) -> dict[str, str | None]:
 @needs_node
 def test_the_register_carries_every_word_of_the_core_kinds():
     """Every enumerator of core/kinds is a word of the register, under its semantic class."""
-    from pymergetic.rxf.core import kinds as core
+    from pymergetic.rxftk.core import kinds as core
 
     enums = in_node("h.REGISTER.enums")
     for name, cls in CORE_KINDS.items():

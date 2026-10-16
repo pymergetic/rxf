@@ -12,9 +12,9 @@ from __future__ import annotations
 import atexit
 from pathlib import Path
 
-from pymergetic.rxf.console import world
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.server.live import Session
+from pymergetic.rxftk.console import world
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.server.live import Session
 
 from .test_console import seat_of
 

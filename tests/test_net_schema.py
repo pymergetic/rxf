@@ -12,8 +12,8 @@ import dataclasses
 
 import pytest
 
-from pymergetic.rxf.net import schema
-from pymergetic.rxf.net.schema import (
+from pymergetic.rxftk.net import schema
+from pymergetic.rxftk.net.schema import (
     Address,
     BondMode,
     Certificate,
@@ -163,7 +163,7 @@ def test_refusal_set_is_the_documented_one() -> None:
 
 def test_protocol_errors_sit_on_malformed_message() -> None:
     """MalformedMessage and friends are one family on top of the refusal set."""
-    from pymergetic.rxf.net.schema import (
+    from pymergetic.rxftk.net.schema import (
         MalformedMessage,
         MalformedRequest,
         MalformedResponse,

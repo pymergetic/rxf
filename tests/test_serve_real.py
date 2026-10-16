@@ -27,12 +27,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.object import Image
-from pymergetic.rxf.live.front import identity
-from pymergetic.rxf.server.app import PokeBody, SourceBody, create_app
-from pymergetic.rxf.server.inspector import Inspector
-from pymergetic.rxf.world import scene_json
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.live.front import identity
+from pymergetic.rxftk.server.app import PokeBody, SourceBody, create_app
+from pymergetic.rxftk.server.inspector import Inspector
+from pymergetic.rxftk.world import scene_json
 
 ROOT = Path(__file__).parents[1]
 STARTER = ROOT / "starter"
@@ -40,7 +40,7 @@ DEMO_GOLDEN = (
     ROOT
     / "src"
     / "pymergetic"
-    / "rxf"
+    / "rxftk"
     / "world"
     / "static"
     / "scene"
@@ -123,7 +123,7 @@ def test_the_serve_runner_boots_the_front_end_and_installs_for_real(image: Image
     seeded once (docs/19), the editor's install route compiles TRIPLE **through the running
     image's front end**, the Function shows up in the image, and the image's own interpreter
     runs it — a run is not a frame (docs/19)."""
-    from pymergetic.rxf.server.live.runner import Runner
+    from pymergetic.rxftk.server.live.runner import Runner
 
     with Runner(image, _link()) as runner:
         assert [entry.path for entry in runner.front.installed()] == [f"{MODULE}.front"]
@@ -152,7 +152,7 @@ def test_an_editor_poke_writes_to_the_running_image_and_refuses_without_one(
     """One poke, two apps: with a session the poke is a real delta into the running image (the
     word is readable back through the channel); without one the very same poke is the honest
     refusal — no second channel, no pretending."""
-    from pymergetic.rxf.server.live.runner import Runner
+    from pymergetic.rxftk.server.live.runner import Runner
 
     poke = PokeBody(path=POKE_PATH, field="payload", value=0xA5A5A5A5A5A5A5A5, offset=0)
 

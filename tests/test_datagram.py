@@ -16,14 +16,14 @@ from __future__ import annotations
 
 import pytest
 
-from pymergetic.rxf.net.schema import (
+from pymergetic.rxftk.net.schema import (
     AddressInUse,
     Endpoint,
     Interest,
     StaleHandle,
     WouldBlock,
 )
-from pymergetic.rxf.net.transport.datagram import (
+from pymergetic.rxftk.net.transport.datagram import (
     Datagram,
     Datagrams,
     DatagramSocket,

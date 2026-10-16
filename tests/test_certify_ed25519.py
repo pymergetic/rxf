@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from pymergetic.rxf.certify import ed25519
+from pymergetic.rxftk.certify import ed25519
 
 VECTORS = (
     (

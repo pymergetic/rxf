@@ -12,7 +12,7 @@ Authoring conveniences such as comments, includes, or templates must expand befo
 
 ## Python models
 
-The `pymergetic.rxf` API builds the same object model with typed classes. Python may compute repetitive structures, layouts, or generated content, but the resulting objects pass through the same checks as delta input. Python source is a toolchain input, not part of the RXF runtime contract.
+The `pymergetic.rxftk` API builds the same object model with typed classes. Python may compute repetitive structures, layouts, or generated content, but the resulting objects pass through the same checks as delta input. Python source is a toolchain input, not part of the RXF runtime contract.
 
 ## Types and layout
 

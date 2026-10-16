@@ -14,7 +14,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from pymergetic.rxf.net.schema import (
+from pymergetic.rxftk.net.schema import (
     ConnectionReset,
     InvalidEndpoint,
     MalformedRequest,
@@ -23,7 +23,7 @@ from pymergetic.rxf.net.schema import (
     NotSupported,
     TlsConfig,
 )
-from pymergetic.rxf.net.transport.http import (
+from pymergetic.rxftk.net.transport.http import (
     Client,
     Request,
     Response,
@@ -35,7 +35,7 @@ from pymergetic.rxf.net.transport.http import (
     write_request,
     write_response,
 )
-from pymergetic.rxf.net.transport.http.server import Server
+from pymergetic.rxftk.net.transport.http.server import Server
 
 from .test_net_fill import (
     MemoryListener,

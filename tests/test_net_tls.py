@@ -33,21 +33,21 @@ from collections.abc import Iterator
 
 import pytest
 
-from pymergetic.rxf.certify import ed25519
-from pymergetic.rxf.net.crypto import (
+from pymergetic.rxftk.certify import ed25519
+from pymergetic.rxftk.net.crypto import (
     CIPHER_CHACHA20_POLY1305,
     HASH_SHA256,
     Crypto,
     CryptoArgument,
 )
-from pymergetic.rxf.net.schema import (
+from pymergetic.rxftk.net.schema import (
     NotSupported,
     PermissionDenied,
     Role,
     TlsConfig,
 )
-from pymergetic.rxf.net.transport import tls as tls_card
-from pymergetic.rxf.net.transport.http import (
+from pymergetic.rxftk.net.transport import tls as tls_card
+from pymergetic.rxftk.net.transport.http import (
     Request,
     Response,
     read_request,
@@ -55,10 +55,10 @@ from pymergetic.rxf.net.transport.http import (
     write_request,
     write_response,
 )
-from pymergetic.rxf.net.transport.stream import install_wrapper
-from pymergetic.rxf.net.transport.stream import wrap as seam_wrap
-from pymergetic.rxf.net.transport.tls import certs, handshake, keysched, msgs, records
-from pymergetic.rxf.net.transport.tls.alerts import TlsAlert
+from pymergetic.rxftk.net.transport.stream import install_wrapper
+from pymergetic.rxftk.net.transport.stream import wrap as seam_wrap
+from pymergetic.rxftk.net.transport.tls import certs, handshake, keysched, msgs, records
+from pymergetic.rxftk.net.transport.tls.alerts import TlsAlert
 
 from .test_net_fill import MemoryPair, MemoryStream
 

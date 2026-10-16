@@ -2,7 +2,7 @@
 
 The card is ``impl = rs``: one Cargo crate, no external crates, offline
 buildable. This helper is the one build path — the host binding
-(``src/pymergetic/rxf/net/crypto.py``) and the tests both come here, so the
+(``src/pymergetic/rxftk/net/crypto.py``) and the tests both come here, so the
 build and its cache live in exactly one place.
 
     python tools/native/crypto_build.py            # build if stale, print the library path

@@ -1,6 +1,6 @@
 """Helpers the tests share."""
 
-from pymergetic.rxf.core.object import Image
+from pymergetic.rxftk.core.object import Image
 
 
 def resolved(image: Image, path: str) -> int:

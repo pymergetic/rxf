@@ -34,12 +34,12 @@ ROOT = Path(__file__).resolve().parents[2]
 MODULES = {
     "live": (
         "pump",
-        (ROOT / "src/pymergetic/rxf/core/live/live.h",),
+        (ROOT / "src/pymergetic/rxftk/core/live/live.h",),
     ),  # the layout of the area and the frames
     "uart": ("pump", (ROOT / "native/uart.c",)),  # the registers it moves bytes through
     "safe": (
         "point",
-        (ROOT / "native/safe.c", ROOT / "src/pymergetic/rxf/core/live/live.h"),
+        (ROOT / "native/safe.c", ROOT / "src/pymergetic/rxftk/core/live/live.h"),
     ),  # the words of the area it looks at
     "compile": (
         "program",

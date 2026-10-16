@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from pymergetic.rxf.binary import builder, package
-from pymergetic.rxf.core import tree
+from pymergetic.rxftk.binary import builder, package
+from pymergetic.rxftk.core import tree
 
 from . import image_world as run
 from .snippets import STARTER

@@ -30,11 +30,11 @@ ROOT = Path(__file__).parents[1]
 HOST = Path(__file__).parent / "host"
 POLICY = ROOT / "docs" / "20-EXECUTION-POLICY.md"
 SPEC = ROOT / "docs" / "21-UNIFIED-WEB-INTERFACE.md"
-TUTOR = ROOT / "src" / "pymergetic" / "rxf" / "server"
+TUTOR = ROOT / "src" / "pymergetic" / "rxftk" / "server"
 TUTOR_PAGE = TUTOR / "templates" / "tutor.html"
 TUTOR_JS = TUTOR / "static" / "tutor" / "tutor.js"
 TUTOR_CSS = TUTOR / "static" / "tutor" / "tutor.css"
-GROUND = ROOT / "src" / "pymergetic" / "rxf" / "core" / "ground.h"
+GROUND = ROOT / "src" / "pymergetic" / "rxftk" / "core" / "ground.h"
 GRAPH_H = ROOT / "native" / "graph.h"
 RUNTIME_H = ROOT / "native" / "stdlib_runtime.h"
 
@@ -408,8 +408,8 @@ def test_the_page_ids_are_unique():
 def test_the_app_serves_the_tutor_page():
     from fastapi.routing import APIRoute
 
-    from pymergetic.rxf.core.object import Image
-    from pymergetic.rxf.server.app import create_app
+    from pymergetic.rxftk.core.object import Image
+    from pymergetic.rxftk.server.app import create_app
 
     app = create_app(Image.empty())
     routes = [route for route in app.routes if isinstance(route, APIRoute)]
@@ -428,9 +428,9 @@ def test_the_app_serves_the_tutor_page():
 def test_the_live_slot_names_the_attached_session():
     from typing import cast
 
-    from pymergetic.rxf.core.object import Image
-    from pymergetic.rxf.server import tutor
-    from pymergetic.rxf.server.live.session import Session
+    from pymergetic.rxftk.core.object import Image
+    from pymergetic.rxftk.server import tutor
+    from pymergetic.rxftk.server.live.session import Session
 
     assert tutor.live_slot({"objects": 3, "issue_count": 0}, None) == "no image"
     quiet = tutor.live_slot({"objects": 3, "issue_count": 0}, "shm:demo")

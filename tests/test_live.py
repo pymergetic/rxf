@@ -11,12 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.live import crc32
-from pymergetic.rxf.core.object import Image, image_state
-from pymergetic.rxf.live import Refused, frames, physical
-from pymergetic.rxf.live.client import Declined, LiveError
-from pymergetic.rxf.live.harness import HostImage
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.live import crc32
+from pymergetic.rxftk.core.object import Image, image_state
+from pymergetic.rxftk.live import Refused, frames, physical
+from pymergetic.rxftk.live.client import Declined, LiveError
+from pymergetic.rxftk.live.harness import HostImage
 
 from .support import resolved
 

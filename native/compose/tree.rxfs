@@ -1,6 +1,6 @@
 # The tree: reading the arena of the live image as the typed object tree the composer works on.
 #
-# The arena is RXFB v6 (the structs of src/pymergetic/rxf/core/ground.h): a 192-byte header, a
+# The arena is RXFB v6 (the structs of src/pymergetic/rxftk/core/ground.h): a 192-byte header, a
 # directory of index chunks (4096 slots each, one cell offset per slot), and a stream of cells.
 # A cell is a 64-byte header (type, parent, payload size, name, flags, ref count), then its payload
 # aligned to 16, then its references (24 bytes each). A handle is a slot number; the index maps it
