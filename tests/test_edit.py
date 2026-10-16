@@ -11,6 +11,8 @@ What these pins hold:
   codes, said as the delta would say it;
 * the text form is the same ops written down: the .rxfd of a committed edit applies to the
   same start and arrives at the same world (the digests agree, byte for byte);
+* the reading face is what editing needs to see (docs/27): one leaf by name through the
+  generic reader, where it stands, what it is — and the link check is the edit validator;
 * the mounted face carries the set as methods (docs/27): a property assignment is put, a
   reference goes through ref(), and the refusals are the same refusals.
 """
@@ -42,9 +44,16 @@ def image() -> Image:
     return result
 
 
+def at(image: Image, path: str) -> int:
+    """The handle of a path: probes name things, the image identifies them."""
+    handle = image.resolve(path)
+    assert handle is not None, path
+    return handle
+
+
 def texts(image: Image, path: str) -> dict[str, str]:
     """The fields of one object as the generic reader spells them (zero and unset left out)."""
-    return dict(image.fields(image.resolve(path)))
+    return dict(image.fields(at(image, path)))
 
 
 def test_create_answers_the_handle_and_the_verbs_write_one_mutation_each(image):
@@ -112,6 +121,18 @@ def test_the_refusals_come_before_the_delta_exists(image):
         image.delete("")  # the ground
 
 
+def test_the_reading_face_is_what_editing_needs_to_see(image):
+    player = image.resolve("game.player")
+    # one leaf by name, through the generic reader: its text, or None where it is left out
+    assert image.get(player, "count") == "1"
+    assert image.get(player, "other") is None  # zero and unset are left out
+    image.ref("game.player", "other", player)
+    assert image.get(player, "other") == "game.player"
+    # where it stands, what it is — and the link check is the edit validator
+    assert image.path(player) == "game.player" and image.type_name(player) == "Thing"
+    assert image.check() == []
+
+
 def test_the_transaction_is_one_delta_and_the_text_form_is_the_same_ops(image):
     with image.edit() as e:
         e.create("Thing", "game", "boss")
@@ -149,17 +170,20 @@ def test_all_of_it_or_none_of_it(image):
 
 
 def test_the_mounted_classes_carry_the_edit_set_as_methods(image):
+    from typing import cast
+
     from pymergetic.rxftk.core import mount as core_mount
+    from pymergetic.rxftk.mount import Mounted
 
     synth = core_mount.Synthesizer(image)
-    player = synth.object(image.resolve("game.player"))
+    player = cast("Mounted", synth.object(at(image, "game.player")))
     # a property assignment is put (docs/27): alloc.size = 4096
     player.count = 41
     assert texts(image, "game.player")["count"] == "41"
     with pytest.raises(Exception, match="written by ref"):
         player.other = 3  # a reference is written by ref() only
     boss = image.create("Thing", "game", "boss")
-    player.ref("other", synth.object(boss))  # a mounted object is its id
+    player.ref("other", cast("Mounted", synth.object(boss)))  # a mounted object is its id
     assert texts(image, "game.player")["other"] == "game.boss"
     player.unset("other")
     assert "other" not in texts(image, "game.player")

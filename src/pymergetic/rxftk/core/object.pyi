@@ -1,7 +1,7 @@
 """The host image: paths, names, compaction."""
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, overload
 
 import pymergetic.rxftk.core.delta
 
@@ -39,7 +39,14 @@ class Image:
 
     def set_state(self, arg0: int, arg1: int, /) -> None: ...
 
+    @overload
     def get(self, arg: int, /) -> dict[str, Any]: ...
+
+    @overload
+    def get(self, handle: int, field: str) -> str | None:
+        """
+        One leaf by name, through the generic reader: its text, or None where the text form leaves it out (zero and unset).
+        """
 
     def live(self, arg: int, /) -> bool: ...
 
@@ -236,7 +243,7 @@ class Image:
     def delta_digest(self) -> str:
         """SHA-256 of the canonical delta text."""
 
-    def create(self, type: object, parent: object | None = None, name: str) -> int:
+    def create(self, type: object, parent: object, name: str) -> int:
         """
         A new cell of `type` below `parent` (none: the root); size and align come from the Type. Paths name things, handles identify them: either. The handle of the new cell.
         """

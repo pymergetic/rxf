@@ -13,7 +13,7 @@ class Edit:
 
     def __init__(self, image: pymergetic.rxftk.core.object.Image) -> None: ...
 
-    def create(self, type: str, parent: str = '', name: str) -> str:
+    def create(self, type: str, parent: str, name: str) -> str:
         """
         A new cell of the named Type below the named parent ('' is the root). Its path: the handle comes with the commit.
         """

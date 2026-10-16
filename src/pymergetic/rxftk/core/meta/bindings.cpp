@@ -105,6 +105,21 @@ void bind_meta(nb::module_ &, nb::class_<Image> &image) {
                 return out;
             },
             nb::arg("handle"), "The fields of an object as (name, text); zero and unset values are left out.")
+        .def(
+            "get",
+            [](const Image &self, uint64_t handle, const std::string &field) -> std::optional<std::string> {
+                meta::Types types(&self);
+                std::vector<meta::Attr> attrs;
+                std::string error;
+                if (self.arena().cell(handle) == nullptr) throw ArenaError("BadHandle");
+                if (meta::decode_payload(types, handle, &attrs, &error) != object::Status::Ok) throw DeltaError(error);
+                for (const auto &a : attrs)
+                    if (a.name == field) return a.value;
+                return std::nullopt;
+            },
+            nb::arg("handle"), nb::arg("field"),
+            "One leaf by name, through the generic reader: its text, or None where the text form "
+            "leaves it out (zero and unset).")
 
         // The hybrid module tree (docs/23 §4.6): the image IS the module tree. The trichotomy is
         // the one mp_import_stat returns, so the upy port's fill is one call here.

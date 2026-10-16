@@ -52,8 +52,7 @@ void bind_delta(nb::module_ &m, nb::class_<Image> &image) {
         "change; rollback (or an abandoned `with`) drops the operations.");
     editor
         .def(nb::init<Image &>(), nb::arg("image"), nb::keep_alive<1, 2>())
-        .def("create", &delta::Editor::create, nb::arg("type"), nb::arg("parent") = std::string(),
-             nb::arg("name"),
+        .def("create", &delta::Editor::create, nb::arg("type"), nb::arg("parent"), nb::arg("name"),
              "A new cell of the named Type below the named parent ('' is the root). Its path: the "
              "handle comes with the commit.")
         .def("rename", &delta::Editor::rename, nb::arg("path"), nb::arg("name"))
@@ -145,7 +144,7 @@ void bind_delta(nb::module_ &m, nb::class_<Image> &image) {
                 if (s != Status::Ok) throw DeltaError(error);
                 return out;
             },
-            nb::arg("type"), nb::arg("parent") = nb::none(), nb::arg("name"),
+            nb::arg("type"), nb::arg("parent"), nb::arg("name"),
             "A new cell of `type` below `parent` (none: the root); size and align come from the "
             "Type. Paths name things, handles identify them: either. The handle of the new cell.")
         .def(
