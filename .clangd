@@ -6,11 +6,16 @@
 CompileFlags:
   CompilationDatabase: build_clangd
 ---
-# `src` is the include root of every `#include <pymergetic/rxftk/...>`.
+# `src` is the include root of every `#include <pymergetic/rxftk/...>`; nanobind and the
+# Python headers ride along so an analysis without a database entry (a header, a fresh
+# editor) still resolves `#include <nanobind/...>` — without it, NB_MODULE does not exist
+# and every declaration of the module entry is red.
 CompileFlags:
   Add:
     - -I/home/ladmin/Devel/os-sdk/packages/rxf/src
     - -I/home/ladmin/Devel/os-sdk/packages/rxf/third_party/pugixml
+    - -isystem/home/ladmin/Devel/os-sdk/packages/rxf/.venv/lib/python3.14/site-packages/nanobind/include
+    - -isystem/home/ladmin/.local/share/uv/python/cpython-3.14.4-linux-x86_64-gnu/include/python3.14
 ---
 If:
   PathMatch: .*\.(cpp|hpp)

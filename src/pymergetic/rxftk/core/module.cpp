@@ -42,11 +42,13 @@ NB_MODULE(core, m) {
     nb::module_ arena = submodule(m, "arena", "The ground layout.");
     nb::module_ hash = submodule(m, "hash", "SHA-256.");
     nb::module_ object = submodule(m, "object", "The host image: paths, names, compaction.");
-    nb::module_ meta = submodule(m, "meta", "Self-description: Type and Field objects, link check, digest.");
+    nb::module_ meta =
+        submodule(m, "meta", "Self-description: Type and Field objects, link check, digest.");
     nb::module_ delta = submodule(m, "delta", "Deltas: replay by path and canonical export.");
     nb::module_ tree = submodule(m, "tree", "An image as one delta per module.");
     nb::module_ live = submodule(m, "live", "The live layer: frames, reads, staged deltas, dumps.");
-    nb::module_ mount = submodule(m, "mount", "The object world as Python: classes, modules, instances.");
+    nb::module_ mount =
+        submodule(m, "mount", "The object world as Python: classes, modules, instances.");
 
     bindings::bind_kinds(kinds);
     bindings::bind_arena(arena);
