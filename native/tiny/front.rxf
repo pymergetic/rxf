@@ -24,11 +24,14 @@ proc isz {
     ik = word(pc);
     switch ik {
         case RXF_OP_CALL: {
-            if (!have(pc, 6)) | (word(pc + 2) > 6) | !have(pc, 6 + triple(word(pc + 2))) {
+            # a program call carries the callee's operand before its arguments (graph.c)
+            iwords = 0;
+            if word(pc + 1) == RXF_GRAPH_CALL { iwords = 3; }
+            if (!have(pc, 6)) | (word(pc + 2) > 6) | !have(pc, 6 + iwords + triple(word(pc + 2))) {
                 st = OUT_OF_RANGE;
                 ret;
             }
-            wd = 6 + triple(word(pc + 2));
+            wd = 6 + iwords + triple(word(pc + 2));
         }
         case RXF_OP_MOVE, RXF_OP_INCREMENT: {
             wd = 6;
@@ -369,6 +372,7 @@ proc plan {
 # A CALL at `pc`.
 proc compile_call {
     cl = word(pc + 1);
+    ops = code + ((pc + 6) << 3);
     cos = word(pc + 3);
     cow = word(pc + 4);
     css = word(pc + 5);
@@ -400,7 +404,7 @@ proc compile_call {
         cla = load64(planarg + (cli << 3));
         clt = load8(plantype + cli);
         if cla < ARG_CONTEXT {
-            operand(pc + 6 + triple(cla));
+            soperand(cla);
             if clt == T_HANDLE {
                 nd = HANDLE_BYTES;
                 call check;
@@ -434,6 +438,157 @@ proc compile_call {
             ret;
         }
     }
+    call be_call;
+    st = 0;
+}
+
+# A call of a program at `pc` (word 1 is RXF_GRAPH_CALL): the callee runs in a run of its own --
+# the interpreter entry is leaf RXF_LEAF_GRAPH_RUN -- with its handle and its arguments staged at
+# STAGE_AT the way a run binds them (a parameter's words, zeroed, the operand's bytes first). What
+# refuses is what compile.c refuses, with the same word: the callee is resolved at the compile, and
+# one published anew between this and the run refuses STALE_GENERATION at the run (the seam of a
+# call that names its callee by the generation it has here).
+proc compile_program_call {
+    pn = word(pc + 2);
+    cos = word(pc + 3);
+    cow = word(pc + 4);
+    css = word(pc + 5);
+    operand(pc + 6);            # the callee's operand (3 words), the arguments follow it
+    if (ok != OBJECT) | (ob != 0) {
+        st = OUT_OF_RANGE;
+        ret;
+    }
+    call find_object;           # the object of the callee, by the id its operand names
+    k4 = R;
+    if k4 == 0 {
+        st = UNBOUND;
+        ret;
+    }
+    if load64(k4 + ENTRY_STATE) != OBJECT_LIVE {
+        st = UNBOUND;
+        ret;
+    }
+    k0 = load64(k4 + ENTRY_PAYLOAD);
+    k1 = load64(k4 + ENTRY_SIZE) >> 3;
+    if (k0 & 7) != 0 {
+        st = OUT_OF_RANGE;
+        ret;
+    }
+    if k1 < SLOT_WORDS {
+        st = TYPE_MISMATCH;
+        ret;
+    }
+    if load64(k0) != RXF_GRAPH_MAGIC {
+        st = TYPE_MISMATCH;
+        ret;
+    }
+    k2 = load64(k0 + 16);       # the parameters of the callee
+    k3 = load64(k0 + 24);       # and the words of it
+    if (k2 != pn) | (k2 > k1) | ((SLOT_WORDS + (k2 << 1)) > k1) {
+        st = OUT_OF_RANGE;
+        ret;
+    }
+    if cos != NONE {
+        if (cow != 8) | !in_frame(cos, cow) {
+            st = UNSUPPORTED;   # the out of a call is one word where the compile goes
+            ret;
+        }
+    }
+    if css != NONE {
+        if (css & 3) != 0 {
+            st = UNSUPPORTED;
+            ret;
+        }
+        if !in_frame(css, 4) {
+            st = OUT_OF_RANGE;
+            ret;
+        }
+    }
+    cli = 0;
+    while (cli + 5) <= k1 {
+        # an answer wider than the one word it comes to is left to the interpreter
+        if (load64(k0 + (cli << 3)) == RXF_OP_RETURN) & (load64(k0 + ((cli + 4) << 3)) > 8) {
+            st = UNSUPPORTED;
+            ret;
+        }
+        cli = cli + 1;
+    }
+    cl = RXF_LEAF_GRAPH_RUN;
+    function = 0;
+    cli = 0;
+    while cli < tcount {
+        if load64(table + (triple(cli) << 3)) == cl {
+            function = load64(table + (triple(cli) << 3) + 16);
+            break;
+        }
+        cli = cli + 1;
+    }
+    if function == 0 {
+        st = UNBOUND;
+        ret;
+    }
+    # the arguments are staged the way a run binds them
+    ops = code + ((pc + 9) << 3);
+    k6 = 0;
+    cli = 0;
+    while cli < k2 {
+        k5 = load64(k0 + ((SLOT_WORDS + (cli << 1) + 1) << 3));   # the width of the parameter
+        soperand(cli);
+        nd = ob;
+        if nd > k5 { nd = k5; }
+        call check;
+        if st != 0 { ret; }
+        if k5 > ((RXF_GRAPH_COPY - HANDLE_BYTES) - k6) {
+            st = UNSUPPORTED;
+            ret;
+        }
+        g0 = STAGE_AT + k6;
+        g1 = k5;
+        g2 = nd;
+        call be_move;
+        k6 = k6 + ((k5 + 7) & ~7);
+        cli = cli + 1;
+    }
+    # the handle the call names: the callee and the generation it has at this compile
+    cli = 0;
+    while cli < 3 {
+        ok = LITERAL;
+        oa = 0;
+        if cli == 0 { oa = word(pc + 7); }
+        if cli == 1 { oa = load64(k4 + ENTRY_GENERATION); }
+        ob = 8;
+        g0 = STAGE_AT + k6 + (cli << 3);
+        g1 = 8;
+        g2 = 8;
+        call be_move;
+        cli = cli + 1;
+    }
+    # the operands of the call of the run entry: the staged handle as a slot, and its words
+    k5 = planarg + PLAN_OPERANDS;
+    store64(k5, SLOT);
+    store64(k5 + 8, STAGE_AT + k6);
+    store64(k5 + 16, HANDLE_BYTES);
+    store64(k5 + 24, 0);
+    store64(k5 + 32, 0);
+    store64(k5 + 40, 0);
+    store64(k5 + 48, LITERAL);
+    store64(k5 + 56, k3);
+    store64(k5 + 64, 8);
+    ops = k5;
+    pn = 5;
+    setarg(0, ARG_CONTEXT, T_CONTEXT);
+    setarg(1, 0, T_HANDLE);
+    setarg(2, ARG_STAGE, T_QUAD);
+    setarg(3, 2, T_QUAD);
+    setarg(4, ARG_OUT, T_OUT);
+    if cos == NONE {
+        cos = HANDLES_AT + HANDLE_BYTES;    # the run needs a word to answer to
+        hasout = 0;
+    } else {
+        hasout = 1;
+    }
+    cow = 8;
+    if css == NONE { css = UNCAUGHT; }      # a refusal nothing catches ends the run with it
     call be_call;
     st = 0;
 }
@@ -510,7 +665,11 @@ proc compile_instruction {
     st = 0;
     switch ik {
         case RXF_OP_CALL: {
-            call compile_call;
+            if word(pc + 1) == RXF_GRAPH_CALL {
+                call compile_program_call;
+            } else {
+                call compile_call;
+            }
         }
         case RXF_OP_MOVE: {
             ihb = word(pc + 5);

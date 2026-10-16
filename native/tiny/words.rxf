@@ -52,6 +52,7 @@ const FRAME_ALLOC = HANDLES_AT + 144;
 # plan of the call that is being compiled
 const STACK_BYTES = 1024;
 const PLAN_BYTES = 128;
+const PLAN_OPERANDS = 128;   # beyond planarg and plantype: the operands a call of a program builds
 const ROOM = 2048;           # STACK_BYTES + PLAN_BYTES, and what is left
 
 # the letters of an argument of a call (graph.c)
@@ -65,6 +66,18 @@ const T_OUT = 111;           # o
 const T_CONTEXT = 99;        # c
 const ARG_CONTEXT = 6;
 const ARG_OUT = 7;
+const ARG_STAGE = 8;
+
+# a status a be_call is given where no slot catches the answer: a refusal the callee answers then
+# ends the run with it (the uncaught shape of answer() in graph.c)
+const UNCAUGHT = NONE - 1;
+
+# the header of a program (magic, frame, nparams, nwords, entry) and an entry of the table of the
+# objects of the context (id, generation, type_id, payload, size, capacity, state ...)
+const SLOT_WORDS = 5;
+const ENTRY_GENERATION = 8;
+const ENTRY_STATE = 48;
+const OBJECT_LIVE = 1;
 
 # the word of the program at index i
 fn word(i) = load64(code + ((i) << 3));
@@ -82,6 +95,15 @@ macro operand(at_) {
     ok = word(at_);
     oa = word((at_) + 1);
     ob = word((at_) + 2);
+    ooff = 0;
+}
+
+# the operand `i` of the call being compiled: those of the instruction at `ops`, or the ones a call
+# of a program builds there
+macro soperand(i) {
+    ok = load64(ops + (triple(i) << 3));
+    oa = load64(ops + (triple(i) << 3) + 8);
+    ob = load64(ops + (triple(i) << 3) + 16);
     ooff = 0;
 }
 

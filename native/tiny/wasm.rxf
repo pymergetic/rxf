@@ -241,7 +241,7 @@ proc w_call {
     q1 = 0;
     while q1 < pn {
         if load8(plantype + q1) == T_HANDLE {
-            operand(pc + 6 + triple(load64(planarg + (q1 << 3))));
+            soperand(load64(planarg + (q1 << 3)));
             q2 = HANDLES_AT + (q0 << 4) + (q0 << 3);
             if ok == OBJECT {
                 call object_address;
@@ -269,8 +269,13 @@ proc w_call {
             w_get(W_FRAME);
             w_i32(cos);
             byte(0x6A);
+        } else if q2 == ARG_STAGE {
+            w_get(W_FRAME);
+            w_i32(STAGE_AT);
+            byte(0x6A);         # i32.add
+            byte(0xAD);         # i64.extend_i32_u: the staged words are a u64 address
         } else {
-            operand(pc + 6 + triple(q2));
+            soperand(q2);
             if (q3 == T_BYTE) & (ok == LITERAL) {
                 w_i32(oa & 255);
             } else {
@@ -287,7 +292,17 @@ proc w_call {
     byte(0x11);
     w_uleb(cl - 1);
     byte(0);
-    if css != NONE {
+    if css == UNCAUGHT {
+        byte(0x21);
+        w_uleb(W_TEMP);
+        w_get(W_TEMP);
+        byte(0x04);             # if
+        byte(0x40);
+        w_get(W_TEMP);
+        call w_leave;
+        byte(0x0F);             # return: a refusal nothing catches ends the run with it
+        byte(0x0B);
+    } else if css != NONE {
         byte(0x21);
         w_uleb(W_TEMP);
         w_get(W_FRAME);
