@@ -99,6 +99,7 @@ NUMERIC = {
     "uart_pump": "pp",  # tests/test_live_uart.py does
     "safe_point": "pp",  # compiled code calls it at an edge that goes back (tests/test_safe_points.py)
     "compile_program": "pp",  # tests/test_compile.py does
+    "graph_run": "pHqqp",  # a call card's own; the callee runs in a run of its own
 }
 
 

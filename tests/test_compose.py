@@ -69,7 +69,7 @@ def test_the_numbers_of_the_header_are_read_whole():
     numbers = graph_header.numbers()
     assert numbers["RXF_GRAPH_MAGIC"] == int.from_bytes(b"RXG1", "little")
     assert numbers["RXF_GRAPH_NONE"] == 2**64 - 1
-    assert sorted(graph_header.leaves().values()) == list(range(1, 49))
+    assert sorted(graph_header.leaves().values()) == list(range(1, 50))
 
 
 def test_a_call_of_a_program_is_the_call_card(image, tmp_path: Path):
@@ -117,12 +117,15 @@ def test_a_call_of_a_program_is_the_call_card(image, tmp_path: Path):
 
 def test_a_call_of_no_leaf_and_no_program_is_refused(tmp_path: Path):
     """A callee that is no leaf of the interpreter and no program of the image is a
-    refusal, not a guess: graph.run is a Function of the image, but its machine lives
-    outside a program and its name is in no leaf table."""
+    refusal, not a guess: memory.load_u32 is a Function of the image whose machine is
+    no leaf of the interpreter (its name is in no leaf table) and to which no
+    SemanticGraph answers."""
     shutil.copytree(STARTER, tmp_path / "starter")
     path = tmp_path / "starter" / "pymergetic" / "rxf" / "foundation" / "heap.xml"
     path.write_text(
-        path.read_text().replace('callee="@runtime.pin"', 'callee="@foundation.graph.run"')
+        path.read_text().replace(
+            'callee="@runtime.pin"', 'callee="@foundation.memory.load_u32"'
+        )
     )
     with pytest.raises(compose.ComposeError, match="is not a leaf of the interpreter"):
         compose.programs(tree.load(tmp_path / "starter"))

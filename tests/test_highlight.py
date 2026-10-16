@@ -144,7 +144,7 @@ def table_enums(source: str) -> dict[str, tuple[bool, dict[str, int]]]:
 
 def test_the_leaf_ids_and_names_are_the_registry_of_graph_h():
     registry = leaves_of_graph_h()
-    assert sorted(registry) == list(range(1, 49))  # there is no leaf 0
+    assert sorted(registry) == list(range(1, 50))  # there is no leaf 0
     assert {leaf.id: leaf.c_symbol for leaf in TABLE.leaves.entries} == registry
 
 

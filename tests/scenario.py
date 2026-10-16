@@ -50,7 +50,6 @@ SPEC = {
     "runtime_format_u32": "pHpd",
     "runtime_search": "pHqHqpp",
     "runtime_cleanup": "pp",
-    "graph_run": "pHqqp",
 }
 
 BASE = 0x10000  # the image starts here, so the wasm stack (below) stays clear
