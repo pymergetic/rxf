@@ -49,7 +49,9 @@ This document records what the RXF repository implements, and what it does not y
 
 ## Not implemented
 
-Semantic-graph checks and passes, a compiler that is written as a semantic graph (the graphs are composed to programs; leaf 31 compiles every program to machine code on three machines, and `tiny.compile`, written in `.rxf`, compiles itself, [19](19-SELF-EDITING-PATH.md)), executable packaging (ELF, PE/COFF, BIOS), and certification are designs only ([05](05-SEMANTIC-AUTHORITY.md), [07](07-SUCCESSOR-AND-ACTIVATION.md), [10](10-FACE-AND-CHANNELS.md), [11](11-BOOTSTRAP-AND-QUORUM.md), [17](17-OPERATING-SYSTEM-PATH.md)). The starter holds their data (types, signatures, semantic graphs, ABI contracts). What runs is the composed program of each semantic function on the interpreter in [18](18-NATIVE-SNIPPETS.md), with the native leaves.
+From what was planned, built since: semantic-graph checks and passes (`tools/native/rxfgraph.py`, `graphpass.py`, `tests/test_rxfgraph.py`), the compiler as a semantic graph (composed to programs, byte-equal to `rxfc.py` on the corpus), executable packaging (ELF, PE/COFF, BIOS, UEFI; `src/pymergetic/rxf/binary/`, `tools/make_bootable.py`, QEMU boots in `tests/test_boot_qemu.py`), and certification (Ed25519 over statements, M-of-N quorum, activation gates the build: `src/pymergetic/rxf/certify/`, `tests/test_certify*.py`, `tests/test_binary_activation.py`).
+
+What remains out: resource limits of the trust policy (the statement has a slot, enforcement is not written), and measured boot in the firmware itself (the UEFI path verifies the signature of the embedded ELF and nothing measures the firmware).
 
 ## Explicit non-requirements
 
