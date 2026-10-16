@@ -16,9 +16,9 @@ import compose
 import graph_sync
 import pytest
 
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.object import Image
-from pymergetic.rxf.live import physical
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.live import physical
 
 from . import live_world as lw
 from .snippets import STARTER

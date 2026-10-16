@@ -14,11 +14,11 @@ from typing import cast
 
 import pytest
 
-from pymergetic.rxf import memory
-from pymergetic.rxf.memory import identity as identity_module
-from pymergetic.rxf.memory import schema
-from pymergetic.rxf.memory import store as store_module
-from pymergetic.rxf.memory.schema import (
+from pymergetic.rxftk import memory
+from pymergetic.rxftk.memory import identity as identity_module
+from pymergetic.rxftk.memory import schema
+from pymergetic.rxftk.memory import store as store_module
+from pymergetic.rxftk.memory.schema import (
     SCORE_MAX,
     AgentSpec,
     Anchor,

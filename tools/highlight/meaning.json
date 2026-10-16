@@ -6,9 +6,9 @@
     "operators": "tools/native/rxfc.py (BINARY, binary(), unary()); native/front is the self-hosted mirror and names the same leaves in native/front/words.rxfs",
     "enums": "starter/pymergetic/rxf/kinds.rxfd: the module pymergetic.rxf.kinds that attribute values name (pymergetic.rxf.kinds.FunctionImplementation.Semantic)",
     "ground_enums": "starter/__init__.rxfd: the enumerations of the ground",
-    "core_enums": "src/pymergetic/rxf/core/kinds.pyi: pymergetic.rxf.core.kinds",
+    "core_enums": "src/pymergetic/rxftk/core/kinds.pyi: pymergetic.rxftk.core.kinds",
     "refusal_sets": "starter/pymergetic/rxf/foundation/__init__.rxfd",
-    "reference_shapes": "src/pymergetic/rxf/core/xml/xml.hpp and the deltas of starter/"
+    "reference_shapes": "src/pymergetic/rxftk/core/xml/xml.hpp and the deltas of starter/"
   },
   "leaves": {
     "note": "the ids of the function table of the runtime context: one entry per native Function a graph calls. There is no leaf 0; the ids are 1 to 48 and a program that needs none of them is only moves and branches",
@@ -1478,7 +1478,7 @@
       },
       {
         "type": "Binding",
-        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "source": "src/pymergetic/rxftk/core/kinds.pyi",
         "flags": false,
         "enumerators": {
           "Mandatory": 0,
@@ -1487,7 +1487,7 @@
       },
       {
         "type": "DocCodec",
-        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "source": "src/pymergetic/rxftk/core/kinds.pyi",
         "flags": false,
         "enumerators": {
           "Lz4": 0,
@@ -1496,7 +1496,7 @@
       },
       {
         "type": "DocKind",
-        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "source": "src/pymergetic/rxftk/core/kinds.pyi",
         "flags": false,
         "enumerators": {
           "Narrates": 0,
@@ -1506,7 +1506,7 @@
       },
       {
         "type": "DocRole",
-        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "source": "src/pymergetic/rxftk/core/kinds.pyi",
         "flags": false,
         "enumerators": {
           "Narrates": 0,
@@ -1518,7 +1518,7 @@
       },
       {
         "type": "DocStatus",
-        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "source": "src/pymergetic/rxftk/core/kinds.pyi",
         "flags": false,
         "enumerators": {
           "Open": 0,
@@ -1527,7 +1527,7 @@
       },
       {
         "type": "FieldFlags",
-        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "source": "src/pymergetic/rxftk/core/kinds.pyi",
         "flags": true,
         "enumerators": {
           "Mutable": 1,
@@ -1540,7 +1540,7 @@
       },
       {
         "type": "Form",
-        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "source": "src/pymergetic/rxftk/core/kinds.pyi",
         "flags": false,
         "enumerators": {
           "Meta": 0,
@@ -1565,7 +1565,7 @@
       },
       {
         "type": "Mobility",
-        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "source": "src/pymergetic/rxftk/core/kinds.pyi",
         "flags": false,
         "enumerators": {
           "Movable": 0,
@@ -1575,7 +1575,7 @@
       },
       {
         "type": "NodeKind",
-        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "source": "src/pymergetic/rxftk/core/kinds.pyi",
         "flags": false,
         "enumerators": {
           "Root": 0,
@@ -1603,7 +1603,7 @@
       },
       {
         "type": "OwnerKind",
-        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "source": "src/pymergetic/rxftk/core/kinds.pyi",
         "flags": false,
         "enumerators": {
           "System": 0,
@@ -1617,7 +1617,7 @@
       },
       {
         "type": "RefKind",
-        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "source": "src/pymergetic/rxftk/core/kinds.pyi",
         "flags": false,
         "enumerators": {
           "Call": 0,
@@ -1632,7 +1632,7 @@
       },
       {
         "type": "TypeFlags",
-        "source": "src/pymergetic/rxf/core/kinds.pyi",
+        "source": "src/pymergetic/rxftk/core/kinds.pyi",
         "flags": true,
         "enumerators": {
           "Variable": 1,

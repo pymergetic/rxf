@@ -16,9 +16,9 @@ from typing import Any, cast
 import graph_header
 import pytest
 
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.object import Image
-from pymergetic.rxf.live import frames, physical
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.live import frames, physical
 
 from . import live_world as lw
 from .graph_programs import (

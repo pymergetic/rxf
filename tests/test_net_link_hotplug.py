@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from pymergetic.rxf.net.control.netplan import (
+from pymergetic.rxftk.net.control.netplan import (
     AddressSpec,
     DeviceSpec,
     Doc,
@@ -20,7 +20,7 @@ from pymergetic.rxf.net.control.netplan import (
     apply,
     plan,
 )
-from pymergetic.rxf.net.link.link import (
+from pymergetic.rxftk.net.link.link import (
     EventAction,
     Hotplug,
     LinkEvent,
@@ -33,7 +33,7 @@ from pymergetic.rxf.net.link.link import (
     UdevRule,
     Write,
 )
-from pymergetic.rxf.net.schema import (
+from pymergetic.rxftk.net.schema import (
     AddressInUse,
     Device,
     IPPrefix,

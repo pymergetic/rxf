@@ -49,7 +49,7 @@ cd native/crypto && cargo test          # the card's own gate
 ### Step 2 — the host seat
 
 The host seat is a fill, like `io.fetch` has POSIX/Metal/js fills: one thin binding
-(`src/pymergetic/rxf/net/crypto.py`, ctypes over the built `libpm_crypto.so`) with typed
+(`src/pymergetic/rxftk/net/crypto.py`, ctypes over the built `libpm_crypto.so`) with typed
 Python, a named refusal hierarchy, and a build helper (`tools/native/crypto_build.py`)
 that caches on source mtimes. Consumers (`net.tls`, `net.wg`) call the binding and never
 a primitive directly — so swapping the seat later changes nothing above it.

@@ -125,7 +125,7 @@ rxf> :quit
 `--link` is wherever the image runs (`shm:name`, `pty:/dev/pts/3`, `tty:/dev/ttyUSB0`,
 `fd:3`); `rxf console FILE` takes one source file through the same path once, `--inspect`
 lists what the image has installed. Whoever runs the image registers its machine in the one
-registry (`pymergetic.rxf.console.world`) — one link, one runner; a second world at the same
+registry (`pymergetic.rxftk.console.world`) — one link, one runner; a second world at the same
 link is refused (`WorldIsRegistered`), not stolen, and shutdown takes the registration with
 it.
 
@@ -274,7 +274,7 @@ RXF is a new version: a C++ core on one arena, with Python as orchestration (nan
 
 **In the tree today.**
 
-- the ground layout (`src/pymergetic/rxf/core/ground.h`) pinned for x86-64, AArch64, i386,
+- the ground layout (`src/pymergetic/rxftk/core/ground.h`) pinned for x86-64, AArch64, i386,
   and wasm32 in C11 and C++20;
 - the arena and the host image (paths, names, roles, canonical copying compaction) and the
   self-description (`Type` and `Field` objects read by one generic codec);
@@ -329,7 +329,7 @@ An image is one arena: a 192-byte header, an index directory, and a cell stream.
 cells have a 64-byte header, the payload padded to 16 bytes, and 24-byte references (target,
 role, kind, binding, index); block cells carry the index chunks (4096 slots of 8 bytes) and
 the names. Identities, addresses, offsets, and sizes are 64-bit. The layout is defined once
-as C structs in `src/pymergetic/rxf/core/ground.h`, with the size and offset of every field
+as C structs in `src/pymergetic/rxftk/core/ground.h`, with the size and offset of every field
 pinned by static assertions. See [the arena and allocator state](docs/03-ALLOCATOR-STATE.md).
 
 ### Names and formats
@@ -370,10 +370,10 @@ replaces it from a delta; `rxfc.py` is the same compiler on the host.
 ### How the repo is organized
 
 ```
-src/pymergetic/rxf/
+src/pymergetic/rxftk/
   cli.py  source.py            the entry point and image I/O
   binary/                      commands on the RXFB 6 bytes (`rxf binary …`)
-  core/                        the compiled package pymergetic.rxf.core
+  core/                        the compiled package pymergetic.rxftk.core
     arena/ object/ hash/ meta/ delta/ xml/ tree/    C++ modules, each with bindings.cpp and, where it has one, cli.py
     *.pyi                      generated stubs, one per Python submodule
   console/                     the console on a running image (`rxf console`) and the world seam
@@ -401,7 +401,7 @@ Deeper checks for changes that touch what they cover:
 
 ```sh
 .venv/bin/python tools/sanitize.py                   # core tests under AddressSanitizer and UBSan
-.venv/bin/python -m nanobind.stubgen -m pymergetic.rxf.core -r -q -O src/pymergetic/rxf
+.venv/bin/python -m nanobind.stubgen -m pymergetic.rxftk.core -r -q -O src/pymergetic/rxftk
 python3 -m tools.highlight.grammar_gen --check       # the checked-in grammars are the generated ones
 ```
 

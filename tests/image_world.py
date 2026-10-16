@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 import link
 
-from pymergetic.rxf.core.object import Image
+from pymergetic.rxftk.core.object import Image
 
 from . import graph_world as world
 from .emulator import Blob, Emulator, Integer

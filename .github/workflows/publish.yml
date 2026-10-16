@@ -1,5 +1,5 @@
 # Publish the sdist and compiled wheels to PyPI on tag v*.
-# The package contains a C++ extension (pymergetic.rxf.core), so the wheels
+# The package contains a C++ extension (pymergetic.rxftk.core), so the wheels
 # are built per platform with cibuildwheel (settings: pyproject.toml).
 # Requires repository secret: PYPI_API_TOKEN
 

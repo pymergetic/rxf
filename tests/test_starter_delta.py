@@ -4,17 +4,17 @@ import json
 import re
 from pathlib import Path
 
-from pymergetic.rxf.cli import main
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.kinds import NodeKind
+from pymergetic.rxftk.cli import main
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.kinds import NodeKind
 
 from .support import resolved
 
 STARTER = Path(__file__).parents[1] / "starter"
 
 # Bump these two together with the files in starter/, never one alone.
-DIGEST = "2846f88ff8a03c1926a7c76be699d4840fd28e910f53235565384cbe891a39da"
-DELTA_DIGEST = "58c5baa4ef7b5ba9416d1759014a7f75f5355813a44b0af7358501de01b79735"
+DIGEST = "e4ef25ee9f7cc48bd358063a4418fb9d4d94b1f31a15b385de90822e0668eeb2"
+DELTA_DIGEST = "f4701a97c50703b26774865aa21d4f56117a3d40b99a65fbe805055095c7261f"
 OBJECTS = 17863
 
 

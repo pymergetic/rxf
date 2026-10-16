@@ -29,8 +29,8 @@ import link
 import pytest
 import rxfc
 
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.object import Image
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.object import Image
 
 from . import live_world as lw
 from .snippets import STARTER

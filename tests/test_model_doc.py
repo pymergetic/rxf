@@ -16,13 +16,13 @@ from pathlib import Path
 
 import pytest
 
-from pymergetic.rxf.server.inspector import _model_links
+from pymergetic.rxftk.server.inspector import _model_links
 
 ROOT = Path(__file__).parents[1]
 HOST = Path(__file__).parent / "host"
 POLICY = ROOT / "docs" / "20-EXECUTION-POLICY.md"
-MODEL_PAGE = ROOT / "src" / "pymergetic" / "rxf" / "server" / "templates" / "model.html"
-GROUND = ROOT / "src" / "pymergetic" / "rxf" / "core" / "ground.h"
+MODEL_PAGE = ROOT / "src" / "pymergetic" / "rxftk" / "server" / "templates" / "model.html"
+GROUND = ROOT / "src" / "pymergetic" / "rxftk" / "core" / "ground.h"
 
 
 def read(path: Path) -> str:
@@ -332,7 +332,7 @@ def test_the_detail_model_links_land_on_the_page():
 
 
 def test_the_model_page_and_its_script_parse(tmp_path: Path):
-    from pymergetic.rxf.server.app import MODEL_PAGE as served
+    from pymergetic.rxftk.server.app import MODEL_PAGE as served
 
     assert MODEL_PAGE == served and MODEL_PAGE.is_file()
     page = read(MODEL_PAGE)
@@ -353,8 +353,8 @@ def test_the_model_page_and_its_script_parse(tmp_path: Path):
 def test_the_app_serves_the_model_page():
     from fastapi.routing import APIRoute
 
-    from pymergetic.rxf.core.object import Image
-    from pymergetic.rxf.server.app import create_app
+    from pymergetic.rxftk.core.object import Image
+    from pymergetic.rxftk.server.app import create_app
 
     app = create_app(Image.empty())
     handlers = {

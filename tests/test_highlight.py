@@ -10,7 +10,7 @@ drift from the table. Every pin below names the file it guards:
   the self-hosted mirror ``native/front/words.rxfs``;
 - the enums: ``starter/pymergetic/rxf/kinds.rxfd`` (the module
   ``pymergetic.rxf.kinds``), the ground of ``starter/__init__.rxfd`` and the core
-  stubs ``src/pymergetic/rxf/core/kinds.pyi``;
+  stubs ``src/pymergetic/rxftk/core/kinds.pyi``;
 - the refusal sets: ``starter/pymergetic/rxf/foundation/__init__.rxfd``;
 - the grammars: regenerate with ``tools/highlight/grammar_gen.py`` and compare
   byte for byte;
@@ -38,7 +38,7 @@ FRONT_WORDS = ROOT / "native" / "front" / "words.rxfs"
 RXFC = ROOT / "tools" / "native" / "rxfc.py"
 KINDS_XML = ROOT / "starter" / "pymergetic" / "rxf" / "kinds.rxfd"
 GROUND_XML = ROOT / "starter" / "__init__.rxfd"
-KINDS_PYI = ROOT / "src" / "pymergetic" / "rxf" / "core" / "kinds.pyi"
+KINDS_PYI = ROOT / "src" / "pymergetic" / "rxftk" / "core" / "kinds.pyi"
 FOUNDATION_XML = ROOT / "starter" / "pymergetic" / "rxf" / "foundation" / "__init__.rxfd"
 STARTER = ROOT / "starter"
 SELFEDIT = ROOT / "tests" / "selfedit"
@@ -117,7 +117,7 @@ def enums_of_xml(path: Path) -> dict[str, tuple[bool, dict[str, int]]]:
 
 
 def enums_of_pyi(path: Path) -> dict[str, tuple[bool, dict[str, int]]]:
-    """Every enumeration class of the Python stubs of pymergetic.rxf.core.kinds."""
+    """Every enumeration class of the Python stubs of pymergetic.rxftk.core.kinds."""
     found: dict[str, tuple[bool, dict[str, int]]] = {}
     for node in ast.parse(path.read_text()).body:
         if not isinstance(node, ast.ClassDef):
@@ -184,7 +184,7 @@ def test_the_table_is_coherent_with_itself():
     assert sources == {
         "starter/pymergetic/rxf/kinds.rxfd",
         "starter/__init__.rxfd",
-        "src/pymergetic/rxf/core/kinds.pyi",
+        "src/pymergetic/rxftk/core/kinds.pyi",
     }
 
 
@@ -283,7 +283,7 @@ def test_the_ground_enums_are_the_root_delta():
 
 
 def test_the_core_enums_are_the_python_stubs():
-    assert table_enums("src/pymergetic/rxf/core/kinds.pyi") == enums_of_pyi(KINDS_PYI)
+    assert table_enums("src/pymergetic/rxftk/core/kinds.pyi") == enums_of_pyi(KINDS_PYI)
 
 
 def test_the_refusal_sets_are_the_foundation_module():
@@ -358,7 +358,7 @@ def test_the_extension_manifest_wires_the_final_extensions():
         language["id"]: language["extensions"]
         for language in manifest["contributes"]["languages"]
     }
-    # The final names are .rxfs and .rxfd: `pymergetic.rxf` is the Python package
+    # The final names are .rxfs and .rxfd: `pymergetic.rxftk` is the Python package
     # and never a file extension, and the old `.rxfs` is not an extension either.
     assert languages == {"rxfs": [".rxfs"], "rxfd": [".rxfd"]}
     assert manifest["contributes"]["grammars"] == [

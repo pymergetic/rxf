@@ -103,7 +103,7 @@ Width rule: identities, addresses, offsets, and sizes are 64-bit. Handles, gener
 | Dead cell | Kind 254: a cell whose slot was freed or now holds a newer cell (`forward`). Its bytes stay until compaction. |
 | `Type` and `Field` payload | 48 bytes each; every reference inside them is a 64-bit handle. |
 
-The cell carries no ID: its handle is its slot. A cell's size is `64 + align16(payload_size) + 24 * ref_count`, rounded up to 16, so a sequential walk needs no extra field. Derived lookups (name to child, role to reference) are built in memory at load and are not part of the format. The ground types are defined once as C structs in `src/pymergetic/rxf/core/ground.h` with `static_assert` on `sizeof` and `offsetof`. `tests/test_ground_layout.py` compiles the header as C11 and C++20 for x86-64, AArch64, i386, and wasm32. **[present]**
+The cell carries no ID: its handle is its slot. A cell's size is `64 + align16(payload_size) + 24 * ref_count`, rounded up to 16, so a sequential walk needs no extra field. Derived lookups (name to child, role to reference) are built in memory at load and are not part of the format. The ground types are defined once as C structs in `src/pymergetic/rxftk/core/ground.h` with `static_assert` on `sizeof` and `offsetof`. `tests/test_ground_layout.py` compiles the header as C11 and C++20 for x86-64, AArch64, i386, and wasm32. **[present]**
 
 Removed against RXFB v5: node table, type table, code table, section table, attribute blob. Types are ordinary objects (`Type` with `Field` children). The binder finds Code through `IMPLEMENTATION` references. The path is the fully qualified name, and a derived object is recomputed on load and not stored.
 

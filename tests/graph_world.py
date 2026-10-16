@@ -18,7 +18,7 @@ from pathlib import Path
 import compose
 import graph_header
 
-from pymergetic.rxf.core.object import Image
+from pymergetic.rxftk.core.object import Image
 
 from . import scenario
 from .emulator import Blob, Emulator, Integer

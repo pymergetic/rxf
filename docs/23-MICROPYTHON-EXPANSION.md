@@ -178,7 +178,7 @@ the bytecode view earns its place) → the same delta vocabulary → one image.
 
 | | |
 |---|---|
-| touches | `tools/native/` (the compiler, new — see §3); the emitter (shared with `rximport`, one implementation — see open decision 2); `src/pymergetic/rxf/core/` (no new kinds: `Module`, `Function`, `SemanticGraph`, `Doc` exist); a `tests/py_corpus/` differential; the starter's module tree for the guest stdlib |
+| touches | `tools/native/` (the compiler, new — see §3); the emitter (shared with `rximport`, one implementation — see open decision 2); `src/pymergetic/rxftk/core/` (no new kinds: `Module`, `Function`, `SemanticGraph`, `Doc` exist); a `tests/py_corpus/` differential; the starter's module tree for the guest stdlib |
 | implements | `import_py_file(image, source, module, provenance=...)` with the same shape as `import_source_file`; per-import `--provenance=full\|cite\|hash` (§5); the *was once Python* Doc per module; Python semantics lowered to the same machine — a method call is i3 dispatch, an `mp_raise_*` is a Refuse leaf, `try/except` is the nlr seam of S11, `await` is §4.5 |
 | refuses (by name, at import) | whatever the subset does not lower: `eval`/`exec`, runtime module creation, C-extension capsules, ... — each with the reason, never a wrong word |
 | docs | the compiler sees its own AST line map: docstrings and comments lift **at compile time** through the same two calls of §4.7 (the module's provenance Doc carries the marker *was once Python*) |
@@ -266,7 +266,7 @@ itself or reads from what the importer already fixes.
 The API (core's Python-visible face; the text face `Image.doc_text` and the codec are landed):
 
 ```python
-# pymergetic.rxf.core.doc — the creation side (proposed shape, the follow-up lane owns it)
+# pymergetic.rxftk.core.doc — the creation side (proposed shape, the follow-up lane owns it)
 doc.create(image, parent: int, name: str, *, kind: DocKind, status: DocStatus,
            codec: DocCodec, text: str) -> int            # a Doc object; text round-trips
 doc.place(image, source: int, target: int, role: DocRole) -> None   # a RefKind.Doc placement

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from pymergetic.rxf.net.fw import (
+from pymergetic.rxftk.net.fw import (
     CounterDelta,
     FilterTable,
     IntervalList,
@@ -25,7 +25,7 @@ from pymergetic.rxf.net.fw import (
     prefix_interval,
     set_counter_path,
 )
-from pymergetic.rxf.net.schema import (
+from pymergetic.rxftk.net.schema import (
     ConnState,
     Family,
     Hook,

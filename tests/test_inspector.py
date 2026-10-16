@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from pymergetic.rxf.core.object import Image
+from pymergetic.rxftk.core.object import Image
 
 DELTA = """<?xml version="1.0" encoding="UTF-8"?>
 <delta xmlns:rxf="urn:pymergetic:rxf">
@@ -29,7 +29,7 @@ DELTA = """<?xml version="1.0" encoding="UTF-8"?>
 
 @pytest.fixture
 def inspector():
-    from pymergetic.rxf.server.inspector import Inspector
+    from pymergetic.rxftk.server.inspector import Inspector
 
     image = Image.empty()
     image.apply(DELTA)
@@ -88,8 +88,8 @@ def test_inspector_shows_an_object_and_who_uses_it(inspector):
 
 
 def test_the_inspector_shows_where_an_alias_is_used():
-    from pymergetic.rxf.core import tree
-    from pymergetic.rxf.server.inspector import Inspector
+    from pymergetic.rxftk.core import tree
+    from pymergetic.rxftk.server.inspector import Inspector
 
     starter = Inspector(tree.load(Path(__file__).parents[1] / "starter"))
     alias = starter.object("pymergetic.rxf.numeric.numeric")
@@ -104,7 +104,7 @@ def test_the_inspector_shows_where_an_alias_is_used():
 def test_the_inspector_app_serves_the_routes(inspector):
     from fastapi.routing import APIRoute
 
-    from pymergetic.rxf.server.app import PAGE, create_app
+    from pymergetic.rxftk.server.app import PAGE, create_app
 
     app = create_app(inspector.image)
     routes = [route for route in app.routes if isinstance(route, APIRoute)]
@@ -130,7 +130,7 @@ def test_the_inspector_app_serves_the_routes(inspector):
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
 def test_the_inspector_script_parses(tmp_path):
-    from pymergetic.rxf.server.app import PAGE
+    from pymergetic.rxftk.server.app import PAGE
 
     found = re.search(r"<script>(.*)</script>", PAGE.read_text(), re.DOTALL)
     assert found is not None

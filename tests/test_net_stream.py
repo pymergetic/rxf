@@ -14,7 +14,7 @@ from typing import cast
 
 import pytest
 
-from pymergetic.rxf.net.schema import (
+from pymergetic.rxftk.net.schema import (
     Interest,
     NotConnected,
     NotSupported,
@@ -22,7 +22,7 @@ from pymergetic.rxf.net.schema import (
     Timeout,
     WouldBlock,
 )
-from pymergetic.rxf.net.transport.stream import accept_loop, install_wrapper, wrap
+from pymergetic.rxftk.net.transport.stream import accept_loop, install_wrapper, wrap
 
 from .test_net_fill import (
     DummyWrappedStream,
@@ -78,7 +78,7 @@ def test_write_refuses_wouldblock_when_choke() -> None:
 
 def test_write_refuses_when_the_peer_is_gone() -> None:
     """Writing to a closed peer is ConnectionReset — not a silent loss."""
-    from pymergetic.rxf.net.schema import ConnectionReset
+    from pymergetic.rxftk.net.schema import ConnectionReset
 
     pair = MemoryPair("t")
     pair.server.close()

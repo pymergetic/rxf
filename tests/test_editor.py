@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.object import Image
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.object import Image
 
 STARTER = Path(__file__).parents[1] / "starter"
 
@@ -108,7 +108,7 @@ def point():
 
 
 def test_the_live_symbol_check_marks_tokens_green_and_red():
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     good = editor.check_source("program double(x) = mul(x, 2)", "rxfs")
     assert good["ok"] is True and good["refused"] == 0 and good["tokens"] > 0
@@ -124,7 +124,7 @@ def test_the_live_symbol_check_marks_tokens_green_and_red():
 
 
 def test_the_symbol_check_carries_the_meaning_of_every_green_token():
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     checked = editor.check_source("var y = copy(a, b)", "rxfs")
     by = {m["text"]: m for m in checked["marks"]}
@@ -133,7 +133,7 @@ def test_the_symbol_check_carries_the_meaning_of_every_green_token():
 
 
 def test_the_symbol_check_resolves_rxfd_references():
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     doc = (
         '<delta xmlns:rxf="urn:pymergetic:rxf">'
@@ -150,7 +150,7 @@ def test_the_symbol_check_resolves_rxfd_references():
 
 
 def test_a_flat_graph_projects_to_every_face(starter):
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     faces = editor.faces(starter, "pymergetic.rxf.algorithms.compare")
     assert faces["shape"] == "flat"
@@ -161,7 +161,7 @@ def test_a_flat_graph_projects_to_every_face(starter):
 
 
 def test_a_block_graph_lowers_to_pseudo_and_refuses_fake_code(starter):
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     faces = editor.faces(starter, "pymergetic.rxf.algorithms.binary_search")
     assert faces["shape"] == "blocks"
@@ -173,7 +173,7 @@ def test_a_block_graph_lowers_to_pseudo_and_refuses_fake_code(starter):
 
 
 def test_a_native_leaf_is_honest_in_c_and_refuses_python_bodies(starter):
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     faces = editor.faces(starter, "pymergetic.rxf.capabilities.console_log")
     assert faces["shape"] == "leaf"
@@ -185,7 +185,7 @@ def test_a_native_leaf_is_honest_in_c_and_refuses_python_bodies(starter):
 
 
 def test_compiled_words_refuse_to_invent_a_body(starter):
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     faces = editor.faces(starter, "pymergetic.rxf.algorithms.hash_bytes")
     assert faces["shape"] == "words"
@@ -197,7 +197,7 @@ def test_compiled_words_refuse_to_invent_a_body(starter):
 
 
 def test_the_netzansicht_is_the_function_and_its_environment(starter):
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     netz = editor.netz(starter, "pymergetic.rxf.algorithms.compare")
     assert netz["path"] == "pymergetic.rxf.algorithms.compare"
@@ -213,7 +213,7 @@ def test_the_netzansicht_is_the_function_and_its_environment(starter):
 
 
 def test_the_netzansicht_of_a_block_graph_still_names_callees(starter):
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     netz = editor.netz(starter, "pymergetic.rxf.algorithms.binary_search")
     assert any(e["kind"] == "call" for e in netz["edges"])
@@ -223,7 +223,7 @@ def test_the_netzansicht_of_a_block_graph_still_names_callees(starter):
 
 
 def test_compile_goes_through_the_seam_and_previews_the_delta():
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     front = FakeFront()
     out = editor.compile_source(front, "program double(x) = mul(x, 2)")
@@ -237,7 +237,7 @@ def test_compile_goes_through_the_seam_and_previews_the_delta():
 
 
 def test_a_refused_compile_is_honest_not_silent():
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     front = FakeFront(ok=False, status=5)
     out = editor.compile_source(front, "program broken(")
@@ -247,7 +247,7 @@ def test_a_refused_compile_is_honest_not_silent():
 
 
 def test_install_sends_one_delta_through_the_seam():
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     front = FakeFront()
     out = editor.install_source(front, "program double(x) = mul(x, 2)")
@@ -266,7 +266,7 @@ def test_install_sends_one_delta_through_the_seam():
 
 
 def test_install_refuses_when_the_compile_refuses():
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     front = FakeFront(ok=False, status=5)
     out = editor.install_source(front, "program broken(")
@@ -277,7 +277,7 @@ def test_install_refuses_when_the_compile_refuses():
 
 
 def test_the_program_name_comes_from_the_source():
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     assert editor._name_of("  program hello(a, b) = add(a, b)") == "hello"
     assert editor._name_of("no program here") is None
@@ -287,7 +287,7 @@ def test_the_program_name_comes_from_the_source():
 
 
 def test_the_pokeable_fields_are_the_ones_the_task_names():
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     for field in ("name", "flags", "payload"):
         assert editor.classify_poke(field)["allowed"] is True
@@ -297,7 +297,7 @@ def test_the_pokeable_fields_are_the_ones_the_task_names():
 
 
 def test_the_unpokeable_fields_say_why(point):
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     channel = FakeChannel()
     for field, word in (
@@ -311,14 +311,14 @@ def test_the_unpokeable_fields_say_why(point):
 
 
 def test_a_name_poke_is_refused_as_a_rename_not_an_in_place_write(point):
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     out = editor.poke(FakeChannel(), point, "a", "name", 1, front=FakeFront())
     assert out["ok"] is False and "not a poke" in out["refusal"]
 
 
 def test_poking_a_field_writes_through_the_channel(point):
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     channel = FakeChannel()
     out = editor.poke(channel, point, "a", "flags", 99, front=FakeFront())
@@ -328,7 +328,7 @@ def test_poking_a_field_writes_through_the_channel(point):
 
 
 def test_a_payload_word_poke_replaces_one_word():
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     payload = struct.pack("<2Q", 1, 2)
     patched = editor.poke_word_payload(payload, 8, 0xAABBCCDD)
@@ -343,7 +343,12 @@ def test_a_payload_word_poke_replaces_one_word():
 def test_the_editor_app_serves_its_routes(starter):
     from fastapi.routing import APIRoute
 
-    from pymergetic.rxf.server.app import EDITOR_PAGE, PokeBody, SourceBody, create_app
+    from pymergetic.rxftk.server.app import (
+        EDITOR_PAGE,
+        PokeBody,
+        SourceBody,
+        create_app,
+    )
 
     app = create_app(starter)
     handlers = {
@@ -383,14 +388,14 @@ def test_the_editor_app_serves_its_routes(starter):
 
 
 def test_the_inspector_links_to_the_editor():
-    from pymergetic.rxf.server.app import PAGE
+    from pymergetic.rxftk.server.app import PAGE
 
     assert '<a class="button" href="/editor"' in PAGE.read_text()
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
 def test_the_editor_page_parses_and_is_webgl_only(tmp_path):
-    from pymergetic.rxf.server.app import EDITOR_PAGE
+    from pymergetic.rxftk.server.app import EDITOR_PAGE
 
     text = EDITOR_PAGE.read_text()
     found = re.search(r"<script>(.*)</script>", text, re.DOTALL)

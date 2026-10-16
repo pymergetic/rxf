@@ -17,9 +17,9 @@ from typing import Protocol
 
 import link
 
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.object import Image
-from pymergetic.rxf.live.client import Client
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.live.client import Client
 
 from . import graph_world as world
 from .emulator import Blob, Emulator, Integer

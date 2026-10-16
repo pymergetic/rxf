@@ -34,7 +34,7 @@ import rxemit
 import rximport
 import rxpy
 
-from pymergetic.rxf.core import tree
+from pymergetic.rxftk.core import tree
 
 from . import rxf_native
 from .snippets import STARTER

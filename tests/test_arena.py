@@ -2,8 +2,8 @@
 
 import pytest
 
-from pymergetic.rxf.core.arena import HANDLE_NONE, ArenaError
-from pymergetic.rxf.core.object import Image
+from pymergetic.rxftk.core.arena import HANDLE_NONE, ArenaError
+from pymergetic.rxftk.core.object import Image
 
 NONE = HANDLE_NONE
 

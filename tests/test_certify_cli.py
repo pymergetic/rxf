@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from pymergetic.rxf.cli import main
+from pymergetic.rxftk.cli import main
 
 DELTA = """<?xml version="1.0" encoding="UTF-8"?>
 <delta xmlns:rxf="urn:pymergetic:rxf">

@@ -4,9 +4,14 @@ import struct
 
 import pytest
 
-from pymergetic.rxf.core.arena import HANDLE_FIELD, HANDLE_ROOT, HANDLE_TYPE, ArenaError
-from pymergetic.rxf.core.delta import DeltaError
-from pymergetic.rxf.core.object import Image
+from pymergetic.rxftk.core.arena import (
+    HANDLE_FIELD,
+    HANDLE_ROOT,
+    HANDLE_TYPE,
+    ArenaError,
+)
+from pymergetic.rxftk.core.delta import DeltaError
+from pymergetic.rxftk.core.object import Image
 
 POINT = """
 <delta>

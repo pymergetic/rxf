@@ -59,8 +59,8 @@ import graph_header
 import rxemit
 import rxfc
 
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.object import Image
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.object import Image
 
 N = graph_header.numbers()
 LEAF = graph_header.leaves()

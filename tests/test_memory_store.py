@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from pymergetic.rxf.memory import (
+from pymergetic.rxftk.memory import (
     HALF_WEIGHT,
     SCORE_MAX,
     Fact,

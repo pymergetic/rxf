@@ -39,7 +39,7 @@ whichever filled it.
 ## 3. The type set
 
 ```python
-# pymergetic/rxf/net/schema.py  — the orchestration layer's types
+# pymergetic/rxftk/net/schema.py  — the orchestration layer's types
 
 Handle = tuple[int, int]                 # (object_id, generation) — a stale handle is refused
 
@@ -516,7 +516,7 @@ argument. The goal is that a protocol is cheap enough to add that we never again
 to take one (http, ftp today; smtp, mqtt, and friends are the same three files later).
 
 ```text
-pymergetic/rxf/net/transport/
+pymergetic/rxftk/net/transport/
     stream.py       the byte-stream contract: read, write, wait, close
     framing.py      line and length-prefixed helpers over a stream (optional)
     http/

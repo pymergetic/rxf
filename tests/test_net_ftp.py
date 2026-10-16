@@ -16,7 +16,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from pymergetic.rxf.net.schema import (
+from pymergetic.rxftk.net.schema import (
     ConnectionReset,
     InvalidEndpoint,
     MalformedMessage,
@@ -26,7 +26,7 @@ from pymergetic.rxf.net.schema import (
     TlsConfig,
     UnexpectedReply,
 )
-from pymergetic.rxf.net.transport.ftp import (
+from pymergetic.rxftk.net.transport.ftp import (
     Client,
     Command,
     Files,

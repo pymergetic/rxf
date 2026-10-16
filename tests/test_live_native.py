@@ -13,11 +13,11 @@ from pathlib import Path
 
 import pytest
 
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.object import Image
-from pymergetic.rxf.live import Refused, frames, physical
-from pymergetic.rxf.live.client import Declined, LiveError
-from pymergetic.rxf.live.harness import HostImage
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.live import Refused, frames, physical
+from pymergetic.rxftk.live.client import Declined, LiveError
+from pymergetic.rxftk.live.harness import HostImage
 
 from . import live_world as lw
 from .snippets import STARTER
@@ -485,7 +485,7 @@ def test_a_pump_without_room_for_a_copy_declines_instead_of_moving(
 
 
 def test_a_pinned_object_is_not_moved_natively(native: lw.Channel, raw: bytes):
-    from pymergetic.rxf.core.object import image_state
+    from pymergetic.rxftk.core.object import image_state
 
     base = Image.from_bytes(raw)
     pinned = Image.from_bytes(raw)

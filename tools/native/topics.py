@@ -31,7 +31,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from pymergetic.rxf.core.kinds import DocKind, DocRole
+from pymergetic.rxftk.core.kinds import DocKind, DocRole
 
 ROOT = Path(__file__).resolve().parents[2]
 POLICY = ROOT / "docs" / "20-EXECUTION-POLICY.md"

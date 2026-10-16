@@ -10,8 +10,8 @@ import time
 from threading import Event
 from typing import Any
 
-from pymergetic.rxf.core import live
-from pymergetic.rxf.live import link
+from pymergetic.rxftk.core import live
+from pymergetic.rxftk.live import link
 
 
 def serve_shared(name: str, stop: Any, ready: Any) -> None:
@@ -30,7 +30,7 @@ def serve_descriptor(
     fd: int, image: bytes, stop: Event, ready: Event, arena: int, emit: int
 ) -> None:
     """The image side of a serial line: what `uart.pump` and the live pump do on a machine."""
-    from pymergetic.rxf.live.harness import HostImage
+    from pymergetic.rxftk.live.harness import HostImage
 
     host = HostImage(image, arena=arena, emit=emit)
     ready.set()

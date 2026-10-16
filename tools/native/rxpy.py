@@ -1657,7 +1657,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--output", "-o", metavar="DELTA", help="where the image's delta is written")
     args = parser.parse_args(argv)
-    from pymergetic.rxf.core import tree
+    from pymergetic.rxftk.core import tree
 
     image = tree.load(args.starter)
     prov = rximport.Provenance.parse(args.provenance) if args.provenance else None

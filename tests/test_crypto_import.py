@@ -31,7 +31,7 @@ Three things are pinned here:
 
 The native seat of (b) is built cargo-free: the same ``lib.rs`` through the same
 rustc to a cdylib (the gate is rustc + cargo-free by mandate), loaded through
-the same ``src/pymergetic/rxf/net/crypto.py`` binding the card's gate uses.
+the same ``src/pymergetic/rxftk/net/crypto.py`` binding the card's gate uses.
 Everything here is deterministic and offline.
 """
 
@@ -46,7 +46,7 @@ from pathlib import Path
 import crypto_import
 import pytest
 
-from pymergetic.rxf.net import crypto
+from pymergetic.rxftk.net import crypto
 
 from . import rxf_native
 

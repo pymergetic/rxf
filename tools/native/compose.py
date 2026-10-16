@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 
 import graph_header
 
-from pymergetic.rxf.core.object import Image
+from pymergetic.rxftk.core.object import Image
 
 NONE = (1 << 64) - 1
 STATUS_TYPE = "uint32_t"

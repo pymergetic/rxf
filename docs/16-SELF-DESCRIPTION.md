@@ -2,7 +2,7 @@
 
 The core knows four layouts: the arena header, the object cell header, `Type`, and `Field` (see [ground layout](03-ALLOCATOR-STATE.md)). Every other payload is read through the `Type` object of its object and the `Field` objects below that type. Nothing else in the core knows a payload layout, so one generic reader prints, converts, checks, and diffs every object.
 
-Code: `src/pymergetic/rxf/core/meta/`. Nothing here is part of the binary format; it is derived from the image on demand.
+Code: `src/pymergetic/rxftk/core/meta/`. Nothing here is part of the binary format; it is derived from the image on demand.
 
 ## Type and Field
 

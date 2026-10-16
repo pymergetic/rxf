@@ -12,13 +12,13 @@ from pathlib import Path
 
 import pytest
 
-from pymergetic.rxf import source
-from pymergetic.rxf.cli import main
-from pymergetic.rxf.core import live, tree
-from pymergetic.rxf.core.object import Image
-from pymergetic.rxf.live import link, physical
-from pymergetic.rxf.live.client import Client
-from pymergetic.rxf.live.harness import HostImage, table_slots
+from pymergetic.rxftk import source
+from pymergetic.rxftk.cli import main
+from pymergetic.rxftk.core import live, tree
+from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.live import link, physical
+from pymergetic.rxftk.live.client import Client
+from pymergetic.rxftk.live.harness import HostImage, table_slots
 
 from . import live_serve
 from .snippets import STARTER

@@ -22,9 +22,9 @@ import compose
 import pytest
 import rximport
 
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.delta import DeltaError
-from pymergetic.rxf.core.kinds import DocKind, RefKind
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.delta import DeltaError
+from pymergetic.rxftk.core.kinds import DocKind, RefKind
 
 from .snippets import STARTER
 

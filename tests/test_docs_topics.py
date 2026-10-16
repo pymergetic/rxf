@@ -26,15 +26,15 @@ import pytest
 import rximport
 import topics
 
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.kinds import DocKind, DocStatus, NodeKind, RefKind
-from pymergetic.rxf.core.object import Image
-from pymergetic.rxf.server.inspector import Inspector
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.kinds import DocKind, DocStatus, NodeKind, RefKind
+from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.server.inspector import Inspector
 
 ROOT = Path(__file__).parents[1]
 STARTER = ROOT / "starter"
 POLICY = ROOT / "docs" / "20-EXECUTION-POLICY.md"
-TUTOR_PAGE = ROOT / "src" / "pymergetic" / "rxf" / "server" / "templates" / "tutor.html"
+TUTOR_PAGE = ROOT / "src" / "pymergetic" / "rxftk" / "server" / "templates" / "tutor.html"
 CORPUS = Path(__file__).parent / "import_corpus"
 MODULE = "pymergetic.rxf.docs.execution"
 NAMES = tuple(f"S{n}" for n in range(1, 12))

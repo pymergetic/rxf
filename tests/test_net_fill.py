@@ -18,7 +18,7 @@ import contextlib
 from collections import deque
 from collections.abc import Callable, Iterator
 
-from pymergetic.rxf.net.schema import (
+from pymergetic.rxftk.net.schema import (
     ConnectionReset,
     Handle,
     Interest,
@@ -30,7 +30,7 @@ from pymergetic.rxf.net.schema import (
     TlsConfig,
     WouldBlock,
 )
-from pymergetic.rxf.net.transport.stream import (
+from pymergetic.rxftk.net.transport.stream import (
     Listener,
     Stream,
     Streams,

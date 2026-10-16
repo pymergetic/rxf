@@ -12,8 +12,8 @@ import inspect
 
 import pytest
 
-from pymergetic.rxf import memory as memory_pkg
-from pymergetic.rxf.memory import (
+from pymergetic.rxftk import memory as memory_pkg
+from pymergetic.rxftk.memory import (
     IdentityKind,
     Interval,
     LinkKind,
@@ -22,8 +22,8 @@ from pymergetic.rxf.memory import (
     MemoryStore,
     schema,
 )
-from pymergetic.rxf.memory import identity as identity_module
-from pymergetic.rxf.memory import store as store_module
+from pymergetic.rxftk.memory import identity as identity_module
+from pymergetic.rxftk.memory import store as store_module
 
 BANNED = (
     "delete",

@@ -10,8 +10,8 @@ import struct
 
 import pytest
 
-from pymergetic.rxf.binary import package
-from pymergetic.rxf.core import tree
+from pymergetic.rxftk.binary import package
+from pymergetic.rxftk.core import tree
 
 from .snippets import STARTER
 

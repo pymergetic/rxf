@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from pymergetic.rxf import source
-from pymergetic.rxf.cli import main
-from pymergetic.rxf.core.object import Image
-from pymergetic.rxf.live import harness, physical
+from pymergetic.rxftk import source
+from pymergetic.rxftk.cli import main
+from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.live import harness, physical
 
 from .snippets import STARTER
 from .test_live import edited
@@ -80,7 +80,7 @@ def test_random_edits_give_the_same_image_both_ways(base: Image, seed: int):
 
 
 def test_a_delta_for_another_base_is_refused(base: Image):
-    from pymergetic.rxf.live import Refused
+    from pymergetic.rxftk.live import Refused
 
     other = Image.from_bytes(base.to_bytes())
     other.apply(XML)

@@ -23,7 +23,7 @@ import time
 
 import pytest
 
-from pymergetic.rxf.net.schema import (
+from pymergetic.rxftk.net.schema import (
     AddressInUse,
     ConnectionRefused,
     ConnectionReset,
@@ -36,16 +36,16 @@ from pymergetic.rxf.net.schema import (
     Timeout,
     WouldBlock,
 )
-from pymergetic.rxf.net.transport.framing import read_exact, read_to_eof, write_all
-from pymergetic.rxf.net.transport.hostsocket import (
+from pymergetic.rxftk.net.transport.framing import read_exact, read_to_eof, write_all
+from pymergetic.rxftk.net.transport.hostsocket import (
     HostListener,
     HostStream,
     HostStreams,
     ticks,
 )
-from pymergetic.rxf.net.transport.http import Client, Request, Response
-from pymergetic.rxf.net.transport.http.server import Server
-from pymergetic.rxf.net.transport.stream import Stream, wrap
+from pymergetic.rxftk.net.transport.http import Client, Request, Response
+from pymergetic.rxftk.net.transport.http.server import Server
+from pymergetic.rxftk.net.transport.stream import Stream, wrap
 
 from .test_net_fill import DummyWrappedStream, dummy_tls, sample_tls
 

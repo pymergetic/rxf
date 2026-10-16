@@ -32,9 +32,9 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
-SERVER = ROOT / "src" / "pymergetic" / "rxf" / "server"
+SERVER = ROOT / "src" / "pymergetic" / "rxftk" / "server"
 TEMPLATES = SERVER / "templates"
-WORLD_PAGE = ROOT / "src" / "pymergetic" / "rxf" / "world" / "templates" / "world.html"
+WORLD_PAGE = ROOT / "src" / "pymergetic" / "rxftk" / "world" / "templates" / "world.html"
 SHELL = SERVER / "static" / "ui" / "shell.html"
 UI_CSS = SERVER / "static" / "ui" / "ui.css"
 SPEC = ROOT / "docs" / "21-UNIFIED-WEB-INTERFACE.md"
@@ -254,7 +254,7 @@ def _page_layout_css(html: str, page: Path | None = None) -> str:
             if not sheet.is_file():
                 # a mount may live in its own package instead of the server tree (the world:
                 # `app.mount("/world/static", world/static)`)
-                sheet = ROOT / "src" / "pymergetic" / "rxf" / mount.group(1) / "static" / mount.group(2)
+                sheet = ROOT / "src" / "pymergetic" / "rxftk" / mount.group(1) / "static" / mount.group(2)
         elif page is not None:
             # a page served under its own mount may link its assets relative to that mount
             # (the world page at /world/: `static/scene/rxf-world.css` -> world/static/scene/…)

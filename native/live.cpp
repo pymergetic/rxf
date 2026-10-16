@@ -1,6 +1,6 @@
 /*
  * The live layer as one native leaf: rxf_live_pump(context, area) serves the requests that wait in
- * the channel (docs/19). It is the C++ of src/pymergetic/rxf/core/live compiled freestanding into
+ * the channel (docs/19). It is the C++ of src/pymergetic/rxftk/core/live compiled freestanding into
  * one body without relocations: everything it needs from the arena and from SHA-256 is inlined, and
  * the leaf calls nothing. The area is `area`, or, when that is 0, the address of the first
  * capability of the context (the Channel).
@@ -11,8 +11,8 @@
 
 /* Every function below is flattened: a leaf is one body that calls nothing. */
 #pragma clang attribute push(__attribute__((flatten)), apply_to = function)
-#include <pymergetic/rxf/core/arena/arena.cpp>
-#include <pymergetic/rxf/core/live/live.cpp>
+#include <pymergetic/rxftk/core/arena/arena.cpp>
+#include <pymergetic/rxftk/core/live/live.cpp>
 #pragma clang attribute pop
 
 namespace {

@@ -17,7 +17,7 @@ Code for several architectures inside the same image, and executable wrappers th
 as the program** rather than a stripped binary with a metadata copy next to it.
 
 **Status.** RXF is a new version: a C++ core on one arena, with Python as orchestration
-(nanobind). What exists: the ground layout (`src/pymergetic/rxf/core/ground.h`, pinned for x86-64,
+(nanobind). What exists: the ground layout (`src/pymergetic/rxftk/core/ground.h`, pinned for x86-64,
 AArch64, i386, and wasm32 in C11 and C++20); the arena and the host image (paths, names, roles,
 canonical copying compaction); the self-description (`Type` and `Field` objects read by one
 generic codec); deltas as XML ([pugixml](https://pugixml.org)) with atomic replay on a journal, a link check,
@@ -94,7 +94,7 @@ is described separately in [`integrations/metal.md`](integrations/metal.md).
 
 ## RXFB 6 binary model
 
-An image is one arena: a 192-byte header, an index directory, and a cell stream. Object cells have a 64-byte header, the payload padded to 16 bytes, and 24-byte references (target, role, kind, binding, index); block cells carry the index chunks (4096 slots of 8 bytes) and the names. Identities, addresses, offsets, and sizes are 64-bit. The layout is defined once as C structs in `src/pymergetic/rxf/core/ground.h`, with the size and offset of every field pinned by static assertions. See [the arena and allocator state](03-ALLOCATOR-STATE.md).
+An image is one arena: a 192-byte header, an index directory, and a cell stream. Object cells have a 64-byte header, the payload padded to 16 bytes, and 24-byte references (target, role, kind, binding, index); block cells carry the index chunks (4096 slots of 8 bytes) and the names. Identities, addresses, offsets, and sizes are 64-bit. The layout is defined once as C structs in `src/pymergetic/rxftk/core/ground.h`, with the size and offset of every field pinned by static assertions. See [the arena and allocator state](03-ALLOCATOR-STATE.md).
 
 ## The module tree
 
@@ -173,14 +173,14 @@ rxf> :quit
 file (or beside the terminal) are what an `include` can name. `rxf console --inspect` only lists
 what the image has installed. `--link` is where the running image is: `shm:name`, `pty:/dev/pts/3`,
 `tty:/dev/ttyUSB0`, `fd:3`. A run is not a frame: whoever runs the image registers its machine
-(`pymergetic.rxf.console.world.register`), and the console drives compile and install over the
+(`pymergetic.rxftk.console.world.register`), and the console drives compile and install over the
 live channel.
 
 Whoever runs the image registers its world over the channel while it runs it: the serve instance
 behind the inspector (what `rxf serve` runs — `server/live.Session` holds the registration for the
 life of the app) and the host of `rxf live`'s channel (the harness or rig that runs the image —
 `rxf live`'s own commands only speak frames) register what they run in the one registry
-(`pymergetic.rxf.console.world`), and `rxf console --link=…` attaches to the running image through
+(`pymergetic.rxftk.console.world`), and `rxf console --link=…` attaches to the running image through
 it. One link has one runner: a second world at the same link is refused (`WorldIsRegistered`), not
 stolen, and shutdown — or a runner that ends without closing — takes the registration with it.
 `rxf live` is the frames face of the same link — its commands work over any wire (and on the
@@ -234,7 +234,7 @@ are honest projections that refuse to fake a body they cannot know, and the Netz
 draws a function and its environment (references, callees incl. the graph-to-graph `CALL`
 card) as a network. Cell-poke writes `payload`/`flags` through the live channel and refuses
 `forward`/`generation`/`checksum` (and `name`, a rename) outright. All of it drives the one
-seam — `pymergetic.rxf.console.world` — with no second channel and no second truth.
+seam — `pymergetic.rxftk.console.world` — with no second channel and no second truth.
 
 ## The 3D world
 
@@ -259,7 +259,7 @@ with no randomness behind any frame.
 ```
 src/pymergetic/rxf/
   cli.py  source.py            the entry point and image I/O
-  core/                        the compiled package pymergetic.rxf.core
+  core/                        the compiled package pymergetic.rxftk.core
     arena/ object/ hash/ meta/ delta/ xml/ tree/    C++ modules, each with bindings.cpp and, where it has a CLI, cli.py
     *.pyi                      generated stubs, one per Python submodule
   console/                     the console on a running image (`rxf console`) and the world seam
@@ -276,7 +276,7 @@ python -m venv .venv
 .venv/bin/pip install -e ".[test,server]" --no-build-isolation
 .venv/bin/python -m pytest tests
 .venv/bin/python tools/sanitize.py       # core tests under AddressSanitizer and UBSan
-.venv/bin/python -m nanobind.stubgen -m pymergetic.rxf.core -r -q -O src/pymergetic/rxf
+.venv/bin/python -m nanobind.stubgen -m pymergetic.rxftk.core -r -q -O src/pymergetic/rxftk
 ```
 
 Rebuild with `pip install -e . --no-build-isolation` after every C++ change (and when a file is added: the editable install lists files). The inspector binds to `127.0.0.1` and is read-only.

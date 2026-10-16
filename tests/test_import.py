@@ -47,7 +47,7 @@ import rxemit
 import rximport
 import rxpy
 
-from pymergetic.rxf.core import tree
+from pymergetic.rxftk.core import tree
 
 from . import graph_world, rxf_native
 from .emulator import Blob, Emulator, Integer

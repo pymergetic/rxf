@@ -6,7 +6,7 @@ through the LLVM-IR subset of ``tools/native/rximport.py`` onto the semantic
 graphs of the image, then ``tools/native/compose.py`` composes those into the
 program words that run on the interpreter of ``native/graph.c`` (the words
 ``tests/rxf_native.py`` executes). The other seating path of the same source is
-the native C ABI (``src/pymergetic/rxf/net/crypto.py`` over ``libpm_crypto.so``);
+the native C ABI (``src/pymergetic/rxftk/net/crypto.py`` over ``libpm_crypto.so``);
 ``tests/test_crypto_import.py`` pins both seats against the published vectors of
 ``tests/test_crypto_card.py``'s set.
 
@@ -63,7 +63,7 @@ from pathlib import Path
 import compose
 import rximport
 
-from pymergetic.rxf.core import tree
+from pymergetic.rxftk.core import tree
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]

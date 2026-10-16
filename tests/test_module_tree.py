@@ -27,9 +27,9 @@ from pathlib import Path
 
 import pytest
 
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.object import Image
-from pymergetic.rxf.core.tree import TreeError
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.core.tree import TreeError
 
 STARTER = Path(__file__).parents[1] / "starter"
 
@@ -183,7 +183,7 @@ class InstallingFront:
         return SeamVerdict(WORDS)
 
     def install(self, name: str, words: bytes, source: bytes):
-        from pymergetic.rxf.live import front as seam
+        from pymergetic.rxftk.live import front as seam
 
         parameters = seam.Front._check_words(words)
         self.image.apply(seam._install_delta(self.module, name, words, source, parameters))
@@ -207,7 +207,7 @@ def test_the_editor_install_lands_the_module_tree_resolvable_immediately():
     cells, and the resolution API answers the right trichotomy immediately after install —
     package (the package above), module (the container with the program's semantic tree), none
     (the program node itself)."""
-    from pymergetic.rxf.server import editor
+    from pymergetic.rxftk.server import editor
 
     image = tree.load(STARTER)
     # the console's module, made the delta way (what the front end's boot lands)

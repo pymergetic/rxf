@@ -37,7 +37,7 @@ import graph_sync
 import live_sync
 import native_build
 
-from pymergetic.rxf.core import tree
+from pymergetic.rxftk.core import tree
 
 ROOT = HERE.parents[1]
 RXF = "urn:pymergetic:rxf"

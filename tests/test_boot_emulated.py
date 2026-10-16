@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from pymergetic.rxf.binary import builder, formats, package
-from pymergetic.rxf.core import tree
+from pymergetic.rxftk.binary import builder, formats, package
+from pymergetic.rxftk.core import tree
 
 from . import image_world as run
 from .emulator import Emulator, Integer

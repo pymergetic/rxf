@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.delta import DeltaError
-from pymergetic.rxf.core.object import Image
-from pymergetic.rxf.core.tree import TreeError
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.delta import DeltaError
+from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.core.tree import TreeError
 
 STARTER = Path(__file__).parents[1] / "starter"
 

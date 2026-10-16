@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 import rxfc
 
-from pymergetic.rxf.core import tree
+from pymergetic.rxftk.core import tree
 
 from . import graph_world as world
 from . import rxf_sim, rxf_world

@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from pymergetic.rxf.net.schema import MalformedMessage, MessageTooLong
-from pymergetic.rxf.net.transport.framing import (
+from pymergetic.rxftk.net.schema import MalformedMessage, MessageTooLong
+from pymergetic.rxftk.net.transport.framing import (
     read_exact,
     read_line,
     read_prefixed,

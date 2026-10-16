@@ -1,6 +1,6 @@
 /*
  * The activation seam (native/wrap/wrap.h). The certification lane
- * (src/pymergetic/rxf/certify) fills this in with the checks an image passes before it
+ * (src/pymergetic/rxftk/certify) fills this in with the checks an image passes before it
  * is entered; here it is the pass-through, and it stays one named function so the two
  * lanes never meet anywhere else.
  */

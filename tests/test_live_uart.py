@@ -14,11 +14,11 @@ from pathlib import Path
 import graph_header
 import pytest
 
-from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.object import Image
-from pymergetic.rxf.live import frames, physical
-from pymergetic.rxf.live.client import Client
-from pymergetic.rxf.live.harness import HostImage
+from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.live import frames, physical
+from pymergetic.rxftk.live.client import Client
+from pymergetic.rxftk.live.harness import HostImage
 
 from . import live_world as lw
 from .snippets import STARTER
