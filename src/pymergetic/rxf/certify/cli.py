@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import secrets
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -40,12 +41,12 @@ def _write(path: Path, wire: dict[str, Any]) -> None:
     path.write_text(json.dumps(wire, indent=2) + "\n", encoding="utf-8")
 
 
-def _unusable(refusal: Refusal) -> OSError:
+def unusable(refusal: Refusal) -> OSError:
     """An input that cannot be used exits 2; the typed name rides in the message."""
     return OSError(f"{type(refusal).__name__}: {refusal}")
 
 
-def _problems(refusal: Refusal) -> Problems:
+def problems(refusal: Refusal) -> Problems:
     """A certification that does not hold exits 1 with its typed report."""
     report: dict[str, Any] = {
         "ok": False,
@@ -59,6 +60,23 @@ def _problems(refusal: Refusal) -> Problems:
             for key, each in refusal.refused
         ]
     return Problems(report)
+
+
+def activation(
+    store: str, statements: Sequence[str]
+) -> tuple[TrustStore, list[certify.Statement]]:
+    """The seam's parsed inputs: the trust store at STORE and every statement file.
+
+    The packaging lane's build and `verify` both activate through here — one
+    reader of the JSON wires, whose refusals are inputs that cannot be used
+    (exit 2), never a certification that failed.
+    """
+    try:
+        base = certify.store_of(_read(Path(store)))
+        voices = [certify.statement_of(_read(Path(name))) for name in statements]
+    except Refusal as refusal:
+        raise unusable(refusal) from refusal
+    return base, voices
 
 
 def issue(
@@ -114,7 +132,7 @@ def issue(
             )
             admitted = store
     except Refusal as refusal:
-        raise _unusable(refusal) from refusal
+        raise unusable(refusal) from refusal
     # The statement it wrote and where (the CLI rule: results print as JSON).
     return {"target": out, "store": admitted, **certify.statement_wire(statement)}
 
@@ -126,16 +144,12 @@ def verify(src: str, store: str, *statements: str) -> dict[str, Any]:
     max_age, skew, quorum) are the decision's. Exit status 1 with the typed
     refusal when fewer than the quorum speak.
     """
-    try:
-        image = source.load(src)
-        base = certify.store_of(_read(Path(store)))
-        voices = [certify.statement_of(_read(Path(name))) for name in statements]
-    except Refusal as refusal:
-        raise _unusable(refusal) from refusal
+    image = source.load(src)
+    base, voices = activation(store, statements)
     try:
         quorum = certify.verify_quorum(image.digest(), image.delta_digest(), voices, base)
     except Refusal as refusal:
-        raise _problems(refusal) from refusal
+        raise problems(refusal) from refusal
     return {"ok": True, "voices": list(quorum.voices), "statements": len(voices)}
 
 
@@ -149,6 +163,6 @@ def revoke(store: str, key_id: str) -> dict[str, Any]:
         base = certify.store_of(_read(Path(store)))
         updated = certify.revoke(base, key_id)
     except Refusal as refusal:
-        raise _unusable(refusal) from refusal
+        raise unusable(refusal) from refusal
     _write(Path(store), certify.store_wire(updated))
     return {"store": store, "revoked": sorted(updated.revoked)}

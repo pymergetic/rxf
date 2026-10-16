@@ -7,16 +7,26 @@ target of the packaging layer and read the artifact back (the readers of
 pymergetic.rxf.binary.formats), so the proof does not trust the build.
 """
 
+import json
 from pathlib import Path
 
 import pytest
 
+from pymergetic.rxf import certify, source
 from pymergetic.rxf.binary import builder, cli, formats, package
+from pymergetic.rxf.certify import (
+    NotEnoughVoices,
+    Policy,
+    TrustKey,
+    TrustStore,
+    WrongDigest,
+)
 from pymergetic.rxf.core import tree
 
 from .snippets import STARTER
 
 MAIN = "pymergetic.rxf.application.main"
+NOW = 1700000000
 
 
 @pytest.fixture(scope="module")
@@ -88,3 +98,58 @@ def test_the_cli_builds_an_artifact_and_reports_it(tmp_path, image):
 def test_an_unknown_target_is_refused(tmp_path):
     with pytest.raises(builder.BuildError):
         cli.build("floppy", "", str(tmp_path))
+
+
+def _trust(quorum: int, *seeds: bytes) -> TrustStore:
+    keys = tuple(
+        TrustKey(f"release-{index + 1}", certify.public_of(seed))
+        for index, seed in enumerate(seeds)
+    )
+    return TrustStore(Policy(now=NOW, max_age=3600, skew=60, quorum=quorum), keys, frozenset())
+
+
+def test_the_activation_quorum_is_the_gate_of_the_build(tmp_path, image):
+    """The seam (docs/11): a voice over other digests refuses the build by name
+    (the `WrongDigest` rides in the quorum's report) and nothing is written;
+    the right voice lets the build through."""
+    seed = bytes(range(32))
+    trust = _trust(1, seed)
+    wrong = certify.issue("00" * 32, "11" * 32, "release-1", seed, NOW)
+    with pytest.raises(NotEnoughVoices) as caught:
+        builder.build("elf", image, tmp_path, trust=trust, statements=[wrong])
+    assert isinstance(caught.value.refused[0][1], WrongDigest)
+    assert list(tmp_path.iterdir()) == []
+    right = certify.issue(image.digest(), image.delta_digest(), "release-1", seed, NOW)
+    made = builder.build("elf", image, tmp_path, trust=trust, statements=[right])
+    assert Path(made["artifact"]).is_file()
+
+
+def test_the_activation_quorum_needs_every_voice_of_its_policy(tmp_path, image):
+    """M-of-N at the gate: one voice where the policy wants two is `NotEnoughVoices`."""
+    signed = certify.issue(
+        image.digest(), image.delta_digest(), "release-1", bytes(range(32)), NOW
+    )
+    with pytest.raises(NotEnoughVoices):
+        builder.build(
+            "elf",
+            image,
+            tmp_path,
+            trust=_trust(2, bytes(range(32)), bytes(range(32, 64))),
+            statements=[signed],
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_the_cli_activates_a_build_with_statement_files(tmp_path):
+    """The face's wires: STORE and statement files guard `rxf binary build`."""
+    seed = bytes(range(32))
+    image = source.load(str(STARTER))
+    signed = certify.issue(image.digest(), image.delta_digest(), "release-1", seed, NOW)
+    store_file = tmp_path / "trust.json"
+    voice_file = tmp_path / "release-1.json"
+    store_file.write_text(json.dumps(certify.store_wire(_trust(1, seed))), encoding="utf-8")
+    voice_file.write_text(json.dumps(certify.statement_wire(signed)), encoding="utf-8")
+    report = cli.build(
+        "elf", str(STARTER), str(tmp_path / "dist"), str(store_file), str(voice_file)
+    )
+    assert Path(report["artifact"]).is_file()

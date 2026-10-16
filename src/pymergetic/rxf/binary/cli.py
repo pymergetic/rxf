@@ -11,8 +11,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from pymergetic.rxf import binary, source
+from pymergetic.rxf import binary, certify, source
 from pymergetic.rxf.binary import builder, package
+from pymergetic.rxf.certify import Refusal
+from pymergetic.rxf.certify import cli as certify_cli
 from pymergetic.rxf.cli import Problems
 
 
@@ -27,13 +29,32 @@ def check(src: str) -> dict[str, Any]:
     return report
 
 
-def build(target: str, src: str = "", out: str = "dist") -> dict[str, Any]:
+def build(
+    target: str,
+    src: str = "",
+    out: str = "dist",
+    store: str = "",
+    *statements: str,
+) -> dict[str, Any]:
     """The artifact of one seat from the image of SOURCE.
 
     TARGET is `bios` (a bootable disk image), `uefi` (a PE/COFF EFI application,
     BOOTX64.EFI) or `elf` (a static executable). SOURCE is a module tree or image
     bytes and defaults to the starter of this repository. The artifact is written to
     OUT (a directory) and the report names it, its size, and the package it carries.
+
+    STORE and the statement files are the certification half of the entry
+    convention (docs/11): with a trust store the statements' quorum over the
+    image must hold before anything is built, the same check `rxf certify
+    verify` runs and the boot path repeats. A certification that does not hold
+    refuses the build and exits 1 with its typed report.
     """
     image = source.load(src or str(package.REPO / "starter"))
-    return builder.build(target, image, Path(out))
+    trust = None
+    voices: list[certify.Statement] = []
+    if store:
+        trust, voices = certify_cli.activation(store, statements)
+    try:
+        return builder.build(target, image, Path(out), trust=trust, statements=voices)
+    except Refusal as refusal:
+        raise certify_cli.problems(refusal) from refusal
