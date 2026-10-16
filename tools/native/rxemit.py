@@ -11,14 +11,17 @@ The names the delta is spelled in live here with the writers: the kind, role and
 refusal names (``KINDS``, ``SEMANTIC``, ``REFUSAL_SET``) and the type names (``U64``,
 ``U32``, ``WIDE``) are the vocabulary, and a strand that writes the delta writes them
 verbatim. ``rximport`` re-exports every name of this module, so the importer's old home
-still answers each one.
+still answers each one. The narrow-integer and ashr helpers (``and_mask``,
+``sext_value``, ``xor_with_sign``, ``ashr_value``) live here for the same reason: both
+lowerings build those shapes and cannot import from each other, so the emitter every
+strand already takes is their one home.
 """
 
 from __future__ import annotations
 
 import struct
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, Protocol
 
 # ---- the vocabulary the delta is spelled in ----------------------------------------------------
 
@@ -29,6 +32,8 @@ U64 = "uint64_t"
 U32 = "uint32_t"
 # the wide cell the delta spells: 16 bytes (an addressable local, a struct cell)
 WIDE = "pymergetic.rxf.stdlib.types.FixedArrayU8Of16"
+# the whole word, as the mask of its low bits (the domain the narrow helpers narrow to)
+FULL = (1 << 64) - 1
 
 
 class ParseError(Exception):
@@ -148,6 +153,14 @@ class LOp:
     input_types: list[str]
     result: LValue | None
     callee: str | None = None  # the path of the leaf Function, for a CallCallback
+    # the leaf's own status, as a U32 value the call writes it to (the starter's
+    # ``<op>_status``). None is today's behavior exactly: the status is dropped and a
+    # lowering guards the leaf's domain by hand. Set, the emitter wires the status as a
+    # status branch instead: the value becomes a frame slot the CALL fills with the
+    # leaf's status, and a Branch on it (its ``value_type`` is ``uint32_t``, so the
+    # composer reads the branch as MODE_ZERO) takes the success edge on 0 and the
+    # refusal edge otherwise -- the refusal path ends in a Refuse carrying the same word.
+    status_value: LValue | None = None
 
 
 @dataclass
@@ -175,7 +188,98 @@ class LGraph:
     results: list[MOperand]  # Return terminators only: what the function answers
     values: list[LValue]  # every value, the Literal objects included
     locals: dict[str, LValue]  # the wide slots an alloca took (name -> value)
-    globals: dict[str, "Global"] = field(default_factory=dict)  # the module's data objects
+    globals: dict[str, Global] = field(default_factory=dict)  # the module's data objects
+
+
+# ---- the narrow-integer helpers (one home) ------------------------------------------------------
+
+# What a narrow (i1/i8/i16/i32) value and the arithmetic shift right need spelled over a
+# lowering's leaf calls and literals, written once here: ``Lowering`` of ``rximport`` and
+# ``Lowering`` of ``rxpy`` both build these shapes and cannot import from each other (a
+# strand takes the emitter, never another strand), so the emitter every strand already
+# takes is their one home. The mirrors this seam removed -- the same arithmetic spelled
+# in both lowerings -- must not come back; the drift pin of ``tests/test_import.py``
+# holds the helpers to this module alone.
+
+
+class Leaves(Protocol):
+    """What the helpers take of a lowering: one leaf call and one literal.
+
+    ``Lowering`` of ``rximport`` bound to one block (its ``at(target)``) and ``Lowering``
+    of ``rxpy`` (its calls land in the block it is building) both answer this shape."""
+
+    def call(
+        self, key: str, inputs: list[MOperand], input_types: list[str] | None = None
+    ) -> MOperand:
+        """One leaf call that writes an out slot (the key of the LEAVES table)."""
+        ...
+
+    def literal(self, constant: int) -> MOperand:
+        """The Literal object of a constant (made once per constant and shared)."""
+        ...
+
+
+def and_mask(lower: Leaves, source: MOperand, mask: int) -> MOperand:
+    """The low bits of a word: what a narrow (i1/i8/i16/i32) value is."""
+    if mask == FULL:
+        return source
+    if source[0] == "literal":
+        return lower.literal(source[1] & mask)
+    return lower.call("bit_and_uint64_t", [source, lower.literal(mask)])
+
+
+def sext_value(lower: Leaves, source: MOperand, mask: int) -> MOperand:
+    """The sign-extension of a narrow word to 64 bits.
+
+    No sign-extending leaf exists; ``((x + 2^(n-1)) & (2^n - 1)) - 2^(n-1)`` is the
+    arithmetic: the add re-centers the word around the sign bit, the mask takes the
+    low n bits as a signed value, the subtract turns it back to a sign-extended word.
+    """
+    if mask == FULL:
+        return source
+    half = (mask + 1) >> 1
+    centered = lower.call("wrapping_add_uint64_t", [source, lower.literal(half)])
+    return lower.call(
+        "wrapping_subtract_uint64_t", [and_mask(lower, centered, mask), lower.literal(half)]
+    )
+
+
+def xor_with_sign(lower: Leaves, value: MOperand, sign: MOperand) -> MOperand:
+    """``value ^ sign`` when the sign word is 0 or all ones (no xor leaf exists):
+    ``x ^ 0`` is x and ``x ^ -1`` is the complement, so ``(x | s) & ~(x & s)`` is both."""
+    return lower.call(
+        "bit_and_uint64_t",
+        [
+            lower.call("bit_or_uint64_t", [value, sign]),
+            lower.call("bit_not_uint64_t", [lower.call("bit_and_uint64_t", [value, sign])]),
+        ],
+    )
+
+
+def ashr_value(lower: Leaves, source: MOperand, count: MOperand) -> MOperand:
+    """The arithmetic shift right of a 64-bit signed word: ``~(~a >> k)`` for a negative
+    ``a``, ``a >> k`` otherwise, written without a branch. With ``s = 0 - ((a >> 63) & 1)``
+    (0 or all ones), the answer is ``(a ^ s) >> k) ^ s`` and each xor of a 0-or-all-ones
+    word is ``xor_with_sign`` (the shift right leaf is logical)."""
+    sign = lower.call(
+        "wrapping_subtract_uint64_t",
+        [
+            lower.literal(0),
+            lower.call(
+                "bit_and_uint64_t",
+                [
+                    lower.call(
+                        "shift_right_uint64_t", [source, lower.literal(63)],
+                        input_types=[U64, U32],
+                    ),
+                    lower.literal(1),
+                ],
+            ),
+        ],
+    )
+    flipped = xor_with_sign(lower, source, sign)
+    shifted = lower.call("shift_right_uint64_t", [flipped, count], input_types=[U64, U32])
+    return xor_with_sign(lower, shifted, sign)
 
 
 # ---- the delta the emitter writes ------------------------------------------------------------
@@ -385,6 +489,14 @@ def _block(graph: LGraph, block: LBlock) -> list[str]:
 
 def _operation(graph: LGraph, op: LOp) -> list[str]:
     name = op.path.rsplit(".", 1)[-1]
+    if op.status_value is not None and op.status_value.type_path != U32:
+        # a status branch is read by its type (the composer takes a Branch on a
+        # ``uint32_t`` value as MODE_ZERO): a status typed as anything else would
+        # compose as an ordinary flag, so the emitter refuses to write one
+        raise ParseError(
+            f"{op.status_value.path}: a status value is typed {op.status_value.type_path}, "
+            f"not {U32} (the leaf's own status is a status word)"
+        )
     out = [
         "<SemanticOperation"
         + _attrs(
@@ -398,6 +510,10 @@ def _operation(graph: LGraph, op: LOp) -> list[str]:
                 ("result_value_count", "1" if op.result else None),
                 ("refusal_set", REFUSAL_SET),
                 ("callee", op.callee),
+                (
+                    "status_value",
+                    op.status_value.path if op.status_value is not None else None,
+                ),
             ]
         )
         + ">"
@@ -411,6 +527,8 @@ def _operation(graph: LGraph, op: LOp) -> list[str]:
     if op.result is not None:
         out.append("    " + _ref("ResultValue", op.result.path))
         out.append("    " + _value(graph, op.result))
+    if op.status_value is not None:
+        out.append("    " + _value(graph, op.status_value))
     out.append("</SemanticOperation>")
     return out
 

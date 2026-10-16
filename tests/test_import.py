@@ -34,6 +34,7 @@ frames`` runs the flip end to end (a 1608-byte frame in one cell, over a genuine
 from __future__ import annotations
 
 import ctypes
+import hashlib
 import struct
 import subprocess
 from dataclasses import dataclass
@@ -42,7 +43,9 @@ from pathlib import Path
 import compose
 import graph_header
 import pytest
+import rxemit
 import rximport
+import rxpy
 
 from pymergetic.rxf.core import tree
 
@@ -1050,7 +1053,7 @@ def test_the_function_pointer_relocation_wires_like_the_native_static_initialize
     fall-through (lower_indirect's boundary: a word no arm names routes to no card),
     never a wrong route."""
     image = tree.load(STARTER)
-    wanted = set(RELOC_PROGRAMS)
+    wanted: set[str] = set(RELOC_PROGRAMS)
     imported = rximport.import_into(
         image, rximport.compile_source(CORPUS / "global_reloc.c"), module="global_reloc",
         only=wanted,
@@ -1918,7 +1921,8 @@ def test_the_out_param_callee_lowers_as_a_call_card():
     ]
     named = [
         handle for handle in cards
-        if image.path(image.resolve(composer.fields(handle)["callee"])) == callee
+        if (callee_id := image.resolve(composer.fields(handle)["callee"])) is not None
+        and image.path(callee_id) == callee
     ]  # fmt: skip
     assert named, f"no call card names {callee} (the inline path would hide it)"
     in_caller = [
@@ -2120,7 +2124,8 @@ def test_the_out_param_callee_is_a_call_card(tmp_path: Path):
     ]
     named = [
         handle for handle in cards
-        if image.path(image.resolve(composer.fields(handle)["callee"])) == callee
+        if (callee_id := image.resolve(composer.fields(handle)["callee"])) is not None
+        and image.path(callee_id) == callee
     ]  # fmt: skip
     assert named, f"no call card names {callee} (the inline path would hide it)"
     card_paths = {image.path(handle) for handle in named}
@@ -2318,7 +2323,9 @@ def test_the_interning_path_lowers_with_variable_frames(tmp_path: Path):
     # budget; and qstr_from_str names it with exactly one call card (RXF_GRAPH_CALL
     # whose program operand is qstr_from_strn's object id), not an inline and not a leaf
     callee = "qstr.qstr_from_strn"
-    callee_id = compose.object_id(image, image.resolve(callee))
+    resolved = image.resolve(callee)
+    assert resolved is not None, f"{callee} is not in the image"
+    callee_id = compose.object_id(image, resolved)
     strn_words = tuple(compose.describe(programs[callee]))
     assert strn_words[1] == 1608, f"{callee} declares a frame of {strn_words[1]} bytes"
     assert strn_words[1] > 1024 and strn_words[1] <= numbers["RXF_GRAPH_CELL_BYTES"]
@@ -2509,3 +2516,134 @@ def test_a_ll_outside_the_subset_is_refused():
             (CORPUS / "garbage.ll").read_text(), module="garbage", only={"garbage_float"}
         )
     assert "fadd" in str(refused.value), refused.value
+
+
+# ---- the seams: one home for the helpers, and the corpus deltas' exact text --------------------
+
+# The narrow-integer and ashr helpers' one home (rxemit): both lowerings build those
+# shapes and cannot import from each other (a strand takes the emitter, never another
+# strand), so the emitter every strand already writes through answers them. The mirrors
+# this seam removed -- the same arithmetic spelled in rximport's Lowering and rxpy --
+# must not come back; the pin below holds the helpers to rxemit alone.
+SHARED_HELPERS = ("and_mask", "sext_value", "xor_with_sign", "ashr_value")
+
+
+def test_the_narrow_integer_helpers_live_in_one_module():
+    """Drift prevention: the shared helpers exist on rxemit and nowhere else -- no local
+    copy in rximport or rxpy, on the modules or their Lowering classes, so the two
+    lowerings can never spell the arithmetic differently again. The word mask they
+    narrow to has one home too (FULL is the emitter's, aliased where the importers'
+    old names stood)."""
+    for name in SHARED_HELPERS:
+        assert callable(getattr(rxemit, name)), f"{name}: the emitter's helper is gone"
+        for home in (rximport, rxpy):
+            assert not hasattr(home, name), f"{name}: a mirror came back in {home.__name__}"
+            assert name not in vars(home.Lowering), (
+                f"{name}: a method mirror came back in {home.__name__}.Lowering"
+            )
+    assert hasattr(rxemit, "Leaves")  # the surface the helpers take of a lowering
+    assert rximport.FULL is rxemit.FULL and rxpy.FULL is rxemit.FULL
+
+
+# The corpus deltas pinned to their text (sha256 of the delta the emitter writes). The
+# seams are additive: a delta that names none of the new wiring is byte-identical to the
+# pre-seam corpus, text and digest -- status_value is None throughout this corpus (no C
+# lowering adopts the seam), so every one of these moved not one byte.
+CORPUS_DIGESTS = {
+    "arith.c": "8309bcf5d386335b649f51d98a3c09314f4de02c0f82594abf0b946ea7dffbd8",
+    "branch.c": "b157aa7f6a2f963afd8e962ebd075817f287aaf6413ca7025e35b1579108645a",
+    "calls.c": "c45c19d08a2ec2fcf50beb6294b6177d48b776b74ca77eb52810381c5801febd",
+    "compare.c": "6142c49cd601cb1940a74501e298e95c08c6333e61908f303cadc95aa6b3503a",
+    "cpp_refs.cpp": "3dcc14d89bc29f684cc31e6407aed20cd1c11685095519477dda4f8a363b5b52",
+    "cpp_refuse.cpp": "716454167825700dfd0a1abbed013f4e7ba8c44f1b305c8ecaa4ab108e4dcd95",
+    "dispatch.c": "fec34e50d287e3dcc2606f1808a49fa6f0b071c9d4360bc418f84d2a6cc2624f",
+    "dupedge.c": "f02511c85bf6a23322277561846685823d7d6a8d95dbdedcf95be92e5d61f49e",
+    "entrance.c": "c53c3abe0891d1acc4769d09a7da0c2de26b2b73a2b9457bb6ab69b686fff859",
+    "entrance.ll": "c53c3abe0891d1acc4769d09a7da0c2de26b2b73a2b9457bb6ab69b686fff859",
+    "garbage.ll": "82a8b7985baddc4690f070b45d48281ad5b21aadd8407bd84a55b794bf445e24",
+    "global_reloc.c": "ed1f02eec43beab4d0567b0542f1800d1052fd37ada7b7626ab2091ea86f8af5",
+    "global_reloc_stubs.c": "891ee01e1426e880066cdb2c1f5262d16f02b119bf6bcadeeee03069bfa41323",
+    "global_scalar.c": "a233c9bf7e5a258c1a26ba0447026d7b82f8d6ea3cc636b77c020c432538986d",
+    "global_struct.c": "fe55c8db9dd28aa1c2551d5eb500d102909899c337505448eed6f70ff169627e",
+    "leaf.c": "7a282d38cf64fca4712d0808fd1e41c8aca22a6d21e24ce3d97a3403f7be0ee8",
+    "loop.c": "f6b09ec86d153b96744fecab83911d6ae36091accf23ea366206ea9c0007c665",
+    "memory.c": "f196586afdfb28d99b03eb2fba5d0638fd458b9dc3aa55c4328cdcd13d607012",
+    "narrow.c": "81bff9ac923e84740aeff7f468a4b6e8df9dda18d9327331d44db61f4f9fd9d7",
+    "nlr_call.c": "4eb8820f1adb136a9cb1759a570643e1671ebb84dafd1e442d5ff5c2a5a41c0f",
+    "nlr_stubs.c": "d06802b396276d81f9e67fd9f2e8d3b85a28866670b1d93328a79dcc257383ff",
+    "noreturn.c": "9a04318044fcf5c5e2e89d755ca6979ae6cdfb4faeeca8e955a91998adea96a0",
+    "obj.c": "a54adf427a9a8ed38e0c90a2db6778166d484cac21ccdb6df729a878669911cf",
+    "obj_stubs.c": "bc3177a3512e618596b9b8dc80001431a4bedfe0279115ff42af771a8cd15387",
+    "outparam.c": "7402f13fe984964a000899a48ef55ee5b728bc65ba0ec1e532821953888590ef",
+    "overflow.c": "0e25338b4aa9b2573d7dcfc3231b6cb43a794b9ebdf8f154fee708ac8fd65f95",
+    "provenance.c": "d8b6575f566e85661b3f833607e08469dd5147a49ba6c56fb0f18c193d825d3e",
+    "ptrcmp.c": "c99cbf2356db32ecb87a7dc77848ace62904065f257c98b1a26b5428a1f78ab2",
+    "ptrconst.c": "835fa01ed763b0b620ce8e999d446dc3797cb2c897d02efbbcd3b60df22195da",
+    "ptrord.c": "91b980a020b7db7b3e2d344f7e1b9ed1c5e84bcc414c8309b787a0b825a7baed",
+    "qstr.c": "bf88e57ca0f668e7bc6466fc3b7ed0d06096f449e560fea033fb0eafc97de5d3",
+    "qstr_faces.c": "70f63b5cd0a436ffc63af59c0ee187d22f4042d843eb6bce11b25c727f7a0c5b",
+    "refusebody.c": "a362390d549a3ce0542b41ff19f726b8d384aea45f45a47f72aa6f7e6c7f4446",
+    "rust_int.rs": "81e73bbaca98934b56bd6e981b470c0718a4ee99cd8a7cd44664782371d87c3a",
+    "rust_mem.rs": "3ddda15a501eda45e02350fb74560c9317c8a6263d75319efc05fa0987bcb575",
+    "rust_overflow.rs": "73f8b6350da9b73a0cfdf14a8360e2cbf1529133831bff84a5bb43d2b2d1d92f",
+    "rust_panic.rs": "a0462b98ef21500d4615c0272a185b72b88e62086b2406546211ec9b6905b2dc",
+    "rust_refuse.rs": "e657cb7db99d555a1e545bdbb135a83e7fa4cb2a8d5161519bbf6034806d14d2",
+    "slots.c": "98f89acd453e9ef2afe2714c0375b6c5c1eb1de2a33e57f4026f3a07916eee34",
+    "smallint.c": "6c60b95fa99cad38f1dfed290a0c912404a7854d461db782ddb80f7befd9df57",
+    "squared.c": "f16e84e4c342956ed0fea4f86e4d2bdb756474f215c95f56877a1e112db4848e",
+    "swtch.c": "632e409dc173d5fed562365e1ee133ff6fbeacdc56ddbe9c93198f0ea56ea985",
+    "voids.c": "7f18bf18f576efe3502222193b7a1f14f8bf64395649eeb678c637fec8ae44c2",
+    "volconst.c": "0cb1de85de2073ed77873cdd46c3cbd5208ddd6776ca31c26583c8d05ef405a5",
+    "wide.c": "82295030f26ab26959ca359c732d811cd1ac1b8e193fe56342be61e27c427551",
+    "width32.c": "fc0d4550e8bb0c35f38a80a23982e46b36c6ecabbbcdf6a444c42f6842ea384d",
+    "width32_driver.c": "c8c17430dd0fe4c23dfb92e096e3c67e19ce8090085de0f11c08ae1f2108f21d",
+    "wrapcall.c": "61fa4e3810388caf4a223081c4a076ebb00f4a2927eeaa1d06e8686e3f29bfca",
+}
+
+
+def corpus_delta(source: Path) -> str:
+    """One corpus file's delta as the corpus carries it: every body that lowers (a body
+    outside the subset is skipped where no ``only`` asks for it, as the importer skips
+    one it cannot read), in the file's own order -- the text the digests hash."""
+    text = rximport.compile_source(source) if source.suffix != ".ll" else source.read_text()
+    names = [function.name for function in rximport.parse_module(text)[0]]
+    found: dict[str, rxemit.LGraph] = {}
+    for name in names:
+        try:
+            found.update(rximport.graphs_of(text, module=source.stem, only={name}))
+        except (rximport.Unsupported, rximport.ParseError):
+            pass
+    return rxemit.emit_delta(
+        [found[name] for name in names if name in found], source.stem
+    )
+
+
+def test_the_corpus_deltas_keep_their_exact_text():
+    """The seams' hard rule: emission is byte-identical where status_value is None (it
+    is None throughout this corpus -- no C lowering adopts the seam). Every delta of
+    tests/import_corpus keeps its exact text and digest; the additive fields the emitter
+    gained serialize as nothing at all here. The rxpy corpus's two named flips live in
+    tests/test_rxpy.py, beside the wiring that flips them."""
+    for source in sorted(CORPUS.iterdir()):
+        if source.suffix not in (".c", ".cpp", ".ll", ".rs"):
+            continue
+        digest = hashlib.sha256(corpus_delta(source).encode()).hexdigest()
+        assert digest == CORPUS_DIGESTS[source.name], f"{source.name}: the delta text moved"
+    assert len(CORPUS_DIGESTS) == 48  # the whole corpus, no file silently dropped
+
+
+def test_a_c_import_is_not_marked_was_once_python():
+    """The marker *was once Python* (docs/23 5) is the Python strand's fact: a C import
+    keeps its provenance exactly as it was -- the slot stays False and the report keeps
+    its pinned shape, unmarked (the Python strand's own marker is pinned in
+    tests/test_rxpy.py)."""
+    image = tree.load(STARTER)
+    prov = rximport.Provenance.parse(
+        "full,repository=https://example.org/repo.git,commit=" + "a" * 40 + ",license=MIT"
+    )
+    report = rximport.import_run(image, [CORPUS / "provenance.c"], module="provenance", provenance=prov)
+    assert image.check() == []
+    assert prov.was_once_python is False
+    assert prov.report() == report
+    assert report.startswith("provenance: full\n")
+    assert "marker" not in report

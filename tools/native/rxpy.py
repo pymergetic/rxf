@@ -110,11 +110,13 @@ The semantics contract (docs/23 6, decision 10: **MicroPython is the reference**
     INT64_MIN paired with -1 refuses RXF_REFUSE_OVERFLOW where MicroPython answers
     2^63 or 0; a call chain past the budget refuses RXF_REFUSE_CALL_DEPTH where
     MicroPython recurses.  A refusal is the run ending with the status, never a wrong
-    number: the division and shift leaves of the starter keep their own refusals behind
-    explicit guards this pass lowers (a Refuse terminator per guarded path), because a
-    leaf's status is dropped where no status slot catches it (the emitter writes no
-    status slot on an operation yet -- a seam request; with ``status_value`` wiring the
-    leaf's own refusal would land as a status branch).
+    number: the division and shift leaves of the starter keep their own refusals, and
+    this pass wires each division call's status as a status branch (the emitter's
+    ``status_value`` slot -- the starter's ``<op>_status``): the leaf's own refusal lands
+    as a Refuse carrying its status word, where MicroPython raises or answers a bignum.
+    The shift count is guarded ahead of the call (a Refuse terminator per guarded path):
+    the leaf takes a u32 count where the domain is a word, so its own check is narrower
+    than the contract.
 
 Out parameters (docs/23 4.1) have a Python shape: a function answers a tuple
 (``return a, b``) and its callers unpack it (``lo, hi = f(x)``).  That is the out-cell
@@ -128,10 +130,12 @@ through a tuple return shares the cells safely (the differential pins it).
 
 Where this pass reads the machine's numbers it reads them from ``graph_header`` and
 ``rximport`` (the leaf table and the object-id rule), and it writes its graphs through
-``rxemit`` alone.  It edits neither importer: where the emitter seam lacks a capability
-this pass wanted, the report of the lane names it (a ``status_value`` field on ``LOp``, a
-``was once Python`` marker slot in the provenance record, and one shared home for the
-narrow-integer and ashr helpers this pass mirrors from ``rximport``'s Lowering).
+``rxemit`` alone.  It edits neither importer: the capabilities this pass wanted are the
+emitter and provenance seams its report named, landed where they belong -- a
+``status_value`` field on ``LOp`` (the status branch above), a ``was once Python``
+marker in the provenance record (``Provenance.was_once_python``, set for every module
+this strand compiles), and the narrow-integer and ashr helpers in ``rxemit`` -- one
+home both lowerings take, no mirror here.
 """
 
 from __future__ import annotations
@@ -145,24 +149,24 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import graph_header
+import rxemit
 import rximport
-
 from rxemit import (
+    U32,
+    U64,
+    WIDE,
     Global,
     LBlock,
     LGraph,
     LOp,
     LValue,
     MOperand,
-    U32,
-    U64,
-    WIDE,
     emit_delta,
 )
 
 # ---- the vocabulary ----------------------------------------------------------------------------
 
-FULL = (1 << 64) - 1
+FULL = rxemit.FULL  # the word's mask, one home (the emitter's narrow-integer helpers)
 LOW_SIGNED = -(1 << 63)  # the word 0x8000000000000000 read as signed
 NUMBERS = graph_header.numbers()
 DIVISION_BY_ZERO = NUMBERS["RXF_REFUSE_DIVISION_BY_ZERO"]
@@ -447,27 +451,22 @@ def cell_assignment(src: Source, statement: ast.Assign) -> None:
 def fold_constant(src: Source, node: ast.AST, name: str) -> int:
     """The one word a constant expression stands for, or a refusal naming the shape."""
     where = f"{src.module}: line {getattr(node, 'lineno', '?')}: the initializer of {name}"
-    try:
-        if isinstance(node, ast.Constant) and isinstance(node.value, bool):
-            value = 1 if node.value else 0
-        elif isinstance(node, ast.Constant) and isinstance(node.value, int):
-            value = node.value
-        elif isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
-            inner = fold_constant(src, node.operand, name)
-            value = -inner if isinstance(node.op, ast.USub) else inner
-        elif isinstance(node, ast.BinOp) and isinstance(
-            node.op, (ast.Add, ast.Sub, ast.Mult)
-        ):
-            a = fold_constant(src, node.left, name)
-            b = fold_constant(src, node.right, name)
-            value = {ast.Add: a + b, ast.Sub: a - b, ast.Mult: a * b}[type(node.op)]
-        else:
-            raise Refused(
-                f"{where} is not an integer constant (a module-level binding is the one "
-                "word its constant folds to)"
-            )
-    except Refused:
-        raise
+    if isinstance(node, ast.Constant) and isinstance(node.value, bool):
+        value = 1 if node.value else 0
+    elif isinstance(node, ast.Constant) and isinstance(node.value, int):
+        value = node.value
+    elif isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
+        inner = fold_constant(src, node.operand, name)
+        value = -inner if isinstance(node.op, ast.USub) else inner
+    elif isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub, ast.Mult)):
+        a = fold_constant(src, node.left, name)
+        b = fold_constant(src, node.right, name)
+        value = {ast.Add: a + b, ast.Sub: a - b, ast.Mult: a * b}[type(node.op)]
+    else:
+        raise Refused(
+            f"{where} is not an integer constant (a module-level binding is the one "
+            "word its constant folds to)"
+        )
     if not LOW_SIGNED <= value <= FULL // 2:
         raise Refused(f"{where} does not fit a 64-bit word")
     return value
@@ -593,6 +592,46 @@ class Lowering:
         target.ops.append(
             LOp(op, len(target.ops), "CallCallback", inputs, [U64] * arity, None, leaf(key))
         )
+
+    def call_status(
+        self, key: str, inputs: list[MOperand], input_types: list[str] | None = None
+    ) -> MOperand:
+        """A leaf call whose own refusal is the domain's, caught as a status branch.
+
+        The call carries the emitter's ``status_value`` seam: the leaf writes its status
+        (rxf_u32, native/basics.c) into the value the op names -- the starter's
+        ``<op>_status`` slot -- and the block splits on it (``status_branch``). This is
+        the wiring that replaces the pre-lowered guards where the leaf's own check IS
+        the domain: a zero divisor and the pair INT64_MIN/-1 refuse with exactly the
+        statuses the guards spelled by hand (the leaf keeps its own refusals)."""
+        made = self.call(key, inputs, input_types)
+        target = self.current
+        assert target is not None
+        node = target.ops[-1]
+        status = self.value(
+            "OperationResult", node.path, f"{node.path.rsplit('.', 1)[-1]}_status",
+            owner_block=target.path, owner_op=node.path, width=4, type_path=U32,
+        )  # fmt: skip
+        node.status_value = status
+        self.status_branch(("value", status.path))
+        return made
+
+    def status_branch(self, status: MOperand) -> None:
+        """The status branch of a call (the starter's status blocks): the leaf's status
+        is the block's condition -- a status value is typed ``uint32_t``, so the composer
+        reads the branch as MODE_ZERO: status 0 takes the first edge (the run goes on)
+        and anything else the second -- a Refuse carrying the same status word (the run
+        answers it: the uncaught shape of a leaf's own refusal)."""
+        current = self.current
+        assert current is not None
+        refused = self.new_block()
+        refused.terminator = "Refuse"
+        refused.terminator_value = status
+        onward = self.new_block()
+        current.terminator = "Branch"
+        current.condition = self.own_condition(status, current)
+        current.successors = [(onward.path, []), (refused.path, [])]
+        self.current = onward
 
     def card(
         self, callee: str, inputs: list[MOperand], outs: int
@@ -789,68 +828,24 @@ class Lowering:
             return self.call("shift_left_uint64_t", [a, b], input_types=[U64, U32])
         if op == "shr":
             self.guard_shift(b)
-            return self.ashr(a, b)
+            return rxemit.ashr_value(self, a, b)
         if op in ("floordiv", "mod"):
             return self.divmod(op, a, b)
         raise Refused(f"line {lineno}: {op} is not of the subset")
 
-    def ashr(self, a: MOperand, count: MOperand) -> MOperand:
-        """The arithmetic shift right of a signed word (Python's ``>>``): no sign-shifting
-        leaf exists, so ``s = 0 - ((a >> 63) & 1)`` flips the negative words around the
-        shift and back (rximport's ashr lowering, mirrored)."""
-        sign = self.call(
-            "wrapping_subtract_uint64_t",
-            [
-                self.literal(0),
-                self.call(
-                    "bit_and_uint64_t",
-                    [
-                        self.call(
-                            "shift_right_uint64_t", [a, self.literal(63)],
-                            input_types=[U64, U32],
-                        ),
-                        self.literal(1),
-                    ],
-                ),
-            ],
-        )
-        shifted = self.call(
-            "shift_right_uint64_t", [self.xor_sign(a, sign), count], input_types=[U64, U32]
-        )
-        return self.xor_sign(shifted, sign)
-
-    def xor_sign(self, value: MOperand, sign: MOperand) -> MOperand:
-        """``value ^ sign`` for a sign word that is 0 or all ones (no xor leaf):
-        ``(value | sign) & ~(value & sign)``."""
-        return self.call(
-            "bit_and_uint64_t",
-            [
-                self.call("bit_or_uint64_t", [value, sign]),
-                self.call("bit_not_uint64_t", [self.call("bit_and_uint64_t", [value, sign])]),
-            ],
-        )
-
     def divmod(self, op: str, a: MOperand, b: MOperand) -> MOperand:
         """Python's ``//`` and ``%``: floor semantics over the truncating signed leaves.
 
-        The domain is guarded before the leaves run (a leaf's status is dropped where no
-        status slot catches it, so the guard is what keeps a wrong word from landing): a
-        zero divisor refuses RXF_REFUSE_DIVISION_BY_ZERO and INT64_MIN paired with -1
-        refuses RXF_REFUSE_OVERFLOW -- the run ends with the status where MicroPython
-        raises or answers a bignum, never a wrong word."""
-        self.guard(self.call("equal_uint64_t", [b, self.literal(0)]), DIVISION_BY_ZERO)
-        self.guard(
-            self.call(
-                "bit_and_uint64_t",
-                [
-                    self.call("equal_uint64_t", [a, self.literal(LOW_SIGNED & FULL)]),
-                    self.call("equal_uint64_t", [b, self.literal(-1 & FULL)]),
-                ],
-            ),
-            OVERFLOW,
-        )
-        quotient = self.call("divide_int64_t", [a, b])
-        remainder = self.call("remainder_int64_t", [a, b])
+        The leaves keep their own refusals (native/basics.c: a zero divisor is
+        RXF_REFUSE_DIVISION_BY_ZERO, INT64_MIN paired with -1 is RXF_REFUSE_OVERFLOW),
+        and each call catches one as its status now (the emitter's ``status_value``
+        seam): the status branch refuses the run with the leaf's own status where
+        MicroPython raises or answers a bignum, never a wrong word. The guards this
+        replaces pre-lowered were exactly these leaf domains -- ``guard`` stays the
+        shape where the leaf's own check is narrower than the contract (a shift leaf
+        takes a u32 count where the domain is a word)."""
+        quotient = self.call_status("divide_int64_t", [a, b])
+        remainder = self.call_status("remainder_int64_t", [a, b])
         # the floor adjustment: the quotient takes one off and the remainder the
         # divisor's sign where the remainder is not zero and the signs differ (Python's
         # // is the floor, % takes the sign of the divisor)
@@ -989,9 +984,8 @@ class Lowering:
         join = self.new_block()
         chosen = [
             self.value(
-                "Bound", join.path, f"blkparam[{len(join.params) + at}]",
-                owner_block=join.path,
-            )  # fmt: skip
+                "Bound", join.path, f"blkparam[{len(join.params) + at}]", owner_block=join.path,
+            )
             for at in range(count)
         ]
         join.params.extend(chosen)
@@ -1392,13 +1386,14 @@ class Lowering:
         merged: dict[str, MOperand] = {}
         handed: list[list[MOperand]] = []
         for name in names:
-            hands = [taken.get(name) for _, _, taken in incoming]
-            if any(hand is None for hand in hands):
+            present = [taken.get(name) for _, _, taken in incoming]
+            if any(hand is None for hand in present):
                 raise Refused(
                     f"{name} is bound on one path of a join and not another (the subset "
                     "needs every path to hand the merge the same names; MicroPython "
                     "answers UnboundLocalError where a path reaches the name unbound)"
                 )
+            hands = [hand for hand in present if hand is not None]
             first = self.operand_path(hands[0])
             if all(self.operand_path(hand) == first for hand in hands[1:]):
                 merged[name] = hands[0]
@@ -1616,9 +1611,10 @@ def import_py_file(
     The same shape as ``rximport.import_source_file``: ``image.apply`` is the only thing
     done to the image, the source's comments are lifted whatever the run claims, and the
     claim is the same ``Provenance`` machine (docs/22, docs/23 5) -- one origin record
-    and one citation per file, the locators from the source's own lines.  What this
-    strand does not get yet is the marker *was once Python* of 5: the provenance record
-    carries no slot for it (a seam request); the importer fact says ``rxpy`` instead."""
+    and one citation per file, the locators from the source's own lines.  The marker
+    *was once Python* of 5 rides every record this strand makes (the module was Python
+    before it was graphs): ``was_once_python`` is set here whatever the tier and the
+    report speaks it, while every C, C++ and Rust import leaves it False."""
     path = Path(source)
     text = path.read_text()
     graphs = list(graphs_of(text, module, only, known=known).values())
@@ -1627,8 +1623,9 @@ def import_py_file(
     if provenance is not None and not isinstance(provenance, rximport.Provenance):
         provenance = rximport.Provenance.parse(str(provenance))
     if provenance is not None and provenance.importer == "rximport":
-        provenance.importer = "rxpy"  # the fact this strand stands on (a marker slot: a seam request)
+        provenance.importer = "rxpy"  # the fact this strand stands on
     prov = provenance if provenance is not None else rximport.Provenance(tier=None)
+    prov.was_once_python = True  # the marker of docs/23 5: this module was Python
     comments = rximport.scan_comments(text, ("#",))
     targets = rximport.comment_targets(text, comments, [graph.name for graph in graphs])
     prov.open(image)  # the claim's first write: the floor speaks before anything is imported
@@ -1668,7 +1665,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             import_py_file(
                 image, source, module=args.module or Path(source).stem,
                 known=known, provenance=prov,
-            )  # fmt: skip
+            )
         )
     if args.output:
         Path(args.output).write_text(image.export())
