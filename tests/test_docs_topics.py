@@ -25,8 +25,9 @@ from pathlib import Path
 import pytest
 import rximport
 import topics
+
 from pymergetic.rxf.core import tree
-from pymergetic.rxf.core.kinds import DocKind, DocStatus, DocRole, NodeKind, RefKind
+from pymergetic.rxf.core.kinds import DocKind, DocStatus, NodeKind, RefKind
 from pymergetic.rxf.core.object import Image
 from pymergetic.rxf.server.inspector import Inspector
 
@@ -46,7 +47,7 @@ POLICY_TEXT_SHA256 = {
     "S3": "cfdb5599d928d5ab23ec3a244e0bfd9f82975f57d513efe1854b8b2423be90c3",
     "S4": "c998ff5d7b85d6b373237eaadd7d70345bf8b5e63cf14ab597751fab38b2eabc",
     "S5": "4bd516d7b002f289a89d086fc1721b60d6fd14ecc02c63d456b102a065a43880",
-    "S6": "d847843985bbc4fa8c5ddddd67082135d2492201eeb54314c0a5e66b9ef398eb",
+    "S6": "28f7dd35262510c73fb2099712ac6cbacb05b2373beb96f5ccc61a41899d7c53",
     "S7": "003d58b5d7ed768e5ae0ce23a012e294698fcf860c6f0916eac8bada3a903aa2",
     "S8": "6b05de11931bbcd6bc6a285963afcd4a72e21306fc0ea17304eb38a1d3c3548d",
     "S9": "c8c437dc94fe714d22550d3a510b12685e3ba106f4247b498a73fbc2f0db0ea6",
