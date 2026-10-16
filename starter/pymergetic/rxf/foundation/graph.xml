@@ -57,6 +57,7 @@
       <rxf:ref role="@call.Leaf" index="46" kind="RefKind.Data" target="pymergetic.rxf.numeric.division.remainder_uint32_t" />
       <rxf:ref role="@call.Leaf" index="47" kind="RefKind.Data" target="pymergetic.rxf.numeric.division.divide_int32_t" />
       <rxf:ref role="@call.Leaf" index="48" kind="RefKind.Data" target="pymergetic.rxf.numeric.division.remainder_int32_t" />
+      <rxf:ref role="@call.Leaf" index="49" kind="RefKind.Data" target="@graph.run" />
       <ABISignature name="aapcs64_linux_status_out" target="@targets.aarch64_linux_aapcs64" kind="@kinds.AbiKind.Aapcs64" class_count="5" output_class="3" location_count="6" rxf:data="0303030103">
         <ABIValueLocation name="argument[1]" rxf:index="1" association="@graph.run.signature.argument[1]" semantic_index="1" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Pointer" value_class="@kinds.AbiValueClass.Pointer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" pointee_type="@model.Ref" rxf:data="000000000000000001000000" />
         <ABIValueLocation name="argument[2]" rxf:index="2" association="@graph.run.signature.argument[2]" semantic_index="2" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Borrowed" value_class="@kinds.AbiValueClass.Pointer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" pointee_type="@model.Ref" rxf:data="000000000000000002000000" />
