@@ -21,16 +21,17 @@ This document records what the RXF repository implements, and what it does not y
 
 - `source.py`: where an image comes from and goes to (tree, delta, bytes).
 - `cli.py`: the one `rxf` entry point; the commands are in the `cli.py` next to what they operate on: `binary/cli.py`, `core/object/cli.py`, `core/delta/cli.py`, `server/cli.py`.
-- `binary/`: `rxf binary check`, the starter as a multi-platform binary ([18](18-NATIVE-SNIPPETS.md)).
+- `binary/`: `rxf binary check`, the starter as a multi-platform binary ([18](18-NATIVE-SNIPPETS.md)); executable packaging (ELF, PE/COFF, BIOS, UEFI; `tools/make_bootable.py`, QEMU boots in `tests/test_boot_qemu.py`).
+- `certify/`: certification (Ed25519 over statements, M-of-N quorum, activation gates the build: `tests/test_certify*.py`, `tests/test_binary_activation.py`).
 - `server/`: the read-only inspector (FastAPI): `inspector.py` (views), `app.py` (routes), `templates/inspector.html`.
 
 ## Data
 
-- `starter/`: the default image, one XML file per module, laid out like Python modules (`__init__.rxfd` for a module with sub-modules): 58 files, 18,673 objects, 3.11 MB as an image. It is the source of truth. The enumerations of its data are in `pymergetic.rxf.kinds`.
+- `starter/`: the default image, one `.rxfd` file per module, laid out like Python modules (`__init__.rxfd` for a module with sub-modules): 64 files, 17,863 objects, 5.27 MB as an image. It is the source of truth. The enumerations of its data are in `pymergetic.rxf.kinds`.
 
 ## Native
 
-- `native/*.c`: the C sources of the 317 native functions (the numeric and stdlib snippets and the graph interpreter); `tools/native/`: `native_build.py` (clang and wasm-ld), `extract_native.py`, `extract_wasm.py`, `sync.py` (writes the BIOS and wasm32 objects, the interpreter and the programs into the starter), `compose.py` (semantic graph to program), `graph_sync.py`, `graph_header.py`. See [18](18-NATIVE-SNIPPETS.md).
+- `native/*.c`: the C sources of the 317 native functions (the numeric and stdlib snippets and the graph interpreter); `tools/native/`: `native_build.py` (clang and wasm-ld), `extract_native.py`, `extract_wasm.py`, `sync.py` (writes the BIOS and wasm32 objects, the interpreter and the programs into the starter), `compose.py` (semantic graph to program), `rxfgraph.py` (source to a SemanticGraph) and `graphpass.py` (checks and passes over that graph), `graph_sync.py`, `graph_header.py`. See [18](18-NATIVE-SNIPPETS.md).
 
 ## Tests and tools
 
@@ -48,8 +49,6 @@ This document records what the RXF repository implements, and what it does not y
 - `test_live*`, `test_safe_points`, `test_self_edit`, `test_compile`: the live layer ([19](19-SELF-EDITING-PATH.md)): frames, reads, delta, journal, compaction, safe points and break (also in compiled loops), UART (eight devices) and shared-memory links, the first self-edit, and the compiled code of leaf 31, each on x86_64 and aarch64 (emulator) and wasm32 (node) where it touches native code.
 
 ## Not implemented
-
-From what was planned, built since: semantic-graph checks and passes (`tools/native/rxfgraph.py`, `graphpass.py`, `tests/test_rxfgraph.py`), the compiler as a semantic graph (composed to programs, byte-equal to `rxfc.py` on the corpus), executable packaging (ELF, PE/COFF, BIOS, UEFI; `src/pymergetic/rxf/binary/`, `tools/make_bootable.py`, QEMU boots in `tests/test_boot_qemu.py`), and certification (Ed25519 over statements, M-of-N quorum, activation gates the build: `src/pymergetic/rxf/certify/`, `tests/test_certify*.py`, `tests/test_binary_activation.py`).
 
 What remains out: resource limits of the trust policy (the statement has a slot, enforcement is not written), and measured boot in the firmware itself (the UEFI path verifies the signature of the embedded ELF and nothing measures the firmware).
 
