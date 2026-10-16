@@ -11,11 +11,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "tools" / "native"))
 
-import graph_header  # noqa: E402
-import rxfc  # noqa: E402
+import graph_header
+import rxfc
 
 sys.path.insert(0, str(Path(__file__).parent))
-import rxf_sim  # noqa: E402
+import rxf_sim
 
 ROOT = Path(__file__).parents[1]
 FRONT = ROOT / "native" / "front" / "front.rxf"
@@ -147,7 +147,7 @@ def main() -> None:
             print(entry)
         print("=== the wild value as a result or an argument ===")
         for entry in ALL[-4000:]:
-            name, args, _status, value = entry
+            _name, args, _status, value = entry
             if value == wild or any(a == wild for a in args if isinstance(a, int)):
                 print(entry)
         raise SystemExit(1)

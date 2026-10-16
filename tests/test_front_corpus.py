@@ -12,7 +12,6 @@ the request's table (docs/19). The table carries the sources beside the file, ea
 from pathlib import Path
 
 import pytest
-
 import rxfc
 
 from .test_front import FRONT, run_front

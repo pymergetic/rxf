@@ -22,14 +22,15 @@ beside the REFUSED history it flips."""
 from __future__ import annotations
 
 import ctypes
-import subprocess
 import struct
+import subprocess
 from pathlib import Path
 
 import compose
 import pytest
 import rxemit
 import rximport
+
 from pymergetic.rxf.core import tree
 
 from . import rxf_native
@@ -212,7 +213,7 @@ entry:
   ret i64 %word
 }}
 """
-    image, programs, cells, objects = placed(ir, module="cells", wanted={"peek"})
+    _image, programs, cells, objects = placed(ir, module="cells", wanted={"peek"})
     assert cells["here"] == b"\0" * 8, "the relocation slot is zero before the boot"
     with rxf_native.Memory(1 << 16) as memory:
 
@@ -271,7 +272,7 @@ def test_the_32_bit_module_wires_and_runs_like_the_native_32_bit_build(tmp_path:
     word the slot carries to enter (x + 1), and the tag reads back both ways."""
     ir = compiled(("-m32",))
     assert rximport.module_model(ir) == rxemit.ILP32
-    image, programs, cells, objects = placed(ir)
+    _image, programs, cells, objects = placed(ir)
     door = cells["door"]
     assert len(door) == 8, f"@door is {len(door)} bytes, the model's cell is 8"
     assert struct.unpack_from("<I", door, 0)[0] == 7, "the tag is placed as its byte image"
@@ -300,9 +301,9 @@ def test_the_32_bit_module_wires_and_runs_like_the_native_32_bit_build(tmp_path:
     driver = tmp_path / "width32_driver"
     subprocess.run(
         [CLANG, "-m32", "-O1", str(CORPUS / "width32.c"), str(CORPUS / "width32_driver.c"),
-         "-o", str(driver)],  # fmt: skip
+         "-o", str(driver)],
         check=True,
-    )
+    )  # fmt: skip
     held = subprocess.run([str(driver)], capture_output=True, text=True, check=True).stdout.split()
     assert held == ["6", "8", "3", "7"], f"the native 32-bit build answered {held}"
 
@@ -318,7 +319,7 @@ def test_the_64_bit_twin_of_the_same_source_places_the_pointer_word_at_its_own_s
     widths move with the model and the behavior never does."""
     ir = compiled(())
     assert rximport.module_model(ir) == rxemit.LP64
-    image, programs, cells, objects = placed(ir)
+    _image, programs, cells, objects = placed(ir)
     door = cells["door"]
     assert len(door) == 16, f"@door is {len(door)} bytes, the model's cell is 16"
     assert struct.unpack_from("<I", door, 0)[0] == 7, "the tag is placed as its byte image"
@@ -337,9 +338,9 @@ def test_the_64_bit_twin_of_the_same_source_places_the_pointer_word_at_its_own_s
     shared = tmp_path / "libwidth32.so"
     subprocess.run(
         [CLANG, "-O1", "-shared", "-fPIC", str(CORPUS / "width32.c"),
-         str(NATIVE / "basics.c"), str(NATIVE / "stdlib_memory.c"), "-o", str(shared)],  # fmt: skip
+         str(NATIVE / "basics.c"), str(NATIVE / "stdlib_memory.c"), "-o", str(shared)],
         check=True,
-    )
+    )  # fmt: skip
     native = ctypes.CDLL(str(shared))
     native.use_gate.argtypes = [ctypes.c_uint32]
     native.use_gate.restype = ctypes.c_uint64

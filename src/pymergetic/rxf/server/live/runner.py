@@ -293,7 +293,7 @@ class Runner:
     registration and the machine with it (also at exit, through `Session.close`).
     """
 
-    _at_link: ClassVar[dict[str, "Runner"]] = {}
+    _at_link: ClassVar[dict[str, Runner]] = {}
 
     def __init__(self, image: Image, link: str = "shm:rxf") -> None:
         self.link = link

@@ -1,0 +1,8 @@
+{
+  "include": ["src", "tests", "tools"],
+  "exclude": ["tests/rxpy_corpus", "**/__pycache__"],
+  "extraPaths": ["tools/native"],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.14"
+}

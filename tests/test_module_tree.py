@@ -198,6 +198,9 @@ class InstallingFront:
     def numbers(self) -> dict[str, int]:
         return {}
 
+    def rebase(self) -> None:
+        """The stand-in stages against the image it holds; there is no other mirror."""
+
 
 def test_the_editor_install_lands_the_module_tree_resolvable_immediately():
     """End to end through the editor path: the installed nodes appear under their root as named
