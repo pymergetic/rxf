@@ -155,13 +155,15 @@ nb::class_<object::Image> bind_object(nb::module_ &m) {
     nb::class_<Image> image(m, "Image");
     image
         .def_static(
-            "create",
+            "arena",
             [](uint64_t limit, uint64_t index_capacity) {
                 std::unique_ptr<Image> created;
                 check(Image::create(limit, index_capacity, &created));
                 return created;
             },
-            nb::arg("limit") = object::kDefaultLimit, nb::arg("index_capacity") = 0)
+            nb::arg("limit") = object::kDefaultLimit, nb::arg("index_capacity") = 0,
+            "A fresh, empty arena: an image without the ground (the constructor of the arena "
+            "layer, Image::create in C++; `create` on an image is the edit verb of docs/27).")
         .def_static(
             "from_bytes",
             [](nb::bytes data, uint64_t limit) {

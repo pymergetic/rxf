@@ -150,7 +150,7 @@ def test_an_unknown_root_is_a_refusal_not_a_none(modules):
 
 def test_a_dead_handle_stops_the_walk_with_a_clear_error():
     # an image that never grew a root: the walk cannot start, and says so
-    bare = Image.create()
+    bare = Image.arena()
     with pytest.raises(TreeError, match="dead handle"):
         bare.resolve_module("px")
     with pytest.raises(TreeError, match="dead handle"):

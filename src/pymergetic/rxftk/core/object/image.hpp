@@ -103,6 +103,9 @@ public:
     Status set_payload(pymergetic_rxf_handle handle, const uint8_t *bytes, uint64_t size);
     Status set_refs(pymergetic_rxf_handle handle, const pymergetic_rxf_ref *refs, uint32_t count);
     Status set_parent(pymergetic_rxf_handle handle, pymergetic_rxf_handle parent);
+    /* The name of an object changes (rename); the root has none and is refused. The name is
+     * checked as any other (good_name) and must be free among the siblings. */
+    Status rename(pymergetic_rxf_handle handle, const std::string &name);
     Status set_type(pymergetic_rxf_handle handle, pymergetic_rxf_handle type);
     Status set_state(pymergetic_rxf_handle handle, uint32_t state);
 

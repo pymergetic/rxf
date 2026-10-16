@@ -17,7 +17,7 @@ def starter() -> Image:
 
 def small() -> Image:
     """A few objects, so that every kind of write happens often."""
-    image = Image.create(limit=1 << 26)
+    image = Image.arena(limit=1 << 26)
     image.bootstrap()
     return image
 

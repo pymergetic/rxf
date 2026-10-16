@@ -442,6 +442,22 @@ Status Image::set_parent(pymergetic_rxf_handle handle, pymergetic_rxf_handle par
     return Status::Ok;
 }
 
+Status Image::rename(pymergetic_rxf_handle handle, const std::string &name) {
+    const pymergetic_rxf_cell *c = arena_.cell(handle);
+    if (c == nullptr) return Status::BadHandle;
+    if (c->parent == PYMERGETIC_RXF_HANDLE_NONE) return Status::Protected; // the root has no name
+    if (!good_name(name)) return Status::BadName;
+    const std::string old = arena_.name(handle);
+    if (old == name) return Status::Ok;
+    auto &siblings = children_[c->parent];
+    if (siblings.count(name)) return Status::NameTaken;
+    Status status = arena_.set_name(handle, name.data(), name.size());
+    if (status != Status::Ok) return status;
+    siblings.erase(old);
+    siblings[name] = handle;
+    return Status::Ok;
+}
+
 Status Image::set_type(pymergetic_rxf_handle handle, pymergetic_rxf_handle type) {
     if (!arena_.live(handle)) return Status::BadHandle;
     pymergetic_rxf_cell *c = arena_.cell_w(handle);

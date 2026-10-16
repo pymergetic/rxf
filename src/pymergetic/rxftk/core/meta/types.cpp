@@ -561,7 +561,11 @@ Status encode_payload(Types &types, Handle type, const std::vector<Attr> &attrs,
     for (const Leaf &leaf : L.leaves) {
         const auto it = given.find(leaf.name);
         if (leaf.derived) {
-            if (it != given.end()) given.erase(it);
+            // Derived is never written (docs/27): a value for one is a refusal, not a warning.
+            if (it != given.end()) {
+                *error = "derived is never written: " + leaf.name;
+                return Status::Protected;
+            }
             if (leaf.name == "descriptor_tag") store_uint(payload->data() + leaf.offset, 4, type == PYMERGETIC_RXF_HANDLE_TYPE ? kTypeTag : kFieldTag);
             else if (leaf.name == "owner_type") store_uint(payload->data() + leaf.offset, 8, parent);
             continue;
@@ -679,6 +683,16 @@ Status encode_payload(Types &types, Handle type, const std::vector<Attr> &attrs,
             break;
         }
         case LeafKind::Ref: {
+            if (text.empty()) {
+                // The empty value is the unset one (docs/27): an OPTIONAL field only, and the
+                // one spelling that never resolves to anything.
+                if (!leaf.optional) {
+                    *error = "attribute " + leaf.name + " is not a path";
+                    return Status::BadName;
+                }
+                store_uint(p, 8, kNone);
+                break;
+            }
             const Handle h = resolve(text);
             if (h != kNone) store_uint(p, 8, h);
             else pending->push_back({leaf.offset, text, leaf.optional});

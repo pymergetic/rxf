@@ -3,6 +3,8 @@
 from collections.abc import Sequence
 from typing import Any
 
+import pymergetic.rxftk.core.delta
+
 
 DEFAULT_LIMIT: int = 1073741824
 
@@ -13,7 +15,10 @@ def image_state(mobility: int = 0) -> int:
 
 class Image:
     @staticmethod
-    def create(limit: int = 1073741824, index_capacity: int = 0) -> Image: ...
+    def arena(limit: int = 1073741824, index_capacity: int = 0) -> Image:
+        """
+        A fresh, empty arena: an image without the ground (the constructor of the arena layer, Image::create in C++; `create` on an image is the edit verb of docs/27).
+        """
 
     @staticmethod
     def from_bytes(data: bytes, limit: int = 1073741824) -> Image: ...
@@ -230,6 +235,44 @@ class Image:
 
     def delta_digest(self) -> str:
         """SHA-256 of the canonical delta text."""
+
+    def create(self, type: object, parent: object | None = None, name: str) -> int:
+        """
+        A new cell of `type` below `parent` (none: the root); size and align come from the Type. Paths name things, handles identify them: either. The handle of the new cell.
+        """
+
+    def rename(self, target: object, name: str) -> None:
+        """
+        The name of an object changes; the name is an identifier and the schema checks it.
+        """
+
+    def move(self, target: object, parent: object) -> None:
+        """
+        The object sits under another parent; the place is the sibling order (docs/15).
+        """
+
+    def delete(self, target: object) -> None:
+        """
+        Removes the object and everything below it; refused while anything else points at it.
+        """
+
+    def put(self, target: object, field: str, value: object) -> None:
+        """
+        One leaf is written: width, sign and enum come from the Field. Derived and declared lists take no value and no place; a reference is written by `ref`.
+        """
+
+    def ref(self, target: object, field: str, to: object) -> None:
+        """
+        The ONLY place a handle may be written: the reference field of one object points at another.
+        """
+
+    def unset(self, target: object, field: str) -> None:
+        """An OPTIONAL field goes back to unset; anything else refuses."""
+
+    def edit(self) -> pymergetic.rxftk.core.delta.Edit:
+        """
+        The transaction (docs/27): the verbs collect operations in the currency of the text form — paths, never handles — and commit is ONE delta: all of it or none of it.
+        """
 
     def mount_names(self) -> list[str]:
         """
