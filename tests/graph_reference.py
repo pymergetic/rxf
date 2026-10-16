@@ -90,10 +90,16 @@ class Reference:
         self.refuse_unbound = 13
         self.refuse_type = 14
         self.refuse_depth = numbers["RXF_REFUSE_CALL_DEPTH"]
+        self.refuse_budget = numbers["RXF_REFUSE_CELL_BUDGET"]
         self.calls: list[tuple[str, int]] = []  # each leaf called, with its status
         self.words: Sequence[int] = ()
         self.frame_bytes = 0
-        self.depth = 0  # the call frames of a run: each costs words of the cell, not stack
+        self.depth = (
+            0  # the call frames of a run: each costs words of the cell, not stack
+        )
+        self.cell = (
+            frame  # the run cell: the frames of the chain are carved from its payload
+        )
         self.frames: list[tuple[Sequence[int], int, int, int, int, int, int]] = []
         # a saved frame: (the caller's words, its frame bytes, the pc to go on at, its
         # frame address, the call's out slot, its width, its status slot)
@@ -259,11 +265,12 @@ class Reference:
     def call_program(self, at: int) -> int:
         """A call card: word 1 is RXF_GRAPH_CALL, then the callee's program operand
         (an Object handle of the callee's program words) and the arguments. The callee
-        gets the next frame region of the run cell (one RXF_GRAPH_FRAME per level, at
-        most RXF_GRAPH_CALL_DEPTH of them), its parameters bound from the caller's
-        words (a scalar one word, a handle its three), and the run goes on at its entry.
-        The interpreter iterates over the frames it saves: depth costs words of the
-        cell, never native stack (graph.c's ``call_program``)."""
+        gets the next variable-length cell of the run cell -- carved (base, size) at the
+        end of the chain that is open, its size the frame bytes the callee declares --
+        its parameters bound from the caller's words (a scalar one word, a handle its
+        three), and the run goes on at its entry. The interpreter iterates over the
+        frames it saves: depth costs words of the cell, never native stack (graph.c's
+        ``call_program``)."""
         w, n = self.words, self.n
         self.need(self.have(at, 6 + 3))
         count, out_slot, out_width = w[at + 2], w[at + 3], w[at + 4]
@@ -271,7 +278,9 @@ class Reference:
         if kind != n["RXF_OPERAND_OBJECT"] or zero != 0:
             raise Done(self.refuse_range)
         self.need(self.have(at, 9 + count * 3))
-        if self.depth + 1 >= n["RXF_GRAPH_CALL_DEPTH"]:  # the entry's frame is one of the budget
+        if (
+            self.depth + 1 >= n["RXF_GRAPH_CALL_DEPTH"]
+        ):  # the entry's frame is one of the budget
             raise Done(self.refuse_depth)
         found = self.entry(named)
         if found is None:
@@ -291,11 +300,20 @@ class Reference:
             parameters != count
             or parameters > len(words)
             or 5 + parameters * 2 > len(words)
-            or callee_frame > n["RXF_GRAPH_FRAME"]
             or callee_frame & 7
         ):
             raise Done(self.refuse_range)
-        dst = self.frame + n["RXF_GRAPH_FRAME"]  # the next region of the run cell
+        # the next variable-length cell of the run cell: carved at the end of the chain
+        # that is open -- the cell grows by the declared frame bytes and shrinks back at
+        # the answer; a chain whose frames do not fit is refused the budget
+        base = self.frame + self.frame_bytes
+        used = base - self.cell
+        if (
+            used > n["RXF_GRAPH_CELL_BYTES"]
+            or callee_frame > n["RXF_GRAPH_CELL_BYTES"] - used
+        ):
+            raise Done(self.refuse_budget)
+        dst = base
         self.emulator.write(dst, bytes(callee_frame))
         for index in range(parameters):
             slot, width = words[5 + 2 * index], words[6 + 2 * index]
@@ -322,9 +340,15 @@ class Reference:
         status to the call's status slot, and the caller goes on after its call step. A
         refusal with no status slot to catch it ends the run with it (only called with
         a call above: depth 0 answers the run)."""
-        self.words, self.frame_bytes, pc, self.frame, out_slot, out_width, status_slot = (
-            self.frames.pop()
-        )
+        (
+            self.words,
+            self.frame_bytes,
+            pc,
+            self.frame,
+            out_slot,
+            out_width,
+            status_slot,
+        ) = self.frames.pop()
         self.depth -= 1
         if data is not None and out_slot != self.n["RXF_GRAPH_NONE"]:
             if width > out_width:
@@ -357,12 +381,15 @@ class Reference:
         self.frame_bytes = w[1]
         parameters, words, pc = w[2], w[3], w[4]
         self.need(
-            self.frame_bytes <= n["RXF_GRAPH_FRAME"]
-            and self.frame_bytes % 8 == 0
+            self.frame_bytes % 8 == 0
             and words == argc
             and parameters <= len(w)
             and self.have(5, parameters * 2)
         )
+        # the frame is what the program declares, exactly: the chain of one must fit
+        # the run cell too, and what does not fit is refused the budget (docs/20 S6)
+        if self.frame_bytes > n["RXF_GRAPH_CELL_BYTES"]:
+            raise Done(self.refuse_budget)
         self.emulator.write(self.frame, bytes(self.frame_bytes))
         used = 0
         for index in range(parameters):

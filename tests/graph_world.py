@@ -52,10 +52,11 @@ FUNCTIONS = BASE + SIZE  # behind the compared memory
 HANDLE_COPY = (
     BASE + SIZE + 0x600
 )  # the handle a wasm caller passes by value, by address
-FRAME = BASE + SIZE + 0x800  # the frame of the reference interpreter
-# the flat memory ends with the run cell of the reference interpreter: one
-# RXF_GRAPH_FRAME region per level of call depth (the cell rxf_graph_run keeps on its
-# stack), so a nested call card writes its frame where it is mapped
+FRAME = BASE + SIZE + 0x800  # the run cell of the reference interpreter
+# the flat memory ends with the run cell of the reference interpreter: the frames of
+# the active call chain are carved (base, size) from its payload (the cell
+# rxf_graph_run keeps on its stack), so a nested call card writes its frame where it
+# is mapped
 MAPPED = SIZE + 0x800 + 0x2000
 PROGRAM_ID = 900001
 # Behind everything above: what the compiler (docs/19, WP12) is given and writes.

@@ -21,6 +21,7 @@ LEAF = graph_header.leaves()
 NONE = N["RXF_GRAPH_NONE"]
 # The refusals of native/stdlib_runtime.h and native/basics.h that the interpreter itself returns.
 OUT_OF_RANGE, STALE_GENERATION, UNBOUND, TYPE_MISMATCH = 6, 12, 13, 14
+BUDGET = N["RXF_REFUSE_CELL_BUDGET"]
 SLOT, LITERAL, OBJECT = (N[f"RXF_OPERAND_{k}"] for k in ("SLOT", "LITERAL", "OBJECT"))
 ZERO, NONZERO = N["RXF_MODE_ZERO"], N["RXF_MODE_NONZERO"]
 OP = {name: N[f"RXF_OP_{name}"] for name in (
@@ -472,10 +473,14 @@ def call_card(
 def callee_step() -> bytes:
     """A callee: one scalar parameter, answered as the parameter plus one (a leaf runs in
     the callee's own frame, like any program)."""
-    return assemble(64, [(0, 8)], [
-        call("wrapping_add_uint64_t", [slot(0), lit(1)], (8, 8)),
-        [OP["RETURN"], *slot(8), 8],
-    ])
+    return assemble(
+        64,
+        [(0, 8)],
+        [
+            call("wrapping_add_uint64_t", [slot(0), lit(1)], (8, 8)),
+            [OP["RETURN"], *slot(8), 8],
+        ],
+    )
 
 
 def callee_identity() -> bytes:
@@ -486,10 +491,14 @@ def callee_identity() -> bytes:
 
 def callee_middle() -> bytes:
     """A callee that calls a callee: two cards deep, the answers stack back."""
-    return assemble(64, [(0, 8)], [
-        call_card(NESTED, [slot(0)], out=(8, 8)),
-        [OP["RETURN"], *slot(8), 8],
-    ])
+    return assemble(
+        64,
+        [(0, 8)],
+        [
+            call_card(NESTED, [slot(0)], out=(8, 8)),
+            [OP["RETURN"], *slot(8), 8],
+        ],
+    )
 
 
 def callee_refuses() -> bytes:
@@ -502,50 +511,137 @@ def call_cases() -> list[tuple[Case, int, int]]:
     """The call card on purpose: every shape of its run and every card that cannot go on
     -- the case, the status the run must answer, and the out word (0 where the run
     refused or answers nothing)."""
-    recurses = assemble(64, [(0, 8)], [
-        call_card(CALLEE, [slot(0)], out=(8, 8)),
-        [OP["RETURN"], *slot(8), 8],
-    ])
-    return [
-        (Case("call answers", assemble(64, [(0, 8)], [
-            call_card(CALLEE, [slot(0)], out=(8, 8), status=16),
-            [OP["RETURN"], *slot(8), 8],
-        ]), number(41), {CALLEE: callee_step()}), 0, 42),
-        (Case("call with a handle", assemble(64, [], [
-            call_card(CALLEE, [obj(BINDING)], out=(8, 8)),
-            [OP["RETURN"], *slot(8), 8],
-        ]), b"", {CALLEE: callee_identity(), BINDING: handle(BINDING)}), 0, BINDING),
-        (Case("call nested", assemble(64, [(0, 8)], [
+    recurses = assemble(
+        64,
+        [(0, 8)],
+        [
             call_card(CALLEE, [slot(0)], out=(8, 8)),
             [OP["RETURN"], *slot(8), 8],
-        ]), number(41), {CALLEE: callee_middle(), NESTED: callee_step()}), 0, 42),
-        (Case("call catches a refusal", assemble(64, [], [
-            call_card(CALLEE, [lit(7)], out=(8, 8), status=16),
-            move(24, 8, slot(16)),
-            [OP["RETURN"], *slot(24), 8],
-        ]), b"", {CALLEE: callee_refuses()}), 0, CAUGHT),
-        (Case("call lets a refusal through", assemble(64, [], [
-            call_card(CALLEE, [lit(7)]),
-            [OP["RETURN"], *lit(0), 8],
-        ]), b"", {CALLEE: callee_refuses()}), CAUGHT, 0),
+        ],
+    )
+    return [
+        (
+            Case(
+                "call answers",
+                assemble(
+                    64,
+                    [(0, 8)],
+                    [
+                        call_card(CALLEE, [slot(0)], out=(8, 8), status=16),
+                        [OP["RETURN"], *slot(8), 8],
+                    ],
+                ),
+                number(41),
+                {CALLEE: callee_step()},
+            ),
+            0,
+            42,
+        ),
+        (
+            Case(
+                "call with a handle",
+                assemble(
+                    64,
+                    [],
+                    [
+                        call_card(CALLEE, [obj(BINDING)], out=(8, 8)),
+                        [OP["RETURN"], *slot(8), 8],
+                    ],
+                ),
+                b"",
+                {CALLEE: callee_identity(), BINDING: handle(BINDING)},
+            ),
+            0,
+            BINDING,
+        ),
+        (
+            Case(
+                "call nested",
+                assemble(
+                    64,
+                    [(0, 8)],
+                    [
+                        call_card(CALLEE, [slot(0)], out=(8, 8)),
+                        [OP["RETURN"], *slot(8), 8],
+                    ],
+                ),
+                number(41),
+                {CALLEE: callee_middle(), NESTED: callee_step()},
+            ),
+            0,
+            42,
+        ),
+        (
+            Case(
+                "call catches a refusal",
+                assemble(
+                    64,
+                    [],
+                    [
+                        call_card(CALLEE, [lit(7)], out=(8, 8), status=16),
+                        move(24, 8, slot(16)),
+                        [OP["RETURN"], *slot(24), 8],
+                    ],
+                ),
+                b"",
+                {CALLEE: callee_refuses()},
+            ),
+            0,
+            CAUGHT,
+        ),
+        (
+            Case(
+                "call lets a refusal through",
+                assemble(
+                    64,
+                    [],
+                    [
+                        call_card(CALLEE, [lit(7)]),
+                        [OP["RETURN"], *lit(0), 8],
+                    ],
+                ),
+                b"",
+                {CALLEE: callee_refuses()},
+            ),
+            CAUGHT,
+            0,
+        ),
         (
             Case("refuses call depth", recurses, number(1), {CALLEE: recurses}),
             N["RXF_REFUSE_CALL_DEPTH"],
             0,
         ),
         (
-            Case("refuses an unbound callee", assemble(64, [(0, 8)], [
-                call_card(31337, [slot(0)]),
-                [OP["RETURN"], *lit(0), 8],
-            ]), number(1), {BINDING: handle(BINDING)}),
+            Case(
+                "refuses an unbound callee",
+                assemble(
+                    64,
+                    [(0, 8)],
+                    [
+                        call_card(31337, [slot(0)]),
+                        [OP["RETURN"], *lit(0), 8],
+                    ],
+                ),
+                number(1),
+                {BINDING: handle(BINDING)},
+            ),
             UNBOUND,
             0,
         ),
         (
-            Case("refuses a callee that is no program", assemble(64, [(0, 8)], [
-                call_card(CALLEE, [slot(0)]),
-                [OP["RETURN"], *lit(0), 8],
-            ]), number(1), {CALLEE: bytes(40)}),
+            Case(
+                "refuses a callee that is no program",
+                assemble(
+                    64,
+                    [(0, 8)],
+                    [
+                        call_card(CALLEE, [slot(0)]),
+                        [OP["RETURN"], *lit(0), 8],
+                    ],
+                ),
+                number(1),
+                {CALLEE: bytes(40)},
+            ),
             TYPE_MISMATCH,
             0,
         ),
@@ -581,10 +677,14 @@ def frame_heavy() -> bytes:
 def linked_depth() -> bytes:
     """A chain that spends the eight frame links on sixty-four byte frames: refused
     RXF_REFUSE_CALL_DEPTH -- the depth bound of graph.h is a link bound, not a byte wall."""
-    return assemble(64, [(0, 8)], [
-        call_card(LOOPED, [slot(0)], out=(8, 8)),
-        [OP["RETURN"], *slot(8), 8],
-    ])
+    return assemble(
+        64,
+        [(0, 8)],
+        [
+            call_card(LOOPED, [slot(0)], out=(8, 8)),
+            [OP["RETURN"], *slot(8), 8],
+        ],
+    )
 
 
 def frame_cases() -> list[tuple[Case, int, int]]:
@@ -595,10 +695,14 @@ def frame_cases() -> list[tuple[Case, int, int]]:
     interpreter bytes of the starter, which the importer lane regenerates. The tuple is
     (the case, the status the run must answer, the out word)."""
     heavy = frame_heavy()
-    called = assemble(64, [], [
-        call_card(FRAMED, [lit(4)], out=(8, 8)),
-        [OP["RETURN"], *slot(8), 8],
-    ])
+    called = assemble(
+        64,
+        [],
+        [
+            call_card(FRAMED, [lit(4)], out=(8, 8)),
+            [OP["RETURN"], *slot(8), 8],
+        ],
+    )
     return [
         (Case("a frame of 1608 bytes", heavy, number(0), {FRAMED: heavy}), 0, 1000),
         (Case("five frames of 1608 bytes", heavy, number(4), {FRAMED: heavy}), 0, 1004),
@@ -615,10 +719,18 @@ def budget_cases() -> list[tuple[Case, int, int]]:
     oversized = assemble(8200, [(0, 8)], [[OP["RETURN"], *slot(0), 8]])
     return [
         (Case("a frame past the cell budget", oversized, number(3), {}), budget, 0),
-        (Case("a chain past the cell budget", heavy, number(6), {FRAMED: heavy}), budget, 0),
         (
-            Case("the eight links, not the bytes", linked_depth(), number(1),
-                 {LOOPED: linked_depth()}),
+            Case("a chain past the cell budget", heavy, number(6), {FRAMED: heavy}),
+            budget,
+            0,
+        ),
+        (
+            Case(
+                "the eight links, not the bytes",
+                linked_depth(),
+                number(1),
+                {LOOPED: linked_depth()},
+            ),
             N["RXF_REFUSE_CALL_DEPTH"],
             0,
         ),
@@ -641,7 +753,9 @@ def broken() -> dict[str, tuple[bytes, int]]:
         "magic": (program(ret, magic=1), TYPE_MISMATCH),
         "unknown opcode": (program([99]), OUT_OF_RANGE),
         "past the end": (program(move(0, 8, slot(0))), OUT_OF_RANGE),
-        "frame": (program(ret, frame=2048), OUT_OF_RANGE),
+        # the frame is what the program declares, exactly (docs/20 S6): the refusal of a
+        # frame is the budget, not a wall -- 9000 bytes no run cell could hold
+        "frame": (program(ret, frame=9000), BUDGET),
         "frame not whole words": (program(ret, frame=60), OUT_OF_RANGE),
         "slot out of the frame": (program([OP["RETURN"], *slot(64), 8]), OUT_OF_RANGE),
         "unbound object": (program([OP["RETURN"], *obj(31337, 8), 8]), UNBOUND),
@@ -714,15 +828,17 @@ def refusals() -> list[tuple[Case, int]]:
     """Each refused program as a case, with the refusal it must get: the refusals of the
     interpreter, and the refusals of the arithmetic leaves (divisions by zero, INT_MIN / -1
     and the products that leave their type)."""
-    return [
-        (cases_of(f"refuses {name}", program, number(3)), status)
-        for name, (program, status) in broken().items()
-    ] + [
-        (cases_of(f"refuses {name}", program, args), status)
-        for name, (program, args, status) in refused_arithmetic().items()
-    ] + [
-        (case, status) for case, status, _ in call_cases() if status
-    ]
+    return (
+        [
+            (cases_of(f"refuses {name}", program, number(3)), status)
+            for name, (program, status) in broken().items()
+        ]
+        + [
+            (cases_of(f"refuses {name}", program, args), status)
+            for name, (program, args, status) in refused_arithmetic().items()
+        ]
+        + [(case, status) for case, status, _ in call_cases() if status]
+    )
 
 
 def synthetic() -> list[Case]:
@@ -761,7 +877,11 @@ def synthetic() -> list[Case]:
         ("overflow flags ssub", overflow_flags, number(1 << 63) + number(1)),
     ):
         found.append(cases_of(name, build(), args))
-    for case, _, _ in call_cases():  # the call card: a callee that is a program of its own
+    for (
+        case,
+        _,
+        _,
+    ) in call_cases():  # the call card: a callee that is a program of its own
         found.append(case)
     return found + [case for case, _ in refusals()]
 

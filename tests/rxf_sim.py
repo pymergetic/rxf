@@ -39,6 +39,7 @@ class Refused(Exception):
         super().__init__(status)
         self.status = status
 
+
 class Memory:
     """Bytes at addresses, sparse by page, zero until written."""
 
@@ -85,26 +86,34 @@ class Memory:
 def _leaf_add(args, memory):
     return 0, (args[0] + args[1]) & MASK
 
+
 def _leaf_subtract(args, memory):
     return 0, (args[0] - args[1]) & MASK
+
 
 def _leaf_and(args, memory):
     return 0, args[0] & args[1]
 
+
 def _leaf_or(args, memory):
     return 0, args[0] | args[1]
+
 
 def _leaf_shift_left(args, memory):
     return 0, (args[0] << (args[1] & 0xFFFFFFFF)) & MASK
 
+
 def _leaf_shift_right(args, memory):
     return 0, args[0] >> (args[1] & 0xFFFFFFFF)
+
 
 def _leaf_equal(args, memory):
     return 0, int(args[0] == args[1])
 
+
 def _leaf_less(args, memory):
     return 0, int(args[0] < args[1])
+
 
 # The multiply, divide and remainder leaves of native/graph.h, as native/basics.c has them: a
 # division by zero refuses 2 (DIVISION_BY_ZERO), the signed forms refuse 1 (OVERFLOW) at
@@ -192,12 +201,14 @@ def _leaf_divide_int32_t(args, memory):
 def _leaf_remainder_int32_t(args, memory):
     return _remainder(32, True, args)
 
+
 def _leaf_memory_copy(args, memory):
     dst, dst_len, src, src_len, count = args
     if count > dst_len or count > src_len:
         return 6, 0
     memory.write(dst, memory.read(src, count))
     return 0, 0
+
 
 def _leaf_memory_fill(args, memory):
     dst, dst_len, byte, count = args
@@ -232,7 +243,10 @@ LEAF_RUN = {
 
 
 def run(
-    program: bytes, args: bytes, memory: Memory, limit: int = 50_000_000,
+    program: bytes,
+    args: bytes,
+    memory: Memory,
+    limit: int = 50_000_000,
     objects: dict[int, bytes] | None = None,
 ) -> tuple[int, int]:
     """(status, value) of a run of the program on arguments of whole words.
@@ -240,17 +254,22 @@ def run(
     ``objects`` are the programs a call card names, by the id of their words: a card's
     callee is a program of its own (graph.h's RXF_GRAPH_CALL), its parameters the
     call's arguments as words of the caller's frame, its own locals in the next
-    RXF_GRAPH_FRAME region of the cell. Depth costs words of the cell (at most
-    RXF_GRAPH_CALL_DEPTH of them -- a call past the budget refuses
-    RXF_REFUSE_CALL_DEPTH), never stack here either; a Return answers the call at any
-    depth above 0 and ends the run at 0, and a Refuse gives the call its status (with
-    no status slot to catch it, it ends the run).
+    variable-length cell of the run cell -- carved (base, size) at the end of the
+    chain that is open, its size the frame bytes the callee declares. Depth costs
+    words of the cell (at most RXF_GRAPH_CALL_DEPTH of them -- a call past the budget
+    refuses RXF_REFUSE_CALL_DEPTH), never stack here either; a Return answers the
+    call at any depth above 0 and ends the run at 0, and a Refuse gives the call its
+    status (with no status slot to catch it, it ends the run).
     """
     objects = objects or {}
     code = struct.unpack(f"<{len(program) // 8}Q", program)
     assert code[0] == N["RXF_GRAPH_MAGIC"]
     frame_bytes, parameters, words, pc = code[1], code[2], code[3], code[4]
     assert len(args) == words * 8
+    if (
+        frame_bytes > N["RXF_GRAPH_CELL_BYTES"]
+    ):  # the chain of one must fit the cell too
+        return N["RXF_REFUSE_CELL_BUDGET"], 0
     frame = FRAME_AT
     memory.write(frame, bytes(frame_bytes))
     used = 0
@@ -260,9 +279,10 @@ def run(
         used += (width + 7) // 8 * 8
 
     depth = 0
-    stack: list[tuple[tuple[int, ...], int, int, int, int, int]] = []
-    # a saved frame: (the caller's words, the pc to go on at, its frame, the call's
-    # out slot, its width, its status slot)
+    frame_size = frame_bytes
+    stack: list[tuple[tuple[int, ...], int, int, int, int, int, int]] = []
+    # a saved frame: (the caller's words, the pc to go on at, its frame, its frame
+    # bytes, the call's out slot, its width, its status slot)
     steps = 0
     while True:
         steps += 1
@@ -271,7 +291,12 @@ def run(
         op = code[pc]
         if op == OP_CALL:
             leaf, count, out, out_width, status = (
-                code[pc + 1], code[pc + 2], code[pc + 3], code[pc + 4], code[pc + 5])
+                code[pc + 1],
+                code[pc + 2],
+                code[pc + 3],
+                code[pc + 4],
+                code[pc + 5],
+            )
             at = pc + 6
             if leaf == N["RXF_GRAPH_CALL"]:  # a call card: a program of its own
                 kind, named, zero = code[at], code[at + 1], code[at + 2]
@@ -288,10 +313,18 @@ def run(
                     return N["RXF_REFUSE_TYPE_MISMATCH"], 0
                 callee_frame, callee_parameters = callee[1], callee[2]
                 entry = callee[4]
-                if (callee_frame > N["RXF_GRAPH_FRAME"] or callee_frame & 7
-                        or callee_parameters != count):
+                if callee_frame & 7 or callee_parameters != count:
                     return N["RXF_REFUSE_OUT_OF_RANGE"], 0
-                dst = FRAME_AT + (depth + 1) * N["RXF_GRAPH_FRAME"]
+                # the next variable-length cell of the run cell: carved at the end of
+                # the chain that is open -- a chain whose frames do not fit the cell is
+                # refused the budget (docs/20 S6)
+                dst = frame + frame_size
+                spent = dst - FRAME_AT
+                if (
+                    spent > N["RXF_GRAPH_CELL_BYTES"]
+                    or callee_frame > N["RXF_GRAPH_CELL_BYTES"] - spent
+                ):
+                    return N["RXF_REFUSE_CELL_BUDGET"], 0
                 memory.write(dst, bytes(callee_frame))
                 for i in range(callee_parameters):
                     slot, width = callee[5 + 2 * i], callee[6 + 2 * i]
@@ -314,9 +347,9 @@ def run(
                     at += 3
                 if out != NONE:
                     memory.write(frame + out, bytes(out_width))
-                stack.append((code, at, frame, out, out_width, status))
+                stack.append((code, at, frame, frame_size, out, out_width, status))
                 depth += 1
-                code, pc, frame = callee, entry, dst
+                code, pc, frame, frame_size = callee, entry, dst, callee_frame
                 continue
             args_ = []
             for _ in range(count):
@@ -327,7 +360,10 @@ def run(
                     args_.append(frame + code[at + 1])
                 else:
                     args_.append(
-                        int.from_bytes(memory.read(frame + code[at + 1], code[at + 2]), "little"))
+                        int.from_bytes(
+                            memory.read(frame + code[at + 1], code[at + 2]), "little"
+                        )
+                    )
                 at += 3
             if out != NONE:
                 memory.write(frame + out, bytes(out_width))
@@ -390,7 +426,7 @@ def run(
                 data = a.to_bytes(8, "little")
             else:
                 data = memory.read(frame + a, width if width > 8 else b)
-            code, pc, frame, out, out_width, status = stack.pop()
+            code, pc, frame, frame_size, out, out_width, status = stack.pop()
             depth -= 1
             if width > 8:
                 if width > out_width:
@@ -409,12 +445,15 @@ def run(
             if kind == OPD_LITERAL:
                 value = a & 0xFFFFFFFF
             else:
-                value = int.from_bytes(memory.read(frame + a, min(b, 8)), "little") & 0xFFFFFFFF
+                value = (
+                    int.from_bytes(memory.read(frame + a, min(b, 8)), "little")
+                    & 0xFFFFFFFF
+                )
             if depth == 0:
                 return value, 0
             # the call gets its status; with no status slot to catch it, the run ends
             # with the refusal (the uncaught shape)
-            code, pc, frame, out, out_width, status = stack.pop()
+            code, pc, frame, frame_size, out, out_width, status = stack.pop()
             depth -= 1
             if status != NONE:
                 memory.write(frame + status, struct.pack("<I", value))
