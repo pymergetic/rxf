@@ -924,11 +924,15 @@ class Lowering:
         prior = self.operand(env, node.comparators[0])
         made = self.one_compare(node.ops[0], left, prior, node.lineno)
         for op, comparator in zip(node.ops[1:], node.comparators[1:], strict=True):
-            def when_true(op=op, comparator=comparator, prior=prior) -> list[MOperand]:
+            def when_true(
+                op: ast.cmpop = op,
+                comparator: ast.expr = comparator,
+                prior: MOperand = prior,
+            ) -> list[MOperand]:
                 new = self.operand(env, comparator)  # inside the arm: lazily evaluated
                 return [self.one_compare(op, prior, new, node.lineno), new]
 
-            def when_false(made=made, prior=prior) -> list[MOperand]:
+            def when_false(made: MOperand = made, prior: MOperand = prior) -> list[MOperand]:
                 return [made, prior]
 
             made, prior = self.lazy_join(made, when_true, when_false, 2)
