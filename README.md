@@ -304,16 +304,19 @@ RXF is a new version: a C++ core on one arena, with Python as orchestration (nan
   slot, and the editor's compile, install, poke and name search), and the 3D world view; and
 - the build (CMake, scikit-build-core, nanobind 3, platform wheels through cibuildwheel).
 
-**Under construction.** The last stretch of the **self-editing path**
-([19](docs/19-SELF-EDITING-PATH.md)): all twelve work packages are present — the
-running image compiles its own front end and installs the compiler from a delta (the
-fixpoint run, proven on x86-64, AArch64, and wasm32) — what remains is the composer
-(graph to program) inside the image and the final home of the compilers' sources.
+**Under construction.** The last rung of the **self-editing path**
+([19](docs/19-SELF-EDITING-PATH.md)): the compiler written as a semantic graph and
+the semantic-graph checks and passes
+([05](docs/05-SEMANTIC-AUTHORITY.md), [07](docs/07-SUCCESSOR-AND-ACTIVATION.md)).
+Everything below it is present — the running image compiles its own front end and
+composer from source, installs the compiler from a delta, and proves the fixpoint on
+x86-64, AArch64, and wasm32.
 
-**Not yet rebuilt.** The compiler, native Code binding, and executable builders of the former
-v5 Python stack are not in the tree (its last state is the git tag `legacy-v5-python`) and are
-still to be rebuilt on the core ([what is missing](docs/08-INVENTORY.md)). The package version
-stays `0.x` until then.
+**Not yet rebuilt.** Executable packaging (ELF, PE/COFF, BIOS) and certification are
+designs only ([what is missing](docs/08-INVENTORY.md),
+[10](docs/10-FACE-AND-CHANNELS.md), [11](docs/11-BOOTSTRAP-AND-QUORUM.md),
+[17](docs/17-OPERATING-SYSTEM-PATH.md)); the former v5 Python stack's last state is
+the git tag `legacy-v5-python`. The package version stays `0.x` until then.
 
 ## The format
 
