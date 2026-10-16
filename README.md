@@ -304,9 +304,11 @@ RXF is a new version: a C++ core on one arena, with Python as orchestration (nan
   slot, and the editor's compile, install, poke and name search), and the 3D world view; and
 - the build (CMake, scikit-build-core, nanobind 3, platform wheels through cibuildwheel).
 
-**Under construction.** The **self-editing path** ([19](docs/19-SELF-EDITING-PATH.md)): the
-running image compiles its own front end and replaces the compiler from a delta (the fixpoint
-run, proven on x86-64, AArch64, and wasm32).
+**Under construction.** The last stretch of the **self-editing path**
+([19](docs/19-SELF-EDITING-PATH.md)): all twelve work packages are present — the
+running image compiles its own front end and installs the compiler from a delta (the
+fixpoint run, proven on x86-64, AArch64, and wasm32) — what remains is the composer
+(graph to program) inside the image and the final home of the compilers' sources.
 
 **Not yet rebuilt.** The compiler, native Code binding, and executable builders of the former
 v5 Python stack are not in the tree (its last state is the git tag `legacy-v5-python`) and are
