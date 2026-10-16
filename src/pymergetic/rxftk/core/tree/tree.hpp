@@ -46,22 +46,24 @@ struct File {
 };
 
 /* The canonical files of an image: __init__.rxfd first, then the modules by file name. */
-Status files_of(const Image &image, std::vector<File> *out, std::string *error, unsigned threads = 0);
+Status files_of(const Image &image, std::vector<File> *out, std::string *error,
+                unsigned threads = 0);
 
 /* Writes the files below `directory` and returns how many. A directory that
  * holds anything is only used with `overwrite`, and then only `.rxfd` files
  * (and the folders they leave empty) are replaced. Nothing is touched when
  * the files cannot be produced. */
-Status write(const Image &image, const std::filesystem::path &directory, bool overwrite, size_t *count, std::string *error,
-             unsigned threads = 0);
+Status write(const Image &image, const std::filesystem::path &directory, bool overwrite,
+             size_t *count, std::string *error, unsigned threads = 0);
 
-/* Parses every `.rxfd` file below `directory` into one delta: the modules by file name, the root `__init__.rxfd` last.
- * Each file must define the module its path names, and nothing outside it. */
-Status read(const std::filesystem::path &directory, delta::Delta *out, std::string *error, unsigned threads = 0);
+/* Parses every `.rxfd` file below `directory` into one delta: the modules by file name, the root
+ * `__init__.rxfd` last. Each file must define the module its path names, and nothing outside it. */
+Status read(const std::filesystem::path &directory, delta::Delta *out, std::string *error,
+            unsigned threads = 0);
 
 /* A new image from the tree. */
-Status load(const std::filesystem::path &directory, uint64_t limit, std::unique_ptr<Image> *out, std::string *error,
-            unsigned threads = 0);
+Status load(const std::filesystem::path &directory, uint64_t limit, std::unique_ptr<Image> *out,
+            std::string *error, unsigned threads = 0);
 
 } // namespace pymergetic::rxf::core::tree
 

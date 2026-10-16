@@ -33,16 +33,29 @@ constexpr Handle kNone = PYMERGETIC_RXF_HANDLE_NONE;
 
 /* The forms of a Type: the values of ground.h, under the names the code uses. */
 enum Form : uint32_t {
-    kFormMeta = PYMERGETIC_RXF_FORM_META, kFormVoid = PYMERGETIC_RXF_FORM_VOID, kFormBool = PYMERGETIC_RXF_FORM_BOOL,
-    kFormUint = PYMERGETIC_RXF_FORM_UINT, kFormSint = PYMERGETIC_RXF_FORM_SINT, kFormFloat = PYMERGETIC_RXF_FORM_FLOAT,
-    kFormBytes = PYMERGETIC_RXF_FORM_BYTES, kFormStruct = PYMERGETIC_RXF_FORM_STRUCT, kFormUnion = PYMERGETIC_RXF_FORM_UNION,
-    kFormEnum = PYMERGETIC_RXF_FORM_ENUM, kFormArray = PYMERGETIC_RXF_FORM_ARRAY, kFormRef = PYMERGETIC_RXF_FORM_REF,
-    kFormFunction = PYMERGETIC_RXF_FORM_FUNCTION, kFormControl = PYMERGETIC_RXF_FORM_CONTROL,
-    kFormExpression = PYMERGETIC_RXF_FORM_EXPRESSION, kFormExecution = PYMERGETIC_RXF_FORM_EXECUTION,
-    kFormReserved16 = PYMERGETIC_RXF_FORM_RESERVED_16, kFormOpaque = PYMERGETIC_RXF_FORM_OPAQUE, kFormCount = PYMERGETIC_RXF_FORM_COUNT
+    kFormMeta = PYMERGETIC_RXF_FORM_META,
+    kFormVoid = PYMERGETIC_RXF_FORM_VOID,
+    kFormBool = PYMERGETIC_RXF_FORM_BOOL,
+    kFormUint = PYMERGETIC_RXF_FORM_UINT,
+    kFormSint = PYMERGETIC_RXF_FORM_SINT,
+    kFormFloat = PYMERGETIC_RXF_FORM_FLOAT,
+    kFormBytes = PYMERGETIC_RXF_FORM_BYTES,
+    kFormStruct = PYMERGETIC_RXF_FORM_STRUCT,
+    kFormUnion = PYMERGETIC_RXF_FORM_UNION,
+    kFormEnum = PYMERGETIC_RXF_FORM_ENUM,
+    kFormArray = PYMERGETIC_RXF_FORM_ARRAY,
+    kFormRef = PYMERGETIC_RXF_FORM_REF,
+    kFormFunction = PYMERGETIC_RXF_FORM_FUNCTION,
+    kFormControl = PYMERGETIC_RXF_FORM_CONTROL,
+    kFormExpression = PYMERGETIC_RXF_FORM_EXPRESSION,
+    kFormExecution = PYMERGETIC_RXF_FORM_EXECUTION,
+    kFormReserved16 = PYMERGETIC_RXF_FORM_RESERVED_16,
+    kFormOpaque = PYMERGETIC_RXF_FORM_OPAQUE,
+    kFormCount = PYMERGETIC_RXF_FORM_COUNT
 };
 
-constexpr uint32_t kTypeVariable = PYMERGETIC_RXF_TYPE_FLAG_VARIABLE; // payload may be longer than `size`
+constexpr uint32_t kTypeVariable =
+    PYMERGETIC_RXF_TYPE_FLAG_VARIABLE; // payload may be longer than `size`
 constexpr uint32_t kTypeSelfDescribing = PYMERGETIC_RXF_TYPE_FLAG_SELF_DESCRIBING;
 constexpr uint32_t kTypeBitset = PYMERGETIC_RXF_TYPE_FLAG_BITSET;
 
@@ -55,7 +68,10 @@ struct FieldInfo {
     uint32_t flags = 0;
     Handle via = kNone; // INVERSE: the Field or Role the other objects point through
 
-    bool is_member() const { return (flags & (PYMERGETIC_RXF_FIELD_FLAG_CHILDREN | PYMERGETIC_RXF_FIELD_FLAG_INVERSE)) != 0; }
+    bool is_member() const {
+        return (flags & (PYMERGETIC_RXF_FIELD_FLAG_CHILDREN | PYMERGETIC_RXF_FIELD_FLAG_INVERSE)) !=
+               0;
+    }
 };
 
 struct TypeInfo {
@@ -69,11 +85,18 @@ struct TypeInfo {
     uint32_t node_kind = 0; // the kind of the objects of this type; 0 means DATA
     Handle inner = kNone;
     Handle ret = kNone;
-    std::vector<FieldInfo> fields;  // the values of the payload, by offset, then name
-    std::vector<FieldInfo> members; // the declared relations (Children, Inverse): no payload, by name
-    bool variable() const { return (flags & kTypeVariable) != 0; }
-    bool self_describing() const { return (flags & kTypeSelfDescribing) != 0; }
-    bool bitset() const { return (flags & kTypeBitset) != 0; }
+    std::vector<FieldInfo> fields; // the values of the payload, by offset, then name
+    std::vector<FieldInfo>
+        members; // the declared relations (Children, Inverse): no payload, by name
+    bool variable() const {
+        return (flags & kTypeVariable) != 0;
+    }
+    bool self_describing() const {
+        return (flags & kTypeSelfDescribing) != 0;
+    }
+    bool bitset() const {
+        return (flags & kTypeBitset) != 0;
+    }
 };
 
 /* The named values of an enumeration Type: its Enumerator children, by value. */
@@ -86,8 +109,8 @@ enum class LeafKind : uint8_t { Uint, Sint, Bool, Float, Hex, Ref, Enum };
 
 /* One value of a payload as a text attribute. */
 struct Leaf {
-    std::string name;     // "a", "a.2" (element 2), "inner.x" (member); valid in an XML attribute name
-    uint64_t offset = 0;  // inside the payload
+    std::string name; // "a", "a.2" (element 2), "inner.x" (member); valid in an XML attribute name
+    uint64_t offset = 0; // inside the payload
     uint64_t size = 0;
     LeafKind kind = LeafKind::Hex;
     bool optional = false; // Ref: the field may be unset
@@ -97,18 +120,19 @@ struct Leaf {
 };
 
 struct Layout {
-    bool raw = false;      // no usable field list: the whole payload is one `_data` value
-    uint64_t prefix = 0;   // bytes covered by leaves; the rest is the `_data` tail
-    bool fixed = false;    // payload size must equal `prefix`
+    bool raw = false;    // no usable field list: the whole payload is one `_data` value
+    uint64_t prefix = 0; // bytes covered by leaves; the rest is the `_data` tail
+    bool fixed = false;  // payload size must equal `prefix`
     std::vector<Leaf> leaves;
-    std::string error;     // why the type cannot be used (empty when it can)
+    std::string error;       // why the type cannot be used (empty when it can)
     bool incomplete = false; // the error is a Field or value type that does not exist (yet)
 };
 
 struct Attr {
     std::string name;
     std::string value;
-    bool is_path = false; // the value starts with the path of an object (a reference field, an enumerator), which an alias may shorten
+    bool is_path = false; // the value starts with the path of an object (a reference field, an
+                          // enumerator), which an alias may shorten
 };
 
 /* Attribute of the raw or tail bytes of a payload. */
@@ -119,10 +143,16 @@ bool from_hex(const std::string &text, std::vector<uint8_t> *out);
 std::string hex_of(const uint8_t *p, uint64_t n);
 
 class Types {
-public:
-    explicit Types(const Image *image) : image_(image) {}
-    const Image &image() const { return *image_; }
-    void rebind(const Image *image) { image_ = image; invalidate(); }
+  public:
+    explicit Types(const Image *image) : image_(image) {
+    }
+    const Image &image() const {
+        return *image_;
+    }
+    void rebind(const Image *image) {
+        image_ = image;
+        invalidate();
+    }
     /* The image changed in a Type or Field object. */
     void invalidate();
 
@@ -136,7 +166,7 @@ public:
     /* The named values of an enumeration Type, nullptr when `type` is not one. */
     const EnumInfo *enumeration(Handle type);
 
-private:
+  private:
     const Image *image_;
     std::unordered_map<Handle, TypeInfo> info_;
     std::unordered_map<Handle, Layout> layouts_;
@@ -162,21 +192,23 @@ Status decode_payload(Types &types, Handle object, std::vector<Attr> *out, std::
 /* Attributes to payload bytes. A reference whose path `resolve` cannot answer is
  * left unset and listed in `pending`. Unknown attributes are an error. `parent`
  * is the handle of the parent object, which a Field takes as its owner. */
-Status encode_payload(Types &types, Handle type, const std::vector<Attr> &attrs, const Resolver &resolve,
-                      std::vector<uint8_t> *payload, std::vector<PendingRef> *pending, std::string *error,
-                      Handle parent = kNone);
+Status encode_payload(Types &types, Handle type, const std::vector<Attr> &attrs,
+                      const Resolver &resolve, std::vector<uint8_t> *payload,
+                      std::vector<PendingRef> *pending, std::string *error, Handle parent = kNone);
 
-/* Everything that points at `targets` from outside it: parent, type, payload handles, and references. */
+/* Everything that points at `targets` from outside it: parent, type, payload handles, and
+ * references. */
 std::vector<std::string> referrers(Types &types, const std::vector<Handle> &targets);
 
 /* The compaction hook: rewrites payload handles of every object. */
 class Remapper : public object::PayloadRemap {
-public:
-    explicit Remapper(Types *types) : types_(types) {}
+  public:
+    explicit Remapper(Types *types) : types_(types) {
+    }
     Status remap(const Image &source, Handle object, uint8_t *payload, uint64_t size,
                  const std::function<Handle(Handle)> &map) const override;
 
-private:
+  private:
     Types *types_;
 };
 
@@ -196,8 +228,8 @@ std::vector<Issue> check(Types &types);
  * are not the text its codec words name. */
 Status doc_text(Types &types, Handle doc, std::string *out, std::string *error);
 
-/* The paths that the ground fixes: Type, Field, uint32_t, uint64_t, Enumerator, the enumerations of the
- * format, and everything below them. */
+/* The paths that the ground fixes: Type, Field, uint32_t, uint64_t, Enumerator, the enumerations of
+ * the format, and everything below them. */
 bool is_ground(const Image &image, Handle object);
 
 /* Aliases. A path in an object that starts with '@' names an Alias object of the enclosing Module:
@@ -205,18 +237,23 @@ bool is_ground(const Image &image, Handle object);
 inline constexpr char kAliasMark = '@';
 /* The nearest Module that is `object` or above it, kNone when there is none. */
 Handle scope_of(const Image &image, Handle object);
-/* The handle at `text` as seen from `object`: an absolute path, or an alias path. kNone when it does not
- * resolve (yet): the alias or its target is missing. */
+/* The handle at `text` as seen from `object`: an absolute path, or an alias path. kNone when it
+ * does not resolve (yet): the alias or its target is missing. */
 Handle resolve_in(Types &types, Handle object, const std::string &text);
-/* The Alias objects of a Module as (name, absolute target path), for shortening paths on the way out. */
+/* The Alias objects of a Module as (name, absolute target path), for shortening paths on the way
+ * out. */
 std::vector<std::pair<std::string, std::string>> aliases_of(Types &types, Handle module);
-/* The index in `aliases` of the alias that writes `path` shorter (the longest one that is a prefix), -1 when none does. */
-int alias_for(const std::vector<std::pair<std::string, std::string>> &aliases, const std::string &path);
+/* The index in `aliases` of the alias that writes `path` shorter (the longest one that is a
+ * prefix), -1 when none does. */
+int alias_for(const std::vector<std::pair<std::string, std::string>> &aliases,
+              const std::string &path);
 /* `path` as short as the aliases allow ("@name.rest"), or `path` itself. */
-std::string shorten(const std::vector<std::pair<std::string, std::string>> &aliases, const std::string &path);
-/* An object whose written paths go through an Alias: `user` is written with `alias`. Each pair once. */
-/* The paths of an object that the text form writes and an alias may shorten: reference fields, enumerators, the
- * targets and roles of its references. Absolute, in the order they are written. */
+std::string shorten(const std::vector<std::pair<std::string, std::string>> &aliases,
+                    const std::string &path);
+/* An object whose written paths go through an Alias: `user` is written with `alias`. Each pair
+ * once. */
+/* The paths of an object that the text form writes and an alias may shorten: reference fields,
+ * enumerators, the targets and roles of its references. Absolute, in the order they are written. */
 std::vector<std::string> written_paths(Types &types, Handle object);
 struct AliasUse {
     Handle alias;
@@ -226,17 +263,18 @@ std::vector<AliasUse> alias_uses(Types &types);
 
 /* A declared relation of an object and what is in it. */
 struct Member {
-    Handle field = kNone;        // the Field object that declares it
-    std::vector<Handle> items;   // in order
+    Handle field = kNone;      // the Field object that declares it
+    std::vector<Handle> items; // in order
 };
 
-/* The siblings in their order: by position (the `index` field of the type when it has one, else the `index` of the cell),
- * then by name with a trailing `[n]` read as a number. */
+/* The siblings in their order: by position (the `index` field of the type when it has one, else the
+ * `index` of the cell), then by name with a trailing `[n]` read as a number. */
 std::vector<Handle> ordered(Types &types, std::vector<Handle> handles);
 
 /* The Children and Inverse fields of the type of the object, each with its objects. */
 std::vector<Member> members(Types &types, Handle object);
-/* The Alias is marked as a deliberate name of its module (the enumerator REEXPORT in its `flags`), used or not. */
+/* The Alias is marked as a deliberate name of its module (the enumerator REEXPORT in its `flags`),
+ * used or not. */
 inline constexpr const char *kAliasReexport = "Reexport";
 bool alias_reexported(Types &types, Handle alias);
 
@@ -266,15 +304,18 @@ ModuleStat module_stat(const Image &image, const std::string &name, std::string 
 
 /* The sub-module names of a package (what makes it one), in name order; empty for a leaf module
    and for none. Refused exactly like `module_stat`. */
-std::vector<std::string> module_children(const Image &image, const std::string &name, std::string *error);
+std::vector<std::string> module_children(const Image &image, const std::string &name,
+                                         std::string *error);
 
-/* A name an XML element or attribute can carry: letters, digits, '_', '-', '.', not starting with a digit. */
+/* A name an XML element or attribute can carry: letters, digits, '_', '-', '.', not starting with a
+ * digit. */
 bool is_symbol(const std::string &name);
-/* The attributes of the text form that are not in its namespace (name, path); no Field may have these names. */
+/* The attributes of the text form that are not in its namespace (name, path); no Field may have
+ * these names. */
 bool is_reserved_attribute(const std::string &name);
-/* The one element of the text form that is not in its namespace (delta); no Type may have this name. */
+/* The one element of the text form that is not in its namespace (delta); no Type may have this
+ * name. */
 bool is_reserved_element(const std::string &name);
-
 
 } // namespace pymergetic::rxf::core::meta
 

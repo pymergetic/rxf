@@ -17,38 +17,52 @@ namespace pymergetic::rxf::core::arena {
 
 enum class Status : int32_t {
     Ok = 0,
-    OutOfMemory,    // the memory region cannot commit more bytes
-    BadHandle,      // not a live handle
-    BadImage,       // a layout invariant does not hold
-    IndexFull,      // the index directory has no room for another chunk
-    TooLarge,       // a size is outside what a cell can describe
-    Protected,      // the root, Type, and Field cannot be destroyed
+    OutOfMemory, // the memory region cannot commit more bytes
+    BadHandle,   // not a live handle
+    BadImage,    // a layout invariant does not hold
+    IndexFull,   // the index directory has no room for another chunk
+    TooLarge,    // a size is outside what a cell can describe
+    Protected,   // the root, Type, and Field cannot be destroyed
     // The host layer (core/object) adds these.
-    NameTaken,      // a sibling already has this name
-    BadName,        // empty, or contains '.' or NUL
-    HasChildren,    // an object with children cannot be removed
-    Dangling,       // a mandatory reference or a parent points at an omitted object
-    BadPath,        // a path does not resolve
-    JournalFull,    // the undo log has no room; the transaction has to be rolled back
-    NoJournal,      // begin() twice, or commit() and rollback() without begin()
+    NameTaken,   // a sibling already has this name
+    BadName,     // empty, or contains '.' or NUL
+    HasChildren, // an object with children cannot be removed
+    Dangling,    // a mandatory reference or a parent points at an omitted object
+    BadPath,     // a path does not resolve
+    JournalFull, // the undo log has no room; the transaction has to be rolled back
+    NoJournal,   // begin() twice, or commit() and rollback() without begin()
 };
 
 inline constexpr const char *status_name(Status status) {
     switch (status) {
-    case Status::Ok: return "Ok";
-    case Status::OutOfMemory: return "OutOfMemory";
-    case Status::BadHandle: return "BadHandle";
-    case Status::BadImage: return "BadImage";
-    case Status::IndexFull: return "IndexFull";
-    case Status::TooLarge: return "TooLarge";
-    case Status::Protected: return "Protected";
-    case Status::NameTaken: return "NameTaken";
-    case Status::BadName: return "BadName";
-    case Status::HasChildren: return "HasChildren";
-    case Status::Dangling: return "Dangling";
-    case Status::BadPath: return "BadPath";
-    case Status::JournalFull: return "JournalFull";
-    case Status::NoJournal: return "NoJournal";
+    case Status::Ok:
+        return "Ok";
+    case Status::OutOfMemory:
+        return "OutOfMemory";
+    case Status::BadHandle:
+        return "BadHandle";
+    case Status::BadImage:
+        return "BadImage";
+    case Status::IndexFull:
+        return "IndexFull";
+    case Status::TooLarge:
+        return "TooLarge";
+    case Status::Protected:
+        return "Protected";
+    case Status::NameTaken:
+        return "NameTaken";
+    case Status::BadName:
+        return "BadName";
+    case Status::HasChildren:
+        return "HasChildren";
+    case Status::Dangling:
+        return "Dangling";
+    case Status::BadPath:
+        return "BadPath";
+    case Status::JournalFull:
+        return "JournalFull";
+    case Status::NoJournal:
+        return "NoJournal";
     }
     return "Unknown";
 }
@@ -69,7 +83,7 @@ struct CellSpec {
     pymergetic_rxf_handle parent = PYMERGETIC_RXF_HANDLE_NONE;
     const char *name = nullptr; /* NUL-free bytes; nullptr or length 0 = no name */
     uint64_t name_length = 0;
-    uint32_t flags = 0;         /* kind, state, owner kind */
+    uint32_t flags = 0; /* kind, state, owner kind */
     uint64_t generation = 0;
     uint32_t index = 0;
     uint64_t payload_size = 0;
@@ -85,7 +99,7 @@ inline constexpr uint64_t align_up(uint64_t value, uint64_t alignment) {
 }
 
 class Arena {
-public:
+  public:
     /* A fresh, empty arena. `index_capacity` is the number of handles the index
      * can hold; it is rounded up to whole chunks and the directory to a
      * multiple of 8 chunks. */
@@ -117,7 +131,9 @@ public:
     Status begin(const Memory &log);
     Status commit();
     Status rollback();
-    bool journaling() const { return journaling_; }
+    bool journaling() const {
+        return journaling_;
+    }
     Status before_write(uint64_t offset, uint64_t length);
     /* Pointers for writing: the cell header (64 bytes), the payload, the references. nullptr
      * when the handle is not live or the log is full. */
@@ -126,27 +142,41 @@ public:
     pymergetic_rxf_ref *refs_w(pymergetic_rxf_handle handle);
 
     bool live(pymergetic_rxf_handle handle) const;
-    pymergetic_rxf_cell *cell(pymergetic_rxf_handle handle) const;       /* nullptr when not live */
-    uint8_t *payload(pymergetic_rxf_handle handle) const;     /* nullptr when not live */
-    pymergetic_rxf_ref *refs(pymergetic_rxf_handle handle) const;        /* nullptr when not live */
-    const char *name(pymergetic_rxf_handle handle) const;     /* "" when unnamed */
+    pymergetic_rxf_cell *cell(pymergetic_rxf_handle handle) const; /* nullptr when not live */
+    uint8_t *payload(pymergetic_rxf_handle handle) const;          /* nullptr when not live */
+    pymergetic_rxf_ref *refs(pymergetic_rxf_handle handle) const;  /* nullptr when not live */
+    const char *name(pymergetic_rxf_handle handle) const;          /* "" when unnamed */
 
     /* Sequential walk over the cell stream; offsets are arena-relative. */
-    uint64_t first_offset() const { return header_->cells_off; }
-    uint64_t end_offset() const { return header_->cells_off + header_->frontier; }
+    uint64_t first_offset() const {
+        return header_->cells_off;
+    }
+    uint64_t end_offset() const {
+        return header_->cells_off + header_->frontier;
+    }
     pymergetic_rxf_cell *cell_at(uint64_t offset) const {
         return reinterpret_cast<pymergetic_rxf_cell *>(memory_.base + offset);
     }
 
-    const pymergetic_rxf_arena_header *header() const { return header_; }
-    pymergetic_rxf_arena_header *mutable_header() { return header_; }
-    const Memory &memory() const { return memory_; }
-    uint64_t handle_count() const { return header_->handle_count; }
+    const pymergetic_rxf_arena_header *header() const {
+        return header_;
+    }
+    pymergetic_rxf_arena_header *mutable_header() {
+        return header_;
+    }
+    const Memory &memory() const {
+        return memory_;
+    }
+    uint64_t handle_count() const {
+        return header_->handle_count;
+    }
     /* The end offset the last allocation asked for and the region did not have (0: none yet). A
      * host that commits pages on demand reads it to know how far to commit. */
-    uint64_t need() const { return need_; }
+    uint64_t need() const {
+        return need_;
+    }
 
-private:
+  private:
     Status ensure(uint64_t end);
     Status ensure_log(uint64_t end);
     Status write_slot(pymergetic_rxf_handle handle, uint64_t value);
@@ -163,11 +193,12 @@ private:
 
     Memory log_{};
     bool journaling_ = false;
-    pymergetic_rxf_arena_header saved_; /* the header at begin(); not zeroed (a block clear is a library call) */
-    uint64_t mark_ = 0;                   /* end of the cell stream at begin() */
-    uint64_t used_ = 0;                   /* bytes of the log in use: bitmap, then records */
-    uint64_t bitmap_ = 0;                 /* bytes of the bitmap at the start of the log */
-    uint64_t need_ = 0;                   /* see need() */
+    pymergetic_rxf_arena_header
+        saved_;           /* the header at begin(); not zeroed (a block clear is a library call) */
+    uint64_t mark_ = 0;   /* end of the cell stream at begin() */
+    uint64_t used_ = 0;   /* bytes of the log in use: bitmap, then records */
+    uint64_t bitmap_ = 0; /* bytes of the bitmap at the start of the log */
+    uint64_t need_ = 0;   /* see need() */
 };
 
 } // namespace pymergetic::rxf::core::arena

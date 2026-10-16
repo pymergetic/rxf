@@ -43,7 +43,8 @@ const char *name_of(Table table, uint32_t value);
 /* The value of a name; false when the table has none. */
 bool value_of(Table table, std::string_view name, uint32_t *out);
 
-/* The names of the enumeration Types of the ground. Their enumerators are written as paths: `Form.Struct`. */
+/* The names of the enumeration Types of the ground. Their enumerators are written as paths:
+ * `Form.Struct`. */
 inline constexpr const char *kNodeKindType = "NodeKind";
 inline constexpr const char *kRefKindType = "RefKind";
 inline constexpr const char *kBindingType = "Binding";
@@ -60,7 +61,8 @@ inline constexpr const char *kDocRoleType = "DocRole";
 /* The built-in type of a doc: its text, with the codec of that text (docs/22). */
 inline constexpr const char *kDocType = "Doc";
 
-/* An enumeration the ground carries as a Type object, so that Type and Field payloads are written by name. */
+/* An enumeration the ground carries as a Type object, so that Type and Field payloads are written
+ * by name. */
 struct GroundEnum {
     const char *type;
     Table table;
@@ -68,7 +70,8 @@ struct GroundEnum {
 };
 std::span<const GroundEnum> ground_enums();
 
-/* The path of a value of one of the ground enumerations (`Type.Name`), empty when the table has no name for it. */
+/* The path of a value of one of the ground enumerations (`Type.Name`), empty when the table has no
+ * name for it. */
 std::string path_of(const char *type, Table table, uint32_t value);
 /* The value of such a path; false when it is not `Type.Name` of this table. */
 bool value_of_path(const char *type, Table table, std::string_view text, uint32_t *out);

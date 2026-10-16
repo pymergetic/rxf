@@ -215,8 +215,8 @@ RXF_FUNCTION rxf_u32 rxf_host_run(const void *words, rxf_u64 words_bytes, const 
                                   rxf_u64 args_bytes, rxf_u64 memory_base, rxf_u64 memory_size,
                                   rxf_u64 limit, rxf_u64 *out) {
     const rxf_u64 *code = (const rxf_u64 *)words;
-    if (!out || !words || !args || (words_bytes & 7) || words_bytes < 5 * 8 ||
-        (args_bytes & 7) || !memory_base)
+    if (!out || !words || !args || (words_bytes & 7) || words_bytes < 5 * 8 || (args_bytes & 7) ||
+        !memory_base)
         return RXF_REFUSE_OUT_OF_RANGE;
     /* What rxf_sim.run writes before it starts: the frame block of the flat memory is zero. */
     rxf_u64 frame_bytes = code[1];

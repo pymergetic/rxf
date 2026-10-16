@@ -27,7 +27,8 @@ using meta::Attr;
 using object::Image;
 using object::Status;
 
-/* The kind of an object is the node kind of its Type (DATA when the Type names none) unless it is given. */
+/* The kind of an object is the node kind of its Type (DATA when the Type names none) unless it is
+ * given. */
 constexpr uint32_t kKindDerived = 0xFFFFFFFFU;
 
 struct RefSpec {
@@ -41,7 +42,7 @@ struct RefSpec {
 struct Create {
     std::string parent; // path; empty is the root
     std::string name;
-    std::string type;   // the name of a Type object
+    std::string type; // the name of a Type object
     uint32_t kind = kKindDerived;
     uint32_t mobility = PYMERGETIC_RXF_MOBILITY_MOVABLE;
     uint32_t owner_kind = PYMERGETIC_RXF_OWNER_SHARED;
@@ -98,7 +99,8 @@ std::string describe(const Failure &failure);
 /* The canonical delta of an image: everything but the ground, in path order.
  * With `module`, only that Module object (or "" for what sits at the root) and what
  * it holds, without its sub-modules; the entry belongs to the root. */
-Status export_image(const Image &image, Delta *out, std::string *error, const std::string *module = nullptr);
+Status export_image(const Image &image, Delta *out, std::string *error,
+                    const std::string *module = nullptr);
 
 /* A new image with the ground and nothing else. */
 Status make_image(uint64_t limit, uint64_t index_capacity, std::unique_ptr<Image> *out);

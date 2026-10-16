@@ -33,7 +33,8 @@ struct Stored {
 };
 Stored store(uint32_t codec, std::string_view text);
 /* The text behind a stored tail. False when the tail is not that codec's text. */
-bool unstore(uint32_t codec, const uint8_t *tail, uint64_t tail_size, std::string *out, std::string *error);
+bool unstore(uint32_t codec, const uint8_t *tail, uint64_t tail_size, std::string *out,
+             std::string *error);
 
 } // namespace pymergetic::rxf::core::doc
 

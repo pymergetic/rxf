@@ -222,8 +222,8 @@ static wit_data_payload *step_data(wit_world *ww, smp_run_payload *run) {
 
     /* The coherence check: what this run wrote at its last step must still be there, and the
      * guards of the setup must be intact. A stale raw address or a torn copy fails here. */
-    if (data->run_index != run->run_index || data->seed != run->seed ||
-        data->sum != run->acc_sum || data->xor_value != run->acc_xor ||
+    if (data->run_index != run->run_index || data->seed != run->seed || data->sum != run->acc_sum ||
+        data->xor_value != run->acc_xor ||
         data->guard[0] != data_guard(run->seed, run->run_index, 0) ||
         data->guard[1] != data_guard(run->seed, run->run_index, 1)) {
         run->verify_bad++;
@@ -238,7 +238,8 @@ static wit_data_payload *step_data(wit_world *ww, smp_run_payload *run) {
     return data;
 }
 
-#define WIT_MP_BLOCK 4u /* the VM-loop cadence (S11): four back-edge polls to one bytecode frame */
+/* the VM-loop cadence (S11): four back-edge polls to one bytecode frame */
+#define WIT_MP_BLOCK 4u
 
 /*
  * The MicroPython shape (docs/20, S11): a pair of runs per interrupt source. The source (even
@@ -528,9 +529,8 @@ static int step_run(void *ctx, smp_world *w, smp_run_payload *run, uint32_t carr
      * its resume on another records the handoff, and the waker it saw is its sender. With the
      * rendezvous above every word of every pair is a park/wake cycle, so the pair demonstrates
      * the S4 handoff by construction and not by the luck of the interleaving. */
-    if (run->kind == WIT_PROGRAM_CHANNEL && run->run_index % 2 == 1 &&
-        run->park_carrier != 0 && run->resume_carrier != 0 &&
-        run->resume_carrier != run->park_carrier) {
+    if (run->kind == WIT_PROGRAM_CHANNEL && run->run_index % 2 == 1 && run->park_carrier != 0 &&
+        run->resume_carrier != 0 && run->resume_carrier != run->park_carrier) {
         uint32_t want = 0;
         if (atomic_compare_exchange_strong_explicit(&ww->pair_recorded, &want, 1,
                                                     memory_order_acq_rel, memory_order_acquire)) {
@@ -614,8 +614,7 @@ static void *mutator_main(void *p) {
                 rxf_smp_arena_free(&ww->arena, ww->churn[ww->churn_used++]);
                 atomic_fetch_add_explicit(&ww->delta_freed, 1, memory_order_relaxed);
             }
-            rxf_smp_handle scratch =
-                rxf_smp_arena_alloc(&ww->arena, RXF_SMP_CELL_SCRATCH, 32, 0);
+            rxf_smp_handle scratch = rxf_smp_arena_alloc(&ww->arena, RXF_SMP_CELL_SCRATCH, 32, 0);
             if (scratch != RXF_SMP_HANDLE_NONE) {
                 atomic_fetch_add_explicit(&ww->delta_cells, 1, memory_order_relaxed);
                 rxf_smp_arena_free(&ww->arena, scratch);
@@ -693,8 +692,8 @@ static void *watchdog_main(void *p) {
                 (smp_run_payload *)rxf_smp_arena_resolve(&ww->arena, ww->run_handles[i]);
             if (!run)
                 continue;
-            int parked = atomic_load_explicit(&run->state, memory_order_acquire) ==
-                         RXF_SMP_STATE_PARKED;
+            int parked =
+                atomic_load_explicit(&run->state, memory_order_acquire) == RXF_SMP_STATE_PARKED;
             uint32_t kind = run->kind;
             rxf_smp_handle self = run->self;
             rxf_smp_arena_release(&ww->arena, ww->run_handles[i]);
@@ -751,10 +750,9 @@ void wit_go(uint32_t n_runs, uint32_t n_carriers, uint32_t seed, uint64_t steps_
     uint32_t mp_pairs = pairs / 2;
     uint32_t channel_pairs = pairs - mp_pairs;
     for (uint32_t p = 0; p < channel_pairs; p++) {
-        rxf_smp_handle ch = rxf_smp_arena_alloc(&ww.arena, RXF_SMP_CELL_CHANNEL,
-                                                sizeof(wit_channel_payload), 0);
-        wit_channel_payload *payload =
-            (wit_channel_payload *)rxf_smp_arena_resolve(&ww.arena, ch);
+        rxf_smp_handle ch =
+            rxf_smp_arena_alloc(&ww.arena, RXF_SMP_CELL_CHANNEL, sizeof(wit_channel_payload), 0);
+        wit_channel_payload *payload = (wit_channel_payload *)rxf_smp_arena_resolve(&ww.arena, ch);
         memset(payload, 0, sizeof(*payload));
         rxf_smp_arena_release(&ww.arena, ch);
         ww.pair_channels[p] = ch;
@@ -801,8 +799,7 @@ void wit_go(uint32_t n_runs, uint32_t n_carriers, uint32_t seed, uint64_t steps_
         /* A churn cell between the live cells: the delta frees these in the middle of the stream
          * so the compactor has real gaps to close under the live runs (S8). */
         if ((i & 1u) == 0 && ww.churn_count < WIT_MAX_RUNS / 2) {
-            rxf_smp_handle churn =
-                rxf_smp_arena_alloc(&ww.arena, RXF_SMP_CELL_SCRATCH, 24, 0);
+            rxf_smp_handle churn = rxf_smp_arena_alloc(&ww.arena, RXF_SMP_CELL_SCRATCH, 24, 0);
             if (churn != RXF_SMP_HANDLE_NONE)
                 ww.churn[ww.churn_count++] = churn;
         }
@@ -845,9 +842,8 @@ void wit_go(uint32_t n_runs, uint32_t n_carriers, uint32_t seed, uint64_t steps_
         smp_run_payload *run =
             (smp_run_payload *)rxf_smp_arena_resolve(&ww.arena, ww.run_handles[i]);
         uint32_t want = RXF_SMP_STATE_FREE;
-        int ready = atomic_compare_exchange_strong_explicit(&run->state, &want, RXF_SMP_STATE_READY,
-                                                            memory_order_acq_rel,
-                                                            memory_order_acquire);
+        int ready = atomic_compare_exchange_strong_explicit(
+            &run->state, &want, RXF_SMP_STATE_READY, memory_order_acq_rel, memory_order_acquire);
         rxf_smp_arena_release(&ww.arena, ww.run_handles[i]);
         if (ready)
             while (smp_ring_push(&ww.w, ww.run_handles[i]) != 0)
@@ -899,8 +895,7 @@ void wit_go(uint32_t n_runs, uint32_t n_carriers, uint32_t seed, uint64_t steps_
             (wit_data_payload *)rxf_smp_arena_resolve(&ww.arena, ww.data_handles[i]);
         if (run && data) {
             if (data->run_index != i || data->seed != seed || data->sum != run->acc_sum ||
-                data->xor_value != run->acc_xor ||
-                data->guard[0] != data_guard(seed, i, 0) ||
+                data->xor_value != run->acc_xor || data->guard[0] != data_guard(seed, i, 0) ||
                 data->guard[1] != data_guard(seed, i, 1))
                 verify_bad++;
             sum += run->acc_sum;

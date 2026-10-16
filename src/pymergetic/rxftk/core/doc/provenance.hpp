@@ -38,10 +38,10 @@ using Handle = pymergetic_rxf_handle;
 /* The locator a citation carries: where the cited range sits in its source
  * file, and optionally the content hash of that file. */
 struct Locator {
-    std::string path;     // the source file the citation names
+    std::string path; // the source file the citation names
     uint32_t first_line = 0;
     uint32_t last_line = 0;
-    std::string sha256;   // 64 lowercase hex digits, or empty (not claimed)
+    std::string sha256; // 64 lowercase hex digits, or empty (not claimed)
 };
 
 /* The canonical record text of a locator, and its parser. Export writes the
@@ -75,8 +75,8 @@ struct Origin {
 /* One fact: a Doc object below `parent`, its text stored in the codec `codec`
  * asks for (compressed where it pays). `kind`, `status`, and `codec` are the
  * words of docs/22 (DocKind, DocStatus, DocCodec); an unnamed value is refused. */
-Status add(Image &image, Handle parent, std::string_view name, uint32_t kind, uint32_t status, uint32_t codec,
-           std::string_view text, Handle *out, std::string *error);
+Status add(Image &image, Handle parent, std::string_view name, uint32_t kind, uint32_t status,
+           uint32_t codec, std::string_view text, Handle *out, std::string *error);
 
 /* The editorial placement (docs/22): a RefKind.Doc reference from `source` onto
  * the Doc `doc`, carrying the DocRole `role`. It takes no runtime ref slot, and
@@ -87,26 +87,26 @@ Status place(Image &image, Handle source, Handle doc, uint32_t role, std::string
 /* Comment lifting: a comment or docstring becomes a Doc (lz4 where it pays)
  * below the object it documents, placed on it (RefKind.Doc). This is what the
  * importer calls for every comment it lifts. */
-Status lift_comment(Image &image, Handle target, std::string_view name, std::string_view text, uint32_t kind,
-                    uint32_t status, uint32_t role, Handle *out, std::string *error);
+Status lift_comment(Image &image, Handle target, std::string_view name, std::string_view text,
+                    uint32_t kind, uint32_t status, uint32_t role, Handle *out, std::string *error);
 
 /* The origin record of a source set: one Doc per source set, written once and
  * shared by every object it produced. Written from `cite` up; refused at hash
  * (hash is identity without location). */
-Status origin(Image &image, Handle parent, std::string_view name, Tier tier, const Origin &facts, Handle *out,
-              std::string *error);
+Status origin(Image &image, Handle parent, std::string_view name, Tier tier, const Origin &facts,
+              Handle *out, std::string *error);
 
 /* The imported source itself: one lz4 Doc per source file, one stored payload
  * behind many placements. Written only at `full`; `origin` (may be kNone) is
  * the origin record the source belongs to (its Parent topic link). */
-Status source(Image &image, Handle parent, std::string_view name, Tier tier, std::string_view text, Handle origin,
-              Handle *out, std::string *error);
+Status source(Image &image, Handle parent, std::string_view name, Tier tier, std::string_view text,
+              Handle origin, Handle *out, std::string *error);
 
 /* The content SHA of an imported source file: the only fact at `hash` --
  * identity without location, one hash per file, shared by every object of it.
  * Written only at hash; from `cite` up the hash rides in the citation's locator. */
-Status hash(Image &image, Handle parent, std::string_view name, Tier tier, std::string_view sha256, Handle *out,
-            std::string *error);
+Status hash(Image &image, Handle parent, std::string_view name, Tier tier, std::string_view sha256,
+            Handle *out, std::string *error);
 
 /* One citation: the locator of the range an imported object came from, as a
  * small Doc whose text tail is the locator (the seam). Placed on every object
@@ -114,8 +114,8 @@ Status hash(Image &image, Handle parent, std::string_view name, Tier tier, std::
  * fact it cites (the file's source Doc at full, the origin record at cite).
  * Written from `cite` up; refused at hash (a locator is location). */
 Status cite(Image &image, Handle parent, std::string_view name, Tier tier, const Locator &locator,
-            const std::vector<Handle> &placed_on, const std::vector<Handle> &provenance, Handle *out,
-            std::string *error);
+            const std::vector<Handle> &placed_on, const std::vector<Handle> &provenance,
+            Handle *out, std::string *error);
 
 /* The locator a citing Doc carries (its text tail). BadImage when the text is
  * not a locator record. */
@@ -123,7 +123,8 @@ Status locator_of(const Image &image, Handle citation, Locator *out, std::string
 
 /* The permalink the citation stands for, from its locator and the origin record
  * it cites. BadName when it cites no origin record. */
-Status citation_permalink(const Image &image, Handle citation, std::string *out, std::string *error);
+Status citation_permalink(const Image &image, Handle citation, std::string *out,
+                          std::string *error);
 
 } // namespace pymergetic::rxf::core::doc
 

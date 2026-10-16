@@ -73,16 +73,16 @@ enum {
     WIT_OUT_WATCHDOG_WAKES = 39, /* the edge shim woke a parked run (timeout liveness, S9) */
     WIT_OUT_CARRIER_STEPS = 40,  /* 40 .. 40 + 31 */
     WIT_OUT_CARRIER_POPS = 72,   /* 72 .. 72 + 31 */
-    WIT_OUT_ABA_OK = 104,      /* the stale handle was refused on a re-used slot (S3) */
-    WIT_OUT_PAIR_PARK = 105,   /* the carrier that parked the channel receiver */
-    WIT_OUT_PAIR_RESUME = 106, /* the carrier that resumed it (must differ, S4) */
-    WIT_OUT_VERIFY_BAD = 107,  /* a step that found its data cell wrong (S8) */
-    WIT_OUT_GATE_DRAINS = 108, /* the proof knob froze the dispatchers (the safe-point gate) */
-    WIT_OUT_POISON_BAD = 109,  /* passes whose vacated bytes were touched (must be 0) */
-    WIT_OUT_STALLED = 110,     /* runs that did not end before the deadline (must be 0) */
-    WIT_OUT_SPINS = 111,       /* what the compactor waited for claims in total */
+    WIT_OUT_ABA_OK = 104,        /* the stale handle was refused on a re-used slot (S3) */
+    WIT_OUT_PAIR_PARK = 105,     /* the carrier that parked the channel receiver */
+    WIT_OUT_PAIR_RESUME = 106,   /* the carrier that resumed it (must differ, S4) */
+    WIT_OUT_VERIFY_BAD = 107,    /* a step that found its data cell wrong (S8) */
+    WIT_OUT_GATE_DRAINS = 108,   /* the proof knob froze the dispatchers (the safe-point gate) */
+    WIT_OUT_POISON_BAD = 109,    /* passes whose vacated bytes were touched (must be 0) */
+    WIT_OUT_STALLED = 110,       /* runs that did not end before the deadline (must be 0) */
+    WIT_OUT_SPINS = 111,         /* what the compactor waited for claims in total */
     WIT_OUT_SPINS_MAX = 112,
-    WIT_OUT_PAIR_WAKER = 113,  /* the run that woke the channel receiver (the sender's identity) */
+    WIT_OUT_PAIR_WAKER = 113,   /* the run that woke the channel receiver (the sender's identity) */
     WIT_OUT_FORWARD_LOST = 114, /* moved cells whose old place a later slide covered: the record
                                  * cannot survive there; with FORWARD_OK it accounts for every
                                  * moved cell exactly (S8) */

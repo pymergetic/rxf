@@ -20,9 +20,13 @@ static inline uint64_t read_u64(const uint8_t *p) {
     return v;
 }
 
-static inline void write_u64(uint8_t *p, uint64_t v) { memcpy(p, &v, 8); }
+static inline void write_u64(uint8_t *p, uint64_t v) {
+    memcpy(p, &v, 8);
+}
 
-static inline uint64_t align16(uint64_t n) { return (n + 15u) & ~(uint64_t)15u; }
+static inline uint64_t align16(uint64_t n) {
+    return (n + 15u) & ~(uint64_t)15u;
+}
 
 /* The whole extent of a cell: a 64-byte header and the payload padded to 16. The cells of this
  * proof carry no inline references (docs/17 keeps them after the payload; nothing here uses them,
@@ -31,7 +35,9 @@ static uint64_t cell_bytes(uint64_t payload_size) {
     return align16(RXF_SMP_CELL_BYTES + align16(payload_size));
 }
 
-static inline uint32_t cell_type(const uint8_t *c) { return (uint32_t)read_u64(c + RXF_SMP_C_TYPE); }
+static inline uint32_t cell_type(const uint8_t *c) {
+    return (uint32_t)read_u64(c + RXF_SMP_C_TYPE);
+}
 
 static inline uint64_t cell_payload_size(const uint8_t *c) {
     return read_u64(c + RXF_SMP_C_PAYLOAD_SIZE);
@@ -167,7 +173,8 @@ void rxf_smp_arena_release(rxf_smp_arena *a, rxf_smp_handle h) {
     uint32_t index = RXF_SMP_H_INDEX(h);
     if (index == 0 || index >= a->next_index)
         return;
-    /* A claim is never held across a safe point, so the holder is always the one who releases it. */
+    /* A claim is never held across a safe point, so the holder is always the one who releases it.
+     */
     atomic_fetch_sub_explicit(&a->slots[index].claim, 1, memory_order_release);
 }
 
@@ -247,12 +254,11 @@ void rxf_smp_compact_move(rxf_smp_arena *a, rxf_smp_compact_stats *st) {
     for (uint32_t i = 0; i < n; i++)
         order[i] = i + 1;
     for (uint32_t i = 1; i < n; i++) { /* insertion sort: n is small in the proof */
-        uint64_t key_off =
-            atomic_load_explicit(&a->slots[order[i]].offset, memory_order_relaxed);
+        uint64_t key_off = atomic_load_explicit(&a->slots[order[i]].offset, memory_order_relaxed);
         uint32_t key = order[i];
         int64_t j = (int64_t)i - 1;
-        while (j >= 0 && atomic_load_explicit(&a->slots[order[j]].offset, memory_order_relaxed) >
-                            key_off) {
+        while (j >= 0 &&
+               atomic_load_explicit(&a->slots[order[j]].offset, memory_order_relaxed) > key_off) {
             order[j + 1] = order[j];
             j--;
         }
@@ -309,9 +315,9 @@ void rxf_smp_compact_move(rxf_smp_arena *a, rxf_smp_compact_stats *st) {
                 /* The harness looks at every moved cell: 1 when it belongs to a run that is
                  * parked at this instant (docs/20, S7), 2 when the run is between safe points
                  * (mid-flight, S8). */
-                int seen = st->observe(st->ctx, nw + RXF_SMP_CELL_BYTES, type,
-                                       RXF_SMP_HANDLE(*(uint32_t *)(nw + RXF_SMP_C_INDEX),
-                                                      cell_generation(nw)));
+                int seen = st->observe(
+                    st->ctx, nw + RXF_SMP_CELL_BYTES, type,
+                    RXF_SMP_HANDLE(*(uint32_t *)(nw + RXF_SMP_C_INDEX), cell_generation(nw)));
                 if (seen & 1)
                     st->parked_moved++;
                 if (seen & 2)

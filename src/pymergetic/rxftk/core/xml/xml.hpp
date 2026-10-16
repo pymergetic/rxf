@@ -19,7 +19,8 @@
  *     <Module name="app" rxf:parent="pymergetic.rxf" category="ModuleCategory.Application">
  *       <Alias name="roles" target="pymergetic.rxf.roles"/>
  *       <Function name="main" signature="pymergetic.rxf.app.main.sig">
- *         <rxf:ref role="@roles.call.Callee" kind="RefKind.Call" target="pymergetic.rxf.lib.total"/>
+ *         <rxf:ref role="@roles.call.Callee" kind="RefKind.Call"
+ * target="pymergetic.rxf.lib.total"/>
  *       </Function>
  *     </Module>
  *     <rxf:set path="pymergetic.rxf.app" category="ModuleCategory.Library"/>
@@ -41,10 +42,13 @@ namespace pymergetic::rxf::core::xml {
 
 using object::Status;
 
-/* `default_parent` is the parent of a top-level element that names none (rxf:parent); without it that is the root.
- * The printer leaves rxf:parent out where it equals `default_parent`, and cannot print an element of another parent. */
-Status parse(const std::string &text, delta::Delta *out, std::string *error, const std::string *default_parent = nullptr);
-Status write(const delta::Delta &delta, std::string *out, std::string *error, const std::string *default_parent = nullptr);
+/* `default_parent` is the parent of a top-level element that names none (rxf:parent); without it
+ * that is the root. The printer leaves rxf:parent out where it equals `default_parent`, and cannot
+ * print an element of another parent. */
+Status parse(const std::string &text, delta::Delta *out, std::string *error,
+             const std::string *default_parent = nullptr);
+Status write(const delta::Delta &delta, std::string *out, std::string *error,
+             const std::string *default_parent = nullptr);
 
 } // namespace pymergetic::rxf::core::xml
 

@@ -14,12 +14,12 @@ namespace pymergetic::rxf::core::hash {
 using Digest = std::array<uint8_t, 32>;
 
 class Sha256 {
-public:
+  public:
     Sha256();
     void update(const void *data, size_t size);
     Digest finish();
 
-private:
+  private:
     void block(const uint8_t *chunk);
     uint32_t state_[8];
     uint8_t buffer_[64];

@@ -29,14 +29,10 @@ constexpr Name kNodeKinds[] = {
 };
 
 constexpr Name kRefKinds[] = {
-    {"Call", PYMERGETIC_RXF_REF_CALL},
-    {"Data", PYMERGETIC_RXF_REF_DATA},
-    {"Entry", PYMERGETIC_RXF_REF_ENTRY},
-    {"Type", PYMERGETIC_RXF_REF_TYPE},
-    {"Import", PYMERGETIC_RXF_REF_IMPORT},
-    {"Implementation", PYMERGETIC_RXF_REF_IMPLEMENTATION},
-    {"Owner", PYMERGETIC_RXF_REF_OWNER},
-    {"Doc", PYMERGETIC_RXF_REF_DOC},
+    {"Call", PYMERGETIC_RXF_REF_CALL},     {"Data", PYMERGETIC_RXF_REF_DATA},
+    {"Entry", PYMERGETIC_RXF_REF_ENTRY},   {"Type", PYMERGETIC_RXF_REF_TYPE},
+    {"Import", PYMERGETIC_RXF_REF_IMPORT}, {"Implementation", PYMERGETIC_RXF_REF_IMPLEMENTATION},
+    {"Owner", PYMERGETIC_RXF_REF_OWNER},   {"Doc", PYMERGETIC_RXF_REF_DOC},
 };
 
 constexpr Name kBindings[] = {
@@ -45,9 +41,9 @@ constexpr Name kBindings[] = {
 };
 
 constexpr Name kOwners[] = {
-    {"System", PYMERGETIC_RXF_OWNER_SYSTEM},     {"User", PYMERGETIC_RXF_OWNER_USER},
+    {"System", PYMERGETIC_RXF_OWNER_SYSTEM},           {"User", PYMERGETIC_RXF_OWNER_USER},
     {"Application", PYMERGETIC_RXF_OWNER_APPLICATION}, {"Build", PYMERGETIC_RXF_OWNER_BUILD},
-    {"Device", PYMERGETIC_RXF_OWNER_DEVICE},     {"External", PYMERGETIC_RXF_OWNER_EXTERNAL},
+    {"Device", PYMERGETIC_RXF_OWNER_DEVICE},           {"External", PYMERGETIC_RXF_OWNER_EXTERNAL},
     {"Shared", PYMERGETIC_RXF_OWNER_SHARED},
 };
 
@@ -58,15 +54,24 @@ constexpr Name kMobilities[] = {
 };
 
 constexpr Name kForms[] = {
-    {"Meta", PYMERGETIC_RXF_FORM_META},         {"Void", PYMERGETIC_RXF_FORM_VOID},
-    {"Bool", PYMERGETIC_RXF_FORM_BOOL},         {"Uint", PYMERGETIC_RXF_FORM_UINT},
-    {"Sint", PYMERGETIC_RXF_FORM_SINT},         {"Float", PYMERGETIC_RXF_FORM_FLOAT},
-    {"Bytes", PYMERGETIC_RXF_FORM_BYTES},       {"Struct", PYMERGETIC_RXF_FORM_STRUCT},
-    {"Union", PYMERGETIC_RXF_FORM_UNION},       {"Enum", PYMERGETIC_RXF_FORM_ENUM},
-    {"Array", PYMERGETIC_RXF_FORM_ARRAY},       {"Ref", PYMERGETIC_RXF_FORM_REF},
-    {"Function", PYMERGETIC_RXF_FORM_FUNCTION}, {"Control", PYMERGETIC_RXF_FORM_CONTROL},
-    {"Expression", PYMERGETIC_RXF_FORM_EXPRESSION}, {"Execution", PYMERGETIC_RXF_FORM_EXECUTION},
-    {"Reserved16", PYMERGETIC_RXF_FORM_RESERVED_16}, {"Opaque", PYMERGETIC_RXF_FORM_OPAQUE},
+    {"Meta", PYMERGETIC_RXF_FORM_META},
+    {"Void", PYMERGETIC_RXF_FORM_VOID},
+    {"Bool", PYMERGETIC_RXF_FORM_BOOL},
+    {"Uint", PYMERGETIC_RXF_FORM_UINT},
+    {"Sint", PYMERGETIC_RXF_FORM_SINT},
+    {"Float", PYMERGETIC_RXF_FORM_FLOAT},
+    {"Bytes", PYMERGETIC_RXF_FORM_BYTES},
+    {"Struct", PYMERGETIC_RXF_FORM_STRUCT},
+    {"Union", PYMERGETIC_RXF_FORM_UNION},
+    {"Enum", PYMERGETIC_RXF_FORM_ENUM},
+    {"Array", PYMERGETIC_RXF_FORM_ARRAY},
+    {"Ref", PYMERGETIC_RXF_FORM_REF},
+    {"Function", PYMERGETIC_RXF_FORM_FUNCTION},
+    {"Control", PYMERGETIC_RXF_FORM_CONTROL},
+    {"Expression", PYMERGETIC_RXF_FORM_EXPRESSION},
+    {"Execution", PYMERGETIC_RXF_FORM_EXECUTION},
+    {"Reserved16", PYMERGETIC_RXF_FORM_RESERVED_16},
+    {"Opaque", PYMERGETIC_RXF_FORM_OPAQUE},
 };
 
 constexpr Name kTypeFlags[] = {
@@ -110,18 +115,12 @@ constexpr Name kDocRoles[] = {
 };
 
 constexpr GroundEnum kGroundEnums[] = {
-    {kNodeKindType, Table(kNodeKinds), false},
-    {kRefKindType, Table(kRefKinds), false},
-    {kBindingType, Table(kBindings), false},
-    {kOwnerKindType, Table(kOwners), false},
-    {kMobilityType, Table(kMobilities), false},
-    {kFormType, Table(kForms), false},
-    {kTypeFlagsType, Table(kTypeFlags), true},
-    {kFieldFlagsType, Table(kFieldFlags), true},
-    {kDocKindType, Table(kDocKinds), false},
-    {kDocStatusType, Table(kDocStatuses), false},
-    {kDocCodecType, Table(kDocCodecs), false},
-    {kDocRoleType, Table(kDocRoles), false},
+    {kNodeKindType, Table(kNodeKinds), false},  {kRefKindType, Table(kRefKinds), false},
+    {kBindingType, Table(kBindings), false},    {kOwnerKindType, Table(kOwners), false},
+    {kMobilityType, Table(kMobilities), false}, {kFormType, Table(kForms), false},
+    {kTypeFlagsType, Table(kTypeFlags), true},  {kFieldFlagsType, Table(kFieldFlags), true},
+    {kDocKindType, Table(kDocKinds), false},    {kDocStatusType, Table(kDocStatuses), false},
+    {kDocCodecType, Table(kDocCodecs), false},  {kDocRoleType, Table(kDocRoles), false},
 };
 
 } // namespace
@@ -141,7 +140,8 @@ const Table doc_roles = kDocRoles;
 
 const char *name_of(Table table, uint32_t value) {
     for (const Name &entry : table)
-        if (entry.value == value) return entry.name;
+        if (entry.value == value)
+            return entry.name;
     return nullptr;
 }
 
@@ -154,7 +154,9 @@ bool value_of(Table table, std::string_view name, uint32_t *out) {
     return false;
 }
 
-std::span<const GroundEnum> ground_enums() { return kGroundEnums; }
+std::span<const GroundEnum> ground_enums() {
+    return kGroundEnums;
+}
 
 std::string path_of(const char *type, Table table, uint32_t value) {
     const char *name = name_of(table, value);
@@ -163,14 +165,18 @@ std::string path_of(const char *type, Table table, uint32_t value) {
 
 bool value_of_path(const char *type, Table table, std::string_view text, uint32_t *out) {
     const std::string_view head(type);
-    if (text.size() <= head.size() + 1 || text.substr(0, head.size()) != head || text[head.size()] != '.') return false;
+    if (text.size() <= head.size() + 1 || text.substr(0, head.size()) != head ||
+        text[head.size()] != '.')
+        return false;
     return value_of(table, text.substr(head.size() + 1), out);
 }
 
 bool is_ground_name(std::string_view name) {
-    if (name == "uint32_t" || name == "uint64_t" || name == "Enumerator" || name == kDocType) return true;
+    if (name == "uint32_t" || name == "uint64_t" || name == "Enumerator" || name == kDocType)
+        return true;
     for (const GroundEnum &entry : kGroundEnums)
-        if (name == entry.type) return true;
+        if (name == entry.type)
+            return true;
     return false;
 }
 
