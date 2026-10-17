@@ -12,11 +12,11 @@ SECTIONS
     . = 0x400000;
     .text : { *(.text*) }
     . = ALIGN(0x1000);
-    .rodata : { *(.rodata*) }
+    .rodata : { *(.rodata*) *(.rxftrst) }
     . = ALIGN(0x1000);
     .data : { *(.data*) }
     . = ALIGN(0x1000);
-    .rxfpkg : { *(.rxfpkg) }
+    .rxfpkg : { KEEP(*(.rxfpkg)) }
     . = ALIGN(0x1000);
     .bss : { *(.bss*) *(COMMON) }
     /DISCARD/ : { *(.comment) *(.note*) *(.eh_frame*) }

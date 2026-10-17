@@ -47,12 +47,23 @@ rxf_u32 rxf_wrap_enter(const void *package, rxf_u64 package_bytes, void *block, 
     if (!same(p->magic, RXF_WRAP_MAGIC, 4) || p->version != RXF_WRAP_VERSION ||
         p->total != package_bytes)
         return RXF_WRAP_ANSWER_BAD_PACKAGE;
-    for (i = 0; i < sizeof p->reserved / sizeof p->reserved[0]; i++)
+    /* The named windows of the header (wrap.h): the arena window is named and still
+     * zero, the cert block of the tail is whole, and the rest of the reserved words is
+     * zero. */
+    for (i = 0; i < 2; i++)
+        if (p->reserved[i])
+            return RXF_WRAP_ANSWER_BAD_PACKAGE;
+    if ((p->reserved[2] == 0) != (p->reserved[3] == 0))
+        return RXF_WRAP_ANSWER_BAD_PACKAGE;
+    for (i = 4; i < sizeof p->reserved / sizeof p->reserved[0]; i++)
         if (p->reserved[i])
             return RXF_WRAP_ANSWER_BAD_PACKAGE;
     limit = p->base + p->image_bytes;
     if (p->image < RXF_WRAP_PACKAGE_BYTES || p->image_bytes < sizeof(rxf_runtime_context) ||
         p->image + p->image_bytes > p->total)
+        return RXF_WRAP_ANSWER_BAD_PACKAGE;
+    if (p->reserved[3] && (p->reserved[2] < p->image + p->image_bytes ||
+                           p->reserved[2] + p->reserved[3] != p->total))
         return RXF_WRAP_ANSWER_BAD_PACKAGE;
     if (!inside(p->run, 8, p->base, limit) || !inside(p->args, 8, p->base, limit) ||
         !inside(p->out, 8, p->base, limit) || !inside(p->frame, 8, p->base, limit))
@@ -62,7 +73,8 @@ rxf_u32 rxf_wrap_enter(const void *package, rxf_u64 package_bytes, void *block, 
     /* Load the image: the block is the memory of the run, nothing in it is relocated. */
     if ((const rxf_u8 *)package + p->image != (const rxf_u8 *)block)
         copy((rxf_u8 *)block, (const rxf_u8 *)package + p->image, p->image_bytes);
-    if (rxf_activate_check(block, p->image_bytes))
+    if (rxf_activate_check(block, p->image_bytes, (const rxf_u8 *)package + p->reserved[2],
+                           p->reserved[3]))
         return RXF_WRAP_ANSWER_ACTIVATION;
     entry.object_id = p->entry.object_id;
     entry.generation = p->entry.generation;

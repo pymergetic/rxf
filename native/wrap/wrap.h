@@ -61,8 +61,12 @@
 /*
  * The header of a package: what the wrapper needs and nothing more. Every address is
  * the one the image was linked at (tools/native/link.py), so the block sits at `base`
- * and nothing in it is relocated. The reserved words are zero now and zero-checked by
- * every reader.
+ * and nothing in it is relocated. The reserved words carry two named windows and
+ * nothing else: reserved[0..1] is the arena window of the image (named for the arena
+ * lane, still zero and zero-checked), reserved[2..3] is the cert block of the package's
+ * tail as (offset, bytes) -- the statements of the voices over this image (docs/11),
+ * in the records binary.package.CERT_RECORD_BYTES pins. The rest is zero and
+ * zero-checked by every reader.
  */
 typedef struct {
     char magic[4];           /* "RXFW" */
@@ -76,7 +80,7 @@ typedef struct {
     rxf_u64 out;             /* the address of the run's output */
     rxf_u64 frame;           /* the address of the interpreter's frame block */
     rxf_object_handle entry; /* the handle the run is called with */
-    rxf_u64 reserved[12];
+    rxf_u64 reserved[12];    /* the arena window, the cert window, then zero */
 } rxf_wrap_package;
 
 _Static_assert(sizeof(rxf_wrap_package) == RXF_WRAP_PACKAGE_BYTES, "package ABI");
@@ -132,10 +136,22 @@ static inline rxf_u8 rxf_wrap_inb(rxf_u16 port) {
 #endif
 
 /*
- * The activation seam: the certification lane fills this in (src/pymergetic/rxftk/certify
- * owns the checks that live behind it). It answers 0 to pass the image, anything else
- * to refuse it; the wrapper reports an activation refusal and runs nothing.
+ * The activation seam: the check an image passes before it is entered -- 'ok means it
+ * is written for THIS image' (docs/07, docs/11). `block` is the image already loaded
+ * at the base the header names, `cert` the cert block of the package's tail (no bytes
+ * when the package carries none). The seam answers RXF_WRAP_ACTIVATE_OK to pass the
+ * image and one named refusal to refuse it; the wrapper reports an activation refusal
+ * and runs nothing. It is one function so the certification lane
+ * (src/pymergetic/rxftk/certify) and the wrapper lane never meet anywhere else.
  */
-rxf_u32 rxf_activate_check(const void *block, rxf_u64 block_bytes);
+#define RXF_WRAP_ACTIVATE_OK 0
+#define RXF_WRAP_ACTIVATE_NO_CERT 1     /* the anchor wants voices and the package has none */
+#define RXF_WRAP_ACTIVATE_BAD_CERT 2    /* the cert block is not whole usable records */
+#define RXF_WRAP_ACTIVATE_BAD_ANCHOR 3  /* the trust anchor is not itself usable */
+#define RXF_WRAP_ACTIVATE_NO_VOICE 4    /* no admitted voice spoke for these bytes */
+#define RXF_WRAP_ACTIVATE_NO_QUORUM 5   /* fewer voices than the policy's quorum */
+
+rxf_u32 rxf_activate_check(const void *block, rxf_u64 block_bytes, const void *cert,
+                           rxf_u64 cert_bytes);
 
 #endif
