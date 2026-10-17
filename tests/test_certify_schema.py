@@ -1,4 +1,4 @@
-"""The statement format: five words, one canonical byte string, the named refusals.
+"""The statement format: the bound words, one canonical byte string, the named refusals.
 
 Two things are pinned here: the canonical serialization a voice signs (byte for
 byte, golden — it may not drift between runs or versions) and the wire shapes
@@ -26,49 +26,57 @@ from pymergetic.rxftk.certify import (
 
 IMAGE = "ab" * 32
 TEXT = "cd" * 32
+BLOCK = "ef" * 32
 NOW = 1700000000
 
-# The pinned canonical bytes of (IMAGE, TEXT, "release-1", NOW): five tagged
-# lines, each ending in a newline. A change here is a format change.
+# The pinned canonical bytes of (IMAGE, TEXT, BLOCK, "release-1", NOW): six
+# tagged lines, each ending in a newline. A change here is a format change.
 GOLDEN = (
-    b"rxf-certify-statement-v1\n"
+    b"rxf-certify-statement-v2\n"
     b"image " + b"ab" * 32 + b"\n"
     b"text " + b"cd" * 32 + b"\n"
+    b"block " + b"ef" * 32 + b"\n"
     b"key release-1\n"
     b"issued 1700000000\n"
 )
 
 
 def statement(signature: bytes = bytes(64)) -> Statement:
-    return Statement(IMAGE, TEXT, "release-1", NOW, signature)
+    return Statement(IMAGE, TEXT, BLOCK, "release-1", NOW, signature)
 
 
 def test_the_canonical_bytes_are_pinned() -> None:
     """The exact bytes a voice signs — golden, so no run may differ from another."""
-    assert certify.canonical(IMAGE, TEXT, "release-1", NOW) == GOLDEN
+    assert certify.canonical(IMAGE, TEXT, BLOCK, "release-1", NOW) == GOLDEN
     assert statement().signable() == GOLDEN
 
 
 def test_the_canonical_bytes_are_stable_across_runs() -> None:
     """Two constructions of one statement produce one byte string, every time."""
-    first = certify.canonical(*_four(statement()))
-    again = Statement(IMAGE, TEXT, "release-1", NOW, bytes(64))
-    assert certify.canonical(*_four(again)) == first == GOLDEN
-    assert first == certify.canonical(IMAGE, TEXT, "release-1", NOW)
+    first = certify.canonical(*_five(statement()))
+    again = Statement(IMAGE, TEXT, BLOCK, "release-1", NOW, bytes(64))
+    assert certify.canonical(*_five(again)) == first == GOLDEN
+    assert first == certify.canonical(IMAGE, TEXT, BLOCK, "release-1", NOW)
 
 
-def _four(value: Statement) -> tuple[str, str, str, int]:
-    return value.image_digest, value.text_digest, value.key_id, value.issued
+def _five(value: Statement) -> tuple[str, str, str, str, int]:
+    return (
+        value.image_digest,
+        value.text_digest,
+        value.block_digest,
+        value.key_id,
+        value.issued,
+    )
 
 
 def test_one_statement_is_one_byte_string() -> None:
     """A key id carries no space and no newline: no two statements share bytes."""
-    assert certify.canonical(IMAGE, TEXT, "a-b.c_1", 1) != certify.canonical(
-        IMAGE, TEXT, "a-b.c_2", 1
+    assert certify.canonical(IMAGE, TEXT, BLOCK, "a-b.c_1", 1) != certify.canonical(
+        IMAGE, TEXT, BLOCK, "a-b.c_2", 1
     )
     for bad in ("", "with space", "with\nnewline", "tab\tseparated"):
         with pytest.raises(MalformedStatement):
-            certify.canonical(IMAGE, TEXT, bad, NOW)
+            certify.canonical(IMAGE, TEXT, BLOCK, bad, NOW)
 
 
 def test_the_values_are_frozen() -> None:
@@ -84,13 +92,13 @@ def test_the_values_are_frozen() -> None:
 def test_a_malformed_statement_is_refused_at_the_door() -> None:
     """Words that are not a statement never become one."""
     with pytest.raises(MalformedStatement):
-        Statement("not-a-digest", TEXT, "release-1", NOW, bytes(64))
+        Statement("not-a-digest", TEXT, BLOCK, "release-1", NOW, bytes(64))
     with pytest.raises(MalformedStatement):
-        Statement(IMAGE, "AB" * 32, "release-1", NOW, bytes(64))  # uppercase is not it
+        Statement(IMAGE, "AB" * 32, BLOCK, "release-1", NOW, bytes(64))  # uppercase is not it
     with pytest.raises(MalformedStatement):
-        Statement(IMAGE, TEXT, "release-1", -1, bytes(64))
+        Statement(IMAGE, TEXT, BLOCK, "release-1", -1, bytes(64))
     with pytest.raises(MalformedStatement):
-        Statement(IMAGE, TEXT, "release-1", NOW, bytes(63))
+        Statement(IMAGE, TEXT, BLOCK, "release-1", NOW, bytes(63))
 
 
 def test_a_malformed_key_or_store_is_refused_by_name() -> None:

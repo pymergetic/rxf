@@ -116,6 +116,20 @@ def sha256(package: bytes) -> str:
     return hashlib.sha256(package).hexdigest()
 
 
+def block_digest(package: bytes) -> str:
+    """The SHA-256 of the linked image of a built package: the word a voice signs.
+
+    This is the digest of the exact bytes a wrapper loads into its block and
+    runs -- the `block` word of a statement (``certify.Statement``) and the
+    check ``native/wrap/wrap_activate.c`` makes at boot. It covers the linked
+    image only, never the cert block of the tail: the statements sign the
+    program, and the tail travels beside it.
+    """
+    parsed = parse(package)
+    region = package[parsed.image : parsed.image + parsed.image_bytes]
+    return hashlib.sha256(region).hexdigest()
+
+
 def parse(package: bytes) -> Package:
     """The header of the bytes, checked the way a wrapper checks it before it loads."""
     if len(package) < HEADER_BYTES:

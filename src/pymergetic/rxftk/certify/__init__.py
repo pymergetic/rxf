@@ -1,13 +1,14 @@
-"""Certification (docs/11): signed statements bind an image's two digests to keys.
+"""Certification (docs/11): signed statements bind an image's three words to keys.
 
-A statement is one voice: `issue` makes one over `Image.digest()` and
-`Image.delta_digest()`. `verify` is the activation check — one pure function
-that takes the digests a boot is about to run, one statement, and the trust
-store, and answers ok or a typed refusal by name (wrong digest, unknown key,
-bad signature, expired / not-yet, revoked key). `verify_quorum` is the decision
-docs/11 sketches: M valid distinct voices of the N that spoke, over the same
-two digests. No clock, no machine, no network is consulted (docs/11: policy is
-typed metadata, never inferred from the file's opener).
+A statement is one voice: `issue` makes one over `Image.digest()`,
+`Image.delta_digest()` and the linked image's block digest. `verify` is the
+activation check — one pure function that takes the words a boot is about to
+run, one statement, and the trust store, and answers ok or a typed refusal by
+name (wrong digest, unknown key, bad signature, expired / not-yet, revoked
+key). `verify_quorum` is the decision docs/11 sketches: M valid distinct voices
+of the N that spoke, over the same three words. No clock, no machine, no
+network is consulted (docs/11: policy is typed metadata, never inferred from
+the file's opener).
 
 The signatures are Ed25519 per RFC 8032 in pure Python (`certify.ed25519`),
 pinned against the RFC's test vectors. docs/11 leaves the quorum shape open
@@ -109,32 +110,40 @@ def public_of(seed: bytes) -> bytes:
 def issue(
     image_digest: Digest,
     text_digest: Digest,
+    block_digest: Digest,
     key_id: KeyId,
     seed: bytes,
     issued: Time,
 ) -> Statement:
-    """A statement signed by the seed's voice: the digests, the key id, the stamp."""
+    """A statement signed by the seed's voice: the three words, the key id, the stamp."""
     if len(seed) != SEED_BYTES:
         raise MalformedKey(f"a seed is {SEED_BYTES} bytes")
-    signature = ed25519.sign(seed, canonical(image_digest, text_digest, key_id, issued))
-    return Statement(image_digest, text_digest, key_id, issued, signature)
+    signature = ed25519.sign(
+        seed, canonical(image_digest, text_digest, block_digest, key_id, issued)
+    )
+    return Statement(image_digest, text_digest, block_digest, key_id, issued, signature)
 
 
 def verify(
     image_digest: Digest,
     text_digest: Digest,
+    block_digest: Digest,
     statement: Statement,
     trust_store: TrustStore,
 ) -> Ok:
-    """The activation check: one voice over these digests, ok or a typed refusal.
+    """The activation check: one voice over these words, ok or a typed refusal.
 
     The cheap words refuse first — the digests, the key, its revocation, the
     stamp against the store's policy words — and the signature, the only
     expensive step, is checked last. That is what keeps a boot-time decision
     fast; the caller gets `Ok`, or catches the named `Refusal` it wants.
     """
-    if statement.image_digest != image_digest or statement.text_digest != text_digest:
-        raise WrongDigest("the statement speaks for other digests than these")
+    if (
+        statement.image_digest != image_digest
+        or statement.text_digest != text_digest
+        or statement.block_digest != block_digest
+    ):
+        raise WrongDigest("the statement speaks for other words than these")
     key = trust_store.voice(statement.key_id)
     if key is None:
         raise UnknownKey(f"no voice {statement.key_id} is admitted here")
@@ -159,6 +168,7 @@ def verify(
 def verify_quorum(
     image_digest: Digest,
     text_digest: Digest,
+    block_digest: Digest,
     statements: Sequence[Statement],
     trust_store: TrustStore,
 ) -> Quorum:
@@ -172,7 +182,7 @@ def verify_quorum(
     refused: list[tuple[KeyId, Refusal]] = []
     for statement in statements:
         try:
-            ok = verify(image_digest, text_digest, statement, trust_store)
+            ok = verify(image_digest, text_digest, block_digest, statement, trust_store)
         except Refusal as refusal:
             refused.append((statement.key_id, refusal))
             continue

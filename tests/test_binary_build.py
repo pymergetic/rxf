@@ -108,26 +108,34 @@ def _trust(quorum: int, *seeds: bytes) -> TrustStore:
     return TrustStore(Policy(now=NOW, max_age=3600, skew=60, quorum=quorum), keys, frozenset())
 
 
-def test_the_activation_quorum_is_the_gate_of_the_build(tmp_path, image):
-    """The seam (docs/11): a voice over other digests refuses the build by name
+def test_the_activation_quorum_is_the_gate_of_the_build(tmp_path, image, built):
+    """The seam (docs/11): a voice over other words refuses the build by name
     (the `WrongDigest` rides in the quorum's report) and nothing is written;
     the right voice lets the build through."""
     seed = bytes(range(32))
     trust = _trust(1, seed)
-    wrong = certify.issue("00" * 32, "11" * 32, "release-1", seed, NOW)
+    wrong = certify.issue("00" * 32, "11" * 32, "22" * 32, "release-1", seed, NOW)
     with pytest.raises(NotEnoughVoices) as caught:
         builder.build("elf", image, tmp_path, trust=trust, statements=[wrong])
     assert isinstance(caught.value.refused[0][1], WrongDigest)
     assert list(tmp_path.iterdir()) == []
-    right = certify.issue(image.digest(), image.delta_digest(), "release-1", seed, NOW)
+    right = certify.issue(
+        image.digest(), image.delta_digest(), package.block_digest(built), "release-1", seed, NOW
+    )
     made = builder.build("elf", image, tmp_path, trust=trust, statements=[right])
     assert Path(made["artifact"]).is_file()
+    assert made["block_sha256"] == package.block_digest(built)  # the word a voice signs
 
 
-def test_the_activation_quorum_needs_every_voice_of_its_policy(tmp_path, image):
+def test_the_activation_quorum_needs_every_voice_of_its_policy(tmp_path, image, built):
     """M-of-N at the gate: one voice where the policy wants two is `NotEnoughVoices`."""
     signed = certify.issue(
-        image.digest(), image.delta_digest(), "release-1", bytes(range(32)), NOW
+        image.digest(),
+        image.delta_digest(),
+        package.block_digest(built),
+        "release-1",
+        bytes(range(32)),
+        NOW,
     )
     with pytest.raises(NotEnoughVoices):
         builder.build(
@@ -144,7 +152,14 @@ def test_the_cli_activates_a_build_with_statement_files(tmp_path):
     """The face's wires: STORE and statement files guard `rxf binary build`."""
     seed = bytes(range(32))
     image = source.load(str(STARTER))
-    signed = certify.issue(image.digest(), image.delta_digest(), "release-1", seed, NOW)
+    signed = certify.issue(
+        image.digest(),
+        image.delta_digest(),
+        package.block_digest(package.build(image)),
+        "release-1",
+        seed,
+        NOW,
+    )
     store_file = tmp_path / "trust.json"
     voice_file = tmp_path / "release-1.json"
     store_file.write_text(json.dumps(certify.store_wire(_trust(1, seed))), encoding="utf-8")
