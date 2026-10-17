@@ -50,6 +50,22 @@ HUD, the scene export are shell; `pymergetic.*` calls the view makes are the fac
 of a scene document is the `js.fetch` fill. The firmware seat has no shell and needs none:
 its "presentation" is a typed function of the image.
 
+## The words first rule
+
+Functionality is RXF first: what a seat does is the words of the image, written as source
+(`.rxfs`, the language of `tools/native/rxfc.py`) and callable from the loader on — from the
+boot wrapper and a CPython extension just as from a seat's fill. Native code around that is a
+mini shim: it hands over the request and the memory and runs the words, nothing else. A shim
+that carries logic is a second implementation of the image and stops existing.
+
+The one window before this is the boot that must verify the image before it can run it
+(`native/wrap/`); it ends where the arena exists. Everything after that is words with shims.
+
+When the binary grows too fat, a module leaves the image as its XML delta and is pulled back
+in when it is needed again. The export and the import of a delta are what the object world
+already does (`rxpack`, `Image.apply`); trading size for a pull is a property of content, not
+a second format.
+
 ## The seats
 
 (the seat names follow [17](17-OPERATING-SYSTEM-PATH.md))
@@ -92,6 +108,9 @@ shell, in this order:
   [17](17-OPERATING-SYSTEM-PATH.md) are still the open work of that document.
 - A prove that asserts *no face code lives in a shell file* (a lint of the boundary itself)
   is **[missing]**; until it exists, the rule is enforced by review and by the seat proves.
+- The words first rule is **[partial]**: the first primitive is written and proven as words
+  (`native/crypto/sha256.rxfs`, `tests/test_crypto_rxfs.py`); the rest of the crypto card and
+  the shims that call the words are the open work it names.
 
 This design names no runtime provider. Providers are external and optional — Metal among
 them ([integrations/metal.md](integrations/metal.md)); its concepts and maps stay in its own
