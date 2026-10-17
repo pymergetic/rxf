@@ -6,7 +6,9 @@
  * are block-stack buildings whose floors are the cell anatomy (the 64-byte header word for word,
  * the payload regions of S1, the reference rows), dead/poisoned memory is rubble and void tiles,
  * handle references are ground traces routed on the tile grid (stale handles = red ghost traces
- * to graves), and the ready-ring is a ring road with tram units on it. No Math.random: the scene
+ * to graves), cables that share a street stretch ride it as one package (a duct — thicker the
+ * more it carries, its members drawing only their own last mile), and the ready-ring is a ring
+ * road with tram units on it. No Math.random: the scene
  * is a deterministic function of the JSON and the animation clock.
  *
  * One scene, one camera rig: orthographic top-down (classic RTS) <-> perspective fly view with a
@@ -36,7 +38,7 @@
 (function (global) {
   "use strict";
 
-  var SCHEMA = "rxf-world-2";
+  var SCHEMA = "rxf-world-3";
   var FOV = 0.9;
   var TRAM_LAP = 90; /* seconds for one lap of the ring road */
   var RING_ROAD_WIDTH = 5.6; /* matches export.py RING_WIDTH: the detours keep this room */
@@ -803,10 +805,12 @@
         bucket.push(matrix);
       }
     }
-    function climb(points, cruise) {
-      /* the polyline gains altitudes: pad level at both ends, a ramp over the first and last
-       * stretch, cruise in between — the cable leaves its pad, flies its sheet, dives into
-       * the target's pad */
+    function climb(points, cruise, depart, arrive) {
+      /* the polyline gains altitudes: pad level where the run touches a pad (``depart`` at its
+       * source end, ``arrive`` at its target end), cruise elsewhere — a stub climbs into the
+       * package that carries its middle, a carried run never dips to the ground */
+      depart = depart !== false;
+      arrive = arrive !== false;
       var spans = [];
       var total = 0;
       for (var i = 0; i < points.length - 1; i++) {
@@ -818,17 +822,24 @@
       var walked = 0;
       var out = [];
       for (var i = 0; i < points.length; i++) {
-        var away = Math.min(walked, total - walked);
+        var away;
+        if (depart && arrive) away = Math.min(walked, total - walked);
+        else if (depart) away = walked;
+        else if (arrive) away = total - walked;
+        else away = ramp;
         var t = ramp > 0 ? Math.min(1, away / ramp) : 1;
         out.push({ x: points[i].x, z: points[i].z, y: PAD_LIFT + (cruise - PAD_LIFT) * t });
         walked += spans[i] || 0;
       }
       return out;
     }
+    function flightSheet(depth) {
+      return FLIGHT_BASE + Math.min(FLIGHT_MAX, depth) * FLIGHT_STEP;
+    }
     function flightAltitude(from, to) {
       /* the sheet rule: a cable flies at the module depth of its deepest endpoint */
       var depth = Math.max(from ? from.depth || 0 : 0, to ? to.depth || 0 : 0);
-      return FLIGHT_BASE + Math.min(FLIGHT_MAX, depth) * FLIGHT_STEP;
+      return flightSheet(depth);
     }
 
     var graveMatrices = [];
@@ -838,10 +849,13 @@
       var padTint = color(fresh ? CABLE_FRESH : CABLE_STALE, 0.6);
       tier.padColors.push(padTint.r, padTint.g, padTint.b, 1);
     }
+    var edgesById = {};
+    var edgeTier = {};
     for (var edge of doc.edges) {
       var source = built.cellsById[edge.from];
       if (!source) continue;
       var target = edge.to ? built.cellsById[edge.to] : null;
+      edgesById[edge.id] = edge;
       /* the exporter routes every cable along the street network (``route``): out of the source's
        * lot, the lanes and avenues across the city, into the target's lot — never across a
        * building volume. The local Manhattan run is the fallback for scenes without routes. */
@@ -867,14 +881,66 @@
       }
       var namedA = source.family === "tower" || source.family === "monument";
       var namedB = target !== null && (target.family === "tower" || target.family === "monument");
-      var tier = namedA && namedB ? tiers[0] : namedA || namedB ? tiers[1] : tiers[2];
+      var tierIndex = namedA && namedB ? 0 : namedA || namedB ? 1 : 2;
+      edgeTier[edge.id] = tierIndex;
+      var tier = tiers[tierIndex];
       padAt(start.x, start.z, edge.fresh, tier);
       padAt(end.x, end.z, edge.fresh, tier);
-      var points = edgeRoute || route(start, end);
+      /* what the packages carry the cable does not draw again: its ``stubs`` are its own runs —
+       * the last mile out of its buildings and any street stretch no package carries for it */
+      var runs = edge.stubs && edge.stubs.length ? edge.stubs : [edgeRoute || route(start, end)];
       var stagger = (edge.index === null ? 0 : edge.index % 3) * 0.14; /* same-sheet crossings */
       var cruise = flightAltitude(source, target) + stagger;
-      traceSegments(climb(points, cruise), 0.14, 0.75, false, edge.fresh, tier);
-      traceSegments(climb(points, cruise + 0.18), 0.10, 0.24, true, edge.fresh, tier);
+      for (var r = 0; r < runs.length; r++) {
+        var depart = r === 0; /* the first run leaves the source's pad */
+        var arrive = r === runs.length - 1; /* the last run dives into the target's pad */
+        traceSegments(climb(runs[r], cruise, depart, arrive), 0.14, 0.75, false, edge.fresh, tier);
+        traceSegments(
+          climb(runs[r], cruise + 0.18, depart, arrive),
+          0.10,
+          0.24,
+          true,
+          edge.fresh,
+          tier
+        );
+      }
+    }
+    /* the packages: one duct per shared street stretch. The base box thickens with what it
+     * carries and one core stripe per member paints what that member is (fresh cable or
+     * ghost red) — the members' own runs stop at the duct and restart on its far side. */
+    for (var bundle of doc.bundles || []) {
+      if (!bundle.route || bundle.route.length < 2) continue;
+      var tierIndex = 2;
+      for (var member of bundle.edges) {
+        if (edgeTier[member] !== undefined) tierIndex = Math.min(tierIndex, edgeTier[member]);
+      }
+      var tier = tiers[tierIndex];
+      var sideways = bundle.route[0].x === bundle.route[1].x ? "x" : "z"; /* across the duct */
+      var cruise = flightSheet(bundle.level);
+      var carried = Math.max(1, bundle.count || bundle.edges.length);
+      var body = bundle.route.map(function (point) {
+        return { x: point.x, z: point.z };
+      });
+      traceSegments(climb(body, cruise, false, false), 0.14, 0.75 + 0.45 * carried, false, true, tier);
+      var step = 0.42;
+      for (var s = 0; s < bundle.edges.length; s++) {
+        var offset = (s - (bundle.edges.length - 1) / 2) * step;
+        var stripe = body.map(function (point) {
+          return {
+            x: point.x + (sideways === "x" ? offset : 0),
+            z: point.z + (sideways === "z" ? offset : 0)
+          };
+        });
+        var member = edgesById[bundle.edges[s]];
+        traceSegments(
+          climb(stripe, cruise + 0.18, false, false),
+          0.10,
+          0.24,
+          true,
+          member ? member.fresh : true,
+          tier
+        );
+      }
     }
     /* one material per voice, one mesh set per tier: every sheet draws the same paint */
     var traceBaseMaterial = pbr("traces-base-material", "#1a2a33", 0.3, 0.7);

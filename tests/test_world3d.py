@@ -150,6 +150,69 @@ def test_fresh_edges_name_two_cells_of_the_world(scene):
         assert edge["how"] in ("ref", "role", "field", "alias")
 
 
+# ---- cable packages ---------------------------------------------------------------------------------
+
+
+def test_shared_street_stretches_become_one_package(scene):
+    packages = scene["bundles"]
+    assert packages, "the demo's cables share a street stretch"
+    order = {edge["id"]: index for index, edge in enumerate(scene["edges"])}
+    by_id = {edge["id"]: edge for edge in scene["edges"]}
+    depth = {cell["id"]: cell["depth"] for cell in scene["cells"]}
+    for package in packages:
+        members = package["edges"]
+        # exactly the cables it names, in edge order — and never a package of one
+        assert package["count"] == len(members) >= 2
+        positions = [order[member] for member in members]
+        assert positions == sorted(set(positions))
+        # the duct is one straight stretch of one street's centerline
+        first, second = package["route"]
+        assert first["x"] == second["x"] or first["z"] == second["z"]
+        # marked by what it carries: one mark per cable
+        assert sum(package["marks"].values()) == package["count"]
+        assert set(package["marks"]) <= {"ref", "role", "field", "alias"}
+        assert package["stale"] == sum(1 for member in members if not by_id[member]["fresh"])
+        # the height class the duct rides at: the deepest module level of its members
+        deepest = max(
+            max(
+                depth[by_id[member]["from"]],
+                depth[by_id[member]["to"]] if by_id[member]["to"] else 0,
+            )
+            for member in members
+        )
+        assert package["level"] == deepest
+    assert scene["counts"]["bundles"] == len(packages)
+
+
+def test_a_package_shrinks_its_members_to_their_stubs(scene):
+    carried = {member for package in scene["bundles"] for member in package["edges"]}
+    assert carried
+    for edge in scene["edges"]:
+        for run in edge["stubs"]:
+            assert len(run) >= 2 and all(set(point) == {"x", "z"} for point in run)
+        if edge["id"] in carried:
+            # what a package carries the cable does not draw again
+            assert edge["stubs"] != [edge["route"]]
+        else:
+            # no package is invented where nothing is shared: the run stays the cable's own
+            assert edge["stubs"] == [edge["route"]]
+
+
+def test_validation_rejects_a_wrong_package(scene):
+    package = scene["bundles"][0]
+    for forged in (
+        dict(package, count=package["count"] + 1),
+        dict(package, level=package["level"] + 1),
+        dict(package, stale=package["stale"] + 1),
+        dict(package, marks={"nonsense": package["count"]}),
+    ):
+        with pytest.raises(SchemaError):
+            validate_scene(dict(scene, bundles=[forged]))
+    edge = dict(scene["edges"][0], stubs="nope")
+    with pytest.raises(SchemaError):
+        validate_scene(dict(scene, edges=[edge]))
+
+
 def test_regions_without_cells_still_get_a_plot(scene):
     empty = [region for region in scene["regions"] if region["empty"]]
     assert empty and all(region["cell_count"] == 0 for region in empty)
