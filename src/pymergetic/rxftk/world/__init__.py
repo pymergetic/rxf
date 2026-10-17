@@ -1,7 +1,7 @@
 """The 3D world renderer of the RXF runtime: the arena as a navigable world.
 
 The world IS the arena — a projection, never a second truth. ``export`` turns one image
-(read-only) into the scene input schema ("rxf-world-1", documented in its docstring); the
+(read-only) into the scene input schema (documented in its docstring); the
 Babylon.js scene under ``static/scene`` renders that JSON and invents nothing. Vendored
 Babylon.js lives under ``static/vendor`` — no CDN, no network at runtime.
 

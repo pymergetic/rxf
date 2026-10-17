@@ -5,13 +5,13 @@ from one image (``Inspector`` / its ``Image``); the scene JavaScript renders it 
 world and invents nothing. Memory regions become districts (ground plots), cells become buildings,
 references become cables, the vacated poison of compaction becomes rubble and void tiles.
 
-SCHEMA ("rxf-world-1")
+SCHEMA ("rxf-world-2")
 ======================
 
 Top level::
 
     {
-      "schema":   "rxf-world-1",       # this document's version
+      "schema":   "rxf-world-2",       # this document's version
       "arena":    { ... },             # the arena header, decoded
       "grid":     { ... },             # the layout constants: tile step, district span/scale
       "regions":  [ Region, ... ],     # districts: ground plots over the byte range
@@ -82,6 +82,9 @@ Cell (a building)::
       "handle": 41,                    # the live handle, or null (block / dead cell)
       "path": "mp_state_ctx.heap",     # object path, or null
       "name": "heap",                  # cell name, or null
+      "depth": 2,                      # module depth of the path: root 0, a 1, a.b 2, ...
+                                       # (0 where the cell carries no path). The scene flies
+                                       # every cable on the sheet of its deepest endpoint
       "kind": "Data",                  # NodeKind name, or "Index"/"Names"/"Block"/"Dead"
       "family": "block",               # what the world draws it as:
                                        #   "tower"    run cells (Fn, Code)      -> control towers
@@ -259,7 +262,7 @@ from pymergetic.rxftk.core.kinds import Binding, Mobility, NodeKind, RefKind
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.server.inspector import Inspector
 
-SCHEMA = "rxf-world-1"
+SCHEMA = "rxf-world-2"
 
 POISON_BYTE = 0xA5  # S8: the vacated tail of a compaction pass is filled with 0xA5
 POISON_RUN = 64  # a run shorter than this is ordinary bytes, not poison
@@ -1678,6 +1681,7 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
                 "handle": None if handle is None else int(handle),
                 "path": path,
                 "name": name,
+                "depth": 0 if not path else path.count(".") + 1,
                 "kind": word,
                 "family": family,
                 "offset": offset,
@@ -1968,7 +1972,7 @@ def validate_scene(scene: Mapping[str, Any]) -> None:
         _need(
             cell,
             (
-                "id", "handle", "path", "name", "kind", "family", "offset", "size",
+                "id", "handle", "path", "name", "depth", "kind", "family", "offset", "size",
                 "payload_size", "generation", "region", "plot", "tile", "footprint", "height",
                 "state", "run_state", "claim", "checksum", "poisoned", "forward", "index",
                 "ref_count", "anatomy",
@@ -1984,6 +1988,8 @@ def validate_scene(scene: Mapping[str, Any]) -> None:
             raise SchemaError(f"cell {cell['id']!r}: unknown region {cell['region']!r}")
         if not (float(cell["footprint"]) > 0 and float(cell["height"]) > 0):
             raise SchemaError(f"cell {cell['id']!r}: building has no bulk")
+        if not (isinstance(cell["depth"], int) and int(cell["depth"]) >= 0):
+            raise SchemaError(f"cell {cell['id']!r}: depth {cell['depth']!r} is not a level")
         _need(cell["plot"], ("x", "z"), f"cell {cell['id']!r} plot")
         _need(cell["tile"], ("x", "z"), f"cell {cell['id']!r} tile")
         raster = regions_by_id[str(cell["region"])]["tiles"]
