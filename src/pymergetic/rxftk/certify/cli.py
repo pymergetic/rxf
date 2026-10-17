@@ -51,7 +51,7 @@ def unusable(refusal: Refusal) -> OSError:
     return OSError(f"{type(refusal).__name__}: {refusal}")
 
 
-def block_word(block: str, package: str) -> str:
+def _block_word(block: str, package: str) -> str:
     """The `block` word a statement binds, from `--block` or `--package`.
 
     The linked bytes are what a wrapper loads and hashes at boot
@@ -132,7 +132,7 @@ def issue(
     """
     try:
         image = source.load(src)
-        word = block_word(block, package)
+        word = _block_word(block, package)
         path = Path(key)
         if path.exists():
             held, seed = certify.key_of(_read(path))
@@ -189,7 +189,7 @@ def verify(
     speak.
     """
     image = source.load(src)
-    word = block_word(block, package)
+    word = _block_word(block, package)
     base, voices = activation(store, statements)
     try:
         quorum = certify.verify_quorum(
