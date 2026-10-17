@@ -67,8 +67,10 @@ takes one image and makes its object world a Python face (`core/mount`, `rxftk/m
 
 What a property reads and what the text form writes is one layout (`meta/types.cpp`): the
 mount agrees, value for value, with the generic reader (`Image.fields`), and cannot drift
-from the image. The face is read-only — editing is one delta
-([27](27-EDITING.md)), never a property assignment.
+from the image. The edit set rides as the methods every mounted object carries
+([27](27-EDITING.md)): a property assignment is `put` (the width comes from the field, not
+from Python), and `ref`, `unset`, `rename`, `move`, `delete` are the other verbs — one
+mutation, one delta.
 
 Backrefs close the loop: a mounted module carries `__image__` (the image it reads) and
 `__rxf_mount__` (the mark the uninstall checks), and its `__spec__.loader` reaches the
