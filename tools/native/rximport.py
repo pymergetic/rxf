@@ -910,7 +910,10 @@ def split_type_init(rest: str) -> tuple[str, str]:
 # ---- the textual LLVM IR ----------------------------------------------------------------------
 
 VALUE = r"-?\d+|true|false|poison|undef|null|@[A-Za-z0-9_.$-]+|%[A-Za-z0-9_.$-]+"
-LABEL = r"[A-Za-z0-9_.$-]+"
+# an LLVM identifier: the bare set, or the quoted form rustc prints for inlined names
+# (``"_ZN4core...exit"``) with its ``\xx`` escapes. Both keep the text as printed, so a
+# definition and every reference to it carry the same key
+LABEL = r"(?:[A-Za-z0-9_.$-]+|\"(?:[^\"\\]|\\.)*\")"
 # a constant expression of LLVM in an operand position: ``inttoptr (i64 N to ptr)`` is the
 # address word N (the immediate objects of MicroPython's REPR A arrive this way), and a
 # ``getelementptr`` of a global names that global (the subset imports no globals: the use

@@ -63,11 +63,12 @@ IMPORTED_FACES = {
 
 # Every refusal of the subset, pinned BY NAME: (face, the function the refusing
 # construct sits in, policy or gap, the construct). "policy" is rximport's own
-# vocabulary (the construct is outside the subset by design); "gap" is the
-# importer's own missing handler, named by the exception. The eight constructs:
-# sret aggregate return, aggregate struct return, i128 return, indirect call,
-# gep of a local, global without bytes, value carried through memory, and the
-# `unreachable` terminator (the importer gap).
+# vocabulary (the construct is outside the subset by design). Every refusal of
+# this card is policy now: the one importer gap (the unreachable of a merged
+# block, quoted labels the parser could not see) is closed in rximport. The nine
+# constructs: sret aggregate return, aggregate struct return, i128 return, i40
+# return, indirect call, gep of a local, global without bytes, and value carried
+# through memory.
 REFUSAL_LEDGER = [
     ("pm_crypto_aead_open", "aead", "policy", "indirect call"),
     ("pm_crypto_aead_seal", "aead", "policy", "indirect call"),
@@ -114,8 +115,8 @@ REFUSAL_LEDGER = [
         "policy",
         "aggregate struct return",
     ),
-    ("aes_gcm::open", None, "gap", "unreachable terminator (importer gap)"),
-    ("aes_gcm::seal", None, "gap", "unreachable terminator (importer gap)"),
+    ("aes_gcm::open", "aes_gcm::Aes256::new", "policy", "sret aggregate return"),
+    ("aes_gcm::seal", "aes_gcm::Aes256::new", "policy", "sret aggregate return"),
     (
         "aes_gcm::shift_rows",
         "_<I as core::iter::traits::collect::IntoIterator>::into_iter",
@@ -141,7 +142,7 @@ REFUSAL_LEDGER = [
         "policy",
         "sret aggregate return",
     ),
-    ("blake2s::Blake2s::update", None, "gap", "unreachable terminator (importer gap)"),
+    ("blake2s::Blake2s::update", "blake2s::Blake2s::update", "policy", "gep of a local"),
     ("blake2s::blake2s", "blake2s::blake2s", "policy", "sret aggregate return"),
     (
         "blake2s::blake2s_keyed",
@@ -185,7 +186,7 @@ REFUSAL_LEDGER = [
         "policy",
         "aggregate struct return",
     ),
-    ("chacha20poly1305::open", None, "gap", "unreachable terminator (importer gap)"),
+    ("chacha20poly1305::open", "chacha20poly1305::open", "policy", "gep of a local"),
     (
         "chacha20poly1305::poly",
         "chacha20poly1305::poly",
@@ -198,8 +199,13 @@ REFUSAL_LEDGER = [
         "policy",
         "sret aggregate return",
     ),
-    ("chacha20poly1305::seal", None, "gap", "unreachable terminator (importer gap)"),
-    ("chacha20poly1305::u32le", None, "gap", "unreachable terminator (importer gap)"),
+    ("chacha20poly1305::seal", "chacha20poly1305::seal", "policy", "global without bytes"),
+    (
+        "chacha20poly1305::u32le",
+        "_<T as core::convert::TryInto<U>>::try_into",
+        "policy",
+        "i40 return",
+    ),
     ("fixed", "fixed", "policy", "value carried through memory"),
     ("fixed", "fixed", "policy", "value carried through memory"),
     (
@@ -226,7 +232,7 @@ REFUSAL_LEDGER = [
         "sret aggregate return",
     ),
     ("sha256::Sha256::new", "sha256::Sha256::new", "policy", "sret aggregate return"),
-    ("sha256::Sha256::update", None, "gap", "unreachable terminator (importer gap)"),
+    ("sha256::Sha256::update", "sha256::Sha256::update", "policy", "gep of a local"),
     (
         "sha256::compress",
         "_<I as core::iter::traits::collect::IntoIterator>::into_iter",
@@ -262,22 +268,22 @@ CONSTRUCT_NEEDLES = [
     "returns through an sret pointer",
     "returns }, not an integer",
     "returns i128, not an integer",
+    "returns i40, not an integer",
     "an indirect call without its callee",
     "getelementptr of the local",
     "has no payload this pass can place",
     "is read where only another block wrote it",
-    "no attribute 'lower_unreachable'",
 ]
 
 CONSTRUCTS = [
     "sret aggregate return",
     "aggregate struct return",
     "i128 return",
+    "i40 return",
     "indirect call",
     "gep of a local",
     "global without bytes",
     "value carried through memory",
-    "unreachable terminator (importer gap)",
 ]
 
 
@@ -598,7 +604,7 @@ def test_the_tool_reports_and_emits_deterministically(
 ) -> None:
     text = crypto_import.report_text(card)
     assert "pm_crypto_deinit" in text and "imported" in text
-    assert "refused (policy)" in text and "refused (gap)" in text
+    assert "refused (policy)" in text
     assert "named gaps:" in text
 
     again = crypto_import.import_card()

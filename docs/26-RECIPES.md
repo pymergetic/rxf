@@ -117,10 +117,16 @@ The same recipe covers the TLS card and the WireGuard card ([25](25-NETWORK-ORCH
 
 ## Recipe 2: retiring `native/crypto/` (status)
 
-Not yet done — and the honest order matters. The measured result of Recipe 1 step 3 shows
-*why* not: 66 of 70 functions refuse by name, so the image words cannot answer the card's
-vectors yet. `native/crypto/` is still the only seat that passes them; deleting it now would
-delete the truth. Recipe 2 runs when:
+Not yet done — and the honest order matters. What the import lane can carry, it now carries:
+the one importer gap is closed (the parser saw no quoted labels — rustc's inlined names like
+`"_ZN4core...exit"` — so blocks merged and an `unreachable` landed mid-block where the
+dispatch has no `lower_unreachable`; quoted labels parse now, and every `unreachable` lowers
+to the Refuse of the documented design). The measured shape after that fix, pinned by name in
+``tests/test_crypto_import.py``: 4 of 71 functions import (`pm_crypto_deinit` and the three
+kernels `aes_gcm::xtime`, `blake2s::g`, `chacha20poly1305::quarter_round`), and all 67
+refusals are **policy**, none a gap. The image words still cannot answer the card's vectors;
+`native/crypto/` is still the only seat that passes them; deleting it now would delete the
+truth. Recipe 2 runs when:
 
 1. the import tool reports every `pm_crypto_*` function as `imported` (or names what refuses,
    and the refused set is empty for the vector-bearing faces);
@@ -130,8 +136,14 @@ delete the truth. Recipe 2 runs when:
 4. the Rust tree is archived out of the working tree; the provenance record cites the digests;
 5. the full suite runs green before the commit lands.
 
-Until step 1 reports, `native/crypto/` stays: it is currently the *only* implementation of
-the card, and deleting it before the image seat answers the vectors would delete the truth.
+What step 1 still waits on is subset **policy**, not tooling: the refusals name the constructs
+the subset takes by design — sret aggregate returns, aggregate struct returns (`}`), i128 and
+i40 returns, indirect calls, getelementptr of a local, globals whose bytes are relocations,
+and values carried through memory. Each is a boundary of the image words' contract (one word
+per answer, words and addresses per parameter); crossing one is its own design change, and
+each is named in the ledger above rather than hidden. Until then `native/crypto/` stays: it
+is currently the *only* implementation of the card, and deleting it before the image seat
+answers the vectors would delete the truth.
 
 ## Recipe 3: the activation seam — *ok means it is written for THIS image*
 
