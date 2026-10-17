@@ -1,7 +1,7 @@
 /*
  * The boot sector of a BIOS image: 512 bytes the firmware loads at 0x7C00 and starts.
  * It is the whole of real mode this image needs -- set the machine up, read the loader
- * (the first 32 sectors behind the sector, to 0x8000) with the extended read of int
+ * (the first 48 sectors behind the sector, to 0x8000) with the extended read of int
  * 13h, and jump to it. The loader (native/wrap/wrap_stage2.S) does the rest: streaming
  * the package, long mode, and the call of the wrapper body.
  */
@@ -21,7 +21,7 @@ rxf_wrap_boot_start:
     sti
     mov %dl, rxf_wrap_boot_drive
 
-    /* The loader: 32 sectors from LBA 2 (the sector behind this one is a gap the link
+    /* The loader: 48 sectors from LBA 2 (the sector behind this one is a gap the link
      * keeps) to 0x8000, where the link puts it. */
     mov $rxf_wrap_dap, %si
     mov $0x42, %ah
@@ -39,11 +39,11 @@ rxf_wrap_boot_hang:
     hlt
     jmp rxf_wrap_boot_hang
 
-    /* The disk address packet of int 13h: 32 sectors, 0000:8000, LBA 2. */
+    /* The disk address packet of int 13h: 48 sectors, 0000:8000, LBA 2. */
     .p2align 4
 rxf_wrap_dap:
     .byte 0x10, 0
-    .word 32
+    .word 48
     .word 0x8000, 0x0000
     .quad 2
 rxf_wrap_boot_drive:

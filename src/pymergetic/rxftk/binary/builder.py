@@ -15,6 +15,7 @@ wrapper (``native/wrap/wrap_package.S`` reads ``rxf_wrap_package.bin`` beside it
 from __future__ import annotations
 
 import os
+import struct
 import subprocess
 import tempfile
 from collections.abc import Sequence
@@ -38,13 +39,22 @@ ARTIFACTS = {"bios": "rxf-bios.img", "uefi": "BOOTX64.EFI", "elf": "rxf-elf"}
 TARGET_OF_TARGET = {"bios": "x86_64-unknown-linux-gnu", "uefi": "x86_64-unknown-windows",
                     "elf": "x86_64-unknown-linux-gnu", "flat": "x86_64-unknown-linux-gnu"}
 SOURCES = {
-    "bios": ("wrap.c", "wrap_activate.c", "wrap_serial.c", "wrap_bios.c", "wrap_boot.S",
-             "wrap_stage2.S", "wrap_package.S"),
-    "uefi": ("wrap.c", "wrap_activate.c", "wrap_serial.c", "wrap_uefi.c", "wrap_package.S"),
-    "elf": ("wrap.c", "wrap_activate.c", "wrap_elf.c", "wrap_package.S"),
+    "bios": ("wrap.c", "wrap_mem.c", "wrap_activate.c", "wrap_crypto.c", "wrap_serial.c",
+             "wrap_bios.c", "wrap_boot.S", "wrap_stage2.S", "wrap_package.S", "wrap_trust.S"),
+    "uefi": ("wrap.c", "wrap_mem.c", "wrap_activate.c", "wrap_crypto.c", "wrap_serial.c",
+             "wrap_uefi.c", "wrap_package.S", "wrap_trust.S"),
+    "elf": ("wrap.c", "wrap_mem.c", "wrap_activate.c", "wrap_crypto.c", "wrap_elf.c",
+            "wrap_package.S", "wrap_trust.S"),
     # The wrapper body alone: what the emulator harness runs.
-    "flat": ("wrap.c", "wrap_activate.c"),
+    "flat": ("wrap.c", "wrap_mem.c", "wrap_activate.c", "wrap_crypto.c", "wrap_trust.S"),
 }
+# The trust anchor of a wrapper (native/wrap/wrap_trust.h): the words of the
+# deployment, as bytes beside the code and never in the image.
+TRUST_MAGIC = b"RXFT"
+TRUST_VERSION = 1
+TRUST_BYTES = 48
+TRUST_KEY_BYTES = 96
+TRUST_ID_BYTES = 64
 # The compile flags of the repo (tools/native/native_build.py): freestanding code with
 # no builtins, no runtime and no relocation.
 FLAGS = (
@@ -98,6 +108,44 @@ def _package(image: Image, entry: str | None, work: Path,
     return built
 
 
+def trust_block(trust: certify.TrustStore | None) -> bytes:
+    """The trust anchor of a wrapper as bytes: what ``wrap_trust.S`` embeds.
+
+    This is a build step embedding data (docs: a build step may embed bytes): the
+    store's policy words, its keys and its revoked ids, in the layout
+    ``native/wrap/wrap_trust.h`` documents and ``native/wrap/wrap_activate.c``
+    reads. Without a store the anchor admits no voice -- a wrapper that checks
+    nothing for a package that carries nothing to check.
+    """
+    policy = trust.policy if trust is not None else certify.Policy(0, 0, 0, 1)
+    keys = trust.keys if trust is not None else ()
+    revoked = tuple(sorted(trust.revoked)) if trust is not None else ()
+    for key_id in (*(key.key_id for key in keys), *revoked):
+        if len(key_id.encode("ascii")) >= TRUST_ID_BYTES:
+            raise BuildError(f"the key id {key_id!r} does not fit the trust anchor")
+    head = (
+        TRUST_MAGIC
+        + struct.pack("<I", TRUST_VERSION)
+        + struct.pack("<3Q", policy.now, policy.max_age, policy.skew)
+        + struct.pack("<3I", policy.quorum, len(keys), len(revoked))
+        + struct.pack("<I", 0)
+    )
+    assert len(head) == TRUST_BYTES
+    body = b"".join(
+        key.key_id.encode("ascii").ljust(TRUST_ID_BYTES, b"\0") + key.public for key in keys
+    )
+    body += b"".join(
+        key_id.encode("ascii").ljust(TRUST_ID_BYTES, b"\0") for key_id in revoked
+    )
+    return head + body
+
+
+def _trust(trust: certify.TrustStore | None, work: Path) -> bytes:
+    anchor = trust_block(trust)
+    (work / "rxf_wrap_trust.bin").write_bytes(anchor)
+    return anchor
+
+
 def build(
     target: str,
     image: Image,
@@ -129,6 +177,7 @@ def build(
         here = work if work is not None else Path(temporary)
         here.mkdir(parents=True, exist_ok=True)
         built = _package(image, entry, here, statements)
+        _trust(trust, here)
         if trust is not None:
             certify.verify_quorum(
                 image.digest(),
@@ -147,6 +196,7 @@ def build(
                     "/subsystem:efi_application",
                     "/entry:efi_main",
                     "/nodefaultlib",
+                    "/opt:ref",  # the gate vectors stay out of the seat (docs: gc-sections)
                     f"/out:{artifact}",
                     *map(str, objects),
                 ],
@@ -158,6 +208,7 @@ def build(
                     LINKER,
                     "-static",
                     "-nostdlib",
+                    "--gc-sections",
                     "-T",
                     str(WRAP / "wrap_elf.ld"),
                     "-o",
@@ -172,6 +223,7 @@ def build(
                 [
                     LINKER,
                     "-nostdlib",
+                    "--gc-sections",
                     "-T",
                     str(WRAP / "wrap_bios.ld"),
                     "-o",
@@ -192,15 +244,19 @@ def build(
     }
 
 
-def build_flat(out: Path, work: Path | None = None) -> dict[str, Any]:
+def build_flat(out: Path, work: Path | None = None,
+               trust: certify.TrustStore | None = None) -> dict[str, Any]:
     """The wrapper body as a flat binary: what the emulator harness (tests/emulator.py)
     loads to run the wrapper itself, with the package in memory beside it. The link is
-    at FLAT_BASE, the code address of the harness."""
+    at FLAT_BASE, the code address of the harness. ``trust`` is the anchor the wrapper
+    activates against (empty: the wrapper admits no voice and unsigned packages pass,
+    the state of the tests that check the run, not the certification)."""
     from . import formats
 
     with tempfile.TemporaryDirectory(prefix="rxf-flat-") as temporary:
         here = work if work is not None else Path(temporary)
         here.mkdir(parents=True, exist_ok=True)
+        _trust(trust, here)
         objects = _compile("flat", here)
         linked = out / "wrap-flat.elf"
         binary = out / "wrap-flat.bin"
