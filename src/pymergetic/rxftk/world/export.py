@@ -2310,9 +2310,12 @@ def validate_scene(scene: Mapping[str, Any]) -> None:
             or len(members) < BUNDLE_MIN
         ):
             raise SchemaError(f"{where}: count and members disagree")
-        positions = [edge_order.get(member) for member in members]
-        if any(position is None for position in positions):
-            raise SchemaError(f"{where}: member is not a cable")
+        positions: list[int] = []
+        for member in members:
+            position = edge_order.get(member)
+            if position is None:
+                raise SchemaError(f"{where}: member is not a cable")
+            positions.append(position)
         if positions != sorted(set(positions)):
             raise SchemaError(f"{where}: members are not cables in edge order")
         marks = bundle["marks"]
