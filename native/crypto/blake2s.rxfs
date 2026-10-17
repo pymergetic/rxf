@@ -1,0 +1,59 @@
+# The BLAKE2s of a message (RFC 7693), unkeyed or keyed: the second hash of the crypto words
+# of the image.
+#
+# This is the defining source of the card's BLAKE2s. The words are the program every machine
+# runs (native/graph.h) -- the interpreter, and the in-image compiler of docs/18. The Rust
+# tree of src/ retires when the suite of native/crypto/ is written here and its vectors pass
+# through these words; until then both are pinned by their tests and this file is the one
+# being built up.
+#
+# The kernel is blake2s_words.rxfs (the numbers) and blake2s_kernel.rxfs (the procs) -- the
+# one source of the compression. This file is the program around it. It takes whole words:
+# the key (key, key_len) -- a key_len of 0 is the unkeyed hash, a key of 1..32 bytes makes
+# the padded key block the first block of the input -- the message (data, len), where the
+# digest lands (out) and its width (out_len, 1..32; 32 is BLAKE2s-256), and a work region
+# of at least 768 bytes (work). It answers 0, and refuses a key_len past 32 or an out_len
+# outside 1..32.
+
+include "blake2s_words.rxfs";
+
+program blake2s(key, key_len, data, len, out, out_len, work) {
+    var sp;
+    var k0, k1, k2, k3, k4;
+    var c0, c1, c2;
+    var v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15;
+    var u0, u1, u2, u3;
+    var f0, f1, f2;
+
+    sp = work + WSTACK;
+
+    if key_len > 32 {
+        refuse RXF_REFUSE_OUT_OF_RANGE;
+    }
+    if out_len == 0 {
+        refuse RXF_REFUSE_OUT_OF_RANGE;
+    }
+    if out_len > 32 {
+        refuse RXF_REFUSE_OUT_OF_RANGE;
+    }
+
+    k3 = key_len;
+    k4 = out_len;
+    call blake2s_init;
+    if key_len > 0 {
+        # the key, zero-padded to the block, is the first block of the input
+        fill(work + WKEY, 0, 64);
+        copy(work + WKEY, key, key_len);
+        k0 = work + WKEY;
+        k1 = 64;
+        call blake2s_update;
+    }
+    k0 = data;
+    k1 = len;
+    call blake2s_update;
+    k2 = out;
+    call blake2s_final;
+    return 0;
+}
+
+include "blake2s_kernel.rxfs";

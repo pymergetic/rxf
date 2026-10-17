@@ -1,0 +1,45 @@
+# The numbers of the BLAKE2s kernel (RFC 7693): the layout of the work region and the 32-bit
+# arithmetic of the compression. This is what a program includes before its entry; the procs
+# are blake2s_kernel.rxfs, included after it (a program comes before its procs).
+#
+# The work region its caller gives it (at least 768 bytes):
+#
+#   WIV     64   the IV[0..7] that every state starts from
+#   WSIG   160   the order SIGMA[0..9][0..15] of the message words of the rounds
+#   WSTATE  64   h[0..7], the state
+#   WPART   64   the block being filled and compressed
+#   WBOOK   32   partlen (8), the total bytes (8), the width of the digest (8), and the
+#                flag of the last block (8)
+#   WKEY    64   the padded key block of a keyed hash
+#   WSTACK 256   the stack of the ways back (`sp` of the entry; the call depth is 2)
+
+const WIV = 0;
+const WSIG = 64;
+const WSTATE = 224;
+const WPART = 288;
+const WBOOK = 352;
+const WKEY = 384;
+const WSTACK = 512;
+
+# ---- the 32-bit arithmetic of the compression --------------------------------------------------
+fn u32_(x) = ((x) & 0xFFFFFFFF);
+fn add32_(a, b) = (((a) + (b)) & 0xFFFFFFFF);
+fn xor32_(a, b) = ((((a) & not32_(b)) | ((not32_(a)) & (b))) & 0xFFFFFFFF);
+fn not32_(x) = ((~(x)) & 0xFFFFFFFF);
+fn rotr32_(x, n) = ((((x) >> (n)) | ((x) << (32 - (n)))) & 0xFFFFFFFF);
+
+# the message word m[i] of the block at WPART: four bytes little-endian
+fn m_(i) = (load32(work + WPART + ((i) << 2)));
+
+# the round function G of RFC 7693 on four working words and two message words: each step
+# adds, xors and rotates a pair of the words (rotate right 16, 12, 8, 7)
+macro g_(a, b, c, d, x, y) {
+    a = add32_(add32_(a, b), x);
+    d = rotr32_(xor32_(d, a), 16);
+    c = add32_(c, d);
+    b = rotr32_(xor32_(b, c), 12);
+    a = add32_(add32_(a, b), y);
+    d = rotr32_(xor32_(d, a), 8);
+    c = add32_(c, d);
+    b = rotr32_(xor32_(b, c), 7);
+}

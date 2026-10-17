@@ -1,0 +1,172 @@
+# The BLAKE2s kernel (RFC 7693) of the crypto words: the one source of the hash, shared by
+# the programs that hash (blake2s, and what comes after). It is `.rxfs` (tools/native/rxfc.py);
+# the frame contract is the one of sha256_kernel.rxfs: the procs take their scratch from the
+# frame of the run, so the entry of every program that includes this file declares:
+#
+#   k0, k1              a piece of the message and its length (blake2s_update)
+#   k2                  where the digest lands (blake2s_final)
+#   k3, k4              the length of the key and the width of the digest (blake2s_init)
+#   c0 .. c2            the scratch of blake2s_compress
+#   v0 .. v15           the working words v[0..15] of blake2s_compress
+#   u0 .. u3            the scratch of blake2s_update
+#   f0 .. f2            the scratch of blake2s_final
+#   sp                  the stack of the ways back, at work + WSTACK
+#
+# The numbers are blake2s_words.rxfs (the work layout and the arithmetic), which the program
+# includes before its entry. The procs, in the order a caller uses them: blake2s_init (the
+# state of a new message, from the length of the key and the width of the digest), then the
+# block of a keyed hash if there is a key -- the key, zero-padded to the block, is the first
+# block of the input (RFC 7693 section 3.2), which the program feeds through blake2s_update --
+# blake2s_update (a piece of the message, as often as it comes), blake2s_final (where the
+# digest lands).
+
+# ---- the constants of the compression: the IV of the state and the SIGMA order ------------------
+proc blake2s_const_init {
+    store64(work + WIV +  0, 0x6a09e667);   # IV[0]
+    store64(work + WIV +  8, 0xbb67ae85);   # IV[1]
+    store64(work + WIV + 16, 0x3c6ef372);   # IV[2]
+    store64(work + WIV + 24, 0xa54ff53a);   # IV[3]
+    store64(work + WIV + 32, 0x510e527f);   # IV[4]
+    store64(work + WIV + 40, 0x9b05688c);   # IV[5]
+    store64(work + WIV + 48, 0x1f83d9ab);   # IV[6]
+    store64(work + WIV + 56, 0x5be0cd19);   # IV[7]
+    # SIGMA, eight entries to a word, the first entry of the row in the low byte
+    store64(work + WSIG +   0, 0x0706050403020100);   # SIGMA[0][0..7]: 0, 1, 2, 3, 4, 5, 6, 7
+    store64(work + WSIG +   8, 0x0f0e0d0c0b0a0908);   # SIGMA[0][8..15]: 8, 9, 10, 11, 12, 13, 14, 15
+    store64(work + WSIG +  16, 0x060d0f0908040a0e);   # SIGMA[1][0..7]: 14, 10, 4, 8, 9, 15, 13, 6
+    store64(work + WSIG +  24, 0x0305070b02000c01);   # SIGMA[1][8..15]: 1, 12, 0, 2, 11, 7, 5, 3
+    store64(work + WSIG +  32, 0x0d0f0205000c080b);   # SIGMA[2][0..7]: 11, 8, 12, 0, 5, 2, 15, 13
+    store64(work + WSIG +  40, 0x0409010706030e0a);   # SIGMA[2][8..15]: 10, 14, 3, 6, 7, 1, 9, 4
+    store64(work + WSIG +  48, 0x0e0b0c0d01030907);   # SIGMA[3][0..7]: 7, 9, 3, 1, 13, 12, 11, 14
+    store64(work + WSIG +  56, 0x080f00040a050602);   # SIGMA[3][8..15]: 2, 6, 5, 10, 4, 0, 15, 8
+    store64(work + WSIG +  64, 0x0f0a040207050009);   # SIGMA[4][0..7]: 9, 0, 5, 7, 2, 4, 10, 15
+    store64(work + WSIG +  72, 0x0d0308060c0b010e);   # SIGMA[4][8..15]: 14, 1, 11, 12, 6, 8, 3, 13
+    store64(work + WSIG +  80, 0x03080b000a060c02);   # SIGMA[5][0..7]: 2, 12, 6, 10, 0, 11, 8, 3
+    store64(work + WSIG +  88, 0x09010e0f05070d04);   # SIGMA[5][8..15]: 4, 13, 7, 5, 15, 14, 1, 9
+    store64(work + WSIG +  96, 0x0a040d0e0f01050c);   # SIGMA[6][0..7]: 12, 5, 1, 15, 14, 13, 4, 10
+    store64(work + WSIG + 104, 0x0b08020903060700);   # SIGMA[6][8..15]: 0, 7, 6, 3, 9, 2, 8, 11
+    store64(work + WSIG + 112, 0x0903010c0e070b0d);   # SIGMA[7][0..7]: 13, 11, 7, 14, 12, 1, 3, 9
+    store64(work + WSIG + 120, 0x0a020608040f0005);   # SIGMA[7][8..15]: 5, 0, 15, 4, 8, 6, 2, 10
+    store64(work + WSIG + 128, 0x0800030b090e0f06);   # SIGMA[8][0..7]: 6, 15, 14, 9, 11, 3, 0, 8
+    store64(work + WSIG + 136, 0x050a0401070d020c);   # SIGMA[8][8..15]: 12, 2, 13, 7, 1, 4, 10, 5
+    store64(work + WSIG + 144, 0x050106070408020a);   # SIGMA[9][0..7]: 10, 2, 8, 4, 7, 6, 1, 5
+    store64(work + WSIG + 152, 0x000d0c030e090b0f);   # SIGMA[9][8..15]: 15, 11, 9, 14, 3, 12, 13, 0
+    ret;
+}
+
+# ---- the compression of the block at WPART ------------------------------------------------------
+proc blake2s_compress {
+    # v[0..8] starts as the state and v[8..16] as the IV; the count of bytes goes into
+    # v[12] and v[13], and the flag of the last block into v[14]
+    v0 = load64(work + WSTATE +  0);
+    v1 = load64(work + WSTATE +  8);
+    v2 = load64(work + WSTATE + 16);
+    v3 = load64(work + WSTATE + 24);
+    v4 = load64(work + WSTATE + 32);
+    v5 = load64(work + WSTATE + 40);
+    v6 = load64(work + WSTATE + 48);
+    v7 = load64(work + WSTATE + 56);
+    v8 = load64(work + WIV +  0);
+    v9 = load64(work + WIV +  8);
+    v10 = load64(work + WIV + 16);
+    v11 = load64(work + WIV + 24);
+    v12 = load64(work + WIV + 32);
+    v13 = load64(work + WIV + 40);
+    v14 = load64(work + WIV + 48);
+    v15 = load64(work + WIV + 56);
+    c2 = load64(work + WBOOK + 8);         # the total bytes
+    v12 = xor32_(v12, u32_(c2));
+    v13 = xor32_(v13, u32_(c2 >> 32));
+    if load64(work + WBOOK + 24) != 0 {
+        v14 = not32_(v14);
+    }
+    # the ten rounds, the message words of each ordered by SIGMA of the round
+    c0 = 0;
+    while c0 < 10 {
+        c1 = work + WSIG + (c0 << 4);
+        # the column step
+        g_(v0, v4, v8, v12, m_(load8(c1)), m_(load8(c1 + 1)));
+        g_(v1, v5, v9, v13, m_(load8(c1 + 2)), m_(load8(c1 + 3)));
+        g_(v2, v6, v10, v14, m_(load8(c1 + 4)), m_(load8(c1 + 5)));
+        g_(v3, v7, v11, v15, m_(load8(c1 + 6)), m_(load8(c1 + 7)));
+        # the diagonal step
+        g_(v0, v5, v10, v15, m_(load8(c1 + 8)), m_(load8(c1 + 9)));
+        g_(v1, v6, v11, v12, m_(load8(c1 + 10)), m_(load8(c1 + 11)));
+        g_(v2, v7, v8, v13, m_(load8(c1 + 12)), m_(load8(c1 + 13)));
+        g_(v3, v4, v9, v14, m_(load8(c1 + 14)), m_(load8(c1 + 15)));
+        c0 = c0 + 1;
+    }
+    # the fold into the state: h[i] = h[i] ^ v[i] ^ v[i + 8]
+    store64(work + WSTATE +  0, xor32_(xor32_(load64(work + WSTATE +  0), v0), v8));
+    store64(work + WSTATE +  8, xor32_(xor32_(load64(work + WSTATE +  8), v1), v9));
+    store64(work + WSTATE + 16, xor32_(xor32_(load64(work + WSTATE + 16), v2), v10));
+    store64(work + WSTATE + 24, xor32_(xor32_(load64(work + WSTATE + 24), v3), v11));
+    store64(work + WSTATE + 32, xor32_(xor32_(load64(work + WSTATE + 32), v4), v12));
+    store64(work + WSTATE + 40, xor32_(xor32_(load64(work + WSTATE + 40), v5), v13));
+    store64(work + WSTATE + 48, xor32_(xor32_(load64(work + WSTATE + 48), v6), v14));
+    store64(work + WSTATE + 56, xor32_(xor32_(load64(work + WSTATE + 56), v7), v15));
+    ret;
+}
+
+# ---- the state of a new message -----------------------------------------------------------------
+proc blake2s_init {
+    # k3 = the length of the key, k4 = the width of the digest: the parameter block word is
+    # 0x01 0x01 kk nn (RFC 7693 section 2.5); the lanes do not overlap, so a join is a xor
+    call blake2s_const_init;
+    store64(work + WSTATE +  0, xor32_(load64(work + WIV +  0), 0x01010000 | (k3 << 8) | k4));
+    store64(work + WSTATE +  8, load64(work + WIV +  8));
+    store64(work + WSTATE + 16, load64(work + WIV + 16));
+    store64(work + WSTATE + 24, load64(work + WIV + 24));
+    store64(work + WSTATE + 32, load64(work + WIV + 32));
+    store64(work + WSTATE + 40, load64(work + WIV + 40));
+    store64(work + WSTATE + 48, load64(work + WIV + 48));
+    store64(work + WSTATE + 56, load64(work + WIV + 56));
+    store64(work + WBOOK, 0);          # partlen
+    store64(work + WBOOK + 8, 0);      # the total bytes
+    store64(work + WBOOK + 16, k4);    # the width of the digest
+    store64(work + WBOOK + 24, 0);     # the flag of the last block
+    ret;
+}
+
+# ---- a piece of the message --------------------------------------------------------------------
+proc blake2s_update {
+    # k0 = the bytes, k1 = their length. A block that is full waits for more of the
+    # message: the last block is compressed by blake2s_final
+    u0 = k0;
+    u1 = k1;
+    u2 = load64(work + WBOOK);         # partlen
+    while u1 > 0 {
+        if u2 == 64 {
+            call blake2s_compress;
+            u2 = 0;
+        }
+        u3 = 64 - u2;
+        if u3 > u1 {
+            u3 = u1;
+        }
+        copy(work + WPART + u2, u0, u3);
+        u2 = u2 + u3;
+        u0 = u0 + u3;
+        u1 = u1 - u3;
+        store64(work + WBOOK + 8, load64(work + WBOOK + 8) + u3);   # the total bytes
+    }
+    store64(work + WBOOK, u2);
+    ret;
+}
+
+# ---- the zero padding and the digest ------------------------------------------------------------
+proc blake2s_final {
+    # k2 = where the digest lands: the width of the digest bytes of the state, one 32-bit
+    # word to a slot, little-endian
+    f0 = load64(work + WBOOK);         # partlen
+    f1 = load64(work + WBOOK + 16);    # the width of the digest
+    fill(work + WPART + f0, 0, 64 - f0);
+    store64(work + WBOOK + 24, 1);     # the flag of the last block
+    call blake2s_compress;
+    f2 = 0;
+    while f2 < f1 {
+        store8(k2 + f2, ((load64(work + WSTATE + ((f2 >> 2) << 3)) >> ((f2 & 3) << 3)) & 0xFF));
+        f2 = f2 + 1;
+    }
+    ret;
+}
