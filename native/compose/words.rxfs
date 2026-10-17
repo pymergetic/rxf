@@ -114,9 +114,20 @@ const STACK_BYTES = 512;
 # and the first empty or old row ends the walk (the row an answer takes is that same row).
 const W_MAP = (W_CALLSTACK + STACK_BYTES);   # (parent, name) -> child
 const MAP_ROW = 32;          # hash, epoch, parent, child
-const NMAP = 4096;           # rows of the map (a power of two: the walk masks with NMAP - 1)
+const NMAP = 2048;           # rows of the map (a power of two: the walk masks with NMAP - 1)
 const MAP_BYTES = (NMAP * MAP_ROW);
 const W_MAP_EPOCH = (W_MAP + MAP_BYTES);   # the request whose rows the map holds
+
+# The chains of the children of every parent (kids_build, tree.rxfs): W_KHEAD[p] is the first child
+# of the parent p and W_KNEXT[h] the next child of the same parent, both 32-bit handles in handle
+# order. Built once a request; what the arena or the room between here and the plan's tables will
+# not hold builds nothing -- the epoch stays old and the gathers scan the arena as they did.
+const W_KIDS_EPOCH = (W_MAP_EPOCH + 8);    # the request the chains were built for
+const W_KIDS_H = (W_MAP_EPOCH + 16);       # how many handles the chains cover
+const KID_MAX = 24000;                     # the most handles the chains cover (8 bytes a handle)
+const W_KHEAD = (W_MAP_EPOCH + 24);        # the first child of a parent (32-bit)
+const W_KNEXT = (W_KHEAD + (KID_MAX << 2));   # the next child of the same parent (32-bit)
+const NONE32 = 0xFFFFFFFF;                 # the child a chain does not have
 
 # ---- the bits and pieces the composer repeats -------------------------------------------------
 const NONE = RXF_GRAPH_NONE;

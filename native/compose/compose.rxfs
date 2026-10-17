@@ -23,6 +23,8 @@ program compose(context, request) {
     var t0, t1, t2;                        # cell_of
     var e0, e1;                            # name_eq
     var k0, k1, k2, k3, k4, k5, k6;        # child_named
+    var k7, k8, k9, k10, k11, k12, k13;    # child_named: the map at W_MAP
+    var m0, m1, m2, m3;                    # kids_build
     var n0, n1, n2, n3, n4, n5;            # the entry
     var v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10;   # read_value
     var h0, h1, h2, h3, h4, h5, h6, h7, h8, h9;        # hash.rxfs
@@ -47,6 +49,11 @@ program compose(context, request) {
     store64(work + W_HANDLES, arena_q(H_HANDLES));
     store64(work + W_CELLS_OFF, arena_q(H_CELLS_OFF));
     store64(work + W_ROOT, arena_q(H_ROOT));
+
+    # the epoch of the request: the rows of the map (W_MAP) are this request's now, and the rows of
+    # the request before answer nothing (words.rxfs). The chains of the children build at the
+    # request's first gather (plan.rxfs) -- a request that gathers nothing never pays for them.
+    store64(work + W_MAP_EPOCH, load64(work + W_MAP_EPOCH) + 1);
 
     st = 0;
     ow = 0;

@@ -96,6 +96,33 @@ proc children_of {
     q4 = g1;
     q5 = g2;
     q6 = 0;
+
+    # the chains of the children of every parent (tree.rxfs): built at the first gather of this
+    # request -- a request that gathers nothing (the reader, the id of a handle) never pays for them
+    if load64(work + W_KIDS_EPOCH) != load64(work + W_MAP_EPOCH) {
+        call kids_build;
+    }
+
+    # the chain of the parent (kids_build): the children of one parent, in handle order
+    if load64(work + W_KIDS_EPOCH) == load64(work + W_MAP_EPOCH) {
+        if q3 < load64(work + W_KIDS_H) {
+            q7 = load32(work + W_KHEAD + (q3 << 2));
+            while q7 != NONE32 {
+                g0 = q7;
+                call cell_of;
+                q9 = R;
+                if arena_q(q9 + C_TYPE) == q4 {
+                    store64(q5 + (q6 << 3), q7);
+                    q6 = q6 + 1;
+                }
+                q7 = load32(work + W_KNEXT + (q7 << 2));
+            }
+            R = q6;
+            ret;
+        }
+    }
+
+    # what the chains do not cover: the scan of the arena
     q7 = 0;
     q8 = load64(work + W_HANDLES);
     while q7 < q8 {
@@ -126,8 +153,45 @@ proc children_of_named {
     store64(work + W_CMS + 0x40, g0);
     store64(work + W_CMS + 0x48, g1);
     store64(work + W_CMS + 0x50, g2);
-    store64(work + W_CMS + 0x58, 0);
     store64(work + W_CMS + 0x60, 0);
+
+    # the chains of the children of every parent (tree.rxfs): built at the first gather of this
+    # request -- a request that gathers nothing never pays for them
+    if load64(work + W_KIDS_EPOCH) != load64(work + W_MAP_EPOCH) {
+        call kids_build;
+    }
+
+    # the chain of the parent (kids_build): its children, in handle order
+    if load64(work + W_KIDS_EPOCH) == load64(work + W_MAP_EPOCH) {
+        if load64(work + W_CMS + 0x40) < load64(work + W_KIDS_H) {
+            store64(work + W_CMS + 0x58,
+                    load32(work + W_KHEAD + (load64(work + W_CMS + 0x40) << 2)));
+            while load64(work + W_CMS + 0x58) != NONE32 {
+                g0 = load64(work + W_CMS + 0x58);
+                call cell_of;
+                g0 = arena_q(R + C_TYPE);
+                call cell_of;
+                g0 = R;
+                call name_of;
+                g0 = R;
+                g1 = load64(work + W_CMS + 0x48);
+                g2 = load64(work + W_CMS + 0x50);
+                call name_eq;
+                if R == 1 {
+                    store64(work + W_CME + (load64(work + W_CMS + 0x60) << 3),
+                            load64(work + W_CMS + 0x58));
+                    store64(work + W_CMS + 0x60, load64(work + W_CMS + 0x60) + 1);
+                }
+                store64(work + W_CMS + 0x58,
+                        load32(work + W_KNEXT + (load64(work + W_CMS + 0x58) << 2)));
+            }
+            R = load64(work + W_CMS + 0x60);
+            ret;
+        }
+    }
+
+    # what the chains do not cover: the scan of the arena
+    store64(work + W_CMS + 0x58, 0);
     while load64(work + W_CMS + 0x58) < load64(work + W_HANDLES) {
         g0 = load64(work + W_CMS + 0x58);
         call cell_of;
