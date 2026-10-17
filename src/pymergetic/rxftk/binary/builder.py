@@ -91,8 +91,9 @@ def _compile(target: str, work: Path) -> list[Path]:
     return objects
 
 
-def _package(image: Image, entry: str | None, work: Path) -> bytes:
-    built = package.build(image, entry=entry)
+def _package(image: Image, entry: str | None, work: Path,
+             statements: Sequence[certify.Statement] = ()) -> bytes:
+    built = package.build(image, entry=entry, statements=tuple(statements))
     (work / "rxf_wrap_package.bin").write_bytes(built)
     return built
 
@@ -127,7 +128,7 @@ def build(
     with tempfile.TemporaryDirectory(prefix="rxf-build-") as temporary:
         here = work if work is not None else Path(temporary)
         here.mkdir(parents=True, exist_ok=True)
-        built = _package(image, entry, here)
+        built = _package(image, entry, here, statements)
         if trust is not None:
             certify.verify_quorum(
                 image.digest(),

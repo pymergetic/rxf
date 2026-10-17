@@ -1,21 +1,24 @@
 """The RXFW package of the starter: the header a wrapper reads and what it refuses.
 
-The package is one 192-byte header (the ``rxf_wrap_package`` of native/wrap/wrap.h) and
-the linked image behind it, nothing relocated. These tests pin the bytes of the header
-where a wrapper finds them, the round trip of building and parsing, and every check of
-the parser -- the mistakes a wrapper must refuse before it loads anything.
+The package is one 192-byte header (the ``rxf_wrap_package`` of native/wrap/wrap.h),
+the linked image behind it and the cert block of the tail, nothing relocated. These
+tests pin the bytes of the header where a wrapper finds them, the round trip of
+building and parsing, and every check of the parser -- the mistakes a wrapper must
+refuse before it loads anything.
 """
 
 import struct
 
 import pytest
 
+from pymergetic.rxftk import certify
 from pymergetic.rxftk.binary import package
 from pymergetic.rxftk.core import tree
 
 from .snippets import STARTER
 
 MAIN = "pymergetic.rxf.application.main"
+NOW = 1700000000
 
 
 @pytest.fixture(scope="module")
@@ -90,8 +93,88 @@ def test_a_version_that_is_not_one_is_refused(built):
 
 
 def test_reserved_words_that_are_not_zero_are_refused(built):
+    # word 13 (byte 96) is the arena window of the image: named, still zero
     with pytest.raises(package.PackageError):
         package.parse(where(built, 96, struct.pack("<Q", 1)))
+    with pytest.raises(package.PackageError):
+        package.parse(where(built, 128, struct.pack("<Q", 1)))
+
+
+def test_the_cert_block_travels_in_the_tail_and_round_trips(built, image):
+    """The voices over an image ride behind the linked bytes, never in the block."""
+    seed = bytes(range(32))
+    signed = certify.issue(
+        image.digest(),
+        image.delta_digest(),
+        package.block_digest(built),
+        "release-1",
+        seed,
+        NOW,
+    )
+    second = certify.issue(
+        image.digest(),
+        image.delta_digest(),
+        package.block_digest(built),
+        "release-2",
+        bytes(range(1, 33)),
+        NOW + 1,
+    )
+    held = package.build(image, statements=(signed, second))
+    parsed = package.parse(held)
+    at, size = parsed.cert
+    assert at == parsed.image + parsed.image_bytes and at + size == parsed.total
+    assert size == 2 * package.CERT_RECORD_BYTES
+    assert package.block_digest(held) == package.block_digest(built)  # the block does not move
+    assert package.statements(held) == (signed, second)
+
+
+def test_the_cert_window_names_one_whole_block_or_none(built, image):
+    """The window is checked like the rest of the header: whole or refused."""
+    signed = certify.issue(
+        image.digest(),
+        image.delta_digest(),
+        package.block_digest(built),
+        "release-1",
+        bytes(range(32)),
+        NOW,
+    )
+    held = package.build(image, statements=(signed,))
+    at, size = package.parse(held).cert
+    with pytest.raises(package.PackageError):  # one word of the window alone
+        package.parse(where(held, 112, struct.pack("<Q", 0)))
+    with pytest.raises(package.PackageError):  # not whole records
+        package.parse(where(held, 120, struct.pack("<Q", size - 1)))
+    with pytest.raises(package.PackageError):  # a window that is not the tail
+        package.parse(where(held, 112, struct.pack("<Q", at + 8)))
+
+
+def test_a_cert_record_that_is_not_a_statement_is_refused(built, image):
+    signed = certify.issue(
+        image.digest(),
+        image.delta_digest(),
+        package.block_digest(built),
+        "release-1",
+        bytes(range(32)),
+        NOW,
+    )
+    held = package.build(image, statements=(signed,))
+    at, _ = package.parse(held).cert
+    broken = where(held, at + 96 + 20, b"\x01")  # a byte in the key id's zero padding
+    with pytest.raises(package.PackageError):
+        package.statements(broken)
+
+
+def test_a_key_id_that_does_not_fit_a_cert_record_is_refused(built, image):
+    signed = certify.issue(
+        image.digest(),
+        image.delta_digest(),
+        package.block_digest(built),
+        "x" * package.CERT_KEY_BYTES,
+        bytes(range(32)),
+        NOW,
+    )
+    with pytest.raises(package.PackageError):
+        package.build(image, statements=(signed,))
 
 
 def test_a_total_that_is_not_the_size_is_refused(built):
