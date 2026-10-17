@@ -49,7 +49,9 @@ Block (a city block — the massing of one tile-raster bin)::
     {
       "id": "b3",                      # stable within one export
       "region": "r11",                 # the district the block stands in
-      "plot": {"x": 40.1, "z": 41.0, "w": 7.2, "d": 8.4},  # world units, x/z = min corner
+      "plot": {"x": 40.1, "z": 41.0, "w": 7.2, "d": 8.4},  # the bin's raster slot:
+                                       # raster-fixed (x/z = min corner), so a row keeps its
+                                       # extent whatever the buildings' size
       "height": 6.2,                   # the tallest building in the block (massing height)
       "count": 6,                      # buildings standing on this block
       "family": "block"                # the dominant family (tower > monument > ...)
@@ -808,11 +810,34 @@ def _network(
     return sorted(out, key=lambda street: (str(street["kind"]), str(street["axis"]), float(street["at"])))
 
 
-def _blocks(cells: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def _blocks(
+    cells: Sequence[Mapping[str, Any]], regions: Sequence[Mapping[str, Any]]
+) -> list[dict[str, Any]]:
     """The city blocks: every BLOCK_BIN x BLOCK_BIN bin of a district tile raster that holds at
     least one building, as the massing the wide views read (block > building > floors). The
-    block's plot hugs its buildings; its height is the tallest building; its family is the most
-    prominent member (tower > monument > block > utility > rubble)."""
+    block's plot is its bin's slot on the raster: raster-fixed, so a row whose buildings are
+    all small keeps the row's extent (the buildings stay on their tiles, the slots keep the
+    grid). Its height is the tallest building; its family is the most prominent member (tower >
+    monument > block > utility > rubble)."""
+    region_by_id = {str(region["id"]): region for region in regions}
+
+    def slot(region_id: str, bx: int, bz: int) -> tuple[float, float, float, float]:
+        """One bin's world rect: the tile edges it spans on its district's raster (the same
+        mapping _tiles places buildings with, so block slots and building tiles are one grid)."""
+        region = region_by_id[region_id]
+        raster = region["tiles"]
+        cols, rows = int(raster["cols"]), int(raster["rows"])
+        step_x, step_z = float(raster["step_x"]), float(raster["step_z"])
+        plot = region["plot"]
+        x0 = float(plot["x"]) + (float(plot["w"]) - step_x * cols) / 2
+        z0 = float(plot["z"]) + (float(plot["d"]) - step_z * rows) / 2
+        return (
+            x0 + bx * BLOCK_BIN * step_x,
+            z0 + bz * BLOCK_BIN * step_z,
+            x0 + min((bx + 1) * BLOCK_BIN, cols) * step_x,
+            z0 + min((bz + 1) * BLOCK_BIN, rows) * step_z,
+        )
+
     bins: dict[tuple[str, int, int], list[Mapping[str, Any]]] = {}
     for cell in cells:
         key = (
@@ -824,19 +849,17 @@ def _blocks(cells: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for index, key in enumerate(sorted(bins)):
         members = bins[key]
-        margin = max(float(member["footprint"]) for member in members) / 2 + 0.5
-        xs = [float(member["plot"]["x"]) for member in members]
-        zs = [float(member["plot"]["z"]) for member in members]
+        x0, z0, x1, z1 = slot(*key)
         family = min((str(member["family"]) for member in members), key=FAMILIES.index)
         out.append(
             {
                 "id": f"b{index}",
                 "region": key[0],
                 "plot": {
-                    "x": _round(min(xs) - margin),
-                    "z": _round(min(zs) - margin),
-                    "w": _round(max(xs) - min(xs) + 2 * margin),
-                    "d": _round(max(zs) - min(zs) + 2 * margin),
+                    "x": _round(x0),
+                    "z": _round(z0),
+                    "w": _round(x1 - x0),
+                    "d": _round(z1 - z0),
                 },
                 "height": _round(max(float(member["height"]) for member in members)),
                 "count": len(members),
@@ -1847,7 +1870,7 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
         },
         "regions": regions,
         "cells": cells,
-        "blocks": _blocks(cells),
+        "blocks": _blocks(cells, regions),
         "voids": voids,
         "edges": edges,
         "streets": streets,
