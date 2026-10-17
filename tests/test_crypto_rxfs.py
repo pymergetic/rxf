@@ -5,8 +5,9 @@ every program: the simulator of ``rxf_sim`` as the dev oracle, the interpreter o
 ``native/graph.c`` on x86_64, aarch64 and wasm32, and the in-image compiler of
 ``native/compile.c`` (docs/18) whose code must compute the same answers. The vectors are
 their own: FIPS 180-4 and RFC 6234 for SHA-256, RFC 4231 for HMAC-SHA-256, RFC 5869 for
-HKDF, and sweeps of lengths around every block and padding boundary held to hashlib and
-hmac as the reference implementations.
+HKDF, RFC 7693 for BLAKE2s (the keyed cases pinned from hashlib.blake2s as the reference),
+and sweeps of lengths around every block and padding boundary held to hashlib and hmac as
+the reference implementations.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ CRYPTO = ROOT / "native" / "crypto"
 SHA256 = rxfc.compile_file(CRYPTO / "sha256.rxfs")
 HMAC_SHA256 = rxfc.compile_file(CRYPTO / "hmac_sha256.rxfs")
 HKDF = rxfc.compile_file(CRYPTO / "hkdf.rxfs")
+BLAKE2S = rxfc.compile_file(CRYPTO / "blake2s.rxfs")
 
 MSG = rxf_world.DATA
 OUT = MSG + 0x400
@@ -181,7 +183,68 @@ def hkdf_reference(salt: bytes, ikm: bytes, info: bytes, length: int) -> bytes:
     return out[:length]
 
 
-# ---- the cases of the three programs: (name, program, args, writes, out length, expected) --------
+# ---- BLAKE2s: the cases of RFC 7693 ------------------------------------------------------------
+
+BLAKE2S_VECTORS = [
+    (
+        b"",
+        "69217a3079908094e11121d042354a7c1f55b6482ca1a51e1b250dfd1ed0eef9",
+    ),
+    (
+        b"abc",
+        "508c5e8c327c14e2e1a72ba34eeb452f37458b209ed63a294d999b4c86675982",
+    ),
+]
+
+# the keyed cases, pinned from hashlib.blake2s(key=...) as the reference
+BLAKE2S_KEYED = [
+    (
+        b"\x0b" * 32,
+        b"",
+        "d1081a6bda7a43e7048350586af628dfea204f0f1e230537f33086dde9707fb0",
+    ),
+    (
+        b"\x0b" * 32,
+        b"abc",
+        "8fd7818cf0505ff30a47475b652e1c13dd171f4c7bb7798fcf558c46df518754",
+    ),
+    (
+        b"\x0b" * 32,
+        pattern(64),
+        "9c0a141d0d7bd3d1f96a099ad7ff228ce408764f3a07ce5827f3f2eda00b4636",
+    ),
+    (
+        b"\x0b" * 32,
+        pattern(65),
+        "dcd0a8f94d38fe5b2ceecca3d3cab2b8f7e53e52e9e1ae3ca775463d6d5ed0c0",
+    ),
+    (
+        bytes(range(1, 33)),
+        b"Hi There",
+        "3f53d3d3e8d99bccc2082b07e06f6417ff0858875612a7a893b8a18f601467a8",
+    ),
+    (
+        b"K",
+        b"abc",
+        "ae0aafc00a962f0741fc286640a7088bb7295b57db7f68c70b845c6a23cafe3a",
+    ),
+]
+
+# the digest width rides the parameter block (1..=32 bytes): the 16-byte keyed form is the
+# WireGuard MAC, and it is not the 32-byte digest cut short
+BLAKE2S_WIDTHS = [
+    (b"", b"abc", 16, "aa4938119b1dc7b87cbad0ffd200d0ae"),
+    (b"\x0b" * 32, b"abc", 16, "4644c1889210f5dee9a5b04155b64acf"),
+    (bytes(range(1, 33)), b"Hi There", 16, "172e70a462a9e49abf928af8e0a85bbf"),
+]
+
+BLAKE2S_LENS = [0, 1, 3, 55, 63, 64, 65, 127, 128, 129, 200]
+BLAKE2S_KEY_LENS = [1, 20, 32]
+BLAKE2S_MSG_LENS = [0, 1, 63, 64, 65]
+BLAKE2S_DIGEST_LENS = [1, 16, 24, 32]
+
+
+# ---- the cases of the four programs: (name, program, args, writes, out length, expected) --------
 
 CASES: list[tuple[str, bytes, bytes, tuple[tuple[int, bytes], ...], int, bytes]] = []
 
@@ -276,6 +339,77 @@ for salt, ikm, info, length in HKDF_SWEEP:
             ),
             length,
             hkdf_reference(salt, ikm, info, length),
+        )
+    )
+
+for message, digest in BLAKE2S_VECTORS:
+    CASES.append(
+        (
+            f"blake2s({len(message)})",
+            BLAKE2S,
+            arguments(MSG, 0, MSG + 0x120, len(message), OUT, 32, WORK),
+            ((MSG, b""), (MSG + 0x120, message), (WORK, bytes(WORK_BYTES))),
+            32,
+            bytes.fromhex(digest),
+        )
+    )
+for key, message, digest in BLAKE2S_KEYED:
+    CASES.append(
+        (
+            f"blake2s({len(key)},{len(message)})",
+            BLAKE2S,
+            arguments(MSG, len(key), MSG + 0x120, len(message), OUT, 32, WORK),
+            ((MSG, key), (MSG + 0x120, message), (WORK, bytes(WORK_BYTES))),
+            32,
+            bytes.fromhex(digest),
+        )
+    )
+for key, message, width, digest in BLAKE2S_WIDTHS:
+    CASES.append(
+        (
+            f"blake2s[{width}]({len(key)},{len(message)})",
+            BLAKE2S,
+            arguments(MSG, len(key), MSG + 0x120, len(message), OUT, width, WORK),
+            ((MSG, key), (MSG + 0x120, message), (WORK, bytes(WORK_BYTES))),
+            width,
+            bytes.fromhex(digest),
+        )
+    )
+for length in BLAKE2S_LENS:
+    for message in (pattern(length), b"\x00" * length):
+        CASES.append(
+            (
+                f"blake2s({length})",
+                BLAKE2S,
+                arguments(MSG, 0, MSG + 0x120, len(message), OUT, 32, WORK),
+                ((MSG, b""), (MSG + 0x120, message), (WORK, bytes(WORK_BYTES))),
+                32,
+                hashlib.blake2s(message).digest(),
+            )
+        )
+for key_len in BLAKE2S_KEY_LENS:
+    for message_len in BLAKE2S_MSG_LENS:
+        key, message = pattern(key_len), pattern(message_len)
+        CASES.append(
+            (
+                f"blake2s({key_len},{message_len})",
+                BLAKE2S,
+                arguments(MSG, key_len, MSG + 0x120, message_len, OUT, 32, WORK),
+                ((MSG, key), (MSG + 0x120, message), (WORK, bytes(WORK_BYTES))),
+                32,
+                hashlib.blake2s(message, key=key).digest(),
+            )
+        )
+for width in BLAKE2S_DIGEST_LENS:
+    message = pattern(70)
+    CASES.append(
+        (
+            f"blake2s[{width}](70)",
+            BLAKE2S,
+            arguments(MSG, 0, MSG + 0x120, len(message), OUT, width, WORK),
+            ((MSG, b""), (MSG + 0x120, message), (WORK, bytes(WORK_BYTES))),
+            width,
+            hashlib.blake2s(message, digest_size=width).digest(),
         )
     )
 
