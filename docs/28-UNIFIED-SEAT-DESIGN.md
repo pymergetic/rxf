@@ -108,12 +108,12 @@ shell, in this order:
   [17](17-OPERATING-SYSTEM-PATH.md) are still the open work of that document.
 - A prove that asserts *no face code lives in a shell file* (a lint of the boundary itself)
   is **[missing]**; until it exists, the rule is enforced by review and by the seat proves.
-- The words first rule is **[partial]**: the hash side of the crypto card is written and
-  proven as words (SHA-256, HMAC-SHA-256, HKDF, BLAKE2s-256 keyed and unkeyed in
-  `native/crypto/*.rxfs`, `tests/test_crypto_rxfs.py`: FIPS 180-4, RFC 4231, RFC 5869,
-  RFC 7693 on the simulator, the interpreter of every machine and the code the in-image
-  compiler makes); the symmetric and the key-agreement primitives, and the shims that call
-  the words, are the open work it names.
+- The words first rule is **[partial]**: the hash side and ChaCha20-Poly1305 of the crypto card
+  are written and proven as words (SHA-256, HMAC-SHA-256, HKDF, BLAKE2s-256 keyed and unkeyed,
+  the AEAD of ChaCha20-Poly1305 in `native/crypto/*.rxfs`, `tests/test_crypto_rxfs.py`:
+  FIPS 180-4, RFC 4231, RFC 5869, RFC 7693, RFC 8439 on the simulator, the interpreter of
+  every machine and the code the in-image compiler makes); AES-GCM, the key-agreement
+  primitive, and the shims that call the words, are the open work it names.
 
 This design names no runtime provider. Providers are external and optional — Metal among
 them ([integrations/metal.md](integrations/metal.md)); its concepts and maps stay in its own
