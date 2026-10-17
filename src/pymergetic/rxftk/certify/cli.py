@@ -1,9 +1,12 @@
 """Commands on the certification layer: `rxf certify <command> SOURCE ...`.
 
-`issue` signs the two digests an image reports (`Image.digest()` and
-`Image.delta_digest()`) with one voice and writes the statement. `verify` is the
-activation check the boot path repeats: the statements of an image against a
-trust store, M voices of N (docs/11). `revoke` closes one voice's admission.
+`issue` signs the three words an image reports (`Image.digest()`,
+`Image.delta_digest()` and the block digest of the linked bytes a wrapper runs)
+with one voice and writes the statement. The block word is a property of an
+artifact, not of a source tree, so the caller names it: `--package` takes it
+from a built package, `--block` states it. `verify` is the activation check the
+boot path repeats: the statements of an image against a trust store, M voices of
+N (docs/11). `revoke` closes one voice's admission.
 
 Exit status: 0 done, 1 the certification does not hold (the typed refusal is
 the report), 2 the input could not be used.
@@ -19,6 +22,8 @@ from pathlib import Path
 from typing import Any
 
 from pymergetic.rxftk import certify, source
+from pymergetic.rxftk.binary.package import PackageError
+from pymergetic.rxftk.binary.package import block_digest as package_of
 from pymergetic.rxftk.certify import (
     NotEnoughVoices,
     Policy,
@@ -44,6 +49,28 @@ def _write(path: Path, wire: dict[str, Any]) -> None:
 def unusable(refusal: Refusal) -> OSError:
     """An input that cannot be used exits 2; the typed name rides in the message."""
     return OSError(f"{type(refusal).__name__}: {refusal}")
+
+
+def block_word(block: str, package: str) -> str:
+    """The `block` word a statement binds, from `--block` or `--package`.
+
+    The linked bytes are what a wrapper loads and hashes at boot
+    (`native/wrap/wrap_activate.c`), so no statement is made without naming
+    them: a source tree does not carry that word, an artifact does.
+    """
+    if package:
+        try:
+            parsed = package_of(Path(package).read_bytes())
+        except (OSError, PackageError) as error:
+            raise OSError(f"{package}: {error}") from error
+        return parsed
+    if block:
+        try:
+            certify.Statement("00" * 32, "00" * 32, block, "x", 0, bytes(64))
+        except Refusal as refusal:
+            raise unusable(refusal) from refusal
+        return block
+    raise OSError("a statement binds the linked bytes: --package or --block names them")
 
 
 def problems(refusal: Refusal) -> Problems:
@@ -89,16 +116,23 @@ def issue(
     quorum: int = 1,
     max_age: int = 2592000,
     skew: int = 300,
+    block: str = "",
+    package: str = "",
 ) -> dict[str, Any]:
-    """Signs the two digests of SOURCE with the voice in KEY; writes the statement to OUT.
+    """Signs the three words of SOURCE with the voice in KEY; writes the statement to OUT.
 
-    KEY is made here when it does not exist yet (`--key-id` names the new voice).
-    With `--store` the voice is admitted to the trust store, made with `--at` as
-    its now word when absent. `--at` stamps the statement; without it the wall
-    clock does. The policy words default to 30 days of age and 300 of skew.
+    The words are `Image.digest()`, `Image.delta_digest()` and the block digest
+    of the linked bytes a wrapper loads -- named by `--package` (a built
+    package) or `--block` (the word itself), never inferred from a source tree.
+    KEY is made here when it does not exist yet (`--key-id` names the new
+    voice). With `--store` the voice is admitted to the trust store, made with
+    `--at` as its now word when absent. `--at` stamps the statement; without it
+    the wall clock does. The policy words default to 30 days of age and 300 of
+    skew.
     """
     try:
         image = source.load(src)
+        word = block_word(block, package)
         path = Path(key)
         if path.exists():
             held, seed = certify.key_of(_read(path))
@@ -113,7 +147,12 @@ def issue(
             path.chmod(0o600)
         issued = int(time.time()) if at is None else at
         statement = certify.issue(
-            image.digest(), image.delta_digest(), key_id, seed, issued
+            image.digest(),
+            image.delta_digest(),
+            word,
+            key_id,
+            seed,
+            issued,
         )
         _write(Path(out), certify.statement_wire(statement))
         admitted: str | None = None
@@ -137,17 +176,29 @@ def issue(
     return {"target": out, "store": admitted, **certify.statement_wire(statement)}
 
 
-def verify(src: str, store: str, *statements: str) -> dict[str, Any]:
+def verify(
+    src: str, store: str, *statements: str, block: str = "", package: str = ""
+) -> dict[str, Any]:
     """The activation check over SOURCE: the statements against the trust store (docs/11).
 
     Every statement file counts as one voice; the policy words at STORE (now,
-    max_age, skew, quorum) are the decision's. Exit status 1 with the typed
-    refusal when fewer than the quorum speak.
+    max_age, skew, quorum) are the decision's. The block word the statements
+    must speak for is named like `issue` names it (`--package` or `--block`) --
+    the boot path hashes the bytes it is about to run, and this repeats that
+    question. Exit status 1 with the typed refusal when fewer than the quorum
+    speak.
     """
     image = source.load(src)
+    word = block_word(block, package)
     base, voices = activation(store, statements)
     try:
-        quorum = certify.verify_quorum(image.digest(), image.delta_digest(), voices, base)
+        quorum = certify.verify_quorum(
+            image.digest(),
+            image.delta_digest(),
+            word,
+            voices,
+            base,
+        )
     except Refusal as refusal:
         raise problems(refusal) from refusal
     return {"ok": True, "voices": list(quorum.voices), "statements": len(voices)}

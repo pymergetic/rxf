@@ -111,14 +111,15 @@ def build(
 
     ``trust`` is the activation seam's Python half (docs/11, the shape the
     certification lane pinned): with a trust store the statements' quorum over
-    the image must hold before anything is built or written — the same check
-    the boot path repeats in ``native/wrap/wrap_activate.c``. A certification
-    that does not hold refuses the build with its typed ``certify`` refusal.
+    the image's three words must hold before the artifact is linked or written
+    -- the same check the boot path repeats in ``native/wrap/wrap_activate.c``.
+    The block word is the digest of the linked bytes, so the package is packed
+    first (into the work directory, nothing lands in ``out`` yet) and the quorum
+    is judged over what was packed. A certification that does not hold refuses
+    the build with its typed ``certify`` refusal.
     """
     if statements and trust is None:
         raise BuildError("certification statements need a trust store")
-    if trust is not None:
-        certify.verify_quorum(image.digest(), image.delta_digest(), list(statements), trust)
     if target not in TARGETS:
         raise BuildError(f"no target {target}; the targets are {', '.join(TARGETS)}")
     out.mkdir(parents=True, exist_ok=True)
@@ -127,6 +128,14 @@ def build(
         here = work if work is not None else Path(temporary)
         here.mkdir(parents=True, exist_ok=True)
         built = _package(image, entry, here)
+        if trust is not None:
+            certify.verify_quorum(
+                image.digest(),
+                image.delta_digest(),
+                package.block_digest(built),
+                list(statements),
+                trust,
+            )
         objects = _compile(target, here)
         if target == "uefi":
             _run(
@@ -178,6 +187,7 @@ def build(
         "base": package.BASE,
         "entry": entry or image.entry_path or package.DEFAULT_ENTRY,
         "package_sha256": package.sha256(built),
+        "block_sha256": package.block_digest(built),
     }
 
 

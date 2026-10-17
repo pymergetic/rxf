@@ -1,12 +1,16 @@
 """The certification type set: one statement, one trust store, the named refusals.
 
-A `Statement` is one voice: it binds an image's two digests — `image_digest` (the
-canonical bytes, `Image.digest()`) and `text_digest` (the canonical delta text,
-`Image.delta_digest()`) — to a `key_id`, stamps `issued`, and carries the
-signature over the canonical bytes of those four words (docs/11: signatures and
-policy are explicit typed metadata). `TrustKey`, `Policy` and `TrustStore` are
-the deployment side: which voices are admitted, which are revoked, and the words
-a decision is judged against.
+A `Statement` is one voice: it binds an image's three words — `image_digest` (the
+canonical bytes, `Image.digest()`), `text_digest` (the canonical delta text,
+`Image.delta_digest()`) and `block_digest` (the SHA-256 of the linked image, the
+bytes a wrapper loads and runs) — to a `key_id`, stamps `issued`, and carries the
+signature over the canonical bytes of those five words (docs/11: signatures and
+policy are explicit typed metadata). The block word is what makes the boot-time
+check honest (`native/wrap/wrap_activate.c` hashes the block it is about to run
+and nothing else): without it a signature over the semantic words alone could be
+relinked onto other bytes and still verify. `TrustKey`, `Policy` and
+`TrustStore` are the deployment side: which voices are admitted, which are
+revoked, and the words a decision is judged against.
 
 `Policy` carries `now`, the observation word, because the check reads no clock:
 policy is typed metadata, never inferred from the machine that happens to open
@@ -32,7 +36,7 @@ SEED_BYTES: Final = 32  # an Ed25519 seed (the private word of a voice)
 PUBLIC_BYTES: Final = 32  # an Ed25519 public key
 SIGNATURE_BYTES: Final = 64  # an Ed25519 signature
 
-HEADER: Final = "rxf-certify-statement-v1"  # the canonical bytes' first line
+HEADER: Final = "rxf-certify-statement-v2"  # the canonical bytes' first line
 FORMAT_KEY: Final = "rxf-certify-key-v1"  # the key file a voice keeps
 FORMAT_STORE: Final = "rxf-certify-store-v1"  # the trust store a deployment pins
 
@@ -122,21 +126,27 @@ def _is_key_id(word: object) -> bool:
 
 @dataclass(frozen=True)
 class Statement:
-    """One voice over an image: the two digests bound to a key and stamped.
+    """One voice over an image: the three words bound to a key and stamped.
 
-    `image_digest` is `Image.digest()` (the canonical bytes) and `text_digest`
-    is `Image.delta_digest()` (the canonical delta text): one statement names
-    both, so a text that disagrees with the bytes it came with is refused.
+    `image_digest` is `Image.digest()` (the canonical bytes), `text_digest` is
+    `Image.delta_digest()` (the canonical delta text) and `block_digest` is the
+    SHA-256 of the linked image (`binary.package.block_digest`): one statement
+    names all three, so a text that disagrees with the bytes it came with is
+    refused, and the boot path can ask the only question it can answer — are
+    these running bytes the ones this voice spoke for?
     """
 
     image_digest: Digest
     text_digest: Digest
+    block_digest: Digest
     key_id: KeyId
     issued: Time  # the moment of signing, a 64-bit word
     signature: bytes  # Ed25519 over `signable()`, 64 bytes
 
     def __post_init__(self) -> None:
-        if not _is_digest(self.image_digest) or not _is_digest(self.text_digest):
+        if not all(
+            _is_digest(word) for word in (self.image_digest, self.text_digest, self.block_digest)
+        ):
             raise MalformedStatement("a digest is 64 lowercase hex digits")
         if not _is_key_id(self.key_id):
             raise MalformedStatement("a key id is printable ASCII without spaces")
@@ -146,8 +156,10 @@ class Statement:
             raise MalformedStatement(f"a signature is {SIGNATURE_BYTES} bytes")
 
     def signable(self) -> bytes:
-        """The canonical bytes this statement signs (its four bound words)."""
-        return canonical(self.image_digest, self.text_digest, self.key_id, self.issued)
+        """The canonical bytes this statement signs (its five bound words)."""
+        return canonical(
+            self.image_digest, self.text_digest, self.block_digest, self.key_id, self.issued
+        )
 
 
 @dataclass(frozen=True)
@@ -222,15 +234,17 @@ class Quorum:
 # ---- the canonical bytes (pinned, defined once) ----
 
 
-def canonical(image_digest: Digest, text_digest: Digest, key_id: KeyId, issued: Time) -> bytes:
+def canonical(
+    image_digest: Digest, text_digest: Digest, block_digest: Digest, key_id: KeyId, issued: Time
+) -> bytes:
     """The canonical statement bytes — the deterministic bytes a voice signs.
 
-    Pinned here, once: five tagged lines in a fixed order, UTF-8, each ending in
+    Pinned here, once: six tagged lines in a fixed order, UTF-8, each ending in
     a newline. A key id carries no space and no newline and the digests are 64
     hex digits, so one statement is one byte string and no two statements sign
     the same bytes.
     """
-    if not _is_digest(image_digest) or not _is_digest(text_digest):
+    if not all(_is_digest(word) for word in (image_digest, text_digest, block_digest)):
         raise MalformedStatement("a digest is 64 lowercase hex digits")
     if not _is_key_id(key_id):
         raise MalformedStatement("a key id is printable ASCII without spaces")
@@ -240,6 +254,7 @@ def canonical(image_digest: Digest, text_digest: Digest, key_id: KeyId, issued: 
         f"{HEADER}\n"
         f"image {image_digest}\n"
         f"text {text_digest}\n"
+        f"block {block_digest}\n"
         f"key {key_id}\n"
         f"issued {issued}\n"
     ).encode()
@@ -254,6 +269,7 @@ def statement_wire(statement: Statement) -> dict[str, Any]:
         "format": HEADER,
         "image_digest": statement.image_digest,
         "text_digest": statement.text_digest,
+        "block_digest": statement.block_digest,
         "key_id": statement.key_id,
         "issued": statement.issued,
         "signature": statement.signature.hex(),
@@ -265,17 +281,16 @@ def statement_of(data: object) -> Statement:
     if not isinstance(data, dict) or data.get("format") != HEADER:
         raise MalformedStatement(f"not a statement: the format is not {HEADER}")
     fields = cast(dict[str, object], data)
-    image_digest, text_digest, key_id = (
+    image_digest, text_digest, block_digest = (
         fields.get("image_digest"),
         fields.get("text_digest"),
-        fields.get("key_id"),
+        fields.get("block_digest"),
     )
+    key_id = fields.get("key_id")
     issued = fields.get("issued")
     signature = fields.get("signature")
-    if (
-        not isinstance(image_digest, str)
-        or not isinstance(text_digest, str)
-        or not isinstance(key_id, str)
+    if not all(
+        isinstance(word, str) for word in (image_digest, text_digest, block_digest, key_id)
     ):
         raise MalformedStatement("the digests and the key id are text")
     if not isinstance(issued, int) or not isinstance(signature, str):
@@ -284,7 +299,14 @@ def statement_of(data: object) -> Statement:
         body = bytes.fromhex(signature)
     except ValueError as error:
         raise MalformedStatement("the signature is hex") from error
-    return Statement(image_digest, text_digest, key_id, issued, body)
+    return Statement(
+        cast(str, image_digest),
+        cast(str, text_digest),
+        cast(str, block_digest),
+        cast(str, key_id),
+        issued,
+        body,
+    )
 
 
 def key_wire(key_id: KeyId, seed: bytes) -> dict[str, Any]:

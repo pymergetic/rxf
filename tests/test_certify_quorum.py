@@ -25,6 +25,7 @@ from pymergetic.rxftk.certify import (
 
 IMAGE = "ab" * 32
 TEXT = "cd" * 32
+BLOCK = "ef" * 32
 NOW = 1700000000
 
 VOICES = (
@@ -36,7 +37,7 @@ VOICES = (
 
 def statements() -> list[Statement]:
     return [
-        certify.issue(IMAGE, TEXT, key_id, seed, NOW) for key_id, seed in VOICES
+        certify.issue(IMAGE, TEXT, BLOCK, key_id, seed, NOW) for key_id, seed in VOICES
     ]
 
 
@@ -51,12 +52,12 @@ def store(quorum: int = 2, revoked: tuple[str, ...] = ()) -> TrustStore:
 def test_m_of_n_voices_decide() -> None:
     """Two voices of three, over the same two digests, decide (docs/11)."""
     spoken = statements()
-    assert certify.verify_quorum(IMAGE, TEXT, spoken, store()).voices == (
+    assert certify.verify_quorum(IMAGE, TEXT, BLOCK, spoken, store()).voices == (
         "release-1",
         "release-2",
         "release-3",
     )
-    assert certify.verify_quorum(IMAGE, TEXT, spoken[:2], store()).voices == (
+    assert certify.verify_quorum(IMAGE, TEXT, BLOCK, spoken[:2], store()).voices == (
         "release-1",
         "release-2",
     )
@@ -65,7 +66,7 @@ def test_m_of_n_voices_decide() -> None:
 def test_one_voice_short_of_the_quorum_is_refused_by_name() -> None:
     """M-1 voices say nothing the policy accepts: `NotEnoughVoices`, with why."""
     with pytest.raises(NotEnoughVoices) as stopped:
-        certify.verify_quorum(IMAGE, TEXT, statements()[:1], store())
+        certify.verify_quorum(IMAGE, TEXT, BLOCK, statements()[:1], store())
     refusal = stopped.value
     assert refusal.valid == ("release-1",)
     assert refusal.refused == ()
@@ -76,7 +77,7 @@ def test_one_voice_speaks_once() -> None:
     """One key signing twice is one voice: distinct is the word (docs/11)."""
     one = statements()[0]
     with pytest.raises(NotEnoughVoices) as stopped:
-        certify.verify_quorum(IMAGE, TEXT, [one, one, one], store())
+        certify.verify_quorum(IMAGE, TEXT, BLOCK, [one, one, one], store())
     assert stopped.value.valid == ("release-1",)
 
 
@@ -87,10 +88,10 @@ def test_a_refused_voice_does_not_stop_the_others() -> None:
         spoken[0], signature=bytes([spoken[0].signature[0] ^ 0x01])
         + spoken[0].signature[1:]
     )
-    decided = certify.verify_quorum(IMAGE, TEXT, [broken, spoken[1], spoken[2]], store())
+    decided = certify.verify_quorum(IMAGE, TEXT, BLOCK, [broken, spoken[1], spoken[2]], store())
     assert decided.voices == ("release-2", "release-3")
     with pytest.raises(NotEnoughVoices) as stopped:  # and when they all fail, it says so
-        certify.verify_quorum(IMAGE, TEXT, [broken, broken], store())
+        certify.verify_quorum(IMAGE, TEXT, BLOCK, [broken, broken], store())
     refused = stopped.value.refused
     assert [type(each).__name__ for _, each in refused] == ["BadSignature", "BadSignature"]
 
@@ -99,11 +100,11 @@ def test_a_revoked_voice_does_not_count() -> None:
     """A revocation ends one voice; the quorum then needs its remaining voices."""
     spoken = statements()
     with pytest.raises(NotEnoughVoices) as stopped:
-        certify.verify_quorum(IMAGE, TEXT, spoken[:2], store(revoked=("release-2",)))
+        certify.verify_quorum(IMAGE, TEXT, BLOCK, spoken[:2], store(revoked=("release-2",)))
     assert stopped.value.valid == ("release-1",)
     assert [type(each).__name__ for _, each in stopped.value.refused] == ["RevokedKey"]
     assert certify.verify_quorum(  # three voices minus one revoked still decides
-        IMAGE, TEXT, spoken, store(revoked=("release-2",))
+        IMAGE, TEXT, BLOCK, spoken, store(revoked=("release-2",))
     ).voices == ("release-1", "release-3")
     with pytest.raises(RevokedKey):  # alone, a revoked voice is refused by name
-        certify.verify(IMAGE, TEXT, spoken[1], store(revoked=("release-2",)))
+        certify.verify(IMAGE, TEXT, BLOCK, spoken[1], store(revoked=("release-2",)))
