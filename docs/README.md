@@ -90,6 +90,7 @@ Read in order:
 21. [Network: devices, sockets, and the orchestration layer](25-NETWORK-ORCHESTRATION.md)
 22. [Recipes: how work gets into the object world](26-RECIPES.md)
 23. [Editing: one mutation is one delta](27-EDITING.md)
+24. [Unified seat design: the image, the face, the fill, and the shell](28-UNIFIED-SEAT-DESIGN.md)
 
 These documents specify RXF independently of any runtime provider. The optional Metal binding
 is described separately in [`integrations/metal.md`](integrations/metal.md).
