@@ -45,6 +45,7 @@ from ..link.link import (
 from ..schema import (
     IP,
     Address,
+    BondMode,
     Device,
     Drift,
     DriftEntry,
@@ -112,14 +113,16 @@ class DeviceSpec:
     """One desired link: the §7 kind set, its knobs, and its addresses and routes.
 
     `members` are the bridge/bond members, `peer` the other end of a veth pair,
-    `vid`/`on` the VLAN's tag and carrying link. `mtu` and `mac` are optional in the
-    shape (the compile defaults mtu to 1500 and leaves mac unset).
+    `vid`/`on` the VLAN's tag and carrying link, `mode` the bond's policy word (§7).
+    `mtu` and `mac` are optional in the shape (the compile defaults mtu to 1500 and
+    leaves mac unset).
     """
 
     name: str
     kind: LinkKind
     mac: Mac | None = None
     mtu: int | None = None
+    mode: BondMode | None = None
     members: tuple[str, ...] = ()
     peer: str | None = None
     vid: int | None = None
@@ -181,7 +184,7 @@ def _config(cell: NetCell) -> dict[str, object]:
     word: diffs compare what is authored, so re-syncing clears to empty.
     """
     if isinstance(cell, Device):
-        return {"kind": cell.kind, "mac": cell.mac, "mtu": cell.mtu, "link": cell.link}
+        return {"kind": cell.kind, "mac": cell.mac, "mtu": cell.mtu, "link": cell.link, "mode": cell.mode}
     if isinstance(cell, Port):
         return {"device": cell.device, "segment": cell.segment}
     if isinstance(cell, Segment):
@@ -227,6 +230,7 @@ def compile_desired(desired: Doc, at: int = 0) -> tuple[tuple[str, NetCell], ...
             spec.mac,
             spec.mtu if spec.mtu is not None else 1500,
             LinkState.UP,  # §8's bring-up: a named link comes up in the plan
+            spec.mode,
         )
         cells.append((device_path(spec.name), link))
         segment = segment_path(members_of[spec.name]) if spec.name in members_of else None
@@ -469,7 +473,7 @@ _SECTIONS: tuple[tuple[str, LinkKind], ...] = (
     ("dummies", LinkKind.DUMMY),
 )
 _MASTER_KINDS = (LinkKind.BRIDGE, LinkKind.BOND)
-_DEVICE_KEYS = frozenset({"macaddress", "mtu", "interfaces", "peer", "id", "link", "addresses", "routes"})
+_DEVICE_KEYS = frozenset({"macaddress", "mtu", "mode", "interfaces", "peer", "id", "link", "addresses", "routes"})
 _ROUTE_KEYS = frozenset({"to", "via", "metric"})
 
 
@@ -495,6 +499,8 @@ def render(desired: Doc, *, include: bool = True) -> str:
                 lines.append(f"      macaddress: {format_mac(spec.mac)}")
             if spec.mtu is not None:
                 lines.append(f"      mtu: {spec.mtu}")
+            if spec.mode is not None:
+                lines.append(f"      mode: {spec.mode.value}")
             if spec.kind in _MASTER_KINDS and spec.members:
                 lines.append("      interfaces:")
                 lines.extend(f"        - {member}" for member in spec.members)
@@ -742,11 +748,14 @@ def _load_device(name: str, kind: LinkKind, raw: object) -> DeviceSpec:
         raise NotSupported(f"peer is the veths' word: {name} is a {kind.value} and refused it by name")
     if ("id" in raw or "link" in raw) and kind is not LinkKind.VLAN:
         raise NotSupported(f"id and link are the vlans' words: {name} is a {kind.value} and refused them by name")
+    if "mode" in raw and kind is not LinkKind.BOND:
+        raise NotSupported(f"mode is the bonds' word: {name} is a {kind.value} and refused it by name")
     return DeviceSpec(
         name,
         kind,
         mac=_load_mac(raw.get("macaddress")),
         mtu=_load_word(raw.get("mtu"), "mtu"),
+        mode=_load_mode(raw.get("mode")),
         members=_load_names(raw.get("interfaces")),
         peer=_load_name(raw.get("peer")),
         vid=_load_word(raw.get("id"), "id"),
@@ -802,6 +811,19 @@ def _load_word(raw: object, key: str) -> int | None:
     if not isinstance(raw, int) or isinstance(raw, bool):
         raise MalformedDocument(f"{key} is a word of digits: {raw!r} is not one")
     return raw
+
+
+def _load_mode(raw: object) -> BondMode | None:
+    """The bond's policy word (§7): a mode is offered only the named descriptors —
+    every other policy is refused by name (§15), never accepted and dropped."""
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        raise MalformedDocument(f"a mode is a policy word: {raw!r} is not one")
+    for mode in BondMode:
+        if mode.value == raw:
+            return mode
+    raise NotSupported(f"this shape takes a mode of {sorted(m.value for m in BondMode)}: {raw!r} is refused by name")
 
 
 def _load_mac(raw: object) -> Mac | None:

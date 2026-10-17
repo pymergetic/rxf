@@ -33,7 +33,13 @@ from pymergetic.rxftk.net.control.netplan import (
     render,
 )
 from pymergetic.rxftk.net.link.link import LinkKind, LinkPlane, MemoryGraph
-from pymergetic.rxftk.net.schema import IPPrefix, LinkState, NotSupported, Plan
+from pymergetic.rxftk.net.schema import (
+    BondMode,
+    IPPrefix,
+    LinkState,
+    NotSupported,
+    Plan,
+)
 
 
 def _rich() -> Doc:
@@ -60,7 +66,7 @@ def _rich() -> Doc:
             DeviceSpec("wan0", LinkKind.VETH, peer="wan1"),
             DeviceSpec("wan1", LinkKind.VETH),
             DeviceSpec("br0", LinkKind.BRIDGE, members=("lan0", "lan1")),
-            DeviceSpec("bond0", LinkKind.BOND, members=("eth0",)),
+            DeviceSpec("bond0", LinkKind.BOND, members=("eth0",), mode=BondMode.IEEE_802_3AD),
             DeviceSpec("lan0.10", LinkKind.VLAN, vid=10, on="lan0"),
             DeviceSpec("dum0", LinkKind.DUMMY),
         ),
@@ -97,6 +103,7 @@ network:
         - lan1
   bonds:
     bond0:
+      mode: 802.3ad
       interfaces:
         - eth0
   vlans:
@@ -115,6 +122,26 @@ def test_render_is_canonical_and_round_trips() -> None:
     assert render(_rich()) == GOLDEN
     assert parse(GOLDEN, path="net/plan/office.yaml").composed() == _rich().composed()
     assert render(parse(GOLDEN, path="net/plan/office.yaml")) == GOLDEN  # canonical both ways
+
+
+def test_the_bond_mode_is_the_bonds_word_and_a_config_word() -> None:
+    """The bond's policy word (§7) rides the shape: `mode` round-trips, is refused by
+    name on any other link and for any other policy (§15), and is a config word —
+    drift names a mode standing apart, exactly."""
+    doc = parse(GOLDEN, path="net/plan/office.yaml")
+    bond = next(spec for spec in doc.composed().devices if spec.name == "bond0")
+    assert bond == DeviceSpec("bond0", LinkKind.BOND, members=("eth0",), mode=BondMode.IEEE_802_3AD)
+    with pytest.raises(NotSupported, match="refused by name"):
+        parse("network:\n  version: 2\n  bonds:\n    bond0:\n      mode: balance-xor\n")
+    with pytest.raises(NotSupported, match="the bonds' word"):
+        parse("network:\n  version: 2\n  dummies:\n    dum0:\n      mode: active-backup\n")
+    # the word is live in the diff: the applied doc, then one that differs only in mode
+    graph = MemoryGraph()
+    apply(plan(_rich(), graph), _rich(), graph)
+    other = parse(render(_rich()).replace("802.3ad", "active-backup"), path="net/plan/office.yaml")
+    assert drift_entries(other, graph) == (
+        DriftEntry("net/dev/bond0.mode", BondMode.ACTIVE_BACKUP, BondMode.IEEE_802_3AD),
+    )
 
 
 def test_include_is_document_composition() -> None:
