@@ -382,13 +382,25 @@ def _round(value: float) -> float:
 # ---- regions: the arena as districts ---------------------------------------------------------------
 
 
+def _district_cols(count: int) -> int:
+    """The columns of the city-block plan: at least DISTRICT_COLS, and for a big arena as many
+    as make the plan square in world units. A fixed width made a large arena a strip — four
+    blocks across and hundreds of rows deep — so the rows grow with the city instead."""
+    if count <= DISTRICT_COLS * DISTRICT_COLS:
+        return DISTRICT_COLS
+    span_x = DISTRICT_SPAN * BYTE_SCALE + DISTRICT_GAP
+    span_z = DISTRICT_DEPTH + DISTRICT_GAP
+    return max(DISTRICT_COLS, math.ceil(math.sqrt(count * span_z / span_x)))
+
+
 def _districts(header: Mapping[str, Any], occupied: Iterable[int]) -> list[dict[str, Any]]:
     """The bands of the arena (the same three the memory map labels), the cells band split into
     districts of at most DISTRICT_SPAN bytes. A cell belongs to the district its offset starts in.
-    The districts are laid out as city blocks: up to DISTRICT_COLS in a row, rows flowing along Z,
-    so the arena reads as one connected world instead of a strip. A district whose bytes carry no
-    cell from `occupied` is a gutter between the blocks (and an all-gutter row shrinks): the grid
-    tightens around content instead of stretching empty arena across the map."""
+    The districts are laid out as city blocks: a square plan of _district_cols columns, rows
+    flowing along Z, so the arena reads as one connected world instead of a strip. A district
+    whose bytes carry no cell from `occupied` is a gutter between the blocks (and an all-gutter
+    row shrinks): the grid tightens around content instead of stretching empty arena across the
+    map."""
     body = int(header["body_size"])
     offsets = sorted(occupied)
     chunks: list[tuple[str, str, int, int]] = [
@@ -407,7 +419,7 @@ def _districts(header: Mapping[str, Any], occupied: Iterable[int]) -> list[dict[
         at = bisect.bisect_left(offsets, start)
         return at < len(offsets) and offsets[at] < end
 
-    cols = DISTRICT_COLS
+    cols = _district_cols(len(chunks))
     out: list[dict[str, Any]] = []
     z = 0.0
     for row_start in range(0, len(chunks), cols):
@@ -1470,29 +1482,22 @@ def _routes(
     ring_path: Sequence[Mapping[str, float]],
 ) -> None:
     """Give every cable its route: out of the source's lot, the street network across the city,
-    into the target's lot — the shortest path over the rails (``_rails``), corner-cut. A cable
-    runs on the streets; it never crosses a building volume that is not its own endpoint."""
+    into the target's lot — along the two rails of the endpoints and the crossings between them
+    (at most two turns), corner-cut. A cable runs on the streets; it never crosses a building
+    volume that is not its own endpoint."""
     by_id = {str(cell["id"]): cell for cell in cells}
     rails = _rails(streets, ring_path)
 
-    nodes: list[tuple[float, float]] = []
-    seen: dict[tuple[int, int], int] = {}
-
-    def node(x: float, z: float) -> int:
-        key = (round(x * 1000), round(z * 1000))
-        if key not in seen:
-            seen[key] = len(nodes)
-            nodes.append((x, z))
-        return seen[key]
-
-    rail_nodes: list[list[int]] = [[] for _ in rails]
-    for r, rail in enumerate(rails):
-        axis, at, low, high = rail
-        ends = ((low, at), (high, at)) if axis == "x" else ((at, low), (at, high))
-        for x, z in ends:
-            rail_nodes[r].append(node(x, z))
+    # the crossing table: which rails meet and where. A cable then routes rail to rail — along
+    # its own street, turning at crossings at most twice, into the target's street. The node
+    # graph this replaces answered the same question with a shortest-path search per cable;
+    # the crossings were what that search was really looking for.
+    meet: dict[tuple[int, int], tuple[float, float]] = {}
+    crossings_of: dict[int, set[int]] = {}
     for i, j in _rail_junction_pairs(rails):
         a, b = rails[i], rails[j]
+        crossings_of.setdefault(i, set()).add(j)
+        crossings_of.setdefault(j, set()).add(i)
         if a[0] == b[0]:
             # collinear streets meet end to end: a branch continues its lane out of the district
             if abs(a[1] - b[1]) > JUNCTION_SNAP:
@@ -1501,79 +1506,50 @@ def _routes(
                 for at in (first[2], first[3]):
                     if second[2] - JUNCTION_SNAP <= at <= second[3] + JUNCTION_SNAP:
                         corner = (at, first[1]) if first[0] == "x" else (first[1], at)
-                        shared = node(corner[0], corner[1])
-                        rail_nodes[i if first is a else j].append(shared)
-                        rail_nodes[j if first is a else i].append(shared)
+                        meet.setdefault((i, j), corner)
             continue
         # crossing and T junctions both node: where a rail's end lies on another rail's span,
         # the corner is shared or the graph fragments into islands and nothing routes
         x, z = (b[1], a[1]) if a[0] == "x" else (a[1], b[1])
         if _on_rail(a, x, z, JUNCTION_SNAP) and _on_rail(b, x, z, JUNCTION_SNAP):
-            shared = node(x, z)
-            rail_nodes[i].append(shared)
-            rail_nodes[j].append(shared)
+            meet.setdefault((i, j), (x, z))
         for first, second in ((a, b), (b, a)):
             for at in (first[2], first[3]):
                 corner = (at, first[1]) if first[0] == "x" else (first[1], at)
                 if _on_rail(second, corner[0], corner[1], JUNCTION_SNAP):
-                    shared = node(corner[0], corner[1])
-                    rail_nodes[i if first is a else j].append(shared)
-                    rail_nodes[j if first is a else i].append(shared)
+                    meet.setdefault((i, j), corner)
 
-    plugs: dict[str, int] = {}
     grid = _rail_grid(rails)
-    for cell in cells:
-        x, z = float(cell["plot"]["x"]), float(cell["plot"]["z"])
-        px, pz, rail = _project_rail(rails, x, z, grid)
-        plugs[str(cell["id"])] = node(px, pz)
-        if rail >= 0:
-            rail_nodes[rail].append(plugs[str(cell["id"])])
+    plugs: dict[str, tuple[float, float, int]] = {
+        str(cell["id"]): _project_rail(rails, float(cell["plot"]["x"]), float(cell["plot"]["z"]), grid)
+        for cell in cells
+    }
 
-    adjacent: dict[int, list[tuple[int, float]]] = {}
-    for r, rail in enumerate(rails):
-        axis, at, low, high = rail
-        along = sorted(set(rail_nodes[r]), key=lambda n: nodes[n][0] if axis == "x" else nodes[n][1])
-        for first, second in pairwise(along):
-            a, b = nodes[first], nodes[second]
-            length = math.hypot(b[0] - a[0], b[1] - a[1])
-            if length < 1e-9:
+    def hop_path(
+        s_rail: int, s: tuple[float, float], t_rail: int, t: tuple[float, float]
+    ) -> list[tuple[float, float]] | None:
+        """The street path between two plugs: the run on their own rails and the crossings
+        between, at most two turns. None: the rails do not meet in two turns and the caller
+        falls back to the direct run."""
+        if s_rail < 0 or t_rail < 0:
+            return None
+        if s_rail == t_rail:
+            return [s, t]
+        direct = meet.get((s_rail, t_rail)) or meet.get((t_rail, s_rail))
+        if direct is not None:
+            return [s, direct, t]
+        best: tuple[float, tuple[float, float], tuple[float, float]] | None = None
+        firsts, seconds = crossings_of.get(s_rail), crossings_of.get(t_rail)
+        shared = firsts & seconds if firsts and seconds else ()
+        for m in sorted(shared):
+            first = meet.get((s_rail, m)) or meet.get((m, s_rail))
+            second = meet.get((m, t_rail)) or meet.get((t_rail, m))
+            if first is None or second is None:
                 continue
-            adjacent.setdefault(first, []).append((second, length))
-            adjacent.setdefault(second, []).append((first, length))
-
-    # the ring road is a walkable chain of its own — its chamfered corners are diagonal, not
-    # axis lines, so the queue's circle joins the graph as itself
-    ring_nodes = [node(float(point["x"]), float(point["z"])) for point in ring_path]
-    for first, second in zip(ring_nodes, ring_nodes[1:] + ring_nodes[:1]):
-        a, b = nodes[first], nodes[second]
-        length = math.hypot(b[0] - a[0], b[1] - a[1])
-        if length < 1e-9:
-            continue
-        adjacent.setdefault(first, []).append((second, length))
-        adjacent.setdefault(second, []).append((first, length))
-
-    def shortest(start: int, goal: int) -> list[tuple[float, float]]:
-        import heapq
-
-        queue = [(0.0, start)]
-        distance = {start: 0.0}
-        previous: dict[int, int] = {}
-        while queue:
-            spent, at = heapq.heappop(queue)
-            if at == goal:
-                path = [at]
-                while path[-1] != start:
-                    path.append(previous[path[-1]])
-                return [nodes[n] for n in reversed(path)]
-            if spent > distance.get(at, math.inf):
-                continue
-            for neighbor, length in sorted(adjacent.get(at, [])):
-                total = spent + length
-                if total < distance.get(neighbor, math.inf) - 1e-12:
-                    distance[neighbor] = total
-                    previous[neighbor] = at
-                    heapq.heappush(queue, (total, neighbor))
-        return []
+            length = math.dist(s, first) + math.dist(first, second) + math.dist(second, t)
+            if best is None or length < best[0] - 1e-12:
+                best = (length, first, second)
+        return None if best is None else [s, best[1], best[2], t]
 
     def grave(source: Mapping[str, Any], handle: int) -> tuple[float, float]:
         mixed = (int(handle) * 2654435761) % 4294967296
@@ -1583,6 +1559,7 @@ def _routes(
             float(source["plot"]["z"]) + math.sin(angle) * GRAVE_REACH,
         )
 
+    routed: dict[tuple[str, str], list[tuple[float, float]] | None] = {}
     for edge in edges:
         source = by_id.get(str(edge["from"]))
         if source is None:
@@ -1592,7 +1569,12 @@ def _routes(
         target = by_id.get(str(edge["to"])) if edge["to"] else None
         if target is not None:
             finish = (float(target["plot"]["x"]), float(target["plot"]["z"]))
-            path = [start] + shortest(plugs[str(source["id"])], plugs[str(target["id"])]) + [finish]
+            key = (str(source["id"]), str(target["id"]))
+            if key not in routed:
+                s, t = plugs[key[0]], plugs[key[1]]
+                routed[key] = hop_path(s[2], (s[0], s[1]), t[2], (t[0], t[1]))
+            rail_path = routed[key]
+            path = [start] + (rail_path or []) + [finish]
         else:
             path = [start, grave(source, int(edge["to_handle"]))]
         if len(path) < 3:  # no rail network (a bare ground image): the direct Manhattan run
@@ -1855,7 +1837,7 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
             "district_span": DISTRICT_SPAN,
             "district_depth": _round(DISTRICT_DEPTH),
             "district_gap": _round(DISTRICT_GAP),
-            "district_cols": DISTRICT_COLS,
+            "district_cols": _district_cols(len(regions)),
             "byte_scale": _round(BYTE_SCALE),
             "street_width": _round(STREET_WIDTH),
         },
