@@ -1,0 +1,84 @@
+# The ChaCha20-Poly1305 of a message (RFC 8439): the AEAD of the crypto words of the image,
+# and the pieces the published vectors pin one by one.
+#
+# This is the defining source of the card's ChaCha20-Poly1305. The words are the program every
+# machine runs (native/graph.h) -- the interpreter, and the in-image compiler of docs/18. The
+# Rust tree of src/ retires when the suite of native/crypto/ is written here and its vectors
+# pass through these words; until then both are pinned by their tests and this file is the one
+# being built up.
+#
+# The kernel is chacha20poly1305_words.rxfs (the numbers) and chacha20poly1305_kernel.rxfs (the
+# procs) -- the one source of the rounds. This file is the program around it. It takes whole
+# words: the face (op), the key (key, 32 bytes), the nonce (nonce, 12 bytes), the starting
+# block counter (cblock), the additional data (aad, aad_len), the bytes in (text, text_len),
+# where the answer lands (out), and a work region of at least 576 bytes (work). It answers 0.
+#
+# The faces -- the pieces the vectors of RFC 8439 pin on their own, and the AEAD construction
+# of its section 2.8:
+#
+#   FACE_BLOCK     1   the 64 keystream bytes of one block (section 2.3): key, nonce and
+#                      cblock answer 64 bytes at out
+#   FACE_APPLY     2   a buffer xored with the keystream from cblock on (section 2.4):
+#                      text, text_len answer text_len bytes at out
+#   FACE_POLY1305  3   the tag of bytes under a 32-byte one-time key (section 2.5): key is
+#                      that one-time key, and text, text_len answer 16 bytes at out
+#   FACE_SEAL      4   the AEAD seal (section 2.8): text, text_len is the plaintext, and out
+#                      receives the ciphertext || the 16-byte tag (text_len + 16 bytes)
+#   FACE_OPEN      5   the AEAD open (section 2.8): text, text_len is the ciphertext || the
+#                      16-byte tag, and out receives the plaintext (text_len - 16 bytes)
+#
+# A seal and an open start the ciphertext at block counter 1 and take the Poly1305 one-time
+# key from the block of counter 0 (sections 2.6 and 2.8). An open whose tag is not the tag of
+# these bytes refuses RXF_REFUSE_OUT_OF_RANGE -- the run ends and nothing of the plaintext is
+# written, what the C face reads as `false`.
+
+include "chacha20poly1305_words.rxfs";
+
+program chacha20poly1305(op, key, nonce, cblock, aad, aad_len, text, text_len, out, work) {
+    var sp;
+    var cb;
+    var k0, k1, k2, k3;
+    var c0, c1, c2, c3, c4;
+    var x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15;
+    var u0, u1, u2, u3, u4, u5, u6, u7;
+    var m0, m1, m2, m3, m4, m5, m6;
+    var f0, f1, f2, f3, f4, f5;
+
+    sp = work + WSTACK;
+
+    if op == FACE_BLOCK {
+        cb = u32_(cblock);
+        k0 = out;
+        call chacha20_block;
+        return 0;
+    }
+    if op == FACE_APPLY {
+        cb = u32_(cblock);
+        u0 = text;
+        u1 = text_len;
+        u2 = out;
+        call chacha20_apply;
+        return 0;
+    }
+    if op == FACE_POLY1305 {
+        m0 = key;
+        call poly1305_init;
+        m0 = text;
+        m1 = text_len;
+        call poly1305_update;
+        m0 = out;
+        call poly1305_final;
+        return 0;
+    }
+    if op == FACE_SEAL {
+        call aead_seal;
+        return 0;
+    }
+    if op == FACE_OPEN {
+        call aead_open;
+        return 0;
+    }
+    refuse RXF_REFUSE_UNSUPPORTED;
+}
+
+include "chacha20poly1305_kernel.rxfs";

@@ -1,0 +1,82 @@
+# The numbers of the ChaCha20-Poly1305 kernel (RFC 8439): the layout of the work region, the
+# 32-bit arithmetic of the ChaCha20 rounds, and the 26-bit limbs of Poly1305. This is what a
+# program includes before its entry; the procs are chacha20poly1305_kernel.rxfs, included
+# after it (a program comes before its procs).
+#
+# The work region its caller gives it (at least 576 bytes):
+#
+#   WCHACHA  64   the 16 state words a chacha20_block starts from (4 bytes to a word)
+#   WKS      64   the 64 keystream bytes of the block being applied
+#   WH       40   the five Poly1305 accumulator limbs (8 bytes to a limb)
+#   WR       40   the five limbs of the clamped r of the one-time key
+#   WSKEY    16   the 16 bytes of the pad key s of the one-time key
+#   WPART    24   the block being filled (17 bytes of it are read)
+#   WBOOK     8   partlen (the bytes of WPART that are filled)
+#   WUPD     16   the piece poly1305_update is on (its bytes and their count)
+#   WLENS    16   the two lengths of the AEAD mac (aad, then the ciphertext)
+#   WZERO    16   the zeros of the AEAD padding
+#   WTAG     16   the tag a verification computes
+#   WSTACK  256   the stack of the ways back (`sp` of the entry; the call depth is 4)
+#
+# The faces of the card ride the `op` word of the program (chacha20poly1305.rxfs): the pieces
+# the published vectors pin on their own, and the AEAD construction of RFC 8439 section 2.8.
+
+const WCHACHA = 0;
+const WKS = 64;
+const WH = 128;
+const WR = 168;
+const WSKEY = 208;
+const WPART = 224;
+const WBOOK = 248;
+const WUPD = 256;
+const WLENS = 272;
+const WZERO = 288;
+const WTAG = 304;
+const WSTACK = 320;
+
+const FACE_BLOCK = 1;
+const FACE_APPLY = 2;
+const FACE_POLY1305 = 3;
+const FACE_SEAL = 4;
+const FACE_OPEN = 5;
+
+# ---- the 32-bit arithmetic of the ChaCha20 rounds ----------------------------------------------
+fn u32_(x) = ((x) & 0xFFFFFFFF);
+fn add32_(a, b) = (((a) + (b)) & 0xFFFFFFFF);
+fn xor32_(a, b) = ((((a) & not32_(b)) | ((not32_(a)) & (b))) & 0xFFFFFFFF);
+fn not32_(x) = ((~(x)) & 0xFFFFFFFF);
+fn rotl32_(x, n) = ((((x) << (n)) | ((x) >> (32 - (n)))) & 0xFFFFFFFF);
+
+# ---- the arithmetic of the words (the language has no ^ operator) -------------------------------
+fn xor64_(a, b) = ((((a) | (b)) & 0xFFFFFFFFFFFFFFFF) - (((a) & (b)) & 0xFFFFFFFFFFFFFFFF));
+fn not64_(x) = ((~(x)) & 0xFFFFFFFFFFFFFFFF);
+fn xor8_(a, b) = (((((a) | (b)) & 0xFF) - (((a) & (b)) & 0xFF)) & 0xFF);
+
+# ---- the 26-bit limbs of Poly1305 ---------------------------------------------------------------
+const PMASK26 = 0x3ffffff;
+
+# The quarter round of the ChaCha20 rounds (RFC 8439 section 2.1) on four working words: each
+# step adds, xors and rotates a pair of the words (rotate left 16, 12, 8, 7).
+macro qr_(a, b, c, d) {
+    a = add32_(a, b);
+    d = rotl32_(xor32_(d, a), 16);
+    c = add32_(c, d);
+    b = rotl32_(xor32_(b, c), 12);
+    a = add32_(a, b);
+    d = rotl32_(xor32_(d, a), 8);
+    c = add32_(c, d);
+    b = rotl32_(xor32_(b, c), 7);
+}
+
+# The five 26-bit limbs of the 17-byte block at WPART, the block as a 130-bit little-endian
+# number with the bit of the pad in it (poly1305-donna reads the limbs from overlapping words:
+# limb i starts at bit 26*i, and byte 16 is bit 128, the hibit of a full block).
+macro pblk_(b0, b1, b2, b3, b4) {
+    b0 = limb26_(load32(work + WPART));
+    b1 = limb26_(load32(work + WPART + 3) >> 2);
+    b2 = limb26_(load32(work + WPART + 6) >> 4);
+    b3 = limb26_(load32(work + WPART + 9) >> 6);
+    b4 = ((load32(work + WPART + 12) >> 8) | (load8(work + WPART + 16) << 24));
+}
+
+fn limb26_(x) = ((x) & PMASK26);

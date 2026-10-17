@@ -1,0 +1,507 @@
+# The ChaCha20-Poly1305 kernel (RFC 8439) of the crypto words: the one source of the rounds,
+# shared by the programs that seal and open (chacha20poly1305.rxfs). It is `.rxfs`
+# (tools/native/rxfc.py); the frame contract is the one of blake2s_kernel.rxfs: the procs take
+# their scratch from the frame of the run, so the entry of every program that includes this
+# file declares:
+#
+#   k0                  where chacha20_block writes its 64 bytes
+#   k1, k2, k3          the interface of aead_tag (k1 the ciphertext, k2 its length, k3 where
+#                       the tag lands)
+#   cb                  the 32-bit block counter of the chacha state being built
+#   x0 .. x15           the working words of the chacha state
+#   c0 .. c4            the five Poly1305 accumulator limbs, and the round counter of
+#                       chacha20_block (one at a time: the families never overlap a call)
+#   u0 .. u7            the scratch of chacha20_apply, poly1305_update and poly1305_block
+#   m0 .. m6            the interface of poly1305 (m0 the one-time key or where the tag
+#                       lands, m1 a length) and the scratch of poly1305_mul
+#   f0 .. f5            the scratch of poly1305_init, poly1305_block and poly1305_final (f5 is
+#                       where poly1305_final's tag lands, kept across its call of the block)
+#   sp                  the stack of the ways back, at work + WSTACK
+#
+# The numbers are chacha20poly1305_words.rxfs (the work layout and the arithmetic), which the
+# program includes before its entry. The procs, in the order a caller uses them:
+# chacha20_block (the 64 keystream bytes of one block, RFC 8439 section 2.3), chacha20_apply
+# (a buffer xored with the keystream from `cb` on, section 2.4), poly1305_init (the state of a
+# new tag from its 32-byte one-time key, section 2.5), poly1305_update (a piece of the bytes to
+# tag, as often as it comes), poly1305_final (where the 16-byte tag lands), and the AEAD
+# construction of section 2.8: aead_seal (the ciphertext || tag of a plaintext) and aead_open
+# (the plaintext of a ciphertext || tag, refused when the tag is not the tag of these bytes --
+# RXF_REFUSE_OUT_OF_RANGE, what the C face reads as `false`).
+#
+# Poly1305 is the 26-bit limb form of poly1305-donna: the accumulator is five limbs under
+# 2^26, the products of a block fit a word, and every multiply is a shift and add over the
+# same 32 steps -- the language has no `*` of two runtime values, and the same steps for every
+# value keep the path free of the secret.
+
+# ---- one block of the ChaCha20 state (RFC 8439 section 2.3) -------------------------------------
+proc chacha20_state {
+    # x0..x15 are the working words; the state the block starts from is kept at WCHACHA, for
+    # the add at the end of the rounds
+    x0 = 0x61707865;
+    x1 = 0x3320646e;
+    x2 = 0x79622d32;
+    x3 = 0x6b206574;
+    x4 = load32(key);
+    x5 = load32(key + 4);
+    x6 = load32(key + 8);
+    x7 = load32(key + 12);
+    x8 = load32(key + 16);
+    x9 = load32(key + 20);
+    x10 = load32(key + 24);
+    x11 = load32(key + 28);
+    x12 = u32_(cb);
+    x13 = load32(nonce);
+    x14 = load32(nonce + 4);
+    x15 = load32(nonce + 8);
+    store32(work + WCHACHA, x0);
+    store32(work + WCHACHA + 4, x1);
+    store32(work + WCHACHA + 8, x2);
+    store32(work + WCHACHA + 12, x3);
+    store32(work + WCHACHA + 16, x4);
+    store32(work + WCHACHA + 20, x5);
+    store32(work + WCHACHA + 24, x6);
+    store32(work + WCHACHA + 28, x7);
+    store32(work + WCHACHA + 32, x8);
+    store32(work + WCHACHA + 36, x9);
+    store32(work + WCHACHA + 40, x10);
+    store32(work + WCHACHA + 44, x11);
+    store32(work + WCHACHA + 48, x12);
+    store32(work + WCHACHA + 52, x13);
+    store32(work + WCHACHA + 56, x14);
+    store32(work + WCHACHA + 60, x15);
+    ret;
+}
+
+# ---- the 64 keystream bytes of one block ---------------------------------------------------------
+proc chacha20_block {
+    # k0 = where the 64 bytes land: ten double rounds of the state, then the words of the end
+    # state, each its working word plus the word it started from, little-endian
+    call chacha20_state;
+    c0 = 0;
+    while c0 < 10 {
+        qr_(x0, x4, x8, x12);
+        qr_(x1, x5, x9, x13);
+        qr_(x2, x6, x10, x14);
+        qr_(x3, x7, x11, x15);
+        qr_(x0, x5, x10, x15);
+        qr_(x1, x6, x11, x12);
+        qr_(x2, x7, x8, x13);
+        qr_(x3, x4, x9, x14);
+        c0 = c0 + 1;
+    }
+    store32(k0, add32_(x0, load32(work + WCHACHA)));
+    store32(k0 + 4, add32_(x1, load32(work + WCHACHA + 4)));
+    store32(k0 + 8, add32_(x2, load32(work + WCHACHA + 8)));
+    store32(k0 + 12, add32_(x3, load32(work + WCHACHA + 12)));
+    store32(k0 + 16, add32_(x4, load32(work + WCHACHA + 16)));
+    store32(k0 + 20, add32_(x5, load32(work + WCHACHA + 20)));
+    store32(k0 + 24, add32_(x6, load32(work + WCHACHA + 24)));
+    store32(k0 + 28, add32_(x7, load32(work + WCHACHA + 28)));
+    store32(k0 + 32, add32_(x8, load32(work + WCHACHA + 32)));
+    store32(k0 + 36, add32_(x9, load32(work + WCHACHA + 36)));
+    store32(k0 + 40, add32_(x10, load32(work + WCHACHA + 40)));
+    store32(k0 + 44, add32_(x11, load32(work + WCHACHA + 44)));
+    store32(k0 + 48, add32_(x12, load32(work + WCHACHA + 48)));
+    store32(k0 + 52, add32_(x13, load32(work + WCHACHA + 52)));
+    store32(k0 + 56, add32_(x14, load32(work + WCHACHA + 56)));
+    store32(k0 + 60, add32_(x15, load32(work + WCHACHA + 60)));
+    ret;
+}
+
+# ---- a buffer xored with the keystream (RFC 8439 section 2.4) ------------------------------------
+proc chacha20_apply {
+    # u0 = the bytes, u1 = their count, u2 = where the xored bytes land (the same bytes work).
+    # The counter of `cb` walks on by one block
+    u3 = u1;
+    u4 = u0;
+    u5 = u2;
+    while u3 > 0 {
+        k0 = work + WKS;
+        call chacha20_block;
+        u6 = 64;
+        if u6 > u3 {
+            u6 = u3;
+        }
+        u7 = 0;
+        while (u7 + 8) <= u6 {
+            store64(u5 + u7, xor64_(load64(u4 + u7), load64(work + WKS + u7)));
+            u7 = u7 + 8;
+        }
+        while u7 < u6 {
+            store8(u5 + u7, xor8_(load8(u4 + u7), load8(work + WKS + u7)));
+            u7 = u7 + 1;
+        }
+        u4 = u4 + u6;
+        u5 = u5 + u6;
+        u3 = u3 - u6;
+        cb = u32_(cb + 1);
+    }
+    ret;
+}
+
+# ---- the multiply of two limbs (the language has no `*` of two runtime values) --------------------
+proc poly1305_mul {
+    # m2 = m0 * m1: thirty-two shift and add steps, the same for every value, so no step
+    # branches on a bit of the secret. The bit selects its add with a mask of all ones or none
+    m2 = 0;
+    m3 = m1;
+    m4 = m0;
+    m5 = 0;
+    while m5 < 32 {
+        m6 = -(m3 & 1);
+        m2 = m2 + (m4 & m6);
+        m3 = m3 >> 1;
+        m4 = m4 << 1;
+        m5 = m5 + 1;
+    }
+    ret;
+}
+
+# ---- the state of a new tag (RFC 8439 section 2.5) -----------------------------------------------
+proc poly1305_init {
+    # m0 = the 32-byte one-time key: r is clamped to its 24 bits of 0, s is the pad, and the
+    # accumulator starts empty
+    f0 = load64(m0);
+    f1 = load64(m0 + 8);
+    f0 = f0 & 0x0ffffffc0fffffff;
+    f1 = f1 & 0x0ffffffc0ffffffc;
+    store64(work + WR, limb26_(f0));
+    store64(work + WR + 8, limb26_(f0 >> 26));
+    store64(work + WR + 16, limb26_((f0 >> 52) | (f1 << 12)));
+    store64(work + WR + 24, limb26_(f1 >> 14));
+    store64(work + WR + 32, limb26_(f1 >> 40));
+    store64(work + WSKEY, load64(m0 + 16));
+    store64(work + WSKEY + 8, load64(m0 + 24));
+    store64(work + WH, 0);
+    store64(work + WH + 8, 0);
+    store64(work + WH + 16, 0);
+    store64(work + WH + 24, 0);
+    store64(work + WH + 32, 0);
+    store64(work + WBOOK, 0);
+    fill(work + WZERO, 0, 16);
+    ret;
+}
+
+# ---- a piece of the bytes to tag -----------------------------------------------------------------
+proc poly1305_update {
+    # m0 = the bytes, m1 = their length. A block that is full is one with the bit of the pad
+    # (the 17th byte); the last block is left for poly1305_final, which sets its own bit
+    store64(work + WUPD, m0);
+    store64(work + WUPD + 8, m1);
+    while load64(work + WUPD + 8) > 0 {
+        u5 = load64(work + WBOOK);
+        u6 = 16 - u5;
+        if u6 > load64(work + WUPD + 8) {
+            u6 = load64(work + WUPD + 8);
+        }
+        if u5 == 0 {
+            fill(work + WPART, 0, 17);
+        }
+        copy(work + WPART + u5, load64(work + WUPD), u6);
+        u5 = u5 + u6;
+        if u5 == 16 {
+            store8(work + WPART + 16, 1);
+            call poly1305_block;
+            u5 = 0;
+        }
+        store64(work + WBOOK, u5);
+        store64(work + WUPD, load64(work + WUPD) + u6);
+        store64(work + WUPD + 8, load64(work + WUPD + 8) - u6);
+    }
+    ret;
+}
+
+# ---- one block into the accumulator --------------------------------------------------------------
+proc poly1305_block {
+    # the limbs of the block join the accumulator, then the accumulator is multiplied by r:
+    # the 25 products of five limbs, and the carry of the five results. The folded limbs of r
+    # (5 * r[i], the wrap of 2^130 = 5 mod p) are five times their product
+    pblk_(f0, f1, f2, f3, f4);
+    c0 = load64(work + WH) + f0;
+    c1 = load64(work + WH + 8) + f1;
+    c2 = load64(work + WH + 16) + f2;
+    c3 = load64(work + WH + 24) + f3;
+    c4 = load64(work + WH + 32) + f4;
+    f0 = 0;
+    f1 = 0;
+    f2 = 0;
+    f3 = 0;
+    f4 = 0;
+    # the products of c0 (h[0]): the product of h[j] and r[k] goes to limb (j + k) mod 5,
+    # five times it when the sum wraps past 4 (2^130 = 5 mod p)
+    m0 = load64(work + WR);
+    m1 = c0;
+    call poly1305_mul;
+    f0 = f0 + m2;
+    m0 = load64(work + WR + 8);
+    call poly1305_mul;
+    f1 = f1 + m2;
+    m0 = load64(work + WR + 16);
+    call poly1305_mul;
+    f2 = f2 + m2;
+    m0 = load64(work + WR + 24);
+    call poly1305_mul;
+    f3 = f3 + m2;
+    m0 = load64(work + WR + 32);
+    call poly1305_mul;
+    f4 = f4 + m2;
+    # the products of c1 (h[1])
+    m0 = load64(work + WR);
+    m1 = c1;
+    call poly1305_mul;
+    f1 = f1 + m2;
+    m0 = load64(work + WR + 8);
+    call poly1305_mul;
+    f2 = f2 + m2;
+    m0 = load64(work + WR + 16);
+    call poly1305_mul;
+    f3 = f3 + m2;
+    m0 = load64(work + WR + 24);
+    call poly1305_mul;
+    f4 = f4 + m2;
+    m0 = load64(work + WR + 32);
+    call poly1305_mul;
+    f0 = f0 + (m2 << 2) + m2;
+    # the products of c2 (h[2])
+    m0 = load64(work + WR);
+    m1 = c2;
+    call poly1305_mul;
+    f2 = f2 + m2;
+    m0 = load64(work + WR + 8);
+    call poly1305_mul;
+    f3 = f3 + m2;
+    m0 = load64(work + WR + 16);
+    call poly1305_mul;
+    f4 = f4 + m2;
+    m0 = load64(work + WR + 24);
+    call poly1305_mul;
+    f0 = f0 + (m2 << 2) + m2;
+    m0 = load64(work + WR + 32);
+    call poly1305_mul;
+    f1 = f1 + (m2 << 2) + m2;
+    # the products of c3 (h[3])
+    m0 = load64(work + WR);
+    m1 = c3;
+    call poly1305_mul;
+    f3 = f3 + m2;
+    m0 = load64(work + WR + 8);
+    call poly1305_mul;
+    f4 = f4 + m2;
+    m0 = load64(work + WR + 16);
+    call poly1305_mul;
+    f0 = f0 + (m2 << 2) + m2;
+    m0 = load64(work + WR + 24);
+    call poly1305_mul;
+    f1 = f1 + (m2 << 2) + m2;
+    m0 = load64(work + WR + 32);
+    call poly1305_mul;
+    f2 = f2 + (m2 << 2) + m2;
+    # the products of c4 (h[4])
+    m0 = load64(work + WR);
+    m1 = c4;
+    call poly1305_mul;
+    f4 = f4 + m2;
+    m0 = load64(work + WR + 8);
+    call poly1305_mul;
+    f0 = f0 + (m2 << 2) + m2;
+    m0 = load64(work + WR + 16);
+    call poly1305_mul;
+    f1 = f1 + (m2 << 2) + m2;
+    m0 = load64(work + WR + 24);
+    call poly1305_mul;
+    f2 = f2 + (m2 << 2) + m2;
+    m0 = load64(work + WR + 32);
+    call poly1305_mul;
+    f3 = f3 + (m2 << 2) + m2;
+    # the carry: every limb under 2^26, the last carry folded by five
+    u0 = f0 >> 26;
+    c0 = limb26_(f0);
+    f1 = f1 + u0;
+    u0 = f1 >> 26;
+    c1 = limb26_(f1);
+    f2 = f2 + u0;
+    u0 = f2 >> 26;
+    c2 = limb26_(f2);
+    f3 = f3 + u0;
+    u0 = f3 >> 26;
+    c3 = limb26_(f3);
+    f4 = f4 + u0;
+    u0 = f4 >> 26;
+    c4 = limb26_(f4);
+    c0 = c0 + ((u0 << 2) + u0);
+    u0 = c0 >> 26;
+    c0 = limb26_(c0);
+    c1 = c1 + u0;
+    store64(work + WH, c0);
+    store64(work + WH + 8, c1);
+    store64(work + WH + 16, c2);
+    store64(work + WH + 24, c3);
+    store64(work + WH + 32, c4);
+    ret;
+}
+
+# ---- the tag (RFC 8439 section 2.5) --------------------------------------------------------------
+proc poly1305_final {
+    # m0 = where the 16-byte tag lands: the last block with its own bit of the pad, the full
+    # carry, the representative under p, and the pad key s added
+    f5 = m0;
+    u5 = load64(work + WBOOK);
+    if u5 != 0 {
+        store8(work + WPART + u5, 1);
+        store8(work + WPART + 16, 0);
+        call poly1305_block;
+        store64(work + WBOOK, 0);
+    }
+    c0 = load64(work + WH);
+    c1 = load64(work + WH + 8);
+    c2 = load64(work + WH + 16);
+    c3 = load64(work + WH + 24);
+    c4 = load64(work + WH + 32);
+    u5 = c1 >> 26;
+    c1 = limb26_(c1);
+    c2 = c2 + u5;
+    u5 = c2 >> 26;
+    c2 = limb26_(c2);
+    c3 = c3 + u5;
+    u5 = c3 >> 26;
+    c3 = limb26_(c3);
+    c4 = c4 + u5;
+    u5 = c4 >> 26;
+    c4 = limb26_(c4);
+    c0 = c0 + ((u5 << 2) + u5);
+    u5 = c0 >> 26;
+    c0 = limb26_(c0);
+    c1 = c1 + u5;
+    # the representative under p: g = h + 5 - 2^130, taken when h is not under p (the wrap of
+    # g decides, never a branch on the value)
+    f0 = c0 + 5;
+    u5 = f0 >> 26;
+    f0 = limb26_(f0);
+    f1 = c1 + u5;
+    u5 = f1 >> 26;
+    f1 = limb26_(f1);
+    f2 = c2 + u5;
+    u5 = f2 >> 26;
+    f2 = limb26_(f2);
+    f3 = c3 + u5;
+    u5 = f3 >> 26;
+    f3 = limb26_(f3);
+    f4 = (c4 + u5) - (1 << 26);
+    u6 = ((f4 >> 63) - 1) & 0xFFFFFFFFFFFFFFFF;
+    c0 = (c0 & not64_(u6)) | (f0 & u6);
+    c1 = (c1 & not64_(u6)) | (f1 & u6);
+    c2 = (c2 & not64_(u6)) | (f2 & u6);
+    c3 = (c3 & not64_(u6)) | (f3 & u6);
+    c4 = (c4 & not64_(u6)) | (f4 & u6);
+    # the exact digits (every limb under 2^26), and the tag: (h + s) mod 2^128, little-endian
+    u7 = 0;
+    while u7 < 3 {
+        u5 = c0 >> 26;
+        c0 = limb26_(c0);
+        c1 = c1 + u5;
+        u5 = c1 >> 26;
+        c1 = limb26_(c1);
+        c2 = c2 + u5;
+        u5 = c2 >> 26;
+        c2 = limb26_(c2);
+        c3 = c3 + u5;
+        u5 = c3 >> 26;
+        c3 = limb26_(c3);
+        c4 = c4 + u5;
+        u7 = u7 + 1;
+    }
+    f0 = c0 | (c1 << 26) | (c2 << 52);
+    f1 = (c2 >> 12) | (c3 << 14) | (c4 << 40);
+    u5 = load64(work + WSKEY);
+    f0 = f0 + u5;
+    u5 = (f0 < u5);
+    u6 = load64(work + WSKEY + 8);
+    f1 = f1 + u6 + u5;
+    store64(f5, f0);
+    store64(f5 + 8, f1);
+    ret;
+}
+
+# ---- the AEAD construction (RFC 8439 section 2.8) ------------------------------------------------
+proc aead_otk {
+    # the one-time key of section 2.6: the first 32 bytes of the block of counter 0
+    cb = 0;
+    k0 = work + WKS;
+    call chacha20_block;
+    m0 = work + WKS;
+    call poly1305_init;
+    ret;
+}
+
+proc aead_tag {
+    # k1 = the ciphertext, k2 = its length, k3 = where the tag lands: the mac is
+    # aad || zeros || ct || zeros || the lengths, each piece rounded up to its block
+    m0 = aad;
+    m1 = aad_len;
+    call poly1305_update;
+    if (aad_len & 15) != 0 {
+        m0 = work + WZERO;
+        m1 = 16 - (aad_len & 15);
+        call poly1305_update;
+    }
+    m0 = k1;
+    m1 = k2;
+    call poly1305_update;
+    if (k2 & 15) != 0 {
+        m0 = work + WZERO;
+        m1 = 16 - (k2 & 15);
+        call poly1305_update;
+    }
+    store64(work + WLENS, aad_len);
+    store64(work + WLENS + 8, k2);
+    m0 = work + WLENS;
+    m1 = 16;
+    call poly1305_update;
+    m0 = k3;
+    call poly1305_final;
+    ret;
+}
+
+proc aead_seal {
+    # the plaintext at text, its length at text_len: the ciphertext || tag lands at out, its
+    # length + 16 bytes
+    call aead_otk;
+    cb = 1;
+    u0 = text;
+    u1 = text_len;
+    u2 = out;
+    call chacha20_apply;
+    k1 = out;
+    k2 = text_len;
+    k3 = out + text_len;
+    call aead_tag;
+    ret;
+}
+
+proc aead_open {
+    # the ciphertext || tag at text, its length at text_len: the plaintext lands at out. A tag
+    # that is not the tag of these bytes is refused (the run ends, nothing is trusted)
+    if text_len < 16 {
+        refuse RXF_REFUSE_OUT_OF_RANGE;
+    }
+    call aead_otk;
+    k1 = text;
+    k2 = text_len - 16;
+    k3 = work + WTAG;
+    call aead_tag;
+    u5 = 0;
+    u6 = 0;
+    while u6 < 16 {
+        u5 = u5 | xor8_(load8(work + WTAG + u6), load8(text + text_len - 16 + u6));
+        u6 = u6 + 1;
+    }
+    if u5 != 0 {
+        refuse RXF_REFUSE_OUT_OF_RANGE;
+    }
+    cb = 1;
+    u0 = text;
+    u1 = text_len - 16;
+    u2 = out;
+    call chacha20_apply;
+    ret;
+}
