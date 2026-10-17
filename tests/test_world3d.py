@@ -1,6 +1,6 @@
 """The 3D world renderer foundation: the scene exporter and the assets of the world page.
 
-The exporter turns one image into the scene input JSON ("rxf-world-1", documented in the
+The exporter turns one image into the scene input JSON (documented in the
 docstring of ``pymergetic.rxftk.world.export``). The world IS the arena — a projection, never a
 second truth — so these tests pin the projection: deterministic and golden (the checked-in
 ``static/scene/demo-scene.json``), schema-validated, and complete at the edges the runtime

@@ -1,5 +1,5 @@
 /* The 3D world of the RXF runtime: one Babylon.js scene, generated purely from the scene JSON
- * ("rxf-world-1" — the schema is documented in src/pymergetic/rxftk/world/export.py).
+ * (the schema is documented in src/pymergetic/rxftk/world/export.py).
  *
  * The world IS the arena — a projection, never a second truth. This file renders what the
  * exporter wrote and invents nothing: districts (memory regions) are tiled ground plots, cells
@@ -36,7 +36,7 @@
 (function (global) {
   "use strict";
 
-  var SCHEMA = "rxf-world-1";
+  var SCHEMA = "rxf-world-2";
   var FOV = 0.9;
   var TRAM_LAP = 90; /* seconds for one lap of the ring road */
   var RING_ROAD_WIDTH = 5.6; /* matches export.py RING_WIDTH: the detours keep this room */
@@ -94,6 +94,17 @@
   var FORWARD_HOT = "#e0663c";
   var CABLE_FRESH = "#37e0c4";
   var CABLE_STALE = "#ff5040";
+
+  /* ---- the depth dimension: cables fly on module-depth sheets ----------------------------
+   * One property drives the height of every trace: the module depth of its deepest endpoint
+   * (root 0, a 1, a.b 2, ...). The flat wiring becomes a stack of sheets — intra-level
+   * wiring shares a sheet, cross-level wiring climbs between them — which is what untangles
+   * a dense reference mesh into readable layers. */
+  var FLIGHT_BASE = 3.6; /* the ground sheet: cables between shallow modules */
+  var FLIGHT_STEP = 2.6; /* one module level of altitude per level of depth */
+  var FLIGHT_MAX = 9; /* deeper endpoints clamp on the top sheet */
+  var PAD_LIFT = 0.72; /* where a trace leaves its pad: pad top + half the trace thickness */
+  var RAMP = 4.0; /* the climb happens over the first and last stretch of the run */
   /* the ready-ring is the map's landmark: its paint must read at a glance against the ground
    * AND against the muted local streets (those stay dark). All of it is flat paint on the
    * ground — the round-5 law stands: no curb lips, no side walls, no street shadows. */
@@ -633,9 +644,16 @@
       return color(ROLE_COLORS[role] || ROLE_COLORS.payload, vary);
     }
 
+    var volumeMatrices = []; /* the L1 buildings: one volume in the family's paint */
+    var volumeColors = [];
     for (var cell of doc.cells) {
       built.cellsById[cell.id] = cell;
       built.cellList.push(cell);
+      volumeMatrices.push(
+        placed(cell.plot.x, cell.height / 2, cell.plot.z, cell.footprint, cell.height, cell.footprint)
+      );
+      var volumeTint = color(FAMILY_COLORS[cell.family] || FAMILY_COLORS.block, 0.92 + 0.16 * hash(cell.offset));
+      volumeColors.push(volumeTint.r, volumeTint.g, volumeTint.b, 1);
       var bands = cell.anatomy;
       var total = Math.max(1, cell.size);
       var raws = [];
@@ -664,6 +682,14 @@
       roleMeshes[roleKey].thinInstanceSetBuffer("matrix", matrixBuffer(roleMatrices[roleKey]), 16, true);
       roleMeshes[roleKey].thinInstanceSetBuffer("color", roleColors[roleKey], 4, true);
     }
+    /* the L1 building volume: the massing reads as buildings before the anatomy floors of
+     * L2 arrive — one box per cell in the family's paint, one draw call for the city */
+    var volumeMesh = BABYLON.MeshBuilder.CreateBox("building-volumes", { size: 1 }, scene);
+    volumeMesh.material = roleMaterial("building-volumes-material", "#ffffff", 0.16);
+    volumeMesh.isPickable = false;
+    volumeMesh.alwaysSelectAsActiveMesh = true;
+    volumeMesh.thinInstanceSetBuffer("matrix", matrixBuffer(volumeMatrices), 16, true);
+    volumeMesh.thinInstanceSetBuffer("color", volumeColors, 4, true);
 
     /* caps: the silhouettes that tell the families apart (tower beacons, monument crowns) */
     var beaconMesh = BABYLON.MeshBuilder.CreateBox("beacons", { size: 1 }, scene);
@@ -746,33 +772,71 @@
       return chamfer(points, 0.8);
     }
 
-    var traceBase = { matrices: [] };
-    var traceCore = { fresh: [], stale: [] };
-    function traceSegments(points, height, width, core, fresh) {
+    /* the wiring runs in three tiers — the skeleton (both endpoints named), the backbone
+     * (one endpoint named) and the data wiring — one detail limit per LOD level, so the
+     * wide views stay alive and the close views carry everything. */
+    var tiers = [];
+    for (var tierIndex = 0; tierIndex < 3; tierIndex++) {
+      tiers.push({ base: [], fresh: [], stale: [], pads: [], padColors: [] });
+    }
+    function traceSegments(points, thickness, width, core, fresh, tier) {
+      /* one stretched box per leg, oriented along the leg's 3D slope: the trace flies */
       for (var i = 0; i < points.length - 1; i++) {
         var a = points[i];
         var b = points[i + 1];
-        var length = Math.hypot(b.x - a.x, b.z - a.z);
+        var dx = b.x - a.x;
+        var dy = b.y - a.y;
+        var dz = b.z - a.z;
+        var length = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (length < 0.01) continue;
-        var angle = Math.atan2(b.x - a.x, b.z - a.z);
-        var matrix = BABYLON.Matrix.Compose(
-          new BABYLON.Vector3(width, height, length),
-          BABYLON.Quaternion.FromEulerAngles(0, angle, 0),
-          new BABYLON.Vector3((a.x + b.x) / 2, height / 2 + 0.26, (a.z + b.z) / 2)
+        var yaw = Math.atan2(dx, dz);
+        var pitch = Math.atan2(dy, Math.hypot(dx, dz));
+        var rotation = BABYLON.Quaternion.RotationAxis(BABYLON.Axis.Y, yaw).multiply(
+          BABYLON.Quaternion.RotationAxis(BABYLON.Axis.X, -pitch)
         );
-        if (core) (fresh ? traceCore.fresh : traceCore.stale).push(matrix);
-        else traceBase.matrices.push(matrix);
+        var matrix = BABYLON.Matrix.Compose(
+          new BABYLON.Vector3(width, thickness, length),
+          rotation,
+          new BABYLON.Vector3((a.x + b.x) / 2, (a.y + b.y) / 2 + thickness / 2, (a.z + b.z) / 2)
+        );
+        var bucket = core ? (fresh ? tier.fresh : tier.stale) : tier.base;
+        bucket.push(matrix);
       }
+    }
+    function climb(points, cruise) {
+      /* the polyline gains altitudes: pad level at both ends, a ramp over the first and last
+       * stretch, cruise in between — the cable leaves its pad, flies its sheet, dives into
+       * the target's pad */
+      var spans = [];
+      var total = 0;
+      for (var i = 0; i < points.length - 1; i++) {
+        var span = Math.hypot(points[i + 1].x - points[i].x, points[i + 1].z - points[i].z);
+        spans.push(span);
+        total += span;
+      }
+      var ramp = Math.min(RAMP, total / 2);
+      var walked = 0;
+      var out = [];
+      for (var i = 0; i < points.length; i++) {
+        var away = Math.min(walked, total - walked);
+        var t = ramp > 0 ? Math.min(1, away / ramp) : 1;
+        out.push({ x: points[i].x, z: points[i].z, y: PAD_LIFT + (cruise - PAD_LIFT) * t });
+        walked += spans[i] || 0;
+      }
+      return out;
+    }
+    function flightAltitude(from, to) {
+      /* the sheet rule: a cable flies at the module depth of its deepest endpoint */
+      var depth = Math.max(from ? from.depth || 0 : 0, to ? to.depth || 0 : 0);
+      return FLIGHT_BASE + Math.min(FLIGHT_MAX, depth) * FLIGHT_STEP;
     }
 
     var graveMatrices = [];
-    var padMatrices = [];
-    var padColors = [];
-    function padAt(x, z, fresh) {
+    function padAt(x, z, fresh, tier) {
       /* every trace plugs into something: a pad at each endpoint, never a naked line */
-      padMatrices.push(placed(x, 0.40, z, 1.6, 0.34, 1.6));
+      tier.pads.push(placed(x, 0.40, z, 1.6, 0.34, 1.6));
       var padTint = color(fresh ? CABLE_FRESH : CABLE_STALE, 0.6);
-      padColors.push(padTint.r, padTint.g, padTint.b, 1);
+      tier.padColors.push(padTint.r, padTint.g, padTint.b, 1);
     }
     for (var edge of doc.edges) {
       var source = built.cellsById[edge.from];
@@ -801,31 +865,41 @@
       if (!target) {
         graveMatrices.push(placed(end.x, 0.34, end.z, 0.8, 0.6, 0.8));
       }
-      padAt(start.x, start.z, edge.fresh);
-      padAt(end.x, end.z, edge.fresh);
+      var namedA = source.family === "tower" || source.family === "monument";
+      var namedB = target !== null && (target.family === "tower" || target.family === "monument");
+      var tier = namedA && namedB ? tiers[0] : namedA || namedB ? tiers[1] : tiers[2];
+      padAt(start.x, start.z, edge.fresh, tier);
+      padAt(end.x, end.z, edge.fresh, tier);
       var points = edgeRoute || route(start, end);
-      var lift = 0.05 + (edge.index === null ? 0 : edge.index % 3) * 0.05; /* crossings step over */
-      traceSegments(points, lift, 0.75, false, edge.fresh);
-      traceSegments(points, lift + 0.06, 0.24, true, edge.fresh);
+      var stagger = (edge.index === null ? 0 : edge.index % 3) * 0.14; /* same-sheet crossings */
+      var cruise = flightAltitude(source, target) + stagger;
+      traceSegments(climb(points, cruise), 0.14, 0.75, false, edge.fresh, tier);
+      traceSegments(climb(points, cruise + 0.18), 0.10, 0.24, true, edge.fresh, tier);
     }
-    var baseTraces = BABYLON.MeshBuilder.CreateBox("traces-base", { size: 1 }, scene);
-    baseTraces.material = pbr("traces-base-material", "#1a2a33", 0.3, 0.7);
-    baseTraces.material.emissiveColor = new BABYLON.Color3(0.04, 0.09, 0.11);
-    baseTraces.isPickable = false;
-    baseTraces.alwaysSelectAsActiveMesh = true;
-    baseTraces.thinInstanceSetBuffer("matrix", matrixBuffer(traceBase.matrices), 16, true);
-
-    var freshTraces = BABYLON.MeshBuilder.CreateBox("traces-fresh", { size: 1 }, scene);
-    freshTraces.material = roleMaterial("traces-fresh-material", CABLE_FRESH, 0.85);
-    freshTraces.isPickable = false;
-    freshTraces.alwaysSelectAsActiveMesh = true;
-    freshTraces.thinInstanceSetBuffer("matrix", matrixBuffer(traceCore.fresh), 16, true);
-
-    var staleTraces = BABYLON.MeshBuilder.CreateBox("traces-stale", { size: 1 }, scene);
-    staleTraces.material = roleMaterial("traces-stale-material", CABLE_STALE, 0.85);
-    staleTraces.isPickable = false;
-    staleTraces.alwaysSelectAsActiveMesh = true;
-    staleTraces.thinInstanceSetBuffer("matrix", matrixBuffer(traceCore.stale), 16, true);
+    /* one material per voice, one mesh set per tier: every sheet draws the same paint */
+    var traceBaseMaterial = pbr("traces-base-material", "#1a2a33", 0.3, 0.7);
+    traceBaseMaterial.emissiveColor = new BABYLON.Color3(0.04, 0.09, 0.11);
+    var traceFreshMaterial = roleMaterial("traces-fresh-material", CABLE_FRESH, 0.85);
+    var traceStaleMaterial = roleMaterial("traces-stale-material", CABLE_STALE, 0.85);
+    var tracePadMaterial = roleMaterial("trace-pads-material", "#ffffff", 0.5);
+    function tierMesh(name, t, material, matrices, colors) {
+      var mesh = BABYLON.MeshBuilder.CreateBox(name + "-" + t, { size: 1 }, scene);
+      mesh.material = material;
+      mesh.isPickable = false;
+      mesh.alwaysSelectAsActiveMesh = true;
+      mesh.thinInstanceSetBuffer("matrix", matrixBuffer(matrices), 16, true);
+      if (colors) mesh.thinInstanceSetBuffer("color", colors, 4, true);
+      return mesh;
+    }
+    var tierMeshes = [];
+    for (var t = 0; t < tiers.length; t++) {
+      tierMeshes.push({
+        base: tierMesh("traces-base", t, traceBaseMaterial, tiers[t].base),
+        fresh: tierMesh("traces-fresh", t, traceFreshMaterial, tiers[t].fresh),
+        stale: tierMesh("traces-stale", t, traceStaleMaterial, tiers[t].stale),
+        pads: tierMesh("trace-pads", t, tracePadMaterial, tiers[t].pads, tiers[t].padColors)
+      });
+    }
 
     var graveMesh = BABYLON.MeshBuilder.CreateBox("graves", { size: 1 }, scene);
     graveMesh.material = pbr("grave", "#2a1512", 0.1, 0.9);
@@ -834,17 +908,61 @@
     graveMesh.alwaysSelectAsActiveMesh = true;
     graveMesh.thinInstanceSetBuffer("matrix", matrixBuffer(graveMatrices), 16, true);
 
-    var padMesh = BABYLON.MeshBuilder.CreateBox("trace-pads", { size: 1 }, scene);
-    padMesh.material = roleMaterial("trace-pads-material", "#ffffff", 0.5);
-    padMesh.isPickable = false;
-    padMesh.alwaysSelectAsActiveMesh = true;
-    padMesh.thinInstanceSetBuffer("matrix", matrixBuffer(padMatrices), 16, true);
-    padMesh.thinInstanceSetBuffer("color", padColors, 4, true);
-
-    glow.addIncludedOnlyMesh(freshTraces);
-    glow.addIncludedOnlyMesh(staleTraces);
+    for (var glowTier of tierMeshes) {
+      glow.addIncludedOnlyMesh(glowTier.fresh);
+      glow.addIncludedOnlyMesh(glowTier.stale);
+    }
     glow.addIncludedOnlyMesh(beaconMesh);
     glow.addIncludedOnlyMesh(graveMesh);
+
+    /* the selection's own wires: pick a building and its cables light up on their sheets —
+     * the interactive untangler on top of the stacked sheets (built.wire, called on select) */
+    var wireBaseMaterial = roleMaterial("selection-wire-material", "#c8a24a", 0.7);
+    var wireCoreMaterial = roleMaterial("selection-wire-core-material", "#ffd27a", 0.9);
+    var wireBase = BABYLON.MeshBuilder.CreateBox("selection-wire-base", { size: 1 }, scene);
+    wireBase.material = wireBaseMaterial;
+    wireBase.isPickable = false;
+    wireBase.alwaysSelectAsActiveMesh = true;
+    wireBase.thinInstanceSetBuffer("matrix", matrixBuffer([]), 16, false);
+    var wireCore = BABYLON.MeshBuilder.CreateBox("selection-wire-core", { size: 1 }, scene);
+    wireCore.material = wireCoreMaterial;
+    wireCore.isPickable = false;
+    wireCore.alwaysSelectAsActiveMesh = true;
+    wireCore.thinInstanceSetBuffer("matrix", matrixBuffer([]), 16, false);
+    wireBase.setEnabled(false);
+    wireCore.setEnabled(false);
+    glow.addIncludedOnlyMesh(wireCore);
+    built.wire = function (cell) {
+      var base = [];
+      var core = [];
+      if (cell) {
+        for (var edge of doc.edges) {
+          if (edge.from !== cell.id && edge.to !== cell.id) continue;
+          var from = built.cellsById[edge.from];
+          if (!from) continue;
+          var to = edge.to ? built.cellsById[edge.to] : null;
+          var points =
+            edge.route && edge.route.length >= 2
+              ? edge.route
+              : route(
+                  { x: from.plot.x, z: from.plot.z },
+                  to ? { x: to.plot.x, z: to.plot.z } : { x: from.plot.x + 3.4, z: from.plot.z + 3.4 }
+                );
+          var stagger = (edge.index === null ? 0 : edge.index % 3) * 0.14;
+          var cruise = flightAltitude(from, to) + stagger;
+          traceSegments(climb(points, cruise), 0.22, 1.0, false, true, {
+            base: base, fresh: [], stale: []
+          });
+          traceSegments(climb(points, cruise + 0.24), 0.12, 0.34, true, true, {
+            base: [], fresh: core, stale: []
+          });
+        }
+      }
+      wireBase.thinInstanceSetBuffer("matrix", matrixBuffer(base), 16, false);
+      wireCore.thinInstanceSetBuffer("matrix", matrixBuffer(core), 16, false);
+      wireBase.setEnabled(base.length > 0);
+      wireCore.setEnabled(core.length > 0);
+    };
 
     /* ---- the ready-ring: the ring road of the document, with lanes and tram units --------- */
     var ringRoad = null;
@@ -1255,29 +1373,35 @@
     var buildings = group("buildings");
     var massing = group("massing");
     var cables = group("cables");
+    var cablesMore = group("cablesMore");
+    var cablesAll = group("cablesAll");
+    var streets = group("streets");
     var labels = group("labels");
     var details = group("details");
     var wayfind = group("wayfind");
     for (var tileBand of ["header", "index", "cells"]) tileMeshes[tileBand].parent = districts;
     baseMesh.parent = districts;
     rimMesh.parent = districts;
-    streetRoad.parent = districts;
-    streetDash.parent = districts;
+    streetRoad.parent = streets;
+    streetDash.parent = streets;
     blockBaseMesh.parent = districts;
     massMesh.parent = massing;
     if (ringRoad) ringRoad.parent = districts;
     for (var ringMarking of ringMarkings) ringMarking.parent = districts;
-    for (var role of Object.keys(roleMeshes)) roleMeshes[role].parent = buildings;
+    for (var role of Object.keys(roleMeshes)) roleMeshes[role].parent = details;
+    volumeMesh.parent = buildings;
     beaconMesh.parent = buildings;
     crownMesh.parent = buildings;
     voidMesh.parent = buildings;
     graveMesh.parent = buildings;
     if (tramMesh) tramMesh.parent = districts;
     if (dashMesh) dashMesh.parent = districts;
-    baseTraces.parent = cables;
-    freshTraces.parent = cables;
-    staleTraces.parent = cables;
-    padMesh.parent = cables;
+    var cableGroups = [cables, cablesMore, cablesAll];
+    for (var t = 0; t < tierMeshes.length; t++) {
+      for (var tierKind of ["base", "fresh", "stale", "pads"]) {
+        tierMeshes[t][tierKind].parent = cableGroups[t];
+      }
+    }
     /* label() hands back null past its budget: guard the parenting, never crash the build */
     for (var plane of signPlanes) if (plane) plane.parent = labels;
     for (var plane of districtPlanes) if (plane) plane.parent = labels;
@@ -1424,13 +1548,26 @@
       shadows.setDarkness(0.5); /* real side shading and base shadows: the city must have depth */
 
       var world = buildWorld(scene, doc, glow);
+      /* the pick grid: the cursor's cell without walking every building per pointer move */
+      var pickGrid = new Map();
+      var PICK_BUCKET = 6;
+      for (var pickCellOfWorld of world.cellList) {
+        var pickKey =
+          Math.floor(pickCellOfWorld.plot.x / PICK_BUCKET) +
+          "," +
+          Math.floor(pickCellOfWorld.plot.z / PICK_BUCKET);
+        var pickBucket = pickGrid.get(pickKey);
+        if (!pickBucket) pickGrid.set(pickKey, (pickBucket = []));
+        pickBucket.push(pickCellOfWorld);
+      }
       for (var mesh of scene.meshes) {
         /* every volume casts: buildings, caps, and the L0 block massing */
         if (
           mesh.name.indexOf("floors-") === 0 ||
           mesh.name === "beacons" ||
           mesh.name === "crowns" ||
-          mesh.name === "massing-blocks"
+          mesh.name === "massing-blocks" ||
+          mesh.name === "building-volumes"
         ) {
           shadows.addShadowCaster(mesh);
         }
@@ -1455,6 +1592,7 @@
 
       function select(cell) {
         selected = cell;
+        world.wire(cell); /* the cell's own cables light up on their sheets */
         if (!cell) {
           world.selection.setEnabled(false);
         } else {
@@ -1521,11 +1659,17 @@
         var best = 3.2;
         var hitDistance = Infinity;
         var hit = null;
-        for (var cell of world.cellList) {
-          var distance = Math.hypot(point.x - cell.plot.x, point.z - cell.plot.z) - cell.footprint * 0.5;
-          if (distance < best && distance < hitDistance) {
-            hitDistance = distance;
-            hit = cell;
+        var gx = Math.floor(point.x / PICK_BUCKET);
+        var gz = Math.floor(point.z / PICK_BUCKET);
+        for (var bx = gx - 1; bx <= gx + 1; bx++) {
+          for (var bz = gz - 1; bz <= gz + 1; bz++) {
+            for (var cell of pickGrid.get(bx + "," + bz) || []) {
+              var distance = Math.hypot(point.x - cell.plot.x, point.z - cell.plot.z) - cell.footprint * 0.5;
+              if (distance < best && distance < hitDistance) {
+                hitDistance = distance;
+                hit = cell;
+              }
+            }
           }
         }
         return hit;
@@ -1757,7 +1901,13 @@
         var level = rig.lod();
         world.groups.buildings.setEnabled(level !== LOD_LEVELS[0]);
         world.groups.massing.setEnabled(level === LOD_LEVELS[0]);
+        /* the cable detail limit (the depth dimension carries the rest): the skeleton — both
+         * ends named — from L1, the backbone — one end named — from L2, every cable at L3.
+         * The flight sheets make each tier readable; the limit keeps the wide views alive. */
         world.groups.cables.setEnabled(level !== LOD_LEVELS[0]);
+        world.groups.cablesMore.setEnabled(level === LOD_LEVELS[2] || level === LOD_LEVELS[3]);
+        world.groups.cablesAll.setEnabled(level === LOD_LEVELS[3]);
+        world.groups.streets.setEnabled(level !== LOD_LEVELS[0]);
         /* name signage is the city's identity: it reads at every level and every pitch/yaw
          * (the billboard keeps it upright), so the L0 massing overview carries the names too —
          * the round-3 hero shows shaded massing *and* the floating signs together */

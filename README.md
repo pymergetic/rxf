@@ -132,13 +132,17 @@ it.
 ### The 3D world: the image as an RTS city
 
 The world view draws the checked-in demo world over the same cells the inspector reads:
-cells are block-stack buildings, references are street cables between the lots, and the
-ready-ring is the boulevard where the run cells ride. WASD moves camera-relative; the
-minimap is a real top-down projection of the same document.
+cells are block-stack buildings, references are cables that fly on **module-depth sheets**
+(root 0, `a` 1, `a.b` 2, ... — one altitude per level, so a dense reference mesh reads as
+stacked layers instead of one flat grid), and the ready-ring is the boulevard where the run
+cells ride. The wiring carries one detail limit per view — the named skeleton wide, the named
+backbone midway, every cable up close — and clicking a building lights its own cables up on
+their sheets. WASD moves camera-relative; the minimap is a real top-down projection of the
+same document.
 
-![The demo world from the north-east: the city diagonal, the ring, readable labels](docs/images/world-overview.png)
+![The demo world from the north-east: the city diagonal, the ring, and the cables flying their module-depth sheets](docs/images/world-overview.png)
 
-![The street paint: cables and flat markings between the blocks](docs/images/world-streets.png)
+![Street level: the wiring flies its sheets above the blocks while the paint stays flat on the ground](docs/images/world-streets.png)
 
 ![The ring road's corner: clean chamfers, no spikes](docs/images/world-ring.png)
 
