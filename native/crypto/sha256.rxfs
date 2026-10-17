@@ -1,0 +1,194 @@
+# The SHA-256 of a message (FIPS 180-4): the first primitive of the crypto words of the image.
+#
+# This is the defining source of the card's SHA-256. The words are the program every machine
+# runs (native/graph.h) -- the interpreter, and the in-image compiler of docs/18. The Rust tree
+# of src/ retires when the suite of native/crypto/ is written here and its vectors pass through
+# these words; until then both are pinned by their tests and this file is the one being built up.
+#
+# The language is `.rxfs` (tools/native/rxfc.py): statements over 64-bit variables. The idiom is
+# the one of native/compose/hash.rxfs (the composer's own single-block SHA-256), generalized to
+# messages of any length: every block is copied to one buffer, padded in place, compressed by
+# the body that is written once.
+#
+# The program takes whole words: the message (data, len), where the 32-byte digest lands (out),
+# and a work region of at least 576 bytes (work). It answers 0.
+
+# ---- the work region ---------------------------------------------------------------------------
+const WK = 0;        # K[0..63] of the round, two 32-bit constants to a 64-bit word
+const WRING = 256;   # W[0..15], the rolling ring of the schedule (8 bytes a word)
+const WSTATE = 384;  # H[0..7], the state (8 bytes a word)
+const WWORK = 448;   # a..h, the working words (8 bytes a word)
+const WBLOCK = 512;  # the block being padded and compressed (64 bytes)
+
+# ---- the 32-bit arithmetic of the compression --------------------------------------------------
+fn u32_(x) = ((x) & 0xFFFFFFFF);
+fn add32_(a, b) = (((a) + (b)) & 0xFFFFFFFF);
+fn xor32_(a, b) = ((((a) & not32_(b)) | ((not32_(a)) & (b))) & 0xFFFFFFFF);
+fn not32_(x) = ((~(x)) & 0xFFFFFFFF);
+fn rotr32_(x, n) = ((((x) >> (n)) | ((x) << (32 - (n)))) & 0xFFFFFFFF);
+fn shr32_(x, n) = ((x) >> (n));
+
+# the round functions: the big sigmas of a word, the little sigmas of the schedule, choose/majority
+fn S0_(x) = (xor32_(xor32_(rotr32_((x), 2), rotr32_((x), 13)), rotr32_((x), 22)));
+fn S1_(x) = (xor32_(xor32_(rotr32_((x), 6), rotr32_((x), 11)), rotr32_((x), 25)));
+fn s0_(x) = (xor32_(xor32_(rotr32_((x), 7), rotr32_((x), 18)), shr32_((x), 3)));
+fn s1_(x) = (xor32_(xor32_(rotr32_((x), 17), rotr32_((x), 19)), shr32_((x), 10)));
+fn ch_(e, f, g) = (xor32_(((e) & (f)), ((not32_(e)) & (g))));
+fn maj_(a, b, c) = (xor32_(xor32_(((a) & (b)), ((a) & (c))), ((b) & (c))));
+
+# the bytes of a word reversed: the digest is written big-endian
+fn bswap32_(x) = ((((x) >> 24) & 0xFF) | ((((x) >> 16) & 0xFF) << 8) | ((((x) >> 8) & 0xFF) << 16) | (((x) & 0xFF) << 24));
+
+program sha256(data, len, out, work) {
+    var i, bi, nfull, rem, p, t;
+    var w, k, t1, t2, t3, t4, t5;
+    var a, b, c, d, e, f, g, h;
+
+    # ---- the constants of the round (SHA-256 K[0..63]), two to a word --------------------------
+    store64(work + WK +   0, 0x428a2f9871374491);   # K[0], K[1]
+    store64(work + WK +   8, 0xb5c0fbcfe9b5dba5);   # K[2], K[3]
+    store64(work + WK +  16, 0x3956c25b59f111f1);   # K[4], K[5]
+    store64(work + WK +  24, 0x923f82a4ab1c5ed5);   # K[6], K[7]
+    store64(work + WK +  32, 0xd807aa9812835b01);   # K[8], K[9]
+    store64(work + WK +  40, 0x243185be550c7dc3);   # K[10], K[11]
+    store64(work + WK +  48, 0x72be5d7480deb1fe);   # K[12], K[13]
+    store64(work + WK +  56, 0x9bdc06a7c19bf174);   # K[14], K[15]
+    store64(work + WK +  64, 0xe49b69c1efbe4786);   # K[16], K[17]
+    store64(work + WK +  72, 0x0fc19dc6240ca1cc);   # K[18], K[19]
+    store64(work + WK +  80, 0x2de92c6f4a7484aa);   # K[20], K[21]
+    store64(work + WK +  88, 0x5cb0a9dc76f988da);   # K[22], K[23]
+    store64(work + WK +  96, 0x983e5152a831c66d);   # K[24], K[25]
+    store64(work + WK + 104, 0xb00327c8bf597fc7);   # K[26], K[27]
+    store64(work + WK + 112, 0xc6e00bf3d5a79147);   # K[28], K[29]
+    store64(work + WK + 120, 0x06ca635114292967);   # K[30], K[31]
+    store64(work + WK + 128, 0x27b70a852e1b2138);   # K[32], K[33]
+    store64(work + WK + 136, 0x4d2c6dfc53380d13);   # K[34], K[35]
+    store64(work + WK + 144, 0x650a7354766a0abb);   # K[36], K[37]
+    store64(work + WK + 152, 0x81c2c92e92722c85);   # K[38], K[39]
+    store64(work + WK + 160, 0xa2bfe8a1a81a664b);   # K[40], K[41]
+    store64(work + WK + 168, 0xc24b8b70c76c51a3);   # K[42], K[43]
+    store64(work + WK + 176, 0xd192e819d6990624);   # K[44], K[45]
+    store64(work + WK + 184, 0xf40e3585106aa070);   # K[46], K[47]
+    store64(work + WK + 192, 0x19a4c1161e376c08);   # K[48], K[49]
+    store64(work + WK + 200, 0x2748774c34b0bcb5);   # K[50], K[51]
+    store64(work + WK + 208, 0x391c0cb34ed8aa4a);   # K[52], K[53]
+    store64(work + WK + 216, 0x5b9cca4f682e6ff3);   # K[54], K[55]
+    store64(work + WK + 224, 0x748f82ee78a5636f);   # K[56], K[57]
+    store64(work + WK + 232, 0x84c878148cc70208);   # K[58], K[59]
+    store64(work + WK + 240, 0x90befffaa4506ceb);   # K[60], K[61]
+    store64(work + WK + 248, 0xbef9a3f7c67178f2);   # K[62], K[63]
+
+    # ---- the state H[0..7] ----------------------------------------------------------------------
+    store64(work + WSTATE +  0, 0x6a09e667);
+    store64(work + WSTATE +  8, 0xbb67ae85);
+    store64(work + WSTATE + 16, 0x3c6ef372);
+    store64(work + WSTATE + 24, 0xa54ff53a);
+    store64(work + WSTATE + 32, 0x510e527f);
+    store64(work + WSTATE + 40, 0x9b05688c);
+    store64(work + WSTATE + 48, 0x1f83d9ab);
+    store64(work + WSTATE + 56, 0x5be0cd19);
+
+    # ---- the blocks: every block of the message, then the padding -------------------------------
+    nfull = len >> 6;               # the blocks the message fills whole
+    rem = len & 63;                 # the bytes that are left over
+    bi = 0;
+    # the tail is one block when rem < 56 (the length still fits), two when it does not
+    if rem < 56 {
+        t = nfull + 1;
+    } else {
+        t = nfull + 2;
+    }
+    while bi < t {
+        if bi < nfull {
+            copy(work + WBLOCK, data + (bi << 6), 64);
+        } else {
+            if bi == nfull {
+                # the last bytes of the message, then 0x80, then zeroes
+                fill(work + WBLOCK, 0, 64);
+                copy(work + WBLOCK, data + (nfull << 6), rem);
+                store8(work + WBLOCK + rem, 0x80);
+            } else {
+                # the second tail block: only the length
+                fill(work + WBLOCK, 0, 64);
+            }
+        }
+        if bi == t - 1 {
+            # the length of the message in bits, big-endian, in the last eight bytes
+            p = len << 3;
+            store32(work + WBLOCK + 56, bswap32_(p >> 32));
+            store32(work + WBLOCK + 60, bswap32_(u32_(p)));
+        }
+
+        # ---- the compression of the block at WBLOCK ------------------------------------------
+        # the schedule W[0..15] from the block: word i is four bytes big-endian
+        i = 0;
+        while i < 16 {
+            p = work + WBLOCK + (i << 2);
+            w = ((load8(p) & 0xFF) << 24) | ((load8(p + 1) & 0xFF) << 16) | ((load8(p + 2) & 0xFF) << 8) | (load8(p + 3) & 0xFF);
+            store64(work + WRING + (i << 3), w);
+            i = i + 1;
+        }
+        # a..h start as the state
+        a = load64(work + WSTATE +  0);
+        b = load64(work + WSTATE +  8);
+        c = load64(work + WSTATE + 16);
+        d = load64(work + WSTATE + 24);
+        e = load64(work + WSTATE + 32);
+        f = load64(work + WSTATE + 40);
+        g = load64(work + WSTATE + 48);
+        h = load64(work + WSTATE + 56);
+        # the 64 rounds
+        i = 0;
+        while i < 64 {
+            if i >= 16 {
+                # W[i] = s1(W[i-2]) + W[i-7] + s0(W[i-15]) + W[i-16], into the ring
+                t1 = load64(work + WRING + (((i - 2) & 15) << 3));
+                t2 = load64(work + WRING + (((i - 7) & 15) << 3));
+                t3 = load64(work + WRING + (((i - 15) & 15) << 3));
+                t4 = load64(work + WRING + (((i - 16) & 15) << 3));
+                w = add32_(add32_(add32_(s1_(t1), t2), s0_(t3)), t4);
+                store64(work + WRING + ((i & 15) << 3), w);
+            } else {
+                w = load64(work + WRING + (i << 3));
+            }
+            # K[i], two to a word: the high half when i is even
+            k = load64(work + WK + ((i >> 1) << 3));
+            if (i & 1) == 0 {
+                k = (k >> 32) & 0xFFFFFFFF;
+            } else {
+                k = u32_(k);
+            }
+            # t1 = h + S1(e) + ch(e,f,g) + K[i] + W[i]; t2 = S0(a) + maj(a,b,c)
+            t5 = add32_(add32_(add32_(add32_(h, S1_(e)), ch_(e, f, g)), k), w);
+            t1 = add32_(S0_(a), maj_(a, b, c));
+            h = g;
+            g = f;
+            f = e;
+            e = add32_(d, t5);
+            d = c;
+            c = b;
+            b = a;
+            a = add32_(t5, t1);
+            i = i + 1;
+        }
+        # fold the working words into the state
+        store64(work + WSTATE +  0, add32_(load64(work + WSTATE +  0), a));
+        store64(work + WSTATE +  8, add32_(load64(work + WSTATE +  8), b));
+        store64(work + WSTATE + 16, add32_(load64(work + WSTATE + 16), c));
+        store64(work + WSTATE + 24, add32_(load64(work + WSTATE + 24), d));
+        store64(work + WSTATE + 32, add32_(load64(work + WSTATE + 32), e));
+        store64(work + WSTATE + 40, add32_(load64(work + WSTATE + 40), f));
+        store64(work + WSTATE + 48, add32_(load64(work + WSTATE + 48), g));
+        store64(work + WSTATE + 56, add32_(load64(work + WSTATE + 56), h));
+
+        bi = bi + 1;
+    }
+
+    # ---- the digest, big-endian -----------------------------------------------------------------
+    i = 0;
+    while i < 8 {
+        store32(out + (i << 2), bswap32_(u32_(load64(work + WSTATE + (i << 3)))));
+        i = i + 1;
+    }
+    return 0;
+}
