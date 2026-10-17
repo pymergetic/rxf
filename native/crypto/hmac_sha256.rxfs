@@ -1,0 +1,32 @@
+# The HMAC-SHA-256 of a message (RFC 2104, the vectors of RFC 4231): the tag of a key over a
+# message of any length. The kernel is hmac_words.rxfs and hmac_kernel.rxfs; this file is the
+# program around it.
+#
+# It takes whole words: the key (key, key_len), the message (msg, msg_len), where the 32-byte
+# tag lands (out), and a work region of at least 1280 bytes (work). It answers 0.
+
+include "hmac_words.rxfs";
+
+program hmac_sha256(key, key_len, msg, msg_len, out, work) {
+    var sp;
+    var k0, k1, k2;
+    var c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13;
+    var u0, u1, u2, u3;
+    var f0, f1, f2;
+    var m0, m1, m2, m3, m4, m5;
+
+    sp = work + WSTACK;
+
+    m0 = key;
+    m1 = key_len;
+    call hmac_key;
+    call hmac_begin;
+    m2 = msg;
+    m3 = msg_len;
+    call hmac_update;
+    m4 = out;
+    call hmac_end;
+    return 0;
+}
+
+include "hmac_kernel.rxfs";

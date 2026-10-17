@@ -1,0 +1,40 @@
+# The numbers of the SHA-256 kernel: the layout of the work region and the 32-bit arithmetic
+# of the compression. This is what a program includes before its entry; the procs are
+# sha256_kernel.rxfs, included after it (a program comes before its procs).
+#
+# The work region its caller gives it (at least 1280 bytes):
+#
+#   WK     256   the constants K[0..63] of the round
+#   WRING  128   the rolling ring W[0..15] of the schedule
+#   WSTATE  64   H[0..7], the state
+#   WWORK   64   a..h, the working words
+#   WPART   64   the block being filled and compressed
+#   WBOOK   16   partlen (8) and the total bytes (8)
+#   WSTACK 256   the stack of the ways back (`sp` of the entry; the call depth is 8)
+
+const WK = 0;
+const WRING = 256;
+const WSTATE = 384;
+const WWORK = 448;
+const WPART = 512;
+const WBOOK = 576;
+const WSTACK = 1024;
+
+# ---- the 32-bit arithmetic of the compression --------------------------------------------------
+fn u32_(x) = ((x) & 0xFFFFFFFF);
+fn add32_(a, b) = (((a) + (b)) & 0xFFFFFFFF);
+fn xor32_(a, b) = ((((a) & not32_(b)) | ((not32_(a)) & (b))) & 0xFFFFFFFF);
+fn not32_(x) = ((~(x)) & 0xFFFFFFFF);
+fn rotr32_(x, n) = ((((x) >> (n)) | ((x) << (32 - (n)))) & 0xFFFFFFFF);
+fn shr32_(x, n) = ((x) >> (n));
+
+# the round functions: the big sigmas of a word, the little sigmas of the schedule, choose/majority
+fn S0_(x) = (xor32_(xor32_(rotr32_((x), 2), rotr32_((x), 13)), rotr32_((x), 22)));
+fn S1_(x) = (xor32_(xor32_(rotr32_((x), 6), rotr32_((x), 11)), rotr32_((x), 25)));
+fn s0_(x) = (xor32_(xor32_(rotr32_((x), 7), rotr32_((x), 18)), shr32_((x), 3)));
+fn s1_(x) = (xor32_(xor32_(rotr32_((x), 17), rotr32_((x), 19)), shr32_((x), 10)));
+fn ch_(e, f, g) = (xor32_(((e) & (f)), ((not32_(e)) & (g))));
+fn maj_(a, b, c) = (xor32_(xor32_(((a) & (b)), ((a) & (c))), ((b) & (c))));
+
+# the bytes of a word reversed: the digest is written big-endian
+fn bswap32_(x) = ((((x) >> 24) & 0xFF) | ((((x) >> 16) & 0xFF) << 8) | ((((x) >> 8) & 0xFF) << 16) | (((x) & 0xFF) << 24));
