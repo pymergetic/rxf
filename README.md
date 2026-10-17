@@ -243,19 +243,24 @@ finder sits last in `sys.meta_path`.
 ```python
 from pymergetic.rxftk import mount
 
-image = mount.image_open("starter")          # .rxfb bytes or a .rxfd tree
+image = mount.image_open("starter")            # open: .rxfb bytes or a .rxfd tree
 
-import pymergetic.rxf.library.heap as heap   # the image answers the name
-dir(heap)                                    # what the module exports
-run = pymergetic.rxf.foundation.graph.run    # one face per object, named or imported
-run.implementations                          # a declared relation is a list of faces
-run.target                                   # a payload leaf read at its offset
-type(run).__name__                           # 'Function' — the class of its Type object
+import pymergetic.rxf.kinds as kinds           # import: the image answers the name
+import pymergetic.rxf.foundation.graph as graph
+
+run = graph.run                                # inspect: one face per object
+type(run).__name__                             # 'Function' — the class of its Type object
+run.implementations                            #   a declared relation: 6 faces
+run.semantic_digest                            #   a payload leaf read at its offset
+
+run.rename("entry")                            # call: the edit verbs (docs/27)
+run.put("semantic_version", 2)                 #   a property assignment is put — one
+                                               #   mutation, one delta, width from the field
 ```
 
-Open, import, inspect, call: the mount is read-only (edits are deltas,
-[docs/27](docs/27-EDITING.md)); one image at a time. The MicroPython guest needs no
-finder at all — it boots into this same object world
+Open, import, inspect, call: every mounted object carries the edit set — one mutation,
+one delta ([docs/27](docs/27-EDITING.md)). One image at a time. The MicroPython guest
+needs no finder at all — it boots into this same object world
 ([the self-description](docs/16-SELF-DESCRIPTION.md) makes the faces).
 
 ### The command line
