@@ -66,13 +66,51 @@ proc name_eq {
 
 # ---- the child of an object with a given name ---------------------------------------------------
 # g0: the handle of the parent. g1: the address of the name bytes. g2: how many.
-# R: the handle of the child whose name is those bytes, or HANDLE_NONE. A scan of the index; the
-# composer may build the map at W_MAP when it resolves many names and a scan is too slow.
+# R: the handle of the child whose name is those bytes, or HANDLE_NONE. The map at W_MAP answers
+# the names this request has answered already (words.rxfs): the hash of (parent, name) probes its
+# rows, a row of an older request answers nothing, and what the probe misses scans the index and
+# fills the row the probe ended on. So a name is walked once per request, not once per question.
 proc child_named {
     R = HANDLE_NONE;
     k0 = g0;                                  # the parent
     k1 = g1;                                  # the name bytes
     k2 = g2;                                  # how many
+
+    # the hash of (parent, name): what a row of the map is keyed by
+    k7 = 5381;
+    k3 = 0;
+    while k3 < k2 {
+        k7 = xor64_(((k7 << 5) + k7), (load8(k1 + k3) & 0xFF));
+        k3 = k3 + 1;
+    }
+    k7 = xor64_(((k7 << 5) + k7), k0);
+
+    # the probe: the rows of this request walk from the hash; the first row of an older request is
+    # empty to this one, so it is where the answer goes and where the walk ends
+    k8 = k7 & (NMAP - 1);
+    k10 = load64(work + W_MAP_EPOCH);
+    k11 = HANDLE_NONE;
+    k12 = 0;
+    while k12 < NMAP {
+        k9 = work + W_MAP + (k8 * MAP_ROW);
+        if load64(k9 + 8) != k10 {
+            k11 = k9;
+            k12 = NMAP;
+        }
+        if load64(k9 + 8) == k10 {
+            if load64(k9 + 0) == k7 {
+                if load64(k9 + 16) == k0 {
+                    R = load64(k9 + 24);
+                    ret;
+                }
+            }
+            k8 = (k8 + 1) & (NMAP - 1);
+            k12 = k12 + 1;
+        }
+    }
+
+    # what the probe missed: the scan of the index
+    k13 = HANDLE_NONE;
     k3 = 0;
     k4 = load64(work + W_HANDLES);
     while k3 < k4 {
@@ -89,8 +127,8 @@ proc child_named {
                         g2 = k2;
                         call name_eq;
                         if R == 1 {
-                            R = k3;
-                            ret;
+                            k13 = k3;
+                            k3 = k4;
                         }
                     }
                 }
@@ -98,7 +136,60 @@ proc child_named {
         }
         k3 = k3 + 1;
     }
-    R = HANDLE_NONE;
+
+    # the answer -- the child, or the none of a name no handle names -- is what the row holds. A map
+    # whose rows are all live keeps the hash's own row (a name that is asked again finds it there)
+    if k11 == HANDLE_NONE {
+        k11 = work + W_MAP + ((k7 & (NMAP - 1)) * MAP_ROW);
+    }
+    store64(k11 + 0, k7);
+    store64(k11 + 8, k10);
+    store64(k11 + 16, k0);
+    store64(k11 + 24, k13);
+    R = k13;
+    ret;
+}
+
+# ---- the children of every parent ---------------------------------------------------------------
+# W_KHEAD[p] is the first child of the parent p, W_KNEXT[h] the next child of the same parent
+# (words.rxfs) -- the chains a gather walks instead of the arena. The children go in downward, so a
+# chain comes out in handle order. Built once a request at its first gather; what is too tall for
+# the arrays builds nothing and the gathers scan as before.
+proc kids_build {
+    m1 = load64(work + W_HANDLES);            # how many handles
+    if m1 > KID_MAX {
+        ret;
+    }
+    if (W_KHEAD + (m1 << 3)) > W_PLAN {
+        ret;
+    }
+    store64(work + W_KIDS_EPOCH, load64(work + W_MAP_EPOCH));
+    store64(work + W_KIDS_H, m1);
+
+    # the chains start empty
+    m0 = 0;
+    while m0 < m1 {
+        store32(work + W_KHEAD + (m0 << 2), NONE32);
+        m0 = m0 + 1;
+    }
+
+    # the children, downward: the chain of a parent then walks in handle order
+    m0 = m1;
+    while m0 > 0 {
+        m0 = m0 - 1;
+        g0 = m0;
+        call cell_of;
+        m2 = R;
+        if m2 != HANDLE_NONE {
+            if (arena_q(m2 + C_TYPE) & KIND_MASK) != KIND_DEAD {
+                m3 = arena_q(m2 + C_PARENT);
+                if m3 < KID_MAX {
+                    store32(work + W_KNEXT + (m0 << 2), load32(work + W_KHEAD + (m3 << 2)));
+                    store32(work + W_KHEAD + (m3 << 2), m0);
+                }
+            }
+        }
+    }
     ret;
 }
 
