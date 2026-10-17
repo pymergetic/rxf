@@ -105,19 +105,16 @@ and the providers are `os.urandom`.
    the faces they need exist (the `clock` seam, `Session.send_counter`, the peer's
    `keepalive` config cell) and `initiate` is the one-shot handshake start. A
    `send` with no session refuses `NotConnected` rather than queueing behind a timer.
-4. **The MAC1/MAC2 digest width (§5.4.4) — one width off-card.** `Mac()` is keyed
+4. **The MAC1/MAC2 digest width (§5.4.4) — the card carries it.** `Mac()` is keyed
    BLAKE2s with a **16-byte** digest: kernel `cookie.c` `compute_mac1` calls
    `blake2s(key, …, out=mac1, outlen=COOKIE_LEN)` with `COOKIE_LEN = 16`,
    wireguard-go uses `blake2s.New128`, and the official cross-implementation driver
    (`wireguard-tools/contrib/external-tests/python/main.py`) computes
-   `blake2s(initiation_packet, digest_size=16, key=mac_key)`. The frozen card's
-   `blake2s_keyed` is 256-bit-only and truncating it is **not** this value — the
-   corpus's `mac16_vectors` disagree with the truncation and agree with
-   `hashlib.blake2s(digest_size=16, key=…)`, so this one width rides the platform's
-   BLAKE2s (pinned in `tests/test_net_wireguard.py`) while every other primitive rides
-   the card. Recommendation for the card: an `out_len` on `pm_crypto_blake2s_keyed`
-   (its Rust core's `Blake2s::new(outlen, key)` already takes one) and this call
-   moves onto the card too.
+   `blake2s(initiation_packet, digest_size=16, key=mac_key)`. Truncating the 32-byte
+   digest is **not** this value (the corpus's `mac16_vectors` disagree with the
+   truncation) — so `pm_crypto_blake2s_keyed` carries `out_len` (1..=32, RFC 7693
+   parameterizes the width into the digest) and this call rides the card like every
+   other primitive.
 
 Refused by name (§15), by face: a wrong shape `NotSupported`; an unauthenticated or
 unverifiable message `MalformedMessage` (mac1, AEAD tags — §5.4.6 makes the tag the
@@ -131,7 +128,6 @@ reply `NotSupported` (gap 1); an inner source outside `allowed_ips`
 
 from __future__ import annotations
 
-import hashlib
 import hmac
 import os
 import struct
@@ -207,11 +203,10 @@ def _mac128(key: bytes, message: bytes) -> bytes:
 
     Pinned at the test to the wireguard test-vectors corpus's `mac16_vectors` and to
     the official external-tests construction (`blake2s(..., digest_size=16, key=...)`).
-    This is the one width the frozen card cannot express (its keyed face is 256-bit
-    and truncation is a different value — named gap 4 in the module docstring);
-    everything else in this card comes from `cap.crypto`.
+    The card carries the width (`out_len` on `pm_crypto_blake2s_keyed`); truncating
+    the 32-byte digest is a different value and is not used.
     """
-    return hashlib.blake2s(message, digest_size=16, key=key).digest()
+    return _crypto().blake2s_keyed(key, message, out_len=16)
 
 
 def tai64n(unix_seconds: int, nanos: int = 0) -> bytes:

@@ -117,24 +117,30 @@ pub unsafe extern "C" fn pm_crypto_blake2s(out: *mut u8, data: *const u8, len: u
     out.copy_from_slice(&blake2s::blake2s(data));
 }
 
-/// BLAKE2s-256, keyed (1..=32 byte key): writes 32 bytes to `out`.
+/// Keyed BLAKE2s (1..=32 byte key) at the caller's width: writes `out_len` bytes
+/// to `out` (1..=32 — the WireGuard MAC form is 16; truncating the 32-byte digest
+/// is not that value).
 #[no_mangle]
 pub unsafe extern "C" fn pm_crypto_blake2s_keyed(
     out: *mut u8,
+    out_len: usize,
     key: *const u8,
     key_len: usize,
     data: *const u8,
     len: usize,
 ) {
+    if out_len == 0 || out_len > 32 {
+        return;
+    }
     let (Some(out), Some(key), Some(data)) =
-        (out_slice(out, 32), slice(key, key_len), slice(data, len))
+        (out_slice(out, out_len), slice(key, key_len), slice(data, len))
     else {
         return;
     };
     if key.is_empty() || key.len() > 32 {
         return;
     }
-    out.copy_from_slice(&blake2s::blake2s_keyed(key, data));
+    blake2s::blake2s_keyed_n(key, data, out);
 }
 
 /// X25519 public key: writes X25519(scalar, 9) to `out`.
