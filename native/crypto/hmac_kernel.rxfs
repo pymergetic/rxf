@@ -1,0 +1,67 @@
+# The HMAC kernel (RFC 2104) over the SHA-256 of sha256_kernel.rxfs, shared by the programs
+# that authenticate (hmac_sha256) and derive (hkdf). The frame contract adds to the kernel's:
+#
+#   m0 .. m5              the interface and scratch of the HMAC procs
+#
+# The procs, in the order a caller uses them: hmac_key (which key), hmac_begin (start the
+# inner hash), hmac_update (a piece of the message, as often as it comes), hmac_end (where
+# the 32-byte tag lands). The message may come in pieces; the key is set once.
+
+include "sha256_kernel.rxfs";
+
+proc hmac_key {
+    # m0 = the key, m1 = its length: a key longer than the block is hashed first
+    fill(work + WKEY, 0, 64);
+    if m1 > 64 {
+        call sha256_init;
+        k0 = m0;
+        k1 = m1;
+        call sha256_update;
+        k0 = work + WKEY;
+        call sha256_final;
+    } else {
+        copy(work + WKEY, m0, m1);
+    }
+    # the blocks of the message: K' ^ ipad and K' ^ opad
+    m5 = 0;
+    while m5 < 64 {
+        m2 = load8(work + WKEY + m5) & 0xFF;
+        store8(work + WIPAD + m5, xor8_(m2, 0x36));
+        store8(work + WOPAD + m5, xor8_(m2, 0x5C));
+        m5 = m5 + 1;
+    }
+    ret;
+}
+
+proc hmac_begin {
+    # the inner hash: (K' ^ ipad) is its first block
+    call sha256_init;
+    k0 = work + WIPAD;
+    k1 = 64;
+    call sha256_update;
+    ret;
+}
+
+proc hmac_update {
+    # m2 = a piece of the message, m3 = its length
+    k0 = m2;
+    k1 = m3;
+    call sha256_update;
+    ret;
+}
+
+proc hmac_end {
+    # m4 = where the 32-byte tag lands
+    k0 = work + WINNER;
+    call sha256_final;
+    call sha256_init;
+    k0 = work + WOPAD;
+    k1 = 64;
+    call sha256_update;
+    k0 = work + WINNER;
+    k1 = 32;
+    call sha256_update;
+    k0 = m4;
+    call sha256_final;
+    ret;
+}

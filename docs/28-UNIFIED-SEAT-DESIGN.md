@@ -108,9 +108,11 @@ shell, in this order:
   [17](17-OPERATING-SYSTEM-PATH.md) are still the open work of that document.
 - A prove that asserts *no face code lives in a shell file* (a lint of the boundary itself)
   is **[missing]**; until it exists, the rule is enforced by review and by the seat proves.
-- The words first rule is **[partial]**: the first primitive is written and proven as words
-  (`native/crypto/sha256.rxfs`, `tests/test_crypto_rxfs.py`); the rest of the crypto card and
-  the shims that call the words are the open work it names.
+- The words first rule is **[partial]**: the hash side of the crypto card is written and
+  proven as words (SHA-256, HMAC-SHA-256, HKDF in `native/crypto/*.rxfs`,
+  `tests/test_crypto_rxfs.py`: FIPS 180-4, RFC 4231, RFC 5869 on the simulator, the
+  interpreter of every machine and the code the in-image compiler makes); the symmetric and
+  the key-agreement primitives, and the shims that call the words, are the open work it names.
 
 This design names no runtime provider. Providers are external and optional — Metal among
 them ([integrations/metal.md](integrations/metal.md)); its concepts and maps stay in its own

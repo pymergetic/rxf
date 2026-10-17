@@ -1,0 +1,17 @@
+# The numbers of the HMAC kernel: the layout its buffers add to the work region and the byte
+# of xor. Included before the program's entry; the procs are hmac_kernel.rxfs, after it.
+
+include "sha256_words.rxfs";
+
+#   WIPAD  64   the inner block K' ^ ipad
+#   WOPAD  64   the outer block K' ^ opad
+#   WINNER 32   the inner digest
+#   WKEY   64   the padded key K'
+
+const WIPAD = 640;
+const WOPAD = 704;
+const WINNER = 768;
+const WKEY = 800;
+
+# one byte of xor: (a | b) - (a & b) is a ^ b for bytes; the language has no ^ operator
+fn xor8_(a, b) = (((((a) | (b)) & 0xFF) - (((a) & (b)) & 0xFF)) & 0xFF);
