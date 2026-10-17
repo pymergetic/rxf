@@ -1,0 +1,94 @@
+# Unified seat design: the image, the face, the fill, and the shell
+
+The boundary between "the OS", "the program" and "the browser" is where designs rot: every
+seat grows its own words for the same thing until nothing means the same anywhere. This
+document fixes one anatomy for every seat and one question that settles what may sit outside
+the image. The map of the seats themselves (trees, boards, prove commands, pins) lives in
+[`packages/REPO_LAYOUT.md`](../../REPO_LAYOUT.md); this document is the design the map obeys.
+
+## The anatomy
+
+A seat is four layers, in this order:
+
+1. **The image.** The typed object world (the one truth: the graph, the words, the deltas).
+   It is the same bytes on every seat. Nothing about it is per-platform.
+2. **The face.** The module and Python/C surface (`pymergetic.*` modules, the `pm_*` C ABI).
+   **Identical on every seat.** Same names, same semantics, same refusals. A face that
+   differs per seat is two products.
+3. **The fill.** Who actually services a capability of the face where the platform requires
+   a different mechanism. The fill is the *only* thing allowed to differ, and it differs at
+   predeclared seams only: `io.fetch` is POSIX on unix, the Metal HTTP park on firmware,
+   `js.fetch` in the browser ([25](25-NETWORK-ORCHESTRATION.md), REPO_LAYOUT §5). A fill is
+   a stub that **fails its prove** when it is missing — never a dark port.
+4. **The shell.** Anything around the image that hosts or presents it: the page, the CDN
+   engine, the world view, a HUD. The shell is **not** a fill and **never** carries the
+   face. Where it exists, it calls the same face the other seats call.
+
+```text
+the image   ---- one truth, identical bytes
+the face    ---- one surface, identical names and semantics
+the fill    ---- per seat, per declared seam, proven or stubbed
+the shell   ---- only where the platform's natural unit of execution is a page
+```
+
+## The glue rule
+
+The main platforms are *the program* and *the OS*. On those seats the outside-the-image glue
+is kept to the minimum that lets the image run at all: a wrapper that activates the image
+([17](17-OPERATING-SYSTEM-PATH.md), [26](26-RECIPES.md) Recipe 3), the fills of the declared
+seams, and nothing else. What the OS seat needs, the image itself provides as typed
+functions; a second service outside the image is a second implementation.
+
+The browser seat may carry a shell — the page, the viewer, the controls — because the
+browser's natural unit of execution *is* a page and a bare guest of a page is unnatural to
+run. The shell makes the execution natural; it does not extend the face. The test: if the
+shell disappeared, the guest would still run its face on `js.fetch`, and every other seat
+would be untouched. If a shell removal would change the *face*, something leaked out.
+
+Concretely, in the world view (the shell of the browser seat): the canvas, the camera, the
+HUD, the scene export are shell; `pymergetic.*` calls the view makes are the face; the fetch
+of a scene document is the `js.fetch` fill. The firmware seat has no shell and needs none:
+its "presentation" is a typed function of the image.
+
+## The seats
+
+(from REPO_LAYOUT §4, kept short here — the map is the authority)
+
+| Seat | The image runs as | Shell | Glue outside the image |
+|---|---|---|---|
+| host C | a prove binary (no µPy) | none | the binary's own `main` |
+| unix µPy | a program | none | process bootstrap + fills |
+| emcc browser | a guest of a page | **allowed** (page, viewer, HUD) | the CDN engine + `js.fetch` fill |
+| firmware BIOS/UEFI | the OS | none | the wrapper (activation seam) + fills |
+| wasmmod-only (upywm) | a program | none | process bootstrap + fills |
+
+Every card lands on **every** seat in one change, or it lands on none (the standing rule):
+`make -C extmod/metal test`, `upy`, `browser`, `firmware`, and
+`make -C ports/unix MICROPY_PY_WASM=1` all prove the same face. A card that proves on one
+seat and is "later" on the others is not a card.
+
+## What settles a dispute
+
+When something new wants to exist and it is unclear whether it is image, face, fill or
+shell, in this order:
+
+1. **Can it be a typed function of the image?** Then it is the image. No new layer.
+2. **Is it a capability the platform must service differently at a declared seam?** Then it
+   is a fill of that seam — and every seat that has the seam gets its fill in the same
+   change.
+3. **Is it presentation or hosting of an already-running guest?** Then it is shell — and
+   only on a seat whose natural unit of execution is a page (today: the browser).
+4. **Is it a second way to do a face that exists?** Then it does not exist.
+
+## Status
+
+- The anatomy and the glue rule are **[present]** as a design; this document is the first
+  place they are written down.
+- The fills of `io.fetch` are **[present]** on all seats of REPO_LAYOUT §5; the browser
+  shell (world view, HUD) is **[present]** and carries no face of its own.
+- The firmware seat's shell-free presentation (typed functions instead of a view) is
+  **[partial]**: the wrapper and the activation seam are present; the OS-side services of
+  [17](17-OPERATING-SYSTEM-PATH.md) are still the open work of that document.
+- A prove that asserts *no face code lives in a shell file* (a lint of the boundary itself)
+  is **[missing]**; until it exists, the rule is enforced by review and by the all-platforms
+  prove.
