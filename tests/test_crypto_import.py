@@ -73,8 +73,18 @@ REFUSAL_LEDGER = [
     ("pm_crypto_aead_seal", "aead", "policy", "indirect call"),
     ("pm_crypto_blake2s", "out_slice", "policy", "aggregate struct return"),
     ("pm_crypto_blake2s_keyed", "out_slice", "policy", "aggregate struct return"),
-    ("pm_crypto_hkdf_expand", "pm_crypto_hkdf_expand", "policy", "global without bytes"),
-    ("pm_crypto_hkdf_extract", "pm_crypto_hkdf_extract", "policy", "global without bytes"),
+    (
+        "pm_crypto_hkdf_expand",
+        "pm_crypto_hkdf_expand",
+        "policy",
+        "global without bytes",
+    ),
+    (
+        "pm_crypto_hkdf_extract",
+        "pm_crypto_hkdf_extract",
+        "policy",
+        "global without bytes",
+    ),
     ("pm_crypto_init", "pm_crypto_init", "policy", "gep of a local"),
     ("pm_crypto_sha256", "out_slice", "policy", "aggregate struct return"),
     ("pm_crypto_x25519", "out_slice", "policy", "aggregate struct return"),
@@ -125,17 +135,38 @@ REFUSAL_LEDGER = [
         "policy",
         "aggregate struct return",
     ),
-    ("blake2s::Blake2s::new", "blake2s::Blake2s::new", "policy", "sret aggregate return"),
+    (
+        "blake2s::Blake2s::new",
+        "blake2s::Blake2s::new",
+        "policy",
+        "sret aggregate return",
+    ),
     ("blake2s::Blake2s::update", None, "gap", "unreachable terminator (importer gap)"),
     ("blake2s::blake2s", "blake2s::blake2s", "policy", "sret aggregate return"),
-    ("blake2s::blake2s_keyed", "blake2s::blake2s_keyed", "policy", "sret aggregate return"),
+    (
+        "blake2s::blake2s_keyed",
+        "blake2s::blake2s_keyed",
+        "policy",
+        "sret aggregate return",
+    ),
+    (
+        "blake2s::blake2s_keyed_n",
+        "blake2s::Blake2s::new",
+        "policy",
+        "sret aggregate return",
+    ),
     (
         "blake2s::compress",
         "_<I as core::iter::traits::collect::IntoIterator>::into_iter",
         "policy",
         "aggregate struct return",
     ),
-    ("chacha20poly1305::aead_tag", "chacha20poly1305::aead_tag", "policy", "sret aggregate return"),
+    (
+        "chacha20poly1305::aead_tag",
+        "chacha20poly1305::aead_tag",
+        "policy",
+        "sret aggregate return",
+    ),
     (
         "chacha20poly1305::chacha20_apply",
         "chacha20poly1305::chacha20_apply",
@@ -155,13 +186,28 @@ REFUSAL_LEDGER = [
         "aggregate struct return",
     ),
     ("chacha20poly1305::open", None, "gap", "unreachable terminator (importer gap)"),
-    ("chacha20poly1305::poly", "chacha20poly1305::poly", "policy", "sret aggregate return"),
-    ("chacha20poly1305::poly_key", "chacha20poly1305::poly_key", "policy", "sret aggregate return"),
+    (
+        "chacha20poly1305::poly",
+        "chacha20poly1305::poly",
+        "policy",
+        "sret aggregate return",
+    ),
+    (
+        "chacha20poly1305::poly_key",
+        "chacha20poly1305::poly_key",
+        "policy",
+        "sret aggregate return",
+    ),
     ("chacha20poly1305::seal", None, "gap", "unreachable terminator (importer gap)"),
     ("chacha20poly1305::u32le", None, "gap", "unreachable terminator (importer gap)"),
     ("fixed", "fixed", "policy", "value carried through memory"),
     ("fixed", "fixed", "policy", "value carried through memory"),
-    ("hkdf::Digest::bytes", "hkdf::Digest::bytes", "policy", "value carried through memory"),
+    (
+        "hkdf::Digest::bytes",
+        "hkdf::Digest::bytes",
+        "policy",
+        "value carried through memory",
+    ),
     ("hkdf::expand", "hkdf::expand", "policy", "value carried through memory"),
     ("hkdf::extract", "hkdf::extract", "policy", "sret aggregate return"),
     ("hkdf::hash_of", "hkdf::hash_of", "policy", "sret aggregate return"),
@@ -173,7 +219,12 @@ REFUSAL_LEDGER = [
         "policy",
         "global without bytes",
     ),
-    ("sha256::Sha256::finalize", "sha256::Sha256::finalize", "policy", "sret aggregate return"),
+    (
+        "sha256::Sha256::finalize",
+        "sha256::Sha256::finalize",
+        "policy",
+        "sret aggregate return",
+    ),
     ("sha256::Sha256::new", "sha256::Sha256::new", "policy", "sret aggregate return"),
     ("sha256::Sha256::update", None, "gap", "unreachable terminator (importer gap)"),
     (
@@ -199,7 +250,12 @@ REFUSAL_LEDGER = [
     ("x25519::fe_sub", "x25519::fe_sub", "policy", "sret aggregate return"),
     ("x25519::fe_tobytes", "x25519::fe_tobytes", "policy", "sret aggregate return"),
     ("x25519::x", "x25519::x", "policy", "sret aggregate return"),
-    ("x25519::x25519_public", "x25519::x25519_public", "policy", "sret aggregate return"),
+    (
+        "x25519::x25519_public",
+        "x25519::x25519_public",
+        "policy",
+        "sret aggregate return",
+    ),
 ]
 
 CONSTRUCT_NEEDLES = [
@@ -266,7 +322,10 @@ def native_card() -> Iterator[crypto.Crypto]:
 
 
 def call(
-    memory: rxf_native.Memory, card: crypto_import.CardImport, face: str, values: tuple[int, ...]
+    memory: rxf_native.Memory,
+    card: crypto_import.CardImport,
+    face: str,
+    values: tuple[int, ...],
 ) -> tuple[int, int]:
     """One run of an imported word on the interpreter, by face name."""
     row = card.report(face)
@@ -280,7 +339,9 @@ def test_the_report_takes_every_card_function(card: crypto_import.CardImport) ->
     # the report is the refusal ledger of the source: nothing falls out silently
     assert {row.face for row in card.imported()} == IMPORTED_FACES
     assert all(row.name.startswith("pm_crypto_") for row in card.reports if row.entry)
-    assert {face for face, _, _, _ in REFUSAL_LEDGER} <= {row.face for row in card.refused()}
+    assert {face for face, _, _, _ in REFUSAL_LEDGER} <= {
+        row.face for row in card.refused()
+    }
     assert len(card.reports) == len(IMPORTED_FACES) + len(REFUSAL_LEDGER)
     assert len({row.name for row in card.reports}) == len(card.reports)
 
@@ -288,13 +349,18 @@ def test_the_report_takes_every_card_function(card: crypto_import.CardImport) ->
 # ------------------------------------------- (a) the words run on the image ----
 
 
-def test_quarter_round_pins_rfc_8439_section_2_1_1(card: crypto_import.CardImport) -> None:
+def test_quarter_round_pins_rfc_8439_section_2_1_1(
+    card: crypto_import.CardImport,
+) -> None:
     # RFC 8439 §2.1.1: the quarter round of (a, b, c, d) as a state of its own
     state = (0x11111111, 0x01020304, 0x9B8D6F43, 0x01234567) + (0,) * 12
     with rxf_native.Memory(1 << 16) as memory:
         memory.write(0x200, struct.pack("<16I", *state))
         status, _ = call(
-            memory, card, "chacha20poly1305::quarter_round", (memory.at(0x200), 0, 1, 2, 3)
+            memory,
+            card,
+            "chacha20poly1305::quarter_round",
+            (memory.at(0x200), 0, 1, 2, 3),
         )
         assert status == 0
         out = struct.unpack("<16I", memory.read(0x200, 64))
@@ -302,24 +368,53 @@ def test_quarter_round_pins_rfc_8439_section_2_1_1(card: crypto_import.CardImpor
     assert out[4:] == (0,) * 12  # the round touches only its four words
 
 
-def test_quarter_round_pins_rfc_8439_section_2_2_1(card: crypto_import.CardImport) -> None:
+def test_quarter_round_pins_rfc_8439_section_2_2_1(
+    card: crypto_import.CardImport,
+) -> None:
     # RFC 8439 §2.2.1: QUARTERROUND(2, 7, 8, 13) on the sample ChaCha state
     sample = [
-        0x879531E0, 0xC5ECF37D, 0x516461B1, 0xC9A62F8A,
-        0x44C20EF3, 0x3390AF7F, 0xD9FC690B, 0x2A5F714C,
-        0x53372767, 0xB00A5631, 0x974C541A, 0x359E9963,
-        0x5C971061, 0x3D631689, 0x2098D9D6, 0x91DBD320,
+        0x879531E0,
+        0xC5ECF37D,
+        0x516461B1,
+        0xC9A62F8A,
+        0x44C20EF3,
+        0x3390AF7F,
+        0xD9FC690B,
+        0x2A5F714C,
+        0x53372767,
+        0xB00A5631,
+        0x974C541A,
+        0x359E9963,
+        0x5C971061,
+        0x3D631689,
+        0x2098D9D6,
+        0x91DBD320,
     ]
     published = [
-        0x879531E0, 0xC5ECF37D, 0xBDB886DC, 0xC9A62F8A,
-        0x44C20EF3, 0x3390AF7F, 0xD9FC690B, 0xCFACAFD2,
-        0xE46BEA80, 0xB00A5631, 0x974C541A, 0x359E9963,
-        0x5C971061, 0xCCC07C79, 0x2098D9D6, 0x91DBD320,
+        0x879531E0,
+        0xC5ECF37D,
+        0xBDB886DC,
+        0xC9A62F8A,
+        0x44C20EF3,
+        0x3390AF7F,
+        0xD9FC690B,
+        0xCFACAFD2,
+        0xE46BEA80,
+        0xB00A5631,
+        0x974C541A,
+        0x359E9963,
+        0x5C971061,
+        0xCCC07C79,
+        0x2098D9D6,
+        0x91DBD320,
     ]
     with rxf_native.Memory(1 << 16) as memory:
         memory.write(0x200, struct.pack("<16I", *sample))
         status, _ = call(
-            memory, card, "chacha20poly1305::quarter_round", (memory.at(0x200), 2, 7, 8, 13)
+            memory,
+            card,
+            "chacha20poly1305::quarter_round",
+            (memory.at(0x200), 2, 7, 8, 13),
         )
         assert status == 0
         out = struct.unpack("<16I", memory.read(0x200, 64))
@@ -384,7 +479,9 @@ def test_g_pins_rfc_7693_section_3_1(card: crypto_import.CardImport) -> None:
     with rxf_native.Memory(1 << 16) as memory:
         for given, a, b, c, d, x, y, expected in cases:
             memory.write(0x200, struct.pack("<16I", *given))
-            status, _ = call(memory, card, "blake2s::g", (memory.at(0x200), a, b, c, d, x, y))
+            status, _ = call(
+                memory, card, "blake2s::g", (memory.at(0x200), a, b, c, d, x, y)
+            )
             assert status == 0
             out = struct.unpack("<16I", memory.read(0x200, 64))
             assert [out[a], out[b], out[c], out[d]] == expected, (given, x, y)
@@ -453,7 +550,12 @@ def test_the_named_gaps_are_pinned(card: crypto_import.CardImport) -> None:
     # differential seat is a named gap of the report, and it stays pinned here
     assert len(crypto_import.NAMED_GAPS) == 1
     (gap,) = crypto_import.NAMED_GAPS
-    for named in ("differential seat of the imported kernels", "quarter_round, xtime and g", "E0603", "E0753"):
+    for named in (
+        "differential seat of the imported kernels",
+        "quarter_round, xtime and g",
+        "E0603",
+        "E0753",
+    ):
         assert named in gap
     assert gap in crypto_import.report_json(card)
 
@@ -465,7 +567,8 @@ def test_every_refusal_is_named_and_pinned(card: crypto_import.CardImport) -> No
     # every function the subset cannot take, with the construct that refused it,
     # pinned BY NAME -- the named gaps are pinned, not silent
     assert [
-        (row.face, row.site, row.kind, _construct(row.refusal or "")) for row in card.refused()
+        (row.face, row.site, row.kind, _construct(row.refusal or ""))
+        for row in card.refused()
     ] == REFUSAL_LEDGER
 
 

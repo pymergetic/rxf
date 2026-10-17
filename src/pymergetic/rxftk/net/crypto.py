@@ -163,6 +163,7 @@ class Crypto:
         lib.pm_crypto_blake2s.restype = None
         lib.pm_crypto_blake2s_keyed.argtypes = [
             u8p,
+            ctypes.c_size_t,
             u8p,
             ctypes.c_size_t,
             u8p,
@@ -242,17 +243,23 @@ class Crypto:
         self._lib.pm_crypto_blake2s(out, _buf(data), len(data))
         return _bytes(out, HASH_LEN)
 
-    def blake2s_keyed(self, key: bytes, data: bytes) -> bytes:
-        """Keyed BLAKE2s-256 (RFC 7693); ``key`` is 1..=32 bytes."""
+    def blake2s_keyed(self, key: bytes, data: bytes, out_len: int = HASH_LEN) -> bytes:
+        """Keyed BLAKE2s (RFC 7693); ``key`` is 1..=32 bytes, ``out_len`` 1..=32
+        bytes of digest (the WireGuard MAC form is 16 — truncating the 32-byte
+        digest is not that value)."""
         if not 1 <= len(key) <= 32:
             raise CryptoArgument(
                 f"blake2s_keyed key must be 1..=32 bytes, got {len(key)}"
             )
-        out = _out(HASH_LEN)
+        if not 1 <= out_len <= HASH_LEN:
+            raise CryptoArgument(
+                f"blake2s_keyed out_len must be 1..={HASH_LEN}, got {out_len}"
+            )
+        out = _out(out_len)
         self._lib.pm_crypto_blake2s_keyed(
-            out, _buf(key), len(key), _buf(data), len(data)
+            out, out_len, _buf(key), len(key), _buf(data), len(data)
         )
-        return _bytes(out, HASH_LEN)
+        return _bytes(out, out_len)
 
     # ---- X25519 (RFC 7748) ----
 

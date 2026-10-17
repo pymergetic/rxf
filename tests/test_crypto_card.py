@@ -118,16 +118,27 @@ def test_blake2s_vectors(card: crypto.Crypto) -> None:
 
 
 def test_blake2s_keyed_vectors(card: crypto.Crypto) -> None:
-    # Keyed BLAKE2s-256 has no published triple in RFC 7693 (its keyed
-    # coverage is the Appendix E self-test, which needs digest lengths the
-    # ABI does not expose); these match CPython's hashlib.blake2s(key=…),
-    # the independent implementation.
+    # Keyed BLAKE2s has no published 256-bit triple in RFC 7693 (its keyed
+    # coverage is the Appendix E self-test, which hashes outputs of several
+    # lengths — the width rides the face as out_len); these match CPython's
+    # hashlib.blake2s(key=…), the independent implementation.
     assert card.blake2s_keyed(h("0001020304050607"), b"abc").hex() == (
         "5cbb58e3b3c8a5b9cb8f209c2cb1f0f11d19bb4fe534c5c3baecd9d861a6aadd"
     )
     assert card.blake2s_keyed(bytes(range(32)), b"").hex() == hashlib.blake2s(
         b"", key=bytes(range(32))
     ).hexdigest()
+
+
+def test_the_digest_width_rides_the_face(card: crypto.Crypto) -> None:
+    """`out_len` is the face's word (RFC 7693 parameterizes the width into the
+    digest): 16 bytes is the WireGuard MAC form, and truncating the 32-byte
+    digest is a different value — the corpus's `mac16_vectors` say so."""
+    key, data = bytes(range(1, 17)), b"initiation packet"
+    sixteen = card.blake2s_keyed(key, data, out_len=16)
+    assert sixteen == hashlib.blake2s(data, key=key, digest_size=16).digest()
+    assert sixteen != card.blake2s_keyed(key, data)[:16]
+    assert len(card.blake2s_keyed(key, data, out_len=1)) == 1
 
 
 def test_blake2s_matches_hashlib(card: crypto.Crypto) -> None:

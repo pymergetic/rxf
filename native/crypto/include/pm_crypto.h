@@ -21,7 +21,7 @@
  *
  * Fixed sizes: key = 32 bytes, nonce = 12 bytes, hash/prk/out(aead tag part)
  * as shown below. Pointer+length pairs accept NULL only when the length is 0.
- * Outputs: sha256/blake2s/blake2s_keyed/x25519_public/x25519 write 32 bytes;
+ * Outputs: sha256/blake2s/x25519_public/x25519 write 32 bytes;
  * callers guarantee the output buffer's size (see each declaration).
  *
  * AEAD: seal writes ciphertext || 16-byte tag and sets *out_len = pt_len + 16;
@@ -60,8 +60,9 @@ void pm_crypto_deinit(void);
 /* Hashes: write 32 bytes to out. data may be NULL when len is 0. */
 void pm_crypto_sha256(uint8_t out[32], const uint8_t *data, size_t len);
 void pm_crypto_blake2s(uint8_t out[32], const uint8_t *data, size_t len);
-/* Keyed BLAKE2s-256 (RFC 7693); key_len in 1..=32 (the WireGuard MAC form). */
-void pm_crypto_blake2s_keyed(uint8_t out[32], const uint8_t *key, size_t key_len,
+/* Keyed BLAKE2s (RFC 7693); key_len in 1..=32, out_len in 1..=32 — the WireGuard
+   MAC form is out_len 16, and truncating the 32-byte digest is not that value. */
+void pm_crypto_blake2s_keyed(uint8_t *out, size_t out_len, const uint8_t *key, size_t key_len,
                              const uint8_t *data, size_t len);
 
 /* X25519 (RFC 7748). */

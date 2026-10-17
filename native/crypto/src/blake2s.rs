@@ -1,9 +1,11 @@
-//! BLAKE2s (RFC 7693), 256-bit output, unkeyed and keyed.
+//! BLAKE2s (RFC 7693), unkeyed and keyed, 1..=32 bytes of digest.
 //!
 //! The keyed form is the one the WireGuard lane needs (its MACs are keyed
-//! BLAKE2s-256). Digest lengths 1..=32 exist in the core because the published
-//! keyed vector (the RFC 7693 Appendix E self-test) hashes outputs of several
-//! lengths; the C ABI exposes only the 256-bit face.
+//! BLAKE2s at 16 bytes). Digest lengths 1..=32 exist in the core because the
+//! published keyed vector (the RFC 7693 Appendix E self-test) hashes outputs of
+//! several lengths; the C ABI carries the width on `pm_crypto_blake2s_keyed`
+//! (the WireGuard MAC form is out_len 16 — truncating the 32-byte digest is not
+//! that value).
 //!
 //! Timing: the compression is arithmetic only — no table lookups, no branches
 //! on message, key, or state bytes (the `last` flag and the byte counter are
@@ -149,10 +151,18 @@ pub fn blake2s(data: &[u8]) -> [u8; OUT_LEN] {
 
 /// One-shot keyed BLAKE2s-256 (key 1..=32 bytes).
 pub fn blake2s_keyed(key: &[u8], data: &[u8]) -> [u8; OUT_LEN] {
-    assert!(!key.is_empty(), "blake2s_keyed needs a key");
-    let mut h = Blake2s::new(OUT_LEN, key);
-    h.update(data);
     let mut out = [0u8; OUT_LEN];
-    h.finalize(&mut out);
+    blake2s_keyed_n(key, data, &mut out);
     out
+}
+
+/// One-shot keyed BLAKE2s (key 1..=32 bytes) at the caller's width: `out.len()`
+/// in 1..=32 bytes of digest (RFC 7693 parameterizes the width into the digest —
+/// the WireGuard MAC form is the keyed hash at 16, and truncating the 32-byte
+/// digest is not that value).
+pub fn blake2s_keyed_n(key: &[u8], data: &[u8], out: &mut [u8]) {
+    assert!(!key.is_empty(), "blake2s_keyed needs a key");
+    let mut h = Blake2s::new(out.len(), key);
+    h.update(data);
+    h.finalize(out);
 }
