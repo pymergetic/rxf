@@ -125,6 +125,8 @@ def test_the_activation_quorum_is_the_gate_of_the_build(tmp_path, image, built):
     made = builder.build("elf", image, tmp_path, trust=trust, statements=[right])
     assert Path(made["artifact"]).is_file()
     assert made["block_sha256"] == package.block_digest(built)  # the word a voice signs
+    elf = formats.read_elf(Path(made["artifact"]).read_bytes())
+    assert package.statements(elf.sections[".rxfpkg"]) == (right,)  # the tail travels
 
 
 def test_the_activation_quorum_needs_every_voice_of_its_policy(tmp_path, image, built):
