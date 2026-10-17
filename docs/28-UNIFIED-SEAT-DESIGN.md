@@ -3,8 +3,8 @@
 The boundary between "the OS", "the program" and "the browser" is where designs rot: every
 seat grows its own words for the same thing until nothing means the same anywhere. This
 document fixes one anatomy for every seat and one question that settles what may sit outside
-the image. The map of the seats themselves (trees, boards, prove commands, pins) lives in
-[`packages/REPO_LAYOUT.md`](../../REPO_LAYOUT.md); this document is the design the map obeys.
+the image. The seats themselves are named in [17](17-OPERATING-SYSTEM-PATH.md); this
+document is the design they obey.
 
 ## The anatomy
 
@@ -17,11 +17,11 @@ A seat is four layers, in this order:
    differs per seat is two products.
 3. **The fill.** Who actually services a capability of the face where the platform requires
    a different mechanism. The fill is the *only* thing allowed to differ, and it differs at
-   predeclared seams only: `io.fetch` is POSIX on unix, the Metal HTTP park on firmware,
-   `js.fetch` in the browser ([25](25-NETWORK-ORCHESTRATION.md), REPO_LAYOUT §5). A fill is
+   predeclared seams only: `io.fetch` is POSIX on unix, a provider's park on firmware,
+   `js.fetch` in the browser ([25](25-NETWORK-ORCHESTRATION.md)). A fill is
    a stub that **fails its prove** when it is missing — never a dark port.
-4. **The shell.** Anything around the image that hosts or presents it: the page, the CDN
-   engine, the world view, a HUD. The shell is **not** a fill and **never** carries the
+4. **The shell.** Anything around the image that hosts or presents it: the page, the server,
+   the world view, a HUD. The shell is **not** a fill and **never** carries the
    face. Where it exists, it calls the same face the other seats call.
 
 ```text
@@ -52,20 +52,20 @@ its "presentation" is a typed function of the image.
 
 ## The seats
 
-(from REPO_LAYOUT §4, kept short here — the map is the authority)
+(the seat names follow [17](17-OPERATING-SYSTEM-PATH.md))
 
 | Seat | The image runs as | Shell | Glue outside the image |
 |---|---|---|---|
-| host C | a prove binary (no µPy) | none | the binary's own `main` |
-| unix µPy | a program | none | process bootstrap + fills |
-| emcc browser | a guest of a page | **allowed** (page, viewer, HUD) | the CDN engine + `js.fetch` fill |
-| firmware BIOS/UEFI | the OS | none | the wrapper (activation seam) + fills |
-| wasmmod-only (upywm) | a program | none | process bootstrap + fills |
+| host prove | a prove binary | none | the binary's own `main` |
+| Unix | a program (µPy guest: [23](23-MICROPYTHON-EXPANSION.md)) | none | process bootstrap + fills |
+| WebAssembly (browser) | a guest of a page | **allowed** (page, viewer, HUD) | the page + its `js.fetch` fill |
+| BIOS | the OS | none | the wrapper ([17](17-OPERATING-SYSTEM-PATH.md), the activation seam) |
+| UEFI | the OS | none | the wrapper (the same seam) |
 
-Every card lands on **every** seat in one change, or it lands on none (the standing rule):
-`make -C extmod/metal test`, `upy`, `browser`, `firmware`, and
-`make -C ports/unix MICROPY_PY_WASM=1` all prove the same face. A card that proves on one
-seat and is "later" on the others is not a card.
+Every face lands on **every** seat in one change, or it lands on none (the standing rule):
+one suite run (`pytest tests/`) proves the core, the wrapped images (the BIOS and UEFI
+boots), the wasm guest and the browser shell. A face that proves on one seat and is "later"
+on the others is not a face.
 
 ## What settles a dispute
 
@@ -84,11 +84,15 @@ shell, in this order:
 
 - The anatomy and the glue rule are **[present]** as a design; this document is the first
   place they are written down.
-- The fills of `io.fetch` are **[present]** on all seats of REPO_LAYOUT §5; the browser
+- The fills of `io.fetch` are **[present]** on the seats named above
+  ([25](25-NETWORK-ORCHESTRATION.md)); the browser
   shell (world view, HUD) is **[present]** and carries no face of its own.
 - The firmware seat's shell-free presentation (typed functions instead of a view) is
   **[partial]**: the wrapper and the activation seam are present; the OS-side services of
   [17](17-OPERATING-SYSTEM-PATH.md) are still the open work of that document.
 - A prove that asserts *no face code lives in a shell file* (a lint of the boundary itself)
-  is **[missing]**; until it exists, the rule is enforced by review and by the all-platforms
-  prove.
+  is **[missing]**; until it exists, the rule is enforced by review and by the seat proves.
+
+This design names no runtime provider. Providers are external and optional — Metal among
+them ([integrations/metal.md](integrations/metal.md)); its concepts and maps stay in its own
+project and are not normative here.
