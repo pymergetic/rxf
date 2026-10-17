@@ -134,15 +134,18 @@ it.
 The world view draws the checked-in demo world over the same cells the inspector reads:
 cells are block-stack buildings, references are cables that fly on **module-depth sheets**
 (root 0, `a` 1, `a.b` 2, ... — one altitude per level, so a dense reference mesh reads as
-stacked layers instead of one flat grid), and the ready-ring is the boulevard where the run
-cells ride. The wiring carries one detail limit per view — the named skeleton wide, the named
+stacked layers instead of one flat grid), references that share a street stretch are packaged
+into **one duct** — drawn once, thicker the more it carries, one color stripe per member in
+that member's own fresh/ghost paint, while each member shrinks to its own last-mile stub
+where the duct leaves it (what a package carries it does not draw again) — and the ready-ring
+is the boulevard where the run cells ride. The wiring carries one detail limit per view — the named skeleton wide, the named
 backbone midway, every cable up close — and clicking a building lights its own cables up on
 their sheets. WASD moves camera-relative; the minimap is a real top-down projection of the
 same document.
 
-![The demo world from the north-east: the city diagonal, the ring, and the cables flying their module-depth sheets](docs/images/world-overview.png)
+![The demo world from the north-east: the city diagonal, the ring, the ducts on the shared street stretches, and the cables flying their module-depth sheets](docs/images/world-overview.png)
 
-![Street level: the wiring flies its sheets above the blocks while the paint stays flat on the ground](docs/images/world-streets.png)
+![Street level: one duct per shared stretch carries a stripe per member while the stubs climb to the blocks and the paint stays flat on the ground](docs/images/world-streets.png)
 
 ![The ring road's corner: clean chamfers, no spikes](docs/images/world-ring.png)
 
