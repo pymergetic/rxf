@@ -59,7 +59,7 @@ An RXF image can boot on bare metal, run its own services, and inspect and chang
 
 ### Trust
 - Semantic digests, provenance, reproducible builds: **[present]**
-- Signatures, trust policy: **[present]** (`certify`: Ed25519, M-of-N quorum, activation gates the build). Resource limits: **[partial]** (a slot in the statement, enforcement not written).
+- Signatures, trust policy: **[present]** (`certify`: Ed25519, M-of-N quorum, activation gates the build and the boot — the wrapper's seam `native/wrap/wrap_activate.c` checks the block it is about to run against the voices in the package's tail and the anchor in its code). Resource limits: **[partial]** (a slot in the statement, enforcement not written).
 - Secure boot and measurement: **[missing]**
 
 ### Self-modification and tooling
