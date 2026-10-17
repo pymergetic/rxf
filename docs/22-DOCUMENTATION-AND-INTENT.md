@@ -201,6 +201,35 @@ before anything is imported. The composer (`tools/native/compose.py`) mirrors no
 program words of a graph are the same with or without a run's claim — docs are editorial and
 make zero runtime refs — and `tests/test_provenance.py` pins that byte identity.
 
+## Identity and authorship: a claim with a tier (decided)
+
+The doc-identity face answers *whose thought this is* — and it keeps one heart by separating
+two things the naive design folds together:
+
+| | what it is | graph form |
+|---|---|---|
+| **intellectual authorship** | *whose thought it is* — a claim; several authors possible, disagreement honest (two `AUTHORED_BY` links with their own intervals) | link cell `AUTHORED_BY` with a provenance tier |
+| **change attribution** | *who physically wrote which delta* — a fact, not a claim | `by`/`at`/`why` **on the existing delta chain** |
+
+The store is already a change-tracking system: deltas are the format, successors are
+non-mutating. The missing ingredient was attribution. One thought's history is then one
+readable structure: the supersession chain (§6) plus `AUTHORED_BY` per step plus the delta
+attribution — who thought what, who changed it, when, and why.
+
+Around it: `MEMBER_OF` (person/agent → team → company), `SPEAKS_FOR` with an interval
+(delegation expires instead of haunting), `REVIEWED_BY`, and `Change` as a **view** over the
+delta chain — never a second table. An `AGENT` identity is an ordinary identity object: its
+payload names the model, the version, and the operator (`OPERATED_BY`).
+
+**Honest refusals of the layer:** cryptographic signing / non-repudiation (a later card —
+until then authorship is a claim *with* a tier, and the tier says so), impersonation policing,
+reputation scores, and mutable identity records (the floor rule applies first: a rename is a
+new `names` fact plus an interval).
+
+**Open points (managed TODOs):** the agent lifecycle (mint/retire of an `AGENT` cell); the
+`Change` view versus a materialized form for audit export; team consensus behind `SPEAKS_FOR`;
+and what the later signing card replaces in the provenance tiers.
+
 ## Policy is documentation: S1–S11 are topics
 
 The execution policy (docs/20, S1–S11) is currently text: markdown headings, C constants in
