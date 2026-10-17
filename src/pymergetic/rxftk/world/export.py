@@ -5,13 +5,13 @@ from one image (``Inspector`` / its ``Image``); the scene JavaScript renders it 
 world and invents nothing. Memory regions become districts (ground plots), cells become buildings,
 references become cables, the vacated poison of compaction becomes rubble and void tiles.
 
-SCHEMA ("rxf-world-2")
+SCHEMA ("rxf-world-3")
 ======================
 
 Top level::
 
     {
-      "schema":   "rxf-world-2",       # this document's version
+      "schema":   "rxf-world-3",       # this document's version
       "arena":    { ... },             # the arena header, decoded
       "grid":     { ... },             # the layout constants: tile step, district span/scale
       "regions":  [ Region, ... ],     # districts: ground plots over the byte range
@@ -19,6 +19,7 @@ Top level::
       "blocks":   [ Block, ... ],      # city blocks: buildings grouped on the tile raster
       "voids":    [ Void, ... ],       # 0xA5 poison runs: rubble pits / void tiles
       "edges":    [ Edge, ... ],       # cables: handle references between cells
+      "bundles":  [ Bundle, ... ],     # cable packages: the trunks a street carries as one duct
       "streets":  [ Street, ... ],     # the street grid in the gaps between the plots
       "ring":     { ... },             # the ready-ring as a ring road, with its run data
       "trams":    [ Tram, ... ],       # the runs in ring slots as units on the ring road
@@ -178,7 +179,8 @@ Edge (a cable — a handle reference)::
       "index": 2,                     # role position when the role repeats (null when none)
       "field": "next",                # the field name for "field" edges (null otherwise)
       "fresh": true,                  # false = stale/refused handle -> red ghost cable
-      "route": [{"x": 1.2, "z": 3.0}, ...]  # the cable's run: on the streets, footprint-aware
+      "route": [{"x": 1.2, "z": 3.0}, ...],  # the cable's run: on the streets, footprint-aware
+      "stubs": [[{"x": 1.2, "z": 3.0}, ...], ...]  # its own last-mile runs off the packages
     }
 
 A fresh edge names two cells of ``cells``. A stale edge names a handle the image no longer
@@ -188,7 +190,29 @@ a red ghost to a grave marker. Freshness is exactly ``Image.live(to_handle)``.
 ``route`` is the cable's polyline in world units (``_routes``): it leaves the source's lot, runs
 the street network between the two buildings, and enters the target's lot — the shortest path
 over the streets (``_rails``), corner-cut like a routed trace. A cable never crosses a building
-volume that is not its own endpoint.
+volume that is not its own endpoint. ``stubs`` are the runs of that route the cable does **not**
+share with the packages (``_bundles``): the last mile out of its building and any street stretch
+no package carries. What the packages carry the cable does not draw again.
+
+Bundle (a cable package — the cables a street carries, as one duct)::
+
+    {
+      "id": "u3",                      # stable within one export
+      "route": [{"x": 40.0, "z": 26.5}, {"x": 65.0, "z": 26.5}],  # the duct: one straight
+                                       # stretch of one street's centerline
+      "count": 7,                      # cables this package carries
+      "edges": ["e2", "e5", ...],      # exactly those cables, in edge order
+      "marks": {"ref": 4, "role": 2, "field": 1},  # the carried hows, one per cable
+      "stale": 1,                      # members whose handle is stale (the ghost share)
+      "level": 2                       # the deepest module level of its members (the height
+                                       # class the duct rides at)
+    }
+
+A package exists wherever the cables really share a street stretch (``_bundles``): the union of
+the spans its members run on one street rail, split where the traffic splits. Two cables on one
+stretch of street are one duct there — thicker the more it carries — and the members' own drawing
+shrinks to their ``stubs``. A stretch only one cable runs stays that cable's own thin trace: no
+package is invented where nothing is shared.
 
 Ring and trams (the ready-ring of the execution policy, docs/23 §4.5 — the tram metaphor)
 -----------------------------------------------------------------------------------------
@@ -264,7 +288,7 @@ from pymergetic.rxftk.core.kinds import Binding, Mobility, NodeKind, RefKind
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.server.inspector import Inspector
 
-SCHEMA = "rxf-world-2"
+SCHEMA = "rxf-world-3"
 
 POISON_BYTE = 0xA5  # S8: the vacated tail of a compaction pass is filled with 0xA5
 POISON_RUN = 64  # a run shorter than this is ordinary bytes, not poison
@@ -281,7 +305,7 @@ VOID_TILE = 512  # a poison run longer than this becomes several void tiles
 DISTRICT_SPAN = 4096
 BYTE_SCALE = 4.5 / 1024.0
 DISTRICT_DEPTH = 26.0
-DISTRICT_GAP = 8.0
+DISTRICT_GAP = 12.0  # the breath between the city blocks: blocks must read as separate plots
 DISTRICT_COLS = 4  # districts per row of the city-block layout
 GUTTER_WIDTH = 5.0  # an empty district: a gutter between the city blocks of used memory
 GUTTER_DEPTH = 9.0
@@ -1506,11 +1530,12 @@ def _routes(
     edges: list[dict[str, Any]],
     streets: Sequence[Mapping[str, Any]],
     ring_path: Sequence[Mapping[str, float]],
-) -> None:
+) -> dict[str, list[tuple[float, float]]]:
     """Give every cable its route: out of the source's lot, the street network across the city,
     into the target's lot — along the two rails of the endpoints and the crossings between them
     (at most two turns), corner-cut. A cable runs on the streets; it never crosses a building
-    volume that is not its own endpoint."""
+    volume that is not its own endpoint. Hands the straight (pre-chamfer) path of every cable
+    back so ``_bundles`` can see which street stretches the cables share."""
     by_id = {str(cell["id"]): cell for cell in cells}
     rails = _rails(streets, ring_path)
 
@@ -1586,10 +1611,12 @@ def _routes(
         )
 
     routed: dict[tuple[str, str], list[tuple[float, float]] | None] = {}
+    straights: dict[str, list[tuple[float, float]]] = {}
     for edge in edges:
         source = by_id.get(str(edge["from"]))
         if source is None:
             edge["route"] = []
+            straights[str(edge["id"])] = []
             continue
         start = (float(source["plot"]["x"]), float(source["plot"]["z"]))
         target = by_id.get(str(edge["to"])) if edge["to"] else None
@@ -1610,9 +1637,168 @@ def _routes(
         for point in path[1:]:
             if abs(point[0] - straight[-1][0]) + abs(point[1] - straight[-1][1]) > 1e-9:
                 straight.append(point)
+        straights[str(edge["id"])] = straight
         edge["route"] = [
             {"x": _round(x), "z": _round(z)} for x, z in _chamfer(straight, 0.8)
         ]
+    return straights
+
+
+BUNDLE_MIN = 2  # a package carries at least two cables; one cable is its own thin trace
+
+
+def _leg_rail(
+    rails: Sequence[tuple[str, float, float, float]],
+    first: tuple[float, float],
+    second: tuple[float, float],
+) -> int:
+    """The one street rail a straight leg runs on (longest overlap, lowest rail on a tie): a leg
+    of a cable belongs to one street alone, so two cables meet on it in one package. -1: the leg
+    is no rail run (the diagonal last mile off the street grid)."""
+    if abs(first[0] - second[0]) < 1e-9:
+        axis, at, low, high = "z", first[0], min(first[1], second[1]), max(first[1], second[1])
+    elif abs(first[1] - second[1]) < 1e-9:
+        axis, at, low, high = "x", first[1], min(first[0], second[0]), max(first[0], second[0])
+    else:
+        return -1
+    best, best_overlap = -1, 0.0
+    for index, (rail_axis, rail_at, rail_low, rail_high) in enumerate(rails):
+        if rail_axis != axis or abs(rail_at - at) > JUNCTION_SNAP:
+            continue
+        overlap = min(high, rail_high) - max(low, rail_low)
+        if overlap > best_overlap + 1e-9:
+            best, best_overlap = index, overlap
+    return best if best_overlap > 1e-6 else -1
+
+
+def _bundles(
+    cells: Sequence[Mapping[str, Any]],
+    edges: list[dict[str, Any]],
+    straights: Mapping[str, list[tuple[float, float]]],
+    streets: Sequence[Mapping[str, Any]],
+    ring_path: Sequence[Mapping[str, float]],
+) -> list[dict[str, Any]]:
+    """The cable packages: where cables share a street stretch, that stretch carries them as ONE
+    duct — thicker the more it carries, marked by what it carries — and every member cable only
+    draws its own last mile (``edge['stubs']``, here). One cable on a stretch stays its own thin
+    trace; a package is never invented where nothing is shared. The union of the members' spans
+    on one street rail, split where the traffic splits, is the duct's run."""
+    by_id = {str(cell["id"]): cell for cell in cells}
+    by_edge = {str(edge["id"]): edge for edge in edges}
+    rails = _rails(streets, ring_path)
+
+    # where every cable runs on which street: (edge id, low, high) per rail
+    spans: dict[int, list[tuple[str, float, float]]] = {}
+    for edge in edges:
+        points = straights.get(str(edge["id"]), [])
+        for first, second in pairwise(points):
+            rail = _leg_rail(rails, first, second)
+            if rail < 0:
+                continue
+            axis = rails[rail][0]
+            low, high = (
+                (min(first[0], second[0]), max(first[0], second[0]))
+                if axis == "x"
+                else (min(first[1], second[1]), max(first[1], second[1]))
+            )
+            spans.setdefault(rail, []).append((str(edge["id"]), low, high))
+
+    bundles: list[dict[str, Any]] = []
+    # rail -> [(low, high, bundle id or None)]: which part of which street is a duct
+    cover: dict[int, list[tuple[float, float, str | None]]] = {}
+    for rail in sorted(spans):
+        axis, at = rails[rail][0], rails[rail][1]
+        merged: list[list[float]] = []
+        for _, low, high in sorted(spans[rail], key=lambda span: (span[1], span[2])):
+            if merged and low <= merged[-1][1] + 1e-6:
+                merged[-1][1] = max(merged[-1][1], high)
+            else:
+                merged.append([low, high])
+        for low, high in merged:
+            members = sorted(
+                {
+                    edge_id
+                    for edge_id, span_low, span_high in spans[rail]
+                    if min(high, span_high) - max(low, span_low) > 1e-6
+                }
+            )
+            if len(members) < BUNDLE_MIN:
+                cover.setdefault(rail, []).append((low, high, None))
+                continue
+            marks: dict[str, int] = {}
+            stale = 0
+            level = 0
+            for member in members:
+                edge = by_edge[member]
+                marks[str(edge["how"])] = marks.get(str(edge["how"]), 0) + 1
+                if not bool(edge["fresh"]):
+                    stale += 1
+                source = by_id.get(str(edge["from"]))
+                target = by_id.get(str(edge["to"])) if edge["to"] else None
+                level = max(
+                    level,
+                    int(source["depth"]) if source else 0,
+                    int(target["depth"]) if target else 0,
+                )
+            bundle_id = f"u{len(bundles)}"
+            bundles.append(
+                {
+                    "id": bundle_id,
+                    "route": (
+                        [
+                            {"x": _round(low), "z": _round(at)},
+                            {"x": _round(high), "z": _round(at)},
+                        ]
+                        if axis == "x"
+                        else [
+                            {"x": _round(at), "z": _round(low)},
+                            {"x": _round(at), "z": _round(high)},
+                        ]
+                    ),
+                    "count": len(members),
+                    "edges": members,
+                    "marks": dict(sorted(marks.items())),
+                    "stale": stale,
+                    "level": level,
+                }
+            )
+            cover.setdefault(rail, []).append((low, high, bundle_id))
+
+    # the last mile: every run of a cable that no package carries for it
+    for edge in edges:
+        points = straights.get(str(edge["id"]), [])
+        runs: list[list[tuple[float, float]]] = []
+        current: list[tuple[float, float]] = []
+        for first, second in pairwise(points):
+            rail = _leg_rail(rails, first, second)
+            covered = False
+            if rail >= 0:
+                axis = rails[rail][0]
+                low, high = (
+                    (min(first[0], second[0]), max(first[0], second[0]))
+                    if axis == "x"
+                    else (min(first[1], second[1]), max(first[1], second[1]))
+                )
+                covered = any(
+                    bundle_id is not None and min(high, span_high) - max(low, span_low) > 1e-6
+                    for span_low, span_high, bundle_id in cover.get(rail, ())
+                )
+            if covered:
+                if current:
+                    runs.append(current)
+                    current = []
+                continue
+            if not current:
+                current = [first]
+            current.append(second)
+        if current:
+            runs.append(current)
+        edge["stubs"] = [
+            [{"x": _round(x), "z": _round(z)} for x, z in _chamfer(run, 0.8)]
+            for run in runs
+            if len(run) >= 2
+        ]
+    return bundles
 
 
 # ---- the document ------------------------------------------------------------------------------------
@@ -1809,7 +1995,8 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
     )
     ring_path = _ring_path(regions, cells, ring_rect)
     streets = _network(regions, cells, ring_rect)
-    _routes(cells, edges, streets, ring_path)
+    straights = _routes(cells, edges, streets, ring_path)
+    bundles = _bundles(cells, edges, straights, streets, ring_path)
     # docs/23 §4.5: a tram is one run cell sitting in a ring slot (READY/RUNNING) and a PARKED run
     # is off the road. The units are the ring's occupied slots — the run state words the image
     # really carries — never one per tower and never a run the image does not place in a slot.
@@ -1846,6 +2033,7 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
         "voids": len(voids),
         "edges": len(edges),
         "stale_edges": sum(1 for edge in edges if not edge["fresh"]),
+        "bundles": len(bundles),
     }
     return {
         "schema": SCHEMA,
@@ -1873,6 +2061,7 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
         "blocks": _blocks(cells, regions),
         "voids": voids,
         "edges": edges,
+        "bundles": bundles,
         "streets": streets,
         "ring": {
             "center": center,
@@ -1914,6 +2103,7 @@ _REQUIRED_TOP = (
     "blocks",
     "voids",
     "edges",
+    "bundles",
     "streets",
     "ring",
     "trams",
@@ -2070,7 +2260,7 @@ def validate_scene(scene: Mapping[str, Any]) -> None:
         _need(
             edge,
             ("id", "from", "to", "from_handle", "to_handle", "how", "kind", "binding",
-             "index", "field", "fresh", "route"),
+             "index", "field", "fresh", "route", "stubs"),
             "edge",
         )
         if edge["id"] in edge_ids:
@@ -2088,6 +2278,60 @@ def validate_scene(scene: Mapping[str, Any]) -> None:
             raise SchemaError(f"edge {edge['id']!r}: route is not a path of points")
         for point in edge["route"]:
             _need(point, ("x", "z"), f"edge {edge['id']!r} route point")
+        if not isinstance(edge["stubs"], list):
+            raise SchemaError(f"edge {edge['id']!r}: stubs is not a list of runs")
+        for run in edge["stubs"]:
+            if not isinstance(run, list) or len(run) < 2:
+                raise SchemaError(f"edge {edge['id']!r}: stub is not a path of points")
+            for point in run:
+                _need(point, ("x", "z"), f"edge {edge['id']!r} stub point")
+
+    edge_order = {edge["id"]: index for index, edge in enumerate(scene["edges"])}
+    edge_by_id = {edge["id"]: edge for edge in scene["edges"]}
+    depth_of = {cell["id"]: int(cell["depth"]) for cell in scene["cells"]}
+    bundle_ids: set[str] = set()
+    for bundle in scene["bundles"]:
+        _need(bundle, ("id", "route", "count", "edges", "marks", "stale", "level"), "bundle")
+        where = f"bundle {bundle['id']!r}"
+        if bundle["id"] in bundle_ids:
+            raise SchemaError(f"{where}: duplicate id")
+        bundle_ids.add(bundle["id"])
+        if not isinstance(bundle["route"], list) or len(bundle["route"]) != 2:
+            raise SchemaError(f"{where}: route is not one straight stretch")
+        for point in bundle["route"]:
+            _need(point, ("x", "z"), f"{where} route point")
+        first, second = bundle["route"]
+        if first["x"] != second["x"] and first["z"] != second["z"]:
+            raise SchemaError(f"{where}: route is not one street stretch")
+        members = bundle["edges"]
+        if (
+            not isinstance(members, list)
+            or len(members) != int(bundle["count"])
+            or len(members) < BUNDLE_MIN
+        ):
+            raise SchemaError(f"{where}: count and members disagree")
+        positions = [edge_order.get(member) for member in members]
+        if any(position is None for position in positions):
+            raise SchemaError(f"{where}: member is not a cable")
+        if positions != sorted(set(positions)):
+            raise SchemaError(f"{where}: members are not cables in edge order")
+        marks = bundle["marks"]
+        if (
+            not isinstance(marks, dict)
+            or set(marks) - set(HOWS)
+            or any(int(count) <= 0 for count in marks.values())
+            or sum(int(count) for count in marks.values()) != len(members)
+        ):
+            raise SchemaError(f"{where}: marks do not add up to the members")
+        ghosts = sum(1 for member in members if not bool(edge_by_id[member]["fresh"]))
+        if int(bundle["stale"]) != ghosts:
+            raise SchemaError(f"{where}: stale disagrees with the members")
+        deepest = max(
+            max(depth_of.get(edge_by_id[member]["from"], 0), depth_of.get(edge_by_id[member]["to"], 0))
+            for member in members
+        )
+        if int(bundle["level"]) != deepest:
+            raise SchemaError(f"{where}: level is not the deepest member level")
 
     ring = scene["ring"]
     if ring is not None:
