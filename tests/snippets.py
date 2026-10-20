@@ -169,6 +169,113 @@ def arithmetic(leaf: str, a: int, b: int) -> tuple[int, int]:
     return 0, (a - quotient * b) & mask
 
 
+# The snippets behind the checked and saturating leaves of the integer traits, by
+# ``<mode>_<op>_<type>`` name (each is rxf_<name> of native/basics.c, in starter/
+# pymergetic/rxf/numeric/). Every integer type for the two-operand ops; negate and
+# absolute are checked-only and signed-only (the C defines them in RXF_DEFINE_SIGNED).
+CHECKED_SATURATING = {
+    f"{mode}_{op}_{kind}": f"pymergetic/rxf/numeric/{mode}:{op}_{kind}"
+    for mode in ("checked", "saturating")
+    for op in ("add", "subtract", "multiply")
+    for kind in INTEGERS
+} | {
+    f"checked_{op}_{kind}": f"pymergetic/rxf/numeric/checked:{op}_{kind}"
+    for op in ("negate", "absolute")
+    for kind in INTEGERS
+    if INTEGERS[kind][1]
+}
+
+
+def _checked_kind(leaf: str) -> str:
+    """The type a checked/saturating leaf names, unambiguously (``_uint8_t`` never
+    matches ``_int8_t``: the underscore is part of the match)."""
+    for kind in INTEGERS:
+        if leaf.endswith("_" + kind):
+            return kind
+    raise KeyError(f"{leaf}: no integer type")
+
+
+def checked_saturating(leaf: str, a: int, b: int = 0) -> tuple[int, int]:
+    """(status, value) of one checked/saturating leaf's C (native/basics.c), in Python.
+
+    The contract: a checked op refuses OVERFLOW (writes nothing) where the true result
+    leaves the type; a saturating op always succeeds, clamping to the type's MINIMUM or
+    MAXIMUM (the C clamps to MAXIMUM on an unsigned overflow and by the sign of the
+    second operand -- MINIMUM when subtracting a positive, etc.). The result is the two's
+    complement bits of the type.
+    """
+    bits, signed = INTEGERS[_checked_kind(leaf)]
+    mask = (1 << bits) - 1
+    low = -(1 << (bits - 1)) if signed else 0
+    high = (1 << (bits - 1)) - 1 if signed else mask
+
+    def view(value: int) -> int:
+        value &= mask
+        return value - (1 << bits) if signed and value > high else value
+
+    a, b = view(a), view(b)
+    op = leaf.split("_")[1]
+    if op in ("negate", "absolute"):
+        # checked-only: MIN has no representable positive counterpart.
+        if a == low:
+            return OVERFLOW, 0
+        value = -a if op == "negate" else abs(a)
+        return 0, (value & mask)
+    result = {"add": a + b, "subtract": a - b, "multiply": a * b}[op]
+    size = bits // 8
+    if result < low or result > high:
+        if leaf.startswith("checked"):
+            return OVERFLOW, 0
+        result = high if result > high else low
+    return 0, (result & mask)
+
+
+def checked_saturating_seen(leaf: str, a: int, b: int = 0) -> tuple[int, str]:
+    """The contract of one checked/saturating leaf as a run of its snippet sees it."""
+    status, value = checked_saturating(leaf, a, b)
+    size = SIZES[_checked_kind(leaf)]
+    written = (
+        value.to_bytes(size, "little").hex()
+        if status == 0
+        else bytes([OUTPUT_FILL] * size).hex()
+    )
+    return status, written
+
+
+def checked_saturating_arguments(leaf: str) -> list[tuple[int, int]]:
+    """The edge pairs every checked/saturating leaf is held to: the extremes where an
+    add, subtract or multiply crosses the type's bound in either direction."""
+    kind = _checked_kind(leaf)
+    bits, signed = INTEGERS[kind]
+    top = 1 << (bits - 1)
+    low = -top if signed else 0
+    high = top - 1 if signed else 2 * top - 1
+    pairs = [
+        (0, 0),
+        (0, 1),
+        (1, 1),
+        (7, 2),
+        (high, 1),  # high + 1 and high * 1 cross the top
+        (high, 2),  # the multiply leaves the type
+        (high, high),
+        (low, 1),
+        (low, low),
+    ]
+    if signed:
+        pairs += [
+            (-1, -1),
+            (-1, high),
+            (low, -1),  # MIN * -1 cannot be represented
+            (low, -2),
+            (high, -1),
+            (low, high),
+            (high, low),
+        ]
+    else:
+        pairs += [(top, 2), (top, top), (0, high), (1, high)]
+    return pairs
+
+
 def arithmetic_seen(leaf: str, a: int, b: int) -> tuple[int, str]:
     """The contract of one leaf as a run of its snippet sees it: the status and the output
     bytes. A leaf that refuses writes nothing, so the output stays the fill of the buffer."""

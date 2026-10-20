@@ -1,0 +1,67 @@
+# The convert_<src>_to_<dst> words of the stdlib for the integer types (docs/29): a range
+# guard and the operand itself. The float/double forms (IEEE bit logic on either side)
+# live in native/float/convert.rxfs.
+
+# The range guard of the integer conversions (RXF_REFUSE_OUT_OF_RANGE = 6): what the
+# destination type cannot hold refuses, what it can hold is the operand itself (the width
+# store truncates a narrowing). The limits are arguments, so the guard exists once.
+macro conv_lo(a, LO) { if (a < LO) { refuse 6; } }
+macro conv_hi(a, HI) { if (a > HI) { refuse 6; } }
+
+
+fn convert_int8_t_to_int16_t(a) { return a; }
+fn convert_int8_t_to_int32_t(a) { return a; }
+fn convert_int8_t_to_int64_t(a) { return a; }
+fn convert_int8_t_to_uint8_t(a) { conv_lo(a, 0); return a; }
+fn convert_int8_t_to_uint16_t(a) { conv_lo(a, 0); return a; }
+fn convert_int8_t_to_uint32_t(a) { conv_lo(a, 0); return a; }
+fn convert_int8_t_to_uint64_t(a) { conv_lo(a, 0); return a; }
+fn convert_int16_t_to_int8_t(a) { conv_lo(a, -128); conv_hi(a, 127); return a; }
+fn convert_int16_t_to_int32_t(a) { return a; }
+fn convert_int16_t_to_int64_t(a) { return a; }
+fn convert_int16_t_to_uint8_t(a) { conv_lo(a, 0); conv_hi(a, 255); return a; }
+fn convert_int16_t_to_uint16_t(a) { conv_lo(a, 0); return a; }
+fn convert_int16_t_to_uint32_t(a) { conv_lo(a, 0); return a; }
+fn convert_int16_t_to_uint64_t(a) { conv_lo(a, 0); return a; }
+fn convert_int32_t_to_int8_t(a) { conv_lo(a, -128); conv_hi(a, 127); return a; }
+fn convert_int32_t_to_int16_t(a) { conv_lo(a, -32768); conv_hi(a, 32767); return a; }
+fn convert_int32_t_to_int64_t(a) { return a; }
+fn convert_int32_t_to_uint8_t(a) { conv_lo(a, 0); conv_hi(a, 255); return a; }
+fn convert_int32_t_to_uint16_t(a) { conv_lo(a, 0); conv_hi(a, 65535); return a; }
+fn convert_int32_t_to_uint32_t(a) { conv_lo(a, 0); return a; }
+fn convert_int32_t_to_uint64_t(a) { conv_lo(a, 0); return a; }
+fn convert_int64_t_to_int8_t(a) { conv_lo(a, -128); conv_hi(a, 127); return a; }
+fn convert_int64_t_to_int16_t(a) { conv_lo(a, -32768); conv_hi(a, 32767); return a; }
+fn convert_int64_t_to_int32_t(a) { conv_lo(a, -2147483648); conv_hi(a, 2147483647); return a; }
+fn convert_int64_t_to_uint8_t(a) { conv_lo(a, 0); conv_hi(a, 255); return a; }
+fn convert_int64_t_to_uint16_t(a) { conv_lo(a, 0); conv_hi(a, 65535); return a; }
+fn convert_int64_t_to_uint32_t(a) { conv_lo(a, 0); conv_hi(a, 4294967295); return a; }
+fn convert_int64_t_to_uint64_t(a) { conv_lo(a, 0); return a; }
+fn convert_uint8_t_to_int8_t(a) { conv_hi(a, 127); return a; }
+fn convert_uint8_t_to_int16_t(a) { return a; }
+fn convert_uint8_t_to_int32_t(a) { return a; }
+fn convert_uint8_t_to_int64_t(a) { return a; }
+fn convert_uint8_t_to_uint16_t(a) { return a; }
+fn convert_uint8_t_to_uint32_t(a) { return a; }
+fn convert_uint8_t_to_uint64_t(a) { return a; }
+fn convert_uint16_t_to_int8_t(a) { conv_hi(a, 127); return a; }
+fn convert_uint16_t_to_int16_t(a) { conv_hi(a, 32767); return a; }
+fn convert_uint16_t_to_int32_t(a) { return a; }
+fn convert_uint16_t_to_int64_t(a) { return a; }
+fn convert_uint16_t_to_uint8_t(a) { conv_hi(a, 255); return a; }
+fn convert_uint16_t_to_uint32_t(a) { return a; }
+fn convert_uint16_t_to_uint64_t(a) { return a; }
+fn convert_uint32_t_to_int8_t(a) { conv_hi(a, 127); return a; }
+fn convert_uint32_t_to_int16_t(a) { conv_hi(a, 32767); return a; }
+fn convert_uint32_t_to_int32_t(a) { conv_hi(a, 2147483647); return a; }
+fn convert_uint32_t_to_int64_t(a) { return a; }
+fn convert_uint32_t_to_uint8_t(a) { conv_hi(a, 255); return a; }
+fn convert_uint32_t_to_uint16_t(a) { conv_hi(a, 65535); return a; }
+fn convert_uint32_t_to_uint64_t(a) { return a; }
+fn convert_uint64_t_to_int8_t(a) { conv_hi(a, 127); return a; }
+fn convert_uint64_t_to_int16_t(a) { conv_hi(a, 32767); return a; }
+fn convert_uint64_t_to_int32_t(a) { conv_hi(a, 2147483647); return a; }
+fn convert_uint64_t_to_int64_t(a) { conv_hi(a, 9223372036854775807); return a; }
+fn convert_uint64_t_to_uint8_t(a) { conv_hi(a, 255); return a; }
+fn convert_uint64_t_to_uint16_t(a) { conv_hi(a, 65535); return a; }
+fn convert_uint64_t_to_uint32_t(a) { conv_hi(a, 4294967295); return a; }

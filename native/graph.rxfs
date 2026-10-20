@@ -1,0 +1,1315 @@
+# native/graph.rxfs: the graph interpreter of native/graph.c, in the Seed `fn` dialect.
+#
+# The port is line-by-line from native/graph.c: every helper is a macro (it expands
+# inline; the state a helper shares with its callers -- the status, the found pointer --
+# is named at the use site), and the run loop is `graph_run` itself. The muscle is the
+# one shaped call per leaf shape (call_qp .. call_pHqHqpp): the leaves stay native
+# Functions of the function table of the context, found by id.
+#
+#     fn graph_run(c, h_id, h_gen, h_off, args, argc, out)
+#
+# is rxf_graph_run(c, program, args, argc, out) -- `!pHqqp`, 5 C arguments / 7 words,
+# the handle three words flat (id, generation, offset). Every exit is `refuse N` (a
+# status, no store through out): the run's value is written through the `out` parameter
+# itself by OP_RETURN, exactly as the C writes it.
+#
+# The state mirrors rxf_graph (graph.c:37): code/count/frame/frame_bytes/depth as
+# words, the run cell `cell[8192]` and the frames of the chain `frames[704]` (8 frame
+# links of 11 words, rxf_call_frame of graph.c:21) as regions. The frames are the run's
+# own state -- no raw pointer outlives a step (S7).
+#
+# The helpers and the main loop carry the C line they mirror; where the C has a quirk
+# (the order of two checks, a width's cap at 8 bytes), the quirk is kept: the C is the
+# spec, and tests/graph_reference.py is the oracle.
+
+# ---- words of the program: g->code ----------------------------------------------------------------
+
+# have(): graph.c:98 -- at <= count && words <= count - at
+macro m_have(pa, pn) {
+  ok = 0;
+  if ((pa) <= count) {
+    if ((pn) <= count - (pa)) { ok = 1; }
+  }
+}
+
+# in_frame(): graph.c:102 -- width <= frame_bytes && offset <= frame_bytes - width.
+# m_in_frame_fb names the frame bytes: answer() checks the caller's words (graph.c:256).
+macro m_in_frame_fb(pfb, po, pw) {
+  ok = 0;
+  if ((pw) <= (pfb)) {
+    if ((po) <= (pfb) - (pw)) { ok = 1; }
+  }
+}
+
+macro m_in_frame(po, pw) {
+  m_in_frame_fb(frame_bytes, po, pw);
+}
+
+# entry(): stdlib_runtime.h:86 -- the halving search of the sorted table of the context.
+macro m_entry(pident) {
+  ent = 0;
+  ent_lo = 0;
+  ent_hi = load64(c + 32);
+  ent_id = (pident);
+  while (ent_lo < ent_hi) {
+    ent_mi = ent_lo + ((ent_hi - ent_lo) / 2);
+    if (load64(load64(c + 40) + ent_mi * 80) < ent_id) {
+      ent_lo = ent_mi + 1;
+    }
+    else {
+      ent_hi = ent_mi;
+    }
+  }
+  if (ent_lo < load64(c + 32)) {
+    ent = load64(c + 40) + ent_lo * 80;
+    if (load64(ent) != ent_id) {
+      ent = 0;
+    }
+  }
+}
+
+# read_bytes(): graph.c:84 -- the first min(width, 8) bytes, little-endian.
+macro m_read_bytes(pa, pw) {
+  rb_addr = (pa);
+  rb_width = (pw);
+  rb_value = 0;
+  rb_i = 0;
+  while (rb_i < 8) {
+    if (rb_i < rb_width) {
+      rb_value = rb_value | (load8(rb_addr + rb_i) << (8 * rb_i));
+    }
+    rb_i = rb_i + 1;
+  }
+}
+
+# write_bytes(): graph.c:92 -- the low min(width, 8) bytes of value.
+macro m_write_bytes(pa, pw, pv) {
+  wb_addr = (pa);
+  wb_width = (pw);
+  wb_value = (pv);
+  wb_i = 0;
+  while (wb_i < 8) {
+    if (wb_i < wb_width) {
+      store8(wb_addr + wb_i, wb_value >> (8 * wb_i));
+    }
+    wb_i = wb_i + 1;
+  }
+}
+
+# copy_bytes(): graph.c:72
+macro m_copy_bytes(pd, ps, pn) {
+  cb_dst = (pd);
+  cb_src = (ps);
+  cb_n = (pn);
+  cb_i = 0;
+  while (cb_i < cb_n) {
+    store8(cb_dst + cb_i, load8(cb_src + cb_i));
+    cb_i = cb_i + 1;
+  }
+}
+
+# zero_bytes(): graph.c:77
+macro m_zero_bytes(pd, pn) {
+  zb_dst = (pd);
+  zb_n = (pn);
+  zb_i = 0;
+  while (zb_i < zb_n) {
+    store8(zb_dst + zb_i, 0);
+    zb_i = zb_i + 1;
+  }
+}
+
+# locate(): graph.c:107 -- where the bytes of an operand are, and that at least `need`
+# of them are there. An operand is the word index of its 3 words; a Literal's bytes are
+# the word after its kind (graph.c:117: &operand[1]).
+macro m_locate(pow, pneed) {
+  loc_ow = (pow);
+  loc_need = (pneed);
+  loc_status = 6;
+  loc_where = 0;
+  loc_kind = load64(code + 8 * loc_ow);
+  if (loc_kind == 0) {
+    loc_a = load64(code + 8 * (loc_ow + 1));
+    m_in_frame(loc_a, loc_need);
+    if (ok != 0) {
+      loc_status = 0;
+      loc_where = frame + loc_a;
+    }
+  }
+  if (loc_kind == 1) {
+    if (loc_need <= 8) {
+      loc_status = 0;
+      loc_where = code + 8 * (loc_ow + 1);
+    }
+  }
+  if (loc_kind == 2) {
+    m_entry(load64(code + 8 * (loc_ow + 1)));
+    if (ent == 0) {
+      loc_status = 13;
+    }
+    if (ent != 0) {
+      if (loc_need <= load64(ent + 32)) {
+        loc_status = 0;
+        loc_where = load64(ent + 24);
+      }
+    }
+  }
+}
+
+# load(): graph.c:134 -- a slot or literal as an integer, an object as its payload address.
+macro m_load(pow) {
+  ld_ow = (pow);
+  ld_status = 0;
+  ld_value = 0;
+  ld_kind = load64(code + 8 * ld_ow);
+  ld_b = load64(code + 8 * (ld_ow + 2));
+  if (ld_kind == 2) {
+    m_locate(ld_ow, 0);
+    ld_status = loc_status;
+    ld_value = loc_where;
+  }
+  if (ld_kind == 1) {
+    ld_value = load64(code + 8 * (ld_ow + 1));
+    ld_status = 6;
+    if (ld_b <= 8) {
+      ld_status = 0;
+    }
+  }
+  if (ld_kind != 2) {
+    if (ld_kind != 1) {
+      ld_need = 8;
+      if (ld_b < 8) {
+        ld_need = ld_b;
+      }
+      m_locate(ld_ow, ld_need);
+      ld_status = loc_status;
+      ld_value = 0;
+      if (loc_status == 0) {
+        m_read_bytes(loc_where, ld_b);
+        ld_value = rb_value;
+      }
+    }
+  }
+}
+
+# pointer(): graph.c:152 -- what a pointer parameter receives: the address of a wide
+# slot, else the value.
+macro m_pointer(pow) {
+  ptr_kind = load64(code + 8 * (pow));
+  ptr_b = load64(code + 8 * ((pow) + 2));
+  ptr_status = 0;
+  ptr_value = 0;
+  if (ptr_kind == 0) {
+    if (ptr_b > 8) {
+      m_locate((pow), ptr_b);
+      ptr_status = loc_status;
+      ptr_value = loc_where;
+    }
+    if (ptr_b <= 8) {
+      m_load((pow));
+      ptr_status = ld_status;
+      ptr_value = ld_value;
+    }
+  }
+  if (ptr_kind != 0) {
+    m_load((pow));
+    ptr_status = ld_status;
+    ptr_value = ld_value;
+  }
+}
+
+# store(): graph.c:163 -- copies the bytes of an operand to a destination slot.
+macro m_store(pslot, pw, pow, poff) {
+  st_slot = (pslot);
+  st_width = (pw);
+  st_off = (poff);
+  m_locate((pow), st_off + st_width);
+  st_status = loc_status;
+  st_from = loc_where + st_off;
+  if (loc_status == 0) {
+    m_in_frame(st_slot, st_width);
+    st_status = 6;
+    if (ok != 0) {
+      st_status = 0;
+      m_copy_bytes(frame + st_slot, st_from, st_width);
+    }
+  }
+}
+
+# move(): graph.c:174 -- a value into a slot: the bytes the source has, the rest zero.
+macro m_move(pslot, pw, pow) {
+  mv_slot = (pslot);
+  mv_width = (pw);
+  mv_b = load64(code + 8 * ((pow) + 2));
+  mv_have = mv_width;
+  if (mv_b < mv_width) {
+    mv_have = mv_b;
+  }
+  m_in_frame(mv_slot, mv_width);
+  mv_status = 6;
+  if (ok != 0) {
+    m_locate((pow), mv_have);
+    mv_status = loc_status;
+    if (loc_status == 0) {
+      m_zero_bytes(frame + mv_slot, mv_width);
+      m_copy_bytes(frame + mv_slot, loc_where, mv_have);
+    }
+  }
+}
+
+# edge_words(): graph.c:225 -- an edge is its header plus the copies.
+macro m_edge_words(pa) = 2 + load64(code + 8 * ((pa) + 1)) * 5;
+
+# take(): graph.c:192 -- takes an edge: the copies of its arguments staged first (all
+# sources are read before any destination is written), then the word it jumps to.
+macro m_take(pat) {
+  tk_at = (pat);
+  tk_status = 6;
+  tk_next = 0;
+  m_have(tk_at, 2);
+  tk_ok2 = ok;
+  tk_count = 0;
+  tk_bad = 1;
+  if (tk_ok2 != 0) {
+    tk_count = load64(code + 8 * (tk_at + 1));
+    if (tk_count <= 256) {
+      m_have(tk_at + 2, tk_count * 5);
+      if (ok != 0) {
+        tk_bad = 0;
+      }
+    }
+  }
+  if (tk_bad == 0) {
+    tk_used = 0;
+    tk_i = 0;
+    tk_stop = 0;
+    while (tk_i < tk_count) {
+      if (tk_stop == 0) {
+        tk_copy = tk_at + 2 + tk_i * 5;
+        tk_width = load64(code + 8 * (tk_copy + 4));
+        tk_present = tk_width;
+        if (load64(code + 8 * (tk_copy + 2)) < tk_width) {
+          tk_present = load64(code + 8 * (tk_copy + 2));
+        }
+        m_locate(tk_copy, tk_present);
+        tk_status = loc_status;
+        if (loc_status != 0) {
+          tk_stop = 1;
+        }
+      }
+      if (tk_stop == 0) {
+        if (tk_width > 256 - tk_used) {
+          tk_status = 6;
+          tk_stop = 1;
+        }
+      }
+      if (tk_stop == 0) {
+        m_zero_bytes(staged + tk_used, tk_width);
+        m_copy_bytes(staged + tk_used, loc_where, tk_present);
+        tk_used = tk_used + tk_width;
+      }
+      tk_i = tk_i + 1;
+    }
+    if (tk_stop == 0) {
+      tk_used = 0;
+      tk_i = 0;
+      while (tk_i < tk_count) {
+        if (tk_stop == 0) {
+          tk_copy = tk_at + 2 + tk_i * 5;
+          tk_width = load64(code + 8 * (tk_copy + 4));
+          m_in_frame(load64(code + 8 * (tk_copy + 3)), tk_width);
+          if (ok == 0) {
+            tk_status = 6;
+            tk_stop = 1;
+          }
+        }
+        if (tk_stop == 0) {
+          m_copy_bytes(frame + load64(code + 8 * (tk_copy + 3)), staged + tk_used, tk_width);
+          tk_used = tk_used + tk_width;
+        }
+        tk_i = tk_i + 1;
+      }
+    }
+    if (tk_stop == 0) {
+      tk_status = 0;
+      tk_next = load64(code + 8 * tk_at);
+    }
+  }
+}
+
+# ---- the function table, the channel, the safe point ----------------------------------------------
+
+# find_leaf(): graph.c:229 -- the leaf with this id from the function table of the context.
+macro m_find_leaf(pid) {
+  fl_id = (pid);
+  fl = 0;
+  fl_i = 0;
+  fl_count = load64(c + 16);
+  fl_table = load64(c + 24);
+  while (fl_i < fl_count) {
+    if (fl == 0) {
+      if (load64(fl_table + fl_i * 24) == fl_id) {
+        fl = load64(fl_table + fl_i * 24 + 16);
+      }
+    }
+    fl_i = fl_i + 1;
+  }
+}
+
+# channel_area(): graph.c:505 -- the area of the first Channel capability, or 0.
+macro m_channel_area() {
+  area = 0;
+  ca_i = 0;
+  ca_count = load64(c + 48);
+  ca_table = load64(c + 56);
+  while (ca_i < ca_count) {
+    if (area == 0) {
+      if (load64(ca_table + ca_i * 24) == 1) {
+        area = load64(ca_table + ca_i * 24 + 16);
+      }
+    }
+    ca_i = ca_i + 1;
+  }
+}
+
+# safe_point(): graph.c:515 -- serves what waits at the doorbell; 1 when it did.
+macro m_safe_point() {
+  sp = 0;
+  m_channel_area();
+  sp_area = area;
+  if (sp_area != 0) {
+    sp_busy = 0;
+    if (load32(sp_area + 120) != load32(sp_area + 124)) {
+      sp_busy = 1;
+    }
+    if (load32(sp_area + 176) != 0) {
+      sp_busy = 1;
+    }
+    if (sp_busy != 0) {
+      m_find_leaf(29);
+      sp_pump = fl;
+      if (sp_pump != 0) {
+        store32(sp_area + 256, 1);
+        sp_run = 1;
+        while (sp_run != 0) {
+          sp_req = load32(sp_area + 176);
+          sp_ack = 0;
+          if (sp_req != 0) {
+            sp_ack = 1;
+          }
+          store32(sp_area + 180, sp_ack);
+          call_pp(sp_pump, c, sp_area);
+          if (load32(sp_area + 176) == 0) {
+            sp_run = 0;
+          }
+        }
+        store32(sp_area + 180, 0);
+        store32(sp_area + 256, 0);
+        sp = 1;
+      }
+    }
+  }
+}
+
+# rebind(): graph.c:354 -- every live frame's words are the object's again (S7).
+macro m_rebind() {
+  rd_status = 0;
+  rd_d = 0;
+  rd_stop = 0;
+  while (rd_d <= depth) {
+    if (rd_stop == 0) {
+      rd_f = frames + rd_d * 88;
+      m_entry(load64(rd_f + 0));
+      rd_e = ent;
+      rd_status = 13;
+      if (rd_e != 0) {
+        rd_status = 12;
+        if (load64(rd_e + 8) == load64(rd_f + 8)) {
+          rd_status = 13;
+          if (load64(rd_e + 48) == 1) {
+            rd_status = 6;
+            if (load64(rd_f + 16) <= load64(rd_e + 32)) {
+              if (((load64(rd_e + 24) + load64(rd_f + 16)) & 7) == 0) {
+                rd_status = 0;
+                store64(rd_f + 24, load64(rd_e + 24) + load64(rd_f + 16));
+                store64(rd_f + 32, (load64(rd_e + 32) - load64(rd_f + 16)) / 8);
+              }
+            }
+          }
+        }
+      }
+      if (rd_status != 0) {
+        rd_stop = 1;
+      }
+    }
+    rd_d = rd_d + 1;
+  }
+  if (rd_status == 0) {
+    code = load64(frames + depth * 88 + 24);
+    count = load64(frames + depth * 88 + 32);
+  }
+}
+
+# ---- the calls ------------------------------------------------------------------------------------
+
+# answer(): graph.c:247 -- the end of a callee: its out word to the caller-named
+# destination word, its status to the call's status slot, the caller goes on after its
+# call step. A refusal with no status slot to catch it ends the run with it. Only called
+# with a call above (depth > 0). `an_has` says whether `an_bytes` were answered (0 when
+# the callee refused).
+macro m_answer(presult, phas, pbytes, pw) {
+  an_result = (presult);
+  an_has = (phas);
+  an_bytes = (pbytes);
+  an_width = (pw);
+  an_status = 0;
+  an_next = 0;
+  an_top = frames + depth * 88;
+  an_caller = frames + (depth - 1) * 88;
+  an_frame = cell + load64(an_caller + 40);
+  an_out_slot = load64(an_top + 64);
+  an_out_width = load64(an_top + 72);
+  an_status_slot = load64(an_top + 80);
+  if (an_has != 0) {
+    if (an_out_slot != 18446744073709551615) {
+      m_in_frame_fb(load64(an_caller + 48), an_out_slot, an_out_width);
+      an_status = 6;
+      if (ok != 0) {
+        an_status = 6;
+        if (an_width <= an_out_width) {
+          an_status = 0;
+          m_copy_bytes(an_frame + an_out_slot, an_bytes, an_width);
+        }
+      }
+    }
+  }
+  if (an_status == 0) {
+    if (an_status_slot != 18446744073709551615) {
+      m_in_frame_fb(load64(an_caller + 48), an_status_slot, 4);
+      an_status = 6;
+      if (ok != 0) {
+        an_status = 0;
+        m_write_bytes(an_frame + an_status_slot, 4, an_result);
+      }
+    }
+    if (an_status_slot == 18446744073709551615) {
+      if (an_result != 0) {
+        an_status = an_result;
+      }
+    }
+    if (an_status == 0) {
+      depth = depth - 1;
+      code = load64(an_caller + 24);
+      count = load64(an_caller + 32);
+      frame = an_frame;
+      frame_bytes = load64(an_caller + 48);
+      an_next = load64(an_top + 56);
+    }
+  }
+}
+
+# call_program(): graph.c:281 -- word 1 is RXF_GRAPH_CALL, then the callee's program
+# operand and the arguments. The callee gets the next variable-length cell of the run
+# cell (base = the end of the chain that is open, size the frame bytes it declares) and
+# the run goes on at its entry. The frame fields are the words of graph.c:21.
+macro m_call_program(pat) {
+  cp_at = (pat);
+  cp_status = 0;
+  cp_next = 0;
+  m_have(cp_at, 9);
+  cp_bad = 1;
+  if (ok != 0) {
+    cp_bad = 0;
+    cp_count = load64(code + 8 * (cp_at + 2));
+    cp_out_slot = load64(code + 8 * (cp_at + 3));
+    cp_out_width = load64(code + 8 * (cp_at + 4));
+    cp_kind = load64(code + 8 * (cp_at + 6));
+    cp_name = load64(code + 8 * (cp_at + 7));
+    cp_zero = load64(code + 8 * (cp_at + 8));
+    if (cp_kind != 2) {
+      cp_bad = 1;
+    }
+    if (cp_zero != 0) {
+      cp_bad = 1;
+    }
+  }
+  if (cp_bad == 0) {
+    m_have(cp_at, 9 + cp_count * 3);
+    if (ok == 0) {
+      cp_bad = 1;
+    }
+  }
+  if (cp_bad != 0) {
+    cp_status = 6;
+  }
+  if (cp_status == 0) {
+    if (depth + 1 >= 8) {
+      cp_status = 17;
+    }
+  }
+  if (cp_status == 0) {
+    m_entry(cp_name);
+    cp_e = ent;
+    cp_status = 13;
+    if (cp_e != 0) {
+      if (load64(cp_e + 48) == 1) {
+        cp_status = 0;
+      }
+    }
+    if (cp_status == 0) {
+      if ((load64(cp_e + 24) & 7) != 0) {
+        cp_status = 6;
+      }
+    }
+    if (cp_status == 0) {
+      cp_frame = frames + (depth + 1) * 88;
+      store64(cp_frame + 0, cp_name);
+      store64(cp_frame + 8, load64(cp_e + 8));
+      store64(cp_frame + 16, 0);
+      store64(cp_frame + 24, load64(cp_e + 24));
+      cp_fcount = load64(cp_e + 32) / 8;
+      store64(cp_frame + 32, cp_fcount);
+      cp_status = 14;
+      if (cp_fcount >= 5) {
+        if (load64(load64(cp_e + 24)) == 826759250) {
+          cp_status = 0;
+        }
+      }
+    }
+    if (cp_status == 0) {
+      cp_params = load64(load64(cp_e + 24) + 16);
+      cp_entry_pc = load64(load64(cp_e + 24) + 32);
+      if (cp_params != cp_count) {
+        cp_status = 6;
+      }
+      if (cp_status == 0) {
+        if (cp_params > cp_fcount) {
+          cp_status = 6;
+        }
+      }
+      if (cp_status == 0) {
+        if (5 + cp_params * 2 > cp_fcount) {
+          cp_status = 6;
+        }
+      }
+    }
+    if (cp_status == 0) {
+      cp_fb = load64(load64(cp_e + 24) + 8);
+      if ((cp_fb & 7) != 0) {
+        cp_status = 6;
+      }
+    }
+    if (cp_status == 0) {
+      cp_base = load64(frames + depth * 88 + 40) + load64(frames + depth * 88 + 48);
+      if (cp_base > 8192) {
+        cp_status = 18;
+      }
+      if (cp_status == 0) {
+        if (cp_fb > 8192 - cp_base) {
+          cp_status = 18;
+        }
+      }
+    }
+    if (cp_status == 0) {
+      store64(cp_frame + 40, cp_base);
+      store64(cp_frame + 48, cp_fb);
+      cp_dst = cell + cp_base;
+      m_zero_bytes(cp_dst, cp_fb);
+      cp_i = 0;
+      cp_stop = 0;
+      while (cp_i < cp_params) {
+        if (cp_stop == 0) {
+          cp_slot = load64(load64(cp_e + 24) + 8 * (5 + 2 * cp_i));
+          cp_width = load64(load64(cp_e + 24) + 8 * (5 + 2 * cp_i + 1));
+          m_in_frame_fb(cp_fb, cp_slot, cp_width);
+          if (ok == 0) {
+            cp_status = 6;
+            cp_stop = 1;
+          }
+        }
+        if (cp_stop == 0) {
+          cp_ow = cp_at + 9 + cp_i * 3;
+          cp_b = load64(code + 8 * (cp_ow + 2));
+          cp_present = cp_width;
+          if (cp_b < cp_width) {
+            cp_present = cp_b;
+          }
+          m_locate(cp_ow, cp_present);
+          cp_status = loc_status;
+          if (loc_status != 0) {
+            cp_stop = 1;
+          }
+        }
+        if (cp_stop == 0) {
+          m_copy_bytes(cp_dst + cp_slot, loc_where, cp_present);
+        }
+        cp_i = cp_i + 1;
+      }
+    }
+    if (cp_status == 0) {
+      if (cp_out_slot != 18446744073709551615) {
+        m_in_frame(cp_out_slot, cp_out_width);
+        if (ok == 0) {
+          cp_status = 6;
+        }
+        if (ok != 0) {
+          m_zero_bytes(frame + cp_out_slot, cp_out_width);
+        }
+      }
+    }
+    if (cp_status == 0) {
+      store64(cp_frame + 56, cp_at + 9 + cp_count * 3);
+      store64(cp_frame + 64, cp_out_slot);
+      store64(cp_frame + 72, cp_out_width);
+      store64(cp_frame + 80, load64(code + 8 * (cp_at + 5)));
+      depth = depth + 1;
+      code = load64(frames + depth * 88 + 24);
+      count = load64(frames + depth * 88 + 32);
+      frame = cp_dst;
+      frame_bytes = cp_fb;
+      cp_next = cp_entry_pc;
+    }
+  }
+}
+
+# shape_of(): graph.h:259 -- how a leaf is called, by id.
+macro m_shape_of(pid) {
+  so_id = (pid);
+  shape = 0;
+  if (so_id == 3) { shape = 1; }
+  if (so_id == 1) { shape = 2; }
+  if (so_id == 2) { shape = 2; }
+  if (so_id == 4) { shape = 2; }
+  if (so_id == 32) { shape = 2; }
+  if (so_id == 33) { shape = 2; }
+  if (so_id == 34) { shape = 2; }
+  if (so_id == 37) { shape = 2; }
+  if (so_id == 39) { shape = 2; }
+  if (so_id == 40) { shape = 2; }
+  if (so_id == 41) { shape = 2; }
+  if (so_id == 42) { shape = 2; }
+  if (so_id == 43) { shape = 2; }
+  if (so_id == 44) { shape = 2; }
+  if (so_id == 45) { shape = 2; }
+  if (so_id == 35) { shape = 17; }
+  if (so_id == 36) { shape = 17; }
+  if (so_id == 5) { shape = 3; }
+  if (so_id == 6) { shape = 3; }
+  if (so_id == 16) { shape = 3; }
+  if (so_id == 7) { shape = 4; }
+  if (so_id == 8) { shape = 4; }
+  if (so_id == 9) { shape = 5; }
+  if (so_id == 10) { shape = 6; }
+  if (so_id == 11) { shape = 6; }
+  if (so_id == 21) { shape = 6; }
+  if (so_id == 29) { shape = 6; }
+  if (so_id == 30) { shape = 6; }
+  if (so_id == 38) { shape = 6; }
+  if (so_id == 12) { shape = 7; }
+  if (so_id == 13) { shape = 7; }
+  if (so_id == 14) { shape = 8; }
+  if (so_id == 15) { shape = 8; }
+  if (so_id == 18) { shape = 9; }
+  if (so_id == 17) { shape = 10; }
+  if (so_id == 19) { shape = 11; }
+  if (so_id == 20) { shape = 12; }
+  if (so_id == 22) { shape = 13; }
+  if (so_id == 23) { shape = 13; }
+  if (so_id == 24) { shape = 13; }
+  if (so_id == 25) { shape = 13; }
+  if (so_id == 46) { shape = 13; }
+  if (so_id == 47) { shape = 13; }
+  if (so_id == 48) { shape = 13; }
+  if (so_id == 26) { shape = 14; }
+  if (so_id == 27) { shape = 15; }
+  if (so_id == 28) { shape = 16; }
+}
+
+# shape_layout(): graph.h:332 -- the operands of a shape, which of them are handles
+# (bit n), and whether it has an out.
+macro m_shape_layout() {
+  lay_n = 0;
+  lay_handles = 0;
+  lay_has_out = 1;
+  if (shape == 1) { lay_n = 1; }
+  if (shape == 2) { lay_n = 2; }
+  if (shape == 3) { lay_n = 4; lay_handles = 1; }
+  if (shape == 4) { lay_n = 2; lay_handles = 1; }
+  if (shape == 5) { lay_n = 6; }
+  if (shape == 6) { lay_n = 1; lay_has_out = 0; }
+  if (shape == 7) { lay_n = 2; lay_handles = 1; lay_has_out = 0; }
+  if (shape == 8) { lay_n = 1; lay_handles = 1; lay_has_out = 0; }
+  if (shape == 9) { lay_n = 4; lay_handles = 1; lay_has_out = 0; }
+  if (shape == 10) { lay_n = 5; lay_handles = 1; lay_has_out = 0; }
+  if (shape == 11) { lay_n = 3; lay_handles = 1; lay_has_out = 0; }
+  if (shape == 12) { lay_n = 5; lay_handles = 5; }
+  if (shape == 13) { lay_n = 2; }
+  if (shape == 14) { lay_n = 5; lay_has_out = 0; }
+  if (shape == 15) { lay_n = 5; }
+  if (shape == 16) { lay_n = 4; lay_has_out = 0; }
+  if (shape == 17) { lay_n = 2; }
+}
+
+# call(): graph.c:374 -- a leaf of the function table, called under its shape. The
+# operands are bound first (a handle its three words), then the one shaped call of the
+# branch, then the call's status slot. The 17 branches are the 17 shapes of graph.h: the
+# letters spell the C parameters exactly as graph.c:429 casts them (context first where
+# the signature has it, the out pointer last where the shape has an out), so tests'
+# SPEC/NUMERIC strings are this table per leaf.
+macro m_call_leaf(pat) {
+  cl_at = (pat);
+  cl_status = 0;
+  cl_next = 0;
+  m_have(cl_at, 6);
+  cl_bad = 1;
+  if (ok != 0) {
+    cl_bad = 0;
+    cl_leaf = load64(code + 8 * (cl_at + 1));
+    cl_count = load64(code + 8 * (cl_at + 2));
+    cl_out_slot = load64(code + 8 * (cl_at + 3));
+    cl_out_width = load64(code + 8 * (cl_at + 4));
+    cl_status_slot = load64(code + 8 * (cl_at + 5));
+    m_shape_of(cl_leaf);
+    if (shape == 0) {
+      cl_bad = 1;
+    }
+  }
+  if (cl_bad == 0) {
+    m_shape_layout();
+    if (lay_n != cl_count) {
+      cl_bad = 1;
+    }
+    if (cl_count > 6) {
+      cl_bad = 1;
+    }
+    m_have(cl_at, 6 + cl_count * 3);
+    if (ok == 0) {
+      cl_bad = 1;
+    }
+  }
+  if (cl_bad != 0) {
+    cl_status = 6;
+  }
+  if (cl_status == 0) {
+    m_find_leaf(cl_leaf);
+    cl_fn = fl;
+    cl_status = 13;
+    if (cl_fn != 0) {
+      cl_status = 0;
+    }
+  }
+  if (cl_status == 0) {
+    cl_i = 0;
+    cl_stop = 0;
+    while (cl_i < cl_count) {
+      if (cl_stop == 0) {
+        cl_ow = cl_at + 6 + cl_i * 3;
+        cl_ish = 0;
+        if (((lay_handles >> cl_i) & 1) != 0) {
+          cl_ish = 1;
+        }
+        if (cl_ish == 1) {
+          m_locate(cl_ow, 24);
+          cl_status = loc_status;
+          if (loc_status != 0) {
+            cl_stop = 1;
+          }
+          if (cl_stop == 0) {
+            if (cl_i == 0) {
+              h0_id = load64(loc_where);
+              h0_gen = load64(loc_where + 8);
+              h0_off = load64(loc_where + 16);
+            }
+            if (cl_i == 2) {
+              h2_id = load64(loc_where);
+              h2_gen = load64(loc_where + 8);
+              h2_off = load64(loc_where + 16);
+            }
+          }
+        }
+        if (cl_ish == 0) {
+          if (cl_stop == 0) {
+            m_pointer(cl_ow);
+            cl_status = ptr_status;
+            if (ptr_status != 0) {
+              cl_stop = 1;
+            }
+            if (cl_stop == 0) {
+              if (cl_i == 0) { v0 = ptr_value; }
+              if (cl_i == 1) { v1 = ptr_value; }
+              if (cl_i == 2) { v2 = ptr_value; }
+              if (cl_i == 3) { v3 = ptr_value; }
+              if (cl_i == 4) { v4 = ptr_value; }
+              if (cl_i == 5) { v5 = ptr_value; }
+            }
+          }
+        }
+      }
+      cl_i = cl_i + 1;
+    }
+  }
+  if (cl_status == 0) {
+    cl_out = 0;
+    if (lay_has_out == 1) {
+      if (cl_out_slot == 18446744073709551615) {
+        cl_status = 6;
+      }
+      if (cl_status == 0) {
+        m_in_frame(cl_out_slot, cl_out_width);
+        if (ok == 0) {
+          cl_status = 6;
+        }
+      }
+      if (cl_status == 0) {
+        cl_out = frame + cl_out_slot;
+        m_zero_bytes(cl_out, cl_out_width);
+      }
+    }
+    if (lay_has_out == 0) {
+      if (cl_out_slot != 18446744073709551615) {
+        cl_status = 6;
+      }
+    }
+  }
+  if (cl_status == 0) {
+    cl_result = 0;
+    if (shape == 1) { cl_result = call_qp(cl_fn, v0, cl_out); }
+    if (shape == 2) { cl_result = call_qqp(cl_fn, v0, v1, cl_out); }
+    if (shape == 3) { cl_result = call_pHpqqp(cl_fn, c, h0_id, h0_gen, h0_off, v1, v2, v3, cl_out); }
+    if (shape == 4) { cl_result = call_pHqp(cl_fn, c, h0_id, h0_gen, h0_off, v1, cl_out); }
+    if (shape == 5) { cl_result = call_pqqqqqpp(cl_fn, c, v0, v1, v2, v3, v4, v5, cl_out); }
+    if (shape == 6) { cl_result = call_pp(cl_fn, c, v0); }
+    if (shape == 7) { cl_result = call_pHq(cl_fn, c, h0_id, h0_gen, h0_off, v1); }
+    if (shape == 8) { cl_result = call_pH(cl_fn, c, h0_id, h0_gen, h0_off); }
+    if (shape == 9) { cl_result = call_pHpqq(cl_fn, c, h0_id, h0_gen, h0_off, v1, v2, v3); }
+    if (shape == 10) { cl_result = call_pHpqqq(cl_fn, c, h0_id, h0_gen, h0_off, v1, v2, v3, v4); }
+    if (shape == 11) { cl_result = call_pHpd(cl_fn, c, h0_id, h0_gen, h0_off, v1, v2); }
+    if (shape == 12) { cl_result = call_pHqHqpp(cl_fn, c, h0_id, h0_gen, h0_off, v1, h2_id, h2_gen, h2_off, v3, v4, cl_out); }
+    if (shape == 13) { cl_result = call_ddp(cl_fn, v0, v1, cl_out); }
+    if (shape == 14) { cl_result = call_pqpqq(cl_fn, v0, v1, v2, v3, v4); }
+    if (shape == 15) { cl_result = call_pqpqqp(cl_fn, v0, v1, v2, v3, v4, cl_out); }
+    if (shape == 16) { cl_result = call_pqbq(cl_fn, v0, v1, v2, v3); }
+    if (shape == 17) { cl_result = call_qdp(cl_fn, v0, v1, cl_out); }
+  }
+  if (cl_status == 0) {
+    if (cl_status_slot != 18446744073709551615) {
+      m_in_frame(cl_status_slot, 4);
+      if (ok == 0) {
+        cl_status = 6;
+      }
+      if (ok != 0) {
+        m_write_bytes(frame + cl_status_slot, 4, cl_result);
+      }
+    }
+  }
+  if (cl_status == 0) {
+    cl_next = cl_at + 6 + cl_count * 3;
+  }
+}
+
+# ---- the run --------------------------------------------------------------------------------------
+# rxf_graph_run(): graph.c:563 -- the run cell carries the frames of the active call
+# chain; the interpreter iterates over the frame links, depth costs words never stack.
+
+fn graph_run(c, h_id, h_gen, h_off, args, argc, out) {
+  var code, count, frame, frame_bytes, depth;
+  var cell[8192], staged[256], frames[704], sv[16];
+  var ok, ent, ent_lo, ent_hi, ent_mi, ent_id;
+  var rb_addr, rb_width, rb_value, rb_i;
+  var wb_addr, wb_width, wb_value, wb_i;
+  var cb_dst, cb_src, cb_n, cb_i;
+  var zb_dst, zb_n, zb_i;
+  var loc_ow, loc_need, loc_status, loc_where, loc_kind, loc_a;
+  var ld_ow, ld_status, ld_value, ld_kind, ld_b, ld_need;
+  var ptr_kind, ptr_b, ptr_status, ptr_value;
+  var st_slot, st_width, st_off, st_status, st_from;
+  var mv_slot, mv_width, mv_b, mv_have, mv_status;
+  var tk_at, tk_status, tk_next, tk_ok2, tk_count, tk_bad, tk_used, tk_i, tk_stop, tk_copy, tk_width, tk_present;
+  var an_result, an_has, an_bytes, an_width, an_status, an_next, an_top, an_caller, an_frame, an_out_slot, an_out_width, an_status_slot;
+  var fl_id, fl, fl_i, fl_count, fl_table;
+  var area, ca_i, ca_count, ca_table;
+  var sp, sp_area, sp_busy, sp_pump, sp_run, sp_req, sp_ack;
+  var rd_status, rd_d, rd_stop, rd_f, rd_e;
+  var cp_at, cp_status, cp_next, cp_bad, cp_count, cp_out_slot, cp_out_width, cp_kind, cp_name, cp_zero, cp_e, cp_frame, cp_fcount, cp_params, cp_entry_pc, cp_fb, cp_base, cp_dst, cp_i, cp_stop, cp_slot, cp_width, cp_ow, cp_b, cp_present;
+  var cl_at, cl_status, cl_next, cl_bad, cl_leaf, cl_count, cl_out_slot, cl_out_width, cl_status_slot, cl_shape, cl_fn, cl_i, cl_stop, cl_ow, cl_ish, cl_out, cl_result;
+  var so_id, shape, lay_n, lay_handles, lay_has_out;
+  var v0, v1, v2, v3, v4, v5, h0_id, h0_gen, h0_off, h2_id, h2_gen, h2_off;
+  var op, status, next, value, left, params, argwords, pc, used, ret_width, ret_at_depth;
+  var bind_i, bind_stop, bind_slot, bind_width;
+  var map_i, map_stop, map_found;
+  var sw_i, sw_value, sw_chosen, sw_at;
+  var branch_zero, branch_taken;
+
+  # valid(): stdlib_runtime.h:99, and a place to write the answer (graph.c:572).
+  if (c == 0) { refuse 13; }
+  if (load64(c) != 2) { refuse 13; }
+  if (load64(c + 8) < 144) { refuse 13; }
+  if (out == 0) { refuse 13; }
+  depth = 0;
+  frame = cell;
+  frame_bytes = 0;
+
+  # bind(): graph.c:539 -- the program object of a run: its words, or why not.
+  m_entry(h_id);
+  status = 13;
+  if (ent != 0) {
+    status = 12;
+    if (load64(ent + 8) == h_gen) {
+      status = 13;
+      if (load64(ent + 48) == 1) {
+        status = 6;
+        if (h_off <= load64(ent + 32)) {
+          if (((load64(ent + 24) + h_off) & 7) == 0) {
+            status = 0;
+          }
+        }
+      }
+    }
+  }
+  if (status != 0) { refuse status; }
+  store64(frames + 0, h_id);
+  store64(frames + 8, h_gen);
+  store64(frames + 16, h_off);
+  store64(frames + 24, load64(ent + 24) + h_off);
+  store64(frames + 32, (load64(ent + 32) - h_off) / 8);
+  store64(frames + 40, 0);
+  store64(frames + 48, 0);
+  store64(frames + 56, 0);
+  store64(frames + 64, 18446744073709551615);
+  store64(frames + 72, 0);
+  store64(frames + 80, 18446744073709551615);
+  code = load64(frames + 24);
+  count = load64(frames + 32);
+
+  # the program header (graph.c:587): magic, frame bytes, parameters, words, entry.
+  m_have(0, 5);
+  if (ok == 0) { refuse 14; }
+  if (load64(code) != 826759250) { refuse 14; }
+  frame_bytes = load64(code + 8);
+  store64(frames + 48, frame_bytes);
+  params = load64(code + 16);
+  argwords = load64(code + 24);
+  pc = load64(code + 32);
+  status = 6;
+  if ((frame_bytes & 7) == 0) {
+    if (argwords == argc) {
+      if (params <= count) {
+        m_have(5, params * 2);
+        if (ok != 0) {
+          status = 0;
+        }
+      }
+    }
+  }
+  if (status != 0) { refuse status; }
+  if (frame_bytes > 8192) { refuse 18; }
+  m_zero_bytes(cell, frame_bytes);
+
+  # the entry's parameters bound from the arguments (graph.c:596).
+  used = 0;
+  bind_i = 0;
+  bind_stop = 0;
+  status = 0;
+  while (bind_i < params) {
+    if (bind_stop == 0) {
+      bind_slot = load64(code + 8 * (5 + 2 * bind_i));
+      bind_width = load64(code + 8 * (5 + 2 * bind_i + 1));
+      m_in_frame(bind_slot, bind_width);
+      if (ok == 0) {
+        status = 6;
+        bind_stop = 1;
+      }
+    }
+    if (bind_stop == 0) {
+      if (bind_width > argwords * 8 - used) {
+        status = 6;
+        bind_stop = 1;
+      }
+    }
+    if (bind_stop == 0) {
+      m_copy_bytes(cell + bind_slot, args + used, bind_width);
+      used = used + ((bind_width + 7) & ~7);
+    }
+    bind_i = bind_i + 1;
+  }
+  if (status != 0) { refuse status; }
+
+  # the run loop (graph.c:606): a safe point may rebind the chain, then one instruction.
+  while 1 {
+    m_safe_point();
+    if (sp != 0) {
+      m_rebind();
+      if (rd_status != 0) { refuse rd_status; }
+    }
+    m_have(pc, 1);
+    if (ok == 0) { refuse 6; }
+    op = load64(code + 8 * pc);
+    status = 0;
+    next = 0;
+    value = 0;
+
+    if (op == 1) {
+      # CALL: graph.c:615 -- a leaf, or (word 1 = RXF_GRAPH_CALL) a program of its own.
+      m_have(pc, 2);
+      if (ok == 0) { refuse 6; }
+      value = load64(code + 8 * (pc + 1));
+      if (value == 0) {
+        m_call_program(pc);
+        status = cp_status;
+        next = cp_next;
+      }
+      if (value != 0) {
+        m_call_leaf(pc);
+        status = cl_status;
+        next = cl_next;
+      }
+    }
+
+    if (op == 2) {
+      # MOVE: graph.c:626
+      m_have(pc, 6);
+      if (ok == 0) { refuse 6; }
+      m_move(load64(code + 8 * (pc + 1)), load64(code + 8 * (pc + 2)), pc + 3);
+      status = mv_status;
+      next = pc + 6;
+    }
+
+    if (op == 3) {
+      # MAP: graph.c:631 -- a move, then one pair of status codes mapped in its field.
+      m_have(pc, 8);
+      if (ok == 0) { refuse 6; }
+      value = load64(code + 8 * (pc + 7));
+      if (value > count) { refuse 6; }
+      m_have(pc, 8 + value * 2);
+      if (ok == 0) { refuse 6; }
+      m_in_frame(load64(code + 8 * (pc + 1)), load64(code + 8 * (pc + 2)));
+      if (ok == 0) { refuse 6; }
+      m_in_frame(load64(code + 8 * (pc + 1)) + load64(code + 8 * (pc + 6)), 4);
+      if (ok == 0) { refuse 6; }
+      m_move(load64(code + 8 * (pc + 1)), load64(code + 8 * (pc + 2)), pc + 3);
+      status = mv_status;
+      if (mv_status == 0) {
+        m_read_bytes(frame + load64(code + 8 * (pc + 1)) + load64(code + 8 * (pc + 6)), 4);
+        map_found = rb_value;
+        map_i = 0;
+        map_stop = 0;
+        while (map_i < value) {
+          if (map_stop == 0) {
+            if (load64(code + 8 * (pc + 8 + 2 * map_i)) == map_found) {
+              m_write_bytes(frame + load64(code + 8 * (pc + 1)) + load64(code + 8 * (pc + 6)), 4, load64(code + 8 * (pc + 9 + 2 * map_i)));
+              map_stop = 1;
+            }
+          }
+          map_i = map_i + 1;
+        }
+      }
+      next = pc + 8 + value * 2;
+    }
+
+    if (op == 4) {
+      # FIELD: graph.c:645 -- the source's bytes at an offset into a zeroed slot.
+      m_have(pc, 8);
+      if (ok == 0) { refuse 6; }
+      if (load64(code + 8 * (pc + 7)) > load64(code + 8 * (pc + 2))) { refuse 6; }
+      m_in_frame(load64(code + 8 * (pc + 1)), load64(code + 8 * (pc + 2)));
+      if (ok == 0) { refuse 6; }
+      m_zero_bytes(frame + load64(code + 8 * (pc + 1)), load64(code + 8 * (pc + 2)));
+      m_store(load64(code + 8 * (pc + 1)), load64(code + 8 * (pc + 7)), pc + 3, load64(code + 8 * (pc + 6)));
+      status = st_status;
+      next = pc + 8;
+    }
+
+    if (op == 5) {
+      # CONSTRUCT: graph.c:653 -- a zeroed slot, its tag word, then the payload.
+      m_have(pc, 10);
+      if (ok == 0) { refuse 6; }
+      m_in_frame(load64(code + 8 * (pc + 1)), load64(code + 8 * (pc + 2)));
+      if (ok == 0) { refuse 6; }
+      m_in_frame(load64(code + 8 * (pc + 1)) + load64(code + 8 * (pc + 3)), 4);
+      if (ok == 0) { refuse 6; }
+      if (load64(code + 8 * (pc + 9)) > load64(code + 8 * (pc + 2))) { refuse 6; }
+      if (load64(code + 8 * (pc + 8)) > load64(code + 8 * (pc + 2)) - load64(code + 8 * (pc + 9))) { refuse 6; }
+      m_zero_bytes(frame + load64(code + 8 * (pc + 1)), load64(code + 8 * (pc + 2)));
+      m_write_bytes(frame + load64(code + 8 * (pc + 1)) + load64(code + 8 * (pc + 3)), 4, load64(code + 8 * (pc + 4)));
+      value = load64(code + 8 * (pc + 9));
+      if (value > load64(code + 8 * (pc + 7))) {
+        value = load64(code + 8 * (pc + 7));
+      }
+      m_store(load64(code + 8 * (pc + 1)) + load64(code + 8 * (pc + 8)), value, pc + 5, 0);
+      status = st_status;
+      next = pc + 10;
+    }
+
+    if (op == 6) {
+      # LESS: graph.c:662 -- the unsigned compare of the two operands.
+      m_have(pc, 8);
+      if (ok == 0) { refuse 6; }
+      m_in_frame(load64(code + 8 * (pc + 1)), 1);
+      if (ok == 0) { refuse 6; }
+      m_load(pc + 2);
+      status = ld_status;
+      if (ld_status == 0) {
+        left = ld_value;
+        m_load(pc + 5);
+        status = ld_status;
+        if (ld_status == 0) {
+          value = 0;
+          if (left < ld_value) {
+            value = 1;
+          }
+          store8(frame + load64(code + 8 * (pc + 1)), value);
+        }
+      }
+      next = pc + 8;
+    }
+
+    if (op == 7) {
+      # INCREMENT: graph.c:673
+      m_have(pc, 6);
+      if (ok == 0) { refuse 6; }
+      m_in_frame(load64(code + 8 * (pc + 1)), load64(code + 8 * (pc + 2)));
+      if (ok == 0) { refuse 6; }
+      m_load(pc + 3);
+      status = ld_status;
+      if (ld_status == 0) {
+        m_write_bytes(frame + load64(code + 8 * (pc + 1)), load64(code + 8 * (pc + 2)), ld_value + 1);
+      }
+      next = pc + 6;
+    }
+
+    if (op == 8) {
+      # GOTO: graph.c:683
+      m_take(pc + 1);
+      status = tk_status;
+      next = tk_next;
+    }
+
+    if (op == 9) {
+      # BRANCH: graph.c:685 -- the first edge on ZERO, the second on NOTZERO.
+      m_have(pc, 7);
+      if (ok == 0) { refuse 6; }
+      m_load(pc + 1);
+      status = ld_status;
+      value = ld_value;
+      if (ld_status == 0) {
+        m_have(pc + 5, m_edge_words(pc + 5) + 2);
+        if (ok == 0) { refuse 6; }
+      }
+      if (status == 0) {
+        branch_zero = 0;
+        if (load64(code + 8 * (pc + 4)) == 0) {
+          branch_zero = 1;
+        }
+        branch_taken = 0;
+        if (value == 0) {
+          branch_taken = 1;
+        }
+        if (branch_zero == branch_taken) {
+          m_take(pc + 5);
+        }
+        if (branch_zero != branch_taken) {
+          m_take(pc + 5 + m_edge_words(pc + 5));
+        }
+        status = tk_status;
+        next = tk_next;
+      }
+    }
+
+    if (op == 10) {
+      # SWITCH: graph.c:699 -- the tags, then n + 1 edges (the last is the default).
+      m_have(pc, 5);
+      if (ok == 0) { refuse 6; }
+      value = load64(code + 8 * (pc + 4));
+      if (value > count) { refuse 6; }
+      m_have(pc, 5 + value);
+      if (ok == 0) { refuse 6; }
+      m_load(pc + 1);
+      status = ld_status;
+      sw_value = ld_value;
+      sw_chosen = value;
+      sw_i = 0;
+      while (sw_i < value) {
+        if (sw_chosen == value) {
+          if (load64(code + 8 * (pc + 5 + sw_i)) == sw_value) {
+            sw_chosen = sw_i;
+          }
+        }
+        sw_i = sw_i + 1;
+      }
+      sw_at = pc + 5 + value;
+      sw_i = 0;
+      while (sw_i < sw_chosen) {
+        if (status == 0) {
+          m_have(sw_at, 2);
+          if (ok == 0) { refuse 6; }
+          sw_at = sw_at + m_edge_words(sw_at);
+        }
+        sw_i = sw_i + 1;
+      }
+      if (status == 0) {
+        m_take(sw_at);
+        status = tk_status;
+        next = tk_next;
+      }
+    }
+
+    if (op == 11) {
+      # RETURN: graph.c:716 -- the run's output at depth 0, else the caller's words.
+      m_have(pc, 5);
+      if (ok == 0) { refuse 6; }
+      ret_width = load64(code + 8 * (pc + 4));
+      if (ret_width > 8) {
+        m_locate(pc + 1, ret_width);
+        if (loc_status != 0) { refuse loc_status; }
+        ret_at_depth = depth;
+        if (ret_at_depth > 0) {
+          m_answer(0, 1, loc_where, ret_width);
+          if (an_status != 0) { refuse an_status; }
+          next = an_next;
+        }
+        if (ret_at_depth == 0) {
+          m_copy_bytes(out, loc_where, ret_width);
+          refuse 0;
+        }
+      }
+      if (ret_width <= 8) {
+        m_load(pc + 1);
+        if (ld_status != 0) { refuse ld_status; }
+        ret_at_depth = depth;
+        if (ret_at_depth > 0) {
+          store64(sv, ld_value);
+          m_answer(0, 1, sv, 8);
+          if (an_status != 0) { refuse an_status; }
+          next = an_next;
+        }
+        if (ret_at_depth == 0) {
+          store64(out, ld_value);
+          refuse 0;
+        }
+      }
+    }
+
+    if (op == 12) {
+      # REFUSE: graph.c:749 -- the status the run returns, or the call's status slot.
+      m_have(pc, 4);
+      if (ok == 0) { refuse 6; }
+      m_load(pc + 1);
+      if (ld_status != 0) { refuse ld_status; }
+      ret_at_depth = depth;
+      if (ret_at_depth > 0) {
+        m_answer(ld_value & 4294967295, 0, 0, 0);
+        if (an_status != 0) { refuse an_status; }
+        next = an_next;
+      }
+      if (ret_at_depth == 0) {
+        refuse (ld_value & 4294967295);
+      }
+    }
+
+    if (op > 12) { refuse 6; }
+    if (op < 1) { refuse 6; }
+    if (status != 0) { refuse status; }
+    pc = next;
+  }
+  refuse 0;
+}

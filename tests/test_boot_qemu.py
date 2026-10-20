@@ -23,7 +23,16 @@ from .snippets import STARTER
 
 MAIN = "pymergetic.rxf.application.main"
 ANSWER = 33  # RXF_WRAP_MAGIC_OK on port 0xf4, as isa-debug-exit reports it
-TIMEOUT = 120
+# OVMF can need more than 120s to reach the wrapper when the machine runs the
+# differential seats in parallel (observed under load ~29 on 20 cores). Keep the
+# ceiling generous enough to be load-proof but low enough to still catch a hang.
+TIMEOUT = 300
+# The block the seat allocates is the fixed room of the memory map (boot/README.md
+# Appendix A): package.BASE 0x04000000 upward, tens of megabytes of starter now
+# that the image carries the seed. The firmware keeps its own rooms above that, so
+# the machine must be sized past the block -- 128M is not enough for the UEFI seat
+# to get its pages at the map (the BIOS seat runs before any firmware heap exists).
+RAM = "512M"
 
 QEMU = shutil.which("qemu-system-x86_64")
 OVMF_CODE = next(
@@ -92,7 +101,7 @@ def boot(command: list[str], serial: Path) -> tuple[int, bytes]:
 def test_the_bios_image_boots_and_reports_the_interpreter_result(tmp_path, artifacts, expected):
     assert QEMU is not None
     answer, serial = boot(
-        [QEMU, "-drive", f"format=raw,file={artifacts['bios']}"],
+        [QEMU, "-m", RAM, "-drive", f"format=raw,file={artifacts['bios']}"],
         tmp_path / "serial.log",
     )
     assert answer == ANSWER
@@ -113,6 +122,7 @@ def test_the_uefi_application_boots_and_reports_the_interpreter_result(
         [
             QEMU,
             "-machine", "q35",
+            "-m", RAM,
             "-drive", f"if=pflash,format=raw,readonly=on,file={OVMF_CODE}",
             "-drive", f"if=pflash,format=raw,file={vars_at}",
             "-drive", f"format=raw,file=fat:rw:{tmp_path / 'esp'}",

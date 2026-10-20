@@ -1,0 +1,79 @@
+# The checked arithmetic of the stdlib: refuse RXF_REFUSE_OVERFLOW (1) where the wrapping
+# words would wrap. The limit of each type is an argument of the shared guard (MAX/MIN),
+# so the check exists once and every width/signedness is a short head. The float/double
+# forms (the `fadd` family with a non-finite refusal around it) live in
+# native/float/float.rxfs.
+
+macro checked_add_s(a, b, MAX, MIN) {
+ if (b > 0) { if (a > (MAX - b)) { refuse 1; } }
+ if (b < 0) { if (a < (MIN - b)) { refuse 1; } }
+ return a + b;
+}
+macro checked_add_u(a, b, MAX) {
+ if (a > (MAX - b)) { refuse 1; }
+ return a + b;
+}
+macro checked_subtract_s(a, b, MIN, MAX) {
+ if (b > 0) { if (a < (MIN + b)) { refuse 1; } }
+ if (b < 0) { if (a > (MAX + b)) { refuse 1; } }
+ return a - b;
+}
+macro checked_subtract_u(a, b) {
+ if (a < b) { refuse 1; }
+ return a - b;
+}
+macro checked_multiply_s(a, b, MIN, MAX) {
+ if (b == 0) { return a * b; }
+ if (b == -1) { if (a == MIN) { refuse 1; } return a * b; }
+ if (b > 0) { if (a < (MIN / b)) { refuse 1; } if (a > (MAX / b)) { refuse 1; } }
+ else { if (a > (MIN / b)) { refuse 1; } if (a < (MAX / b)) { refuse 1; } }
+ return a * b;
+}
+macro checked_multiply_u(a, b, MAX) {
+ if (b == 0) { return a * b; }
+ if (a > (MAX / b)) { refuse 1; }
+ return a * b;
+}
+macro checked_negate(a, MIN) {
+ if (a == MIN) { refuse 1; }
+ return -a;
+}
+macro checked_absolute(a, MIN) {
+ if (a == MIN) { refuse 1; }
+ if (a < 0) { return -a; }
+ return a;
+}
+
+
+fn checked_add_int8_t(a, b) { checked_add_s(a, b, 127, -128); }
+fn checked_add_int16_t(a, b) { checked_add_s(a, b, 32767, -32768); }
+fn checked_add_int32_t(a, b) { checked_add_s(a, b, 2147483647, -2147483648); }
+fn checked_add_int64_t(a, b) { checked_add_s(a, b, 9223372036854775807, -9223372036854775808); }
+fn checked_add_uint8_t(a, b) { checked_add_u(a, b, 255); }
+fn checked_add_uint16_t(a, b) { checked_add_u(a, b, 65535); }
+fn checked_add_uint32_t(a, b) { checked_add_u(a, b, 4294967295); }
+fn checked_add_uint64_t(a, b) { checked_add_u(a, b, 18446744073709551615); }
+fn checked_subtract_int8_t(a, b) { checked_subtract_s(a, b, -128, 127); }
+fn checked_subtract_int16_t(a, b) { checked_subtract_s(a, b, -32768, 32767); }
+fn checked_subtract_int32_t(a, b) { checked_subtract_s(a, b, -2147483648, 2147483647); }
+fn checked_subtract_int64_t(a, b) { checked_subtract_s(a, b, -9223372036854775808, 9223372036854775807); }
+fn checked_subtract_uint8_t(a, b) { checked_subtract_u(a, b); }
+fn checked_subtract_uint16_t(a, b) { checked_subtract_u(a, b); }
+fn checked_subtract_uint32_t(a, b) { checked_subtract_u(a, b); }
+fn checked_subtract_uint64_t(a, b) { checked_subtract_u(a, b); }
+fn checked_multiply_int8_t(a, b) { checked_multiply_s(a, b, -128, 127); }
+fn checked_multiply_int16_t(a, b) { checked_multiply_s(a, b, -32768, 32767); }
+fn checked_multiply_int32_t(a, b) { checked_multiply_s(a, b, -2147483648, 2147483647); }
+fn checked_multiply_int64_t(a, b) { checked_multiply_s(a, b, -9223372036854775808, 9223372036854775807); }
+fn checked_multiply_uint8_t(a, b) { checked_multiply_u(a, b, 255); }
+fn checked_multiply_uint16_t(a, b) { checked_multiply_u(a, b, 65535); }
+fn checked_multiply_uint32_t(a, b) { checked_multiply_u(a, b, 4294967295); }
+fn checked_multiply_uint64_t(a, b) { checked_multiply_u(a, b, 18446744073709551615); }
+fn checked_negate_int8_t(a) { checked_negate(a, -128); }
+fn checked_negate_int16_t(a) { checked_negate(a, -32768); }
+fn checked_negate_int32_t(a) { checked_negate(a, -2147483648); }
+fn checked_negate_int64_t(a) { checked_negate(a, -9223372036854775808); }
+fn checked_absolute_int8_t(a) { checked_absolute(a, -128); }
+fn checked_absolute_int16_t(a) { checked_absolute(a, -32768); }
+fn checked_absolute_int32_t(a) { checked_absolute(a, -2147483648); }
+fn checked_absolute_int64_t(a) { checked_absolute(a, -9223372036854775808); }

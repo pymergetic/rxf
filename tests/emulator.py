@@ -16,10 +16,11 @@ x86 = pytest.importorskip("unicorn.x86_const")
 
 PAGE = 0x1000
 CODE = 0x800000
-STACK = 0x900000
+STACK = 0x3800000  # the code area keeps every leaf of an image: the seed's one-pass bodies
+# (native/compile.rxfs's compiler) are much larger than clang's, so the gap is generous
 STACK_SIZE = 16 * PAGE
-SCRATCH = 0xA00000  # aarch64: copies of structures passed by value
-RETURN = 0xB00000
+SCRATCH = 0x3900000  # aarch64: copies of structures passed by value
+RETURN = 0x3A00000
 CPACR_FP_ENABLED = 3 << 20
 X86_INTEGERS = (
     x86.UC_X86_REG_RDI,

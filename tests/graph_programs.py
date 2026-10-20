@@ -315,6 +315,23 @@ def zero_branch() -> bytes:
     return assemble(128, [(N_, 8)], items)
 
 
+def empty_block() -> bytes:
+    """A switch whose first edge lands on the next instruction: the block under its label is
+    empty, so the jump distance is 0. This is the witness of the writer's regression: `put32`
+    spliced its `o_size`-dependent argument into each of its four puts, and a distance of 0
+    came out 0xffffff00 (the borrow of every put reached the next byte), so the jump landed
+    one byte into the next instruction. Only a distance of 0 mod 256 shows it -- every other
+    distance writes the same bytes the C writer does."""
+    items: list[Item] = [
+        move(A, 8, lit(0)),
+        [OP["SWITCH"], *slot(A, 4), 1, 0, *edge("empty"), *edge("later")],
+        "empty",
+        "later",
+        [OP["RETURN"], *slot(A), 8],
+    ]
+    return assemble(128, [], items)
+
+
 # ---- the arithmetic leaves of the flat profile: multiply, divide, remainder ---------------------
 
 # W/C are the products and Q64/R64/QI/RI the quotients and remainders of a run, Q32/R32/RU32 the
@@ -860,6 +877,7 @@ def synthetic() -> list[Case]:
         ("swapping", swapping, b""),
         ("zero branch 0", zero_branch, number(0)),
         ("zero branch 5", zero_branch, number(5)),
+        ("empty block edge", empty_block, b""),
         ("wide return", wide_return, number(9)),
         ("object value", object_value, b""),
         ("products 7 6", products, number(7) + number(6)),

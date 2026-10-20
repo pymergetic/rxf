@@ -16,6 +16,7 @@ import pytest
 from .emulator import Emulator, Integer, Real
 from .snippets import (
     ARITHMETIC,
+    CHECKED_SATURATING,
     C_TYPES,
     INTEGERS,
     OUTPUT_FILL,
@@ -23,6 +24,8 @@ from .snippets import (
     Machine,
     arithmetic_seen,
     boundary_arguments,
+    checked_saturating_arguments,
+    checked_saturating_seen,
     snippets,
     values,
 )
@@ -173,4 +176,39 @@ def test_the_arithmetic_leaves_agree_with_the_host_on_x86_64():
             want = arithmetic_seen(leaf, a, b)
             if have != want:
                 different.append((leaf, (a, b), want, have))
+    assert different[:5] == []
+
+
+# ---- the checked and saturating leaves of the integer traits, at their boundaries -----------
+
+
+def checked_saturating_snippets() -> dict[str, dict]:
+    """The snippets behind the checked and saturating leaves of the integer traits."""
+    found = {s["name"]: s for s in snippets()}
+    return {leaf: found[name] for leaf, name in CHECKED_SATURATING.items()}
+
+
+def test_the_checked_and_saturating_leaves_refuse_and_compute_as_the_contract_says():
+    """The bodies of the checked and saturating leaves (native/basics.c) on both machines,
+    at every boundary the contract names: the extremes where an add, subtract or multiply
+    crosses the type's bound in either direction, and MIN for the checked negate and
+    absolute. A checked leaf refuses OVERFLOW and writes nothing; a saturating leaf clamps
+    to the type's MINIMUM or MAXIMUM and always succeeds."""
+    different = []
+    for leaf, snippet in checked_saturating_snippets().items():
+        size = SIZES[snippet["out"]]
+        arity = len(snippet["kinds"])
+        for pair in checked_saturating_arguments(leaf):
+            arguments = pair[:arity]
+            want = checked_saturating_seen(leaf, *arguments)
+            for machine, key in (("x86_64", "x86"), ("aarch64", "aarch64")):
+                have = call(
+                    machine,
+                    bytes.fromhex(snippet[key]),
+                    snippet["kinds"],
+                    arguments,
+                    size,
+                )
+                if have != want:
+                    different.append((leaf, machine, arguments, want, have))
     assert different[:5] == []

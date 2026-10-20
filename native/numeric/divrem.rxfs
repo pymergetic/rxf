@@ -1,0 +1,25 @@
+# The divide/remainder words of the stdlib for the integer types. The float/double divide
+# (the `fdiv` with the finite and zero checks) lives in native/float/float.rxfs.
+
+# a zero divisor refuses DIVISION_BY_ZERO (2); the signed INT_MIN / -1 pair refuses
+# OVERFLOW (1) -- the quotient cannot live in the type and the 64-bit divide would trap.
+macro div_zero(b) { if (b == 0) { refuse 2; } }
+macro div_minimum(a, b, MIN) { if (a == MIN) { if (b == -1) { refuse 1; } } }
+
+
+fn divide_int8_t(a, b) { div_zero(b); div_minimum(a, b, -128); return a / b; }
+fn divide_int16_t(a, b) { div_zero(b); div_minimum(a, b, -32768); return a / b; }
+fn divide_int32_t(a, b) { div_zero(b); div_minimum(a, b, -2147483648); return a / b; }
+fn divide_int64_t(a, b) { div_zero(b); div_minimum(a, b, -9223372036854775808); return a / b; }
+fn divide_uint8_t(a, b) { div_zero(b); return a / b; }
+fn divide_uint16_t(a, b) { div_zero(b); return a / b; }
+fn divide_uint32_t(a, b) { div_zero(b); return a / b; }
+fn divide_uint64_t(a, b) { div_zero(b); return a / b; }
+fn remainder_int8_t(a, b) { div_zero(b); div_minimum(a, b, -128); return a % b; }
+fn remainder_int16_t(a, b) { div_zero(b); div_minimum(a, b, -32768); return a % b; }
+fn remainder_int32_t(a, b) { div_zero(b); div_minimum(a, b, -2147483648); return a % b; }
+fn remainder_int64_t(a, b) { div_zero(b); div_minimum(a, b, -9223372036854775808); return a % b; }
+fn remainder_uint8_t(a, b) { div_zero(b); return a % b; }
+fn remainder_uint16_t(a, b) { div_zero(b); return a % b; }
+fn remainder_uint32_t(a, b) { div_zero(b); return a % b; }
+fn remainder_uint64_t(a, b) { div_zero(b); return a % b; }

@@ -18,6 +18,7 @@ import pytest
 
 from .snippets import (
     ARITHMETIC,
+    CHECKED_SATURATING,
     C_TYPES,
     INTEGERS,
     OUTPUT_FILL,
@@ -25,6 +26,8 @@ from .snippets import (
     Machine,
     arithmetic_seen,
     boundary_arguments,
+    checked_saturating_arguments,
+    checked_saturating_seen,
     snippets,
     values,
 )
@@ -145,6 +148,69 @@ def test_the_arithmetic_leaves_in_wasm_refuse_the_boundaries_the_same_way():
             )
             wanted.append({"status": want[0], "out": want[1]})
             owners.append((leaf, (a, b)))
+    module = module_of(
+        [(s["name"], s["params"], bytes.fromhex(s["wasm"])) for s in chosen]
+    )
+    process = subprocess.run(
+        ["node", str(HARNESS)],
+        input=json.dumps({"module": module.hex(), "calls": calls}),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    got = json.loads(process.stdout)
+    different += [
+        (leaf, "wasm32", pair, want, have)
+        for (leaf, pair), want, have in zip(owners, wanted, got, strict=True)
+        if want != have
+    ]
+    assert different[:5] == []
+
+
+def test_the_checked_and_saturating_leaves_in_wasm_refuse_the_boundaries_the_same_way():
+    """The checked and saturating leaves of the integer traits on wasm32 against the real C
+    of this process and against their contract, at every boundary: the extremes where an
+    add, subtract or multiply crosses the type's bound in either direction, and MIN for the
+    checked negate and absolute."""
+    machine = Machine()
+    found = {s["name"]: s for s in snippets()}
+    chosen = [found[name] for name in CHECKED_SATURATING.values()]
+    calls, wanted, owners, different = [], [], [], []
+    for leaf, name in CHECKED_SATURATING.items():
+        snippet = found[name]
+        native = machine.function(
+            bytes.fromhex(snippet["x86"]),
+            ctypes.c_uint32,
+            [C_TYPES[k] for k in snippet["kinds"]] + [ctypes.c_void_p],
+        )
+        size = SIZES[snippet["out"]]
+        arity = len(snippet["kinds"])
+        for pair in checked_saturating_arguments(leaf):
+            arguments = pair[:arity]
+            want = checked_saturating_seen(leaf, *arguments)
+            buffer = (ctypes.c_uint8 * 64)(*([OUTPUT_FILL] * 64))
+            status = native(
+                *[
+                    C_TYPES[k](v).value
+                    for k, v in zip(snippet["kinds"], arguments, strict=True)
+                ],
+                ctypes.cast(buffer, ctypes.c_void_p),
+            )
+            have = (status, bytes(buffer[:size]).hex())
+            if have != want:
+                different.append((leaf, "x86_64", arguments, want, have))
+            calls.append(
+                {
+                    "fn": snippet["name"],
+                    "args": [
+                        bits(k, v)
+                        for k, v in zip(snippet["kinds"], arguments, strict=True)
+                    ],
+                    "out": size,
+                }
+            )
+            wanted.append({"status": want[0], "out": want[1]})
+            owners.append((leaf, arguments))
     module = module_of(
         [(s["name"], s["params"], bytes.fromhex(s["wasm"])) for s in chosen]
     )

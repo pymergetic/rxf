@@ -1,0 +1,36 @@
+# The bitwise words of the stdlib: and/or/xor on the operands' words, not on the type's
+# width -- the result store truncates. The one-operand `bit_not` complements the same
+# words. The operand specs of the call carry the widths (docs/29).
+
+fn bit_and_int8_t(a, b) { return a & b; }
+fn bit_and_int16_t(a, b) { return a & b; }
+fn bit_and_int32_t(a, b) { return a & b; }
+fn bit_and_int64_t(a, b) { return a & b; }
+fn bit_and_uint8_t(a, b) { return a & b; }
+fn bit_and_uint16_t(a, b) { return a & b; }
+fn bit_and_uint32_t(a, b) { return a & b; }
+fn bit_and_uint64_t(a, b) { return a & b; }
+fn bit_or_int8_t(a, b) { return a | b; }
+fn bit_or_int16_t(a, b) { return a | b; }
+fn bit_or_int32_t(a, b) { return a | b; }
+fn bit_or_int64_t(a, b) { return a | b; }
+fn bit_or_uint8_t(a, b) { return a | b; }
+fn bit_or_uint16_t(a, b) { return a | b; }
+fn bit_or_uint32_t(a, b) { return a | b; }
+fn bit_or_uint64_t(a, b) { return a | b; }
+fn bit_xor_int8_t(a, b) { return a ^ b; }
+fn bit_xor_int16_t(a, b) { return a ^ b; }
+fn bit_xor_int32_t(a, b) { return a ^ b; }
+fn bit_xor_int64_t(a, b) { return a ^ b; }
+fn bit_xor_uint8_t(a, b) { return a ^ b; }
+fn bit_xor_uint16_t(a, b) { return a ^ b; }
+fn bit_xor_uint32_t(a, b) { return a ^ b; }
+fn bit_xor_uint64_t(a, b) { return a ^ b; }
+fn bit_not_int8_t(a) { return ~a; }
+fn bit_not_int16_t(a) { return ~a; }
+fn bit_not_int32_t(a) { return ~a; }
+fn bit_not_int64_t(a) { return ~a; }
+fn bit_not_uint8_t(a) { return ~a; }
+fn bit_not_uint16_t(a) { return ~a; }
+fn bit_not_uint32_t(a) { return ~a; }
+fn bit_not_uint64_t(a) { return ~a; }

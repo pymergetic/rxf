@@ -1,0 +1,527 @@
+# The runtime of native/stdlib_runtime.c as `.rxfs` (docs/29): contexts, handles,
+# transactions, journal and hash collections -- the object world's muscle. A handle is
+# three words by value in the C call (the `H` shape: id/generation/offset), so the bodies
+# name those words flat (h_id, h_gen, h_off). The structs are the ABI of
+# native/stdlib_runtime.h (the widths asserted there):
+#   context (144): version 0 size 8 ... object_count 32 objects 40 ...
+#     journal_count 96 journal_capacity 104 journal 112 ... heap_frontier 88
+#   object entry (80): id 0 generation 8 type_id 16 payload 24 size 32 capacity 40
+#     state 48 read_borrows 56 pin_count 64 owner_transaction 72
+#   journal member (72): identity 0 object_id 8 old_generation 16 old_type_id 24
+#     old_payload 32 old_size 40 old_capacity 48 old_state 56 old_owner_transaction 64
+#   transaction (48): root_object_id 0 old_frontier 8 identity 16 member_count 24 active 32
+#   hash header (56): bucket_storage 0/8/16 (a handle) capacity 24 count 32
+#     tombstone_count 40 generation 48; map bucket (48): state 0 hash 8 key 16 value 24/32/40
+#     set bucket (24): state 0 hash 8 key 16; option_u64 (16): tag 0 value 8
+#     option_ref (32): tag 0 value 8/16/24 (a handle). state: LIVE 1, PENDING 2;
+#     read_borrows takes the MUTABLE bit 9223372036854775808 (1 << 63).
+#
+# The refuses are the C's: OUT_OF_RANGE 6, OVERFLOW 1, OUT_OF_MEMORY 9,
+# BORROW_CONFLICT 10, PINNED 11, STALE_GENERATION 12, UNBOUND 13, TYPE_MISMATCH 14,
+# JOURNAL_FULL 15. The helpers below are the C's own entry/access/add_member, once each.
+
+# valid(): a null context, a wrong ABI version (2) or a size under 144 all refuse `status`.
+macro rt_ctx(status) {
+ if (c == 0) { refuse status; }
+ if (load64(c) != 2) { refuse status; }
+ if (load64(c + 8) < 144) { refuse status; }
+}
+# entry(): the halving search of stdlib_runtime.h. `res` holds the entry word (the address
+# of the row) or 0 when no row carries `ident`; rows are sorted by id, so this is a binary
+# search -- the same comparisons in the same order.
+macro rt_entry(res, ident) {
+ lo = 0;
+ hi = load64(c + 32);
+ res = 0;
+ while (lo < hi) {
+  mi = lo + ((hi - lo) / 2);
+  if (load64(load64(c + 40) + mi * 80) < ident) { lo = mi + 1; }
+  else { hi = mi; }
+ }
+ if (lo < load64(c + 32)) {
+  res = load64(c + 40) + lo * 80;
+  if (load64(res) != ident) { res = 0; }
+ }
+}
+# the type check inside access(): nothing, a literal type id, or the caller's `expected`
+# word (a zero there means no shape, which passes).
+macro rt_type_none() { }
+macro rt_type_lit(res, TYPE) {
+ if (load64(res + 16) != TYPE) { refuse 14; }
+}
+macro rt_type_dyn(res, expected) {
+ if (expected != 0) {
+  if (load64(res + 16) != expected) { refuse 14; }
+ }
+}
+# the pending arm of access(): without a transaction a PENDING row is refused; with one,
+# its own pending rows pass (the member exists in the journal) and LIVE rows pass.
+macro rt_pending_none(res) {
+ if (load64(res + 48) != 1) { refuse 13; }
+}
+macro rt_pending_t(res, t) {
+ if (load64(res + 48) == 2) {
+  if (t == 0) { refuse 13; }
+  if (load64(t + 32) == 0) { refuse 13; }
+  if (load64(res + 72) != load64(t + 16)) { refuse 13; }
+  mi = 0;
+  i = 0;
+  while (i < load64(c + 104)) {
+   if (load64(load64(c + 112) + i * 72) == load64(t + 16)) {
+    if (load64(load64(c + 112) + i * 72 + 8) == load64(res)) { mi = i + 1; }
+   }
+   i = i + 1;
+  }
+  if (mi == 0) { refuse 13; }
+ }
+ if (load64(res + 48) != 2) {
+  if (load64(res + 48) != 1) { refuse 13; }
+ }
+}
+# access(): refuse until `res` is the entry word of a LIVE (or `t`-owned PENDING) row of
+# the right generation and type. The valid() guard comes first, as in access_typed.
+macro rt_access(res, ident, gen, TYPECHK, PENDING) {
+ rt_ctx(13);
+ rt_entry(res, ident);
+ if (res == 0) { refuse 13; }
+ if (load64(res + 8) != gen) { refuse 12; }
+ TYPECHK
+ PENDING
+}
+macro rt_access_plain(res, ident, gen) {
+ rt_access(res, ident, gen, rt_type_none(), rt_pending_none(res));
+}
+macro rt_access_t(res, ident, gen) {
+ rt_access(res, ident, gen, rt_type_none(), rt_pending_t(res, t));
+}
+macro rt_access_dyn(res, ident, gen, expected) {
+ rt_access(res, ident, gen, rt_type_dyn(res, expected), rt_pending_t(res, t));
+}
+macro rt_access_lit(res, ident, gen, TYPE) {
+ rt_access(res, ident, gen, rt_type_lit(res, TYPE), rt_pending_t(res, t));
+}
+# add_member(): park the entry's whole old state in the first free journal row and count
+# it on both sides. The walk stops at the first free slot (the C's `break`), so the slot
+# search is a while with the index advanced past the end when a free row is taken.
+macro rt_add_member() {
+ if (load64(c + 112) == 0) { refuse 15; }
+ if (load64(c + 96) >= load64(c + 104)) { refuse 15; }
+ slot = load64(c + 104);
+ i = 0;
+ while (i < load64(c + 104)) {
+  if (load64(load64(c + 112) + i * 72) == 0) { slot = i; i = load64(c + 104); }
+  else { i = i + 1; }
+ }
+ if (slot == load64(c + 104)) { refuse 15; }
+ m = load64(c + 112) + slot * 72;
+ store64(m + 0, load64(t + 16));
+ store64(m + 8, load64(e));
+ store64(m + 16, load64(e + 8));
+ store64(m + 24, load64(e + 16));
+ store64(m + 32, load64(e + 24));
+ store64(m + 40, load64(e + 32));
+ store64(m + 48, load64(e + 40));
+ store64(m + 56, load64(e + 48));
+ store64(m + 64, load64(e + 72));
+ store64(t + 24, load64(t + 24) + 1);
+ store64(c + 96, load64(c + 96) + 1);
+}
+# hash_header(): the collection entry (typed), the header inside it, its invariants, then
+# the bucket storage entry (typed) and its span. `hh` is the header word; `b` the storage
+# entry; `base` the bucket array.
+macro rt_hash_header(col_type, bkt_type, bkt_size) {
+ rt_access_lit(e, collection_id, collection_gen, col_type);
+ if (collection_off > load64(e + 32)) { refuse 6; }
+ if (56 > load64(e + 32) - collection_off) { refuse 6; }
+ hh = load64(e + 24) + collection_off;
+ cap = load64(hh + 24);
+ cnt = load64(hh + 32);
+ tom = load64(hh + 40);
+ if (cap < 8) { refuse 6; }
+ if ((cap & (cap - 1)) != 0) { refuse 6; }
+ if (cnt > cap) { refuse 6; }
+ if (tom > cap - cnt) { refuse 6; }
+ if (cap > 18446744073709551615 / bkt_size) { refuse 1; }
+ rt_access_lit(b, load64(hh + 0), load64(hh + 8), bkt_type);
+ span = cap * bkt_size;
+ if (load64(hh + 16) > load64(b + 32)) { refuse 6; }
+ if (span > load64(b + 32) - load64(hh + 16)) { refuse 6; }
+ base = load64(b + 24) + load64(hh + 16);
+}
+# lookup(): the probe walk shared by the map and set lookups -- an empty bucket is a miss
+# (the miss writes a zero option through `out`), a corrupt state refuses, a live bucket of
+# the same (hash, key) writes the found option. `bkt` is the bucket's size (48 the map's,
+# 24 the set's).
+macro rt_lookup(bkt) {
+ i = 0;
+ while (i < cap) {
+  m = base + (((hash + i) & (cap - 1)) * bkt);
+  st = load32(m);
+  if (st == 0) {
+   store64(out + 0, 0);
+   store64(out + 8, 0);
+   if (bkt == 48) { store64(out + 16, 0); store64(out + 24, 0); }
+   return 0;
+  }
+  if (st > 2) { refuse 6; }
+  if (st == 1) {
+   if (load64(m + 8) == hash) {
+    if (load64(m + 16) == key) {
+     store64(out + 0, 1);
+     store64(out + 8, 0);
+     if (bkt == 48) {
+      store64(out + 8, load64(m + 24));
+      store64(out + 16, load64(m + 32));
+      store64(out + 24, load64(m + 40));
+     }
+     if (bkt == 24) { store64(out + 8, load64(m + 16)); }
+     return 0;
+    }
+   }
+  }
+  i = i + 1;
+ }
+ store64(out + 0, 0);
+ store64(out + 8, 0);
+ if (bkt == 48) { store64(out + 16, 0); store64(out + 24, 0); }
+ return 0;
+}
+# the map/set lookups use type ids 60017/41018 (map, map bucket) and 60018/41019 (set,
+# set bucket) -- the same pair hash_header() is called with in the C.
+
+fn runtime_hash_map_lookup(c, collection_id, collection_gen, collection_off, t, hash, key, out) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, n, fnd, hay, needle, i, j, lo, hi, mi;
+rt_hash_header(60017, 41018, 48);
+rt_lookup(48);
+}
+fn runtime_hash_set_lookup(c, collection_id, collection_gen, collection_off, t, hash, key, out) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, n, fnd, hay, needle, i, j, lo, hi, mi;
+rt_hash_header(60018, 41019, 24);
+rt_lookup(24);
+}
+fn runtime_begin_private(c, object_id, object_gen, object_off, identity, out) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, n, fnd, hay, needle, i, j, lo, hi, mi;
+rt_ctx(6);
+if (out == 0) { refuse 6; }
+if (object_id == 0) { refuse 6; }
+if (identity == 0) { refuse 6; }
+if (load64(out + 32) != 0) { refuse 6; }
+if (load64(c + 104) == 0) { refuse 6; }
+if (load64(c + 112) == 0) { refuse 6; }
+store64(out + 0, object_id);
+store64(out + 8, load64(c + 88));
+store64(out + 16, identity);
+store64(out + 24, 0);
+store64(out + 32, 1);
+store64(out + 40, 0);
+return 0;
+}
+fn runtime_resolve(c, h_id, h_gen, h_off, n, out) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, fnd, hay, needle, i, j, lo, hi, mi;
+rt_access_plain(e, h_id, h_gen);
+if (h_off > load64(e + 32)) { refuse 6; }
+if (n > load64(e + 32) - h_off) { refuse 6; }
+store64(out, load64(e + 24) + h_off);
+return 0;
+}
+fn runtime_resolve_typed(c, h_id, h_gen, h_off, t, expected, n, out) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, fnd, hay, needle, i, j, lo, hi, mi;
+rt_access_dyn(e, h_id, h_gen, expected);
+if (h_off > load64(e + 32)) { refuse 6; }
+if (n > load64(e + 32) - h_off) { refuse 6; }
+store64(out, load64(e + 24) + h_off);
+return 0;
+}
+fn runtime_allocate_prepare(c, id, type_id, initial_size, capacity, a, t, out) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, n, fnd, hay, needle, i, j, lo, hi, mi;
+rt_ctx(6);
+if (t == 0) { refuse 6; }
+if (load64(t + 32) == 0) { refuse 6; }
+if (type_id == 0) { refuse 6; }
+if (initial_size > capacity) { refuse 6; }
+if (a == 0) { refuse 6; }
+if ((a & (a - 1)) != 0) { refuse 6; }
+p = (load64(c + 88) + a - 1) & ~(a - 1);
+if (p < load64(c + 88)) { refuse 9; }
+if (p > load64(c + 80)) { refuse 9; }
+if (capacity > load64(c + 80) - p) { refuse 9; }
+rt_entry(e, id);
+if (e == 0) { refuse 13; }
+if (load64(e + 48) != 0) { refuse 13; }
+rt_add_member();
+store64(e + 8, load64(e + 8) + 1);
+store64(e + 16, type_id);
+store64(e + 24, load64(c + 64) + p);
+store64(e + 32, initial_size);
+store64(e + 40, capacity);
+store64(e + 48, 2);
+store64(e + 56, 0);
+store64(e + 64, 0);
+store64(e + 72, load64(t + 16));
+store64(c + 88, p + capacity);
+store64(out + 0, id);
+store64(out + 8, load64(e + 8));
+store64(out + 16, 0);
+return 0;
+}
+fn runtime_publish(c, t) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, n, fnd, hay, needle, i, j, lo, hi, mi;
+if (t == 0) { refuse 13; }
+if (load64(t + 32) == 0) { refuse 13; }
+rt_ctx(13);
+if (load64(t + 24) == 0) { refuse 13; }
+fnd = 0;
+i = 0;
+while (i < load64(c + 104)) {
+ m = load64(c + 112) + i * 72;
+ if (load64(m) == load64(t + 16)) {
+  rt_entry(e, load64(m + 8));
+  if (e == 0) { refuse 13; }
+  if (load64(e + 48) != 2) { refuse 13; }
+  if (load64(e + 72) != load64(t + 16)) { refuse 13; }
+  fnd = fnd + 1;
+ }
+ i = i + 1;
+}
+if (fnd != load64(t + 24)) { refuse 13; }
+i = 0;
+while (i < load64(c + 104)) {
+ m = load64(c + 112) + i * 72;
+ if (load64(m) == load64(t + 16)) {
+  rt_entry(e, load64(m + 8));
+  store64(e + 48, 1);
+  store64(e + 72, 0);
+  store64(m, 0);
+  store64(c + 96, load64(c + 96) - 1);
+ }
+ i = i + 1;
+}
+store64(t + 32, 0);
+return 0;
+}
+fn runtime_rollback(c, t) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, n, fnd, hay, needle, i, j, lo, hi, mi;
+if (t == 0) { refuse 13; }
+if (load64(t + 32) == 0) { refuse 13; }
+rt_ctx(13);
+if (load64(t + 24) == 0) { refuse 13; }
+fnd = 0;
+i = 0;
+while (i < load64(c + 104)) {
+ m = load64(c + 112) + i * 72;
+ if (load64(m) == load64(t + 16)) {
+  rt_entry(e, load64(m + 8));
+  if (e == 0) { refuse 13; }
+  if (load64(e + 48) != 2) { refuse 13; }
+  if (load64(e + 72) != load64(t + 16)) { refuse 13; }
+  fnd = fnd + 1;
+ }
+ i = i + 1;
+}
+if (fnd != load64(t + 24)) { refuse 13; }
+i = load64(c + 104);
+while (i > 0) {
+ m = load64(c + 112) + (i - 1) * 72;
+ if (load64(m) == load64(t + 16)) {
+  rt_entry(e, load64(m + 8));
+  if (e == 0) { refuse 13; }
+  if (load64(e + 48) != 2) { refuse 13; }
+  if (load64(e + 72) != load64(t + 16)) { refuse 13; }
+  store64(e + 8, load64(m + 16));
+  store64(e + 16, load64(m + 24));
+  store64(e + 24, load64(m + 32));
+  store64(e + 32, load64(m + 40));
+  store64(e + 40, load64(m + 48));
+  store64(e + 48, load64(m + 56));
+  store64(e + 72, load64(m + 64));
+  store64(m, 0);
+  store64(c + 96, load64(c + 96) - 1);
+ }
+ i = i - 1;
+}
+store64(c + 88, load64(t + 8));
+store64(t + 32, 0);
+return 0;
+}
+fn runtime_release(c, h_id, h_gen, h_off) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, n, fnd, hay, needle, i, j, lo, hi, mi;
+rt_access_plain(e, h_id, h_gen);
+if (load64(e + 56) != 0) { refuse 10; }
+if (load64(e + 64) != 0) { refuse 11; }
+store64(e + 48, 0);
+store64(e + 24, 0);
+store64(e + 32, 0);
+store64(e + 40, 0);
+return 0;
+}
+fn runtime_borrow(c, h_id, h_gen, h_off, mut) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, n, fnd, hay, needle, i, j, lo, hi, mi;
+rt_access_plain(e, h_id, h_gen);
+if (mut != 0) { if (load64(e + 56) != 0) { refuse 10; } }
+if (mut == 0) {
+ if ((load64(e + 56) & 9223372036854775808) != 0) { refuse 10; }
+}
+if (mut != 0) { store64(e + 56, 9223372036854775808); }
+if (mut == 0) { store64(e + 56, load64(e + 56) + 1); }
+return 0;
+}
+fn runtime_release_borrow(c, h_id, h_gen, h_off, mut) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, n, fnd, hay, needle, i, j, lo, hi, mi;
+rt_access_plain(e, h_id, h_gen);
+if (mut != 0) {
+ if (load64(e + 56) != 9223372036854775808) { refuse 10; }
+ store64(e + 56, 0);
+}
+if (mut == 0) {
+ if (load64(e + 56) == 0) { refuse 10; }
+ if ((load64(e + 56) & 9223372036854775808) != 0) { refuse 10; }
+ store64(e + 56, load64(e + 56) - 1);
+}
+return 0;
+}
+fn runtime_pin(c, h_id, h_gen, h_off) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, n, fnd, hay, needle, i, j, lo, hi, mi;
+rt_access_plain(e, h_id, h_gen);
+store64(e + 64, load64(e + 64) + 1);
+return 0;
+}
+fn runtime_unpin(c, h_id, h_gen, h_off) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, n, fnd, hay, needle, i, j, lo, hi, mi;
+rt_access_plain(e, h_id, h_gen);
+if (load64(e + 64) == 0) { refuse 11; }
+store64(e + 64, load64(e + 64) - 1);
+return 0;
+}
+fn runtime_read(c, h_id, h_gen, h_off, t, off, n, out) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, fnd, hay, needle, i, j, lo, hi, mi;
+rt_access_t(e, h_id, h_gen);
+if (h_off > load64(e + 32)) { refuse 6; }
+if (off > load64(e + 32) - h_off) { refuse 6; }
+if (n > load64(e + 32) - h_off - off) { refuse 6; }
+store64(out, load64(e + 24) + h_off + off);
+return 0;
+}
+fn runtime_write(c, h_id, h_gen, h_off, t, off, src, n) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, fnd, hay, needle, i, j, lo, hi, mi;
+rt_access_t(e, h_id, h_gen);
+if (h_off > load64(e + 40)) { refuse 6; }
+if (off > load64(e + 40) - h_off) { refuse 6; }
+if (n > load64(e + 40) - h_off - off) { refuse 6; }
+p = load64(e + 24) + h_off + off;
+i = 0;
+while (i < n) {
+ store8(p + i, load8(src + i));
+ i = i + 1;
+}
+if (off + n > load64(e + 32)) { store64(e + 32, off + n); }
+return 0;
+}
+fn runtime_reserve(c, h_id, h_gen, h_off, t, n) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, fnd, hay, needle, i, j, lo, hi, mi;
+rt_access_t(e, h_id, h_gen);
+if (n > load64(e + 40)) { refuse 9; }
+return 0;
+}
+fn runtime_append(c, h_id, h_gen, h_off, t, src, n) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, fnd, hay, needle, i, j, lo, hi, mi;
+rt_access_t(e, h_id, h_gen);
+if (n > load64(e + 40) - load64(e + 32)) { refuse 9; }
+i = 0;
+while (i < n) {
+ store8(load64(e + 24) + load64(e + 32) + i, load8(src + i));
+ i = i + 1;
+}
+store64(e + 32, load64(e + 32) + n);
+return 0;
+}
+fn runtime_format_u32(c, h_id, h_gen, h_off, t, v) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, n, fnd, hay, needle, i, j, lo, hi, mi;
+rt_access_t(e, h_id, h_gen);
+x = v & 4294967295;
+n = 0;
+y = x;
+while (y > 0) {
+ n = n + 1;
+ y = y / 10;
+}
+if (n == 0) { n = 1; }
+if (n > load64(e + 40) - load64(e + 32)) { refuse 6; }
+i = n;
+while (i > 0) {
+ store8(load64(e + 24) + load64(e + 32) + (i - 1), 48 + (x % 10));
+ x = x / 10;
+ i = i - 1;
+}
+store64(e + 32, load64(e + 32) + n);
+return 0;
+}
+fn runtime_search(c, hay_id, hay_gen, hay_off, hn, needle_id, needle_gen, needle_off, nn, t, out) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, n, fnd, hay, needle, i, j, lo, hi, mi;
+rt_access_t(e, hay_id, hay_gen);
+rt_access_plain(m, needle_id, needle_gen);
+if (hay_off > load64(e + 32)) { refuse 6; }
+if (hn > load64(e + 32) - hay_off) { refuse 6; }
+if (needle_off > load64(m + 32)) { refuse 6; }
+if (nn > load64(m + 32) - needle_off) { refuse 6; }
+hay = load64(e + 24) + hay_off;
+needle = load64(m + 24) + needle_off;
+if (nn == 0) {
+ store64(out, 0);
+ return 0;
+}
+i = 0;
+while (i + nn <= hn) {
+ j = 0;
+ while (j < nn) {
+  if (load8(hay + i + j) == load8(needle + j)) { j = j + 1; }
+  else { j = nn + 1; }
+ }
+ if (j == nn) {
+  store64(out, i);
+  return 0;
+ }
+ i = i + 1;
+}
+refuse 6;
+}
+fn runtime_cleanup(c, t) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, n, fnd, hay, needle, i, j, lo, hi, mi;
+if (t == 0) { return 0; }
+if (load64(t + 32) == 0) { return 0; }
+rt_ctx(13);
+if (load64(t + 24) == 0) { refuse 13; }
+fnd = 0;
+i = 0;
+while (i < load64(c + 104)) {
+ m = load64(c + 112) + i * 72;
+ if (load64(m) == load64(t + 16)) {
+  rt_entry(e, load64(m + 8));
+  if (e == 0) { refuse 13; }
+  if (load64(e + 48) != 2) { refuse 13; }
+  if (load64(e + 72) != load64(t + 16)) { refuse 13; }
+  fnd = fnd + 1;
+ }
+ i = i + 1;
+}
+if (fnd != load64(t + 24)) { refuse 13; }
+i = load64(c + 104);
+while (i > 0) {
+ m = load64(c + 112) + (i - 1) * 72;
+ if (load64(m) == load64(t + 16)) {
+  rt_entry(e, load64(m + 8));
+  store64(e + 8, load64(m + 16));
+  store64(e + 16, load64(m + 24));
+  store64(e + 24, load64(m + 32));
+  store64(e + 32, load64(m + 40));
+  store64(e + 40, load64(m + 48));
+  store64(e + 48, load64(m + 56));
+  store64(e + 72, load64(m + 64));
+  store64(m, 0);
+  store64(c + 96, load64(c + 96) - 1);
+ }
+ i = i - 1;
+}
+store64(c + 88, load64(t + 8));
+store64(t + 32, 0);
+return 0;
+}

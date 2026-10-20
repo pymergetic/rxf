@@ -1,0 +1,112 @@
+# The conversions with float/double on either side (docs/29): the integer to its float is
+# the significand scan of the magnitude (inexact where the format cannot hold the bits),
+# the float to its integer is the decode plus the destination's range tail (out-of-range
+# where the magnitude cannot live there), and the two formats reshuffle each other. The
+# integer-to-integer forms are native/numeric/convert.rxfs.
+
+# The conversions with float/double on either side (docs/29). The decode of the format:
+# negative/`exponent`/`fraction` come out of the bit pattern, the hidden bit is put back
+# on the significand, and EXPADJ is the exponent of the integer bit (bias + fraction
+# bits). Inexact (5) where the integer needs bits the significand already dropped,
+# out-of-range (6) where the magnitude cannot live in the destination.
+macro f_decode(a, SIGNPOS, FRACPOS, EXPMASK, SIGMASK, HIDDEN, EXPADJ) {
+ var exponent, fraction, negative, significand, power, right, magnitude;
+ negative = a >> SIGNPOS;
+ exponent = (a >> FRACPOS) & EXPMASK;
+ fraction = a & SIGMASK;
+ if (exponent == EXPMASK) { refuse 4; }
+ magnitude = 0;
+ if (exponent == 0) {
+  if (fraction != 0) { refuse 5; }
+ } else {
+  significand = HIDDEN | fraction;
+  if (exponent >= EXPADJ) {
+   power = exponent - EXPADJ;
+   if (power >= 64) { refuse 6; }
+   if (significand > (18446744073709551615 >> power)) { refuse 6; }
+   magnitude = significand << power;
+  } else {
+   right = EXPADJ - exponent;
+   if (right >= 64) { refuse 5; }
+   if ((significand & ((1 << right) - 1)) != 0) { refuse 5; }
+   magnitude = significand >> right;
+  }
+ }
+}
+macro f_into(negative, magnitude, NEGLIM, POSLIM) {
+ if (negative != 0) {
+  if (magnitude > NEGLIM) { refuse 6; }
+  magnitude = 0 - magnitude;
+ } else {
+  if (magnitude > POSLIM) { refuse 6; }
+ }
+ return magnitude;
+}
+macro f_into_u64(negative, magnitude) {
+ if (negative != 0) {
+  if (magnitude > 0) { refuse 6; }
+  magnitude = 0 - magnitude;
+ } else { }
+ return magnitude;
+}
+# The integer to its float: the significand of the magnitude is the value's bits, top the
+# index of its highest one. Bits the significand cannot hold refuse INEXACT (5); the sign
+# goes to the sign bit, the exponent is top + the bias.
+macro f_from_s(a, FRACPOS, SIGNPOS, BIAS, SIGMASK) {
+ var top, shift, sig, v, neg;
+ neg = (a >> 63) & 1;
+ if (neg != 0) { v = 0 - a; } else { v = a; }
+ if (v == 0) { return 0; }
+ top = 63;
+ while ((v >> top) == 0) { top = top - 1; }
+ if (top > FRACPOS) { shift = top - FRACPOS; } else { shift = 0; }
+ if (shift != 0) { if ((v & ((1 << shift) - 1)) != 0) { refuse 5; } }
+ if (shift != 0) { sig = v >> shift; } else { sig = v << (FRACPOS - top); }
+ return (neg << SIGNPOS) | ((top + BIAS) << FRACPOS) | (sig & SIGMASK);
+}
+macro f_from_u(a, FRACPOS, BIAS, SIGMASK) {
+ var top, shift, sig;
+ if (a == 0) { return 0; }
+ top = 63;
+ while ((a >> top) == 0) { top = top - 1; }
+ if (top > FRACPOS) { shift = top - FRACPOS; } else { shift = 0; }
+ if (shift != 0) { if ((a & ((1 << shift) - 1)) != 0) { refuse 5; } }
+ if (shift != 0) { sig = a >> shift; } else { sig = a << (FRACPOS - top); }
+ return ((top + BIAS) << FRACPOS) | (sig & SIGMASK);
+}
+
+
+fn convert_int8_t_to_float(a) { f_from_s(a, 23, 31, 127, 8388607); }
+fn convert_int8_t_to_double(a) { f_from_s(a, 52, 63, 1023, 4503599627370495); }
+fn convert_int16_t_to_float(a) { f_from_s(a, 23, 31, 127, 8388607); }
+fn convert_int16_t_to_double(a) { f_from_s(a, 52, 63, 1023, 4503599627370495); }
+fn convert_int32_t_to_float(a) { f_from_s(a, 23, 31, 127, 8388607); }
+fn convert_int32_t_to_double(a) { f_from_s(a, 52, 63, 1023, 4503599627370495); }
+fn convert_int64_t_to_float(a) { f_from_s(a, 23, 31, 127, 8388607); }
+fn convert_int64_t_to_double(a) { f_from_s(a, 52, 63, 1023, 4503599627370495); }
+fn convert_uint8_t_to_float(a) { f_from_u(a, 23, 127, 8388607); }
+fn convert_uint8_t_to_double(a) { f_from_u(a, 52, 1023, 4503599627370495); }
+fn convert_uint16_t_to_float(a) { f_from_u(a, 23, 127, 8388607); }
+fn convert_uint16_t_to_double(a) { f_from_u(a, 52, 1023, 4503599627370495); }
+fn convert_uint32_t_to_float(a) { f_from_u(a, 23, 127, 8388607); }
+fn convert_uint32_t_to_double(a) { f_from_u(a, 52, 1023, 4503599627370495); }
+fn convert_uint64_t_to_float(a) { f_from_u(a, 23, 127, 8388607); }
+fn convert_uint64_t_to_double(a) { f_from_u(a, 52, 1023, 4503599627370495); }
+fn convert_float_to_int8_t(a) { f_decode(a, 31, 23, 255, 8388607, 8388608, 150); f_into(negative, magnitude, 128, 127); }
+fn convert_float_to_int16_t(a) { f_decode(a, 31, 23, 255, 8388607, 8388608, 150); f_into(negative, magnitude, 32768, 32767); }
+fn convert_float_to_int32_t(a) { f_decode(a, 31, 23, 255, 8388607, 8388608, 150); f_into(negative, magnitude, 2147483648, 2147483647); }
+fn convert_float_to_int64_t(a) { f_decode(a, 31, 23, 255, 8388607, 8388608, 150); f_into(negative, magnitude, 9223372036854775808, 9223372036854775807); }
+fn convert_float_to_uint8_t(a) { f_decode(a, 31, 23, 255, 8388607, 8388608, 150); f_into(negative, magnitude, 0, 255); }
+fn convert_float_to_uint16_t(a) { f_decode(a, 31, 23, 255, 8388607, 8388608, 150); f_into(negative, magnitude, 0, 65535); }
+fn convert_float_to_uint32_t(a) { f_decode(a, 31, 23, 255, 8388607, 8388608, 150); f_into(negative, magnitude, 0, 4294967295); }
+fn convert_float_to_uint64_t(a) { f_decode(a, 31, 23, 255, 8388607, 8388608, 150); f_into_u64(negative, magnitude); }
+fn convert_double_to_int8_t(a) { f_decode(a, 63, 52, 2047, 4503599627370495, 4503599627370496, 1075); f_into(negative, magnitude, 128, 127); }
+fn convert_double_to_int16_t(a) { f_decode(a, 63, 52, 2047, 4503599627370495, 4503599627370496, 1075); f_into(negative, magnitude, 32768, 32767); }
+fn convert_double_to_int32_t(a) { f_decode(a, 63, 52, 2047, 4503599627370495, 4503599627370496, 1075); f_into(negative, magnitude, 2147483648, 2147483647); }
+fn convert_double_to_int64_t(a) { f_decode(a, 63, 52, 2047, 4503599627370495, 4503599627370496, 1075); f_into(negative, magnitude, 9223372036854775808, 9223372036854775807); }
+fn convert_double_to_uint8_t(a) { f_decode(a, 63, 52, 2047, 4503599627370495, 4503599627370496, 1075); f_into(negative, magnitude, 0, 255); }
+fn convert_double_to_uint16_t(a) { f_decode(a, 63, 52, 2047, 4503599627370495, 4503599627370496, 1075); f_into(negative, magnitude, 0, 65535); }
+fn convert_double_to_uint32_t(a) { f_decode(a, 63, 52, 2047, 4503599627370495, 4503599627370496, 1075); f_into(negative, magnitude, 0, 4294967295); }
+fn convert_double_to_uint64_t(a) { f_decode(a, 63, 52, 2047, 4503599627370495, 4503599627370496, 1075); f_into_u64(negative, magnitude); }
+fn convert_float_to_double(a) { var neg, exp, frac, p, m; if ((a & 2139095040) == 2139095040) { refuse 4; } neg = a >> 31; exp = (a >> 23) & 255; frac = a & 8388607; if (exp == 0) {  if (frac == 0) { return neg << 63; }  p = 0; while ((frac >> p) != 1) { p = p + 1; }  m = frac << (23 - p);  return (neg << 63) | ((p + 874) << 52) | ((m & 8388607) << 29); } return (neg << 63) | ((exp + 896) << 52) | (frac << 29); }
+fn convert_double_to_float(a) { var neg, exp, frac, e32, right, m; if ((a & 9218868437227405312) == 9218868437227405312) { refuse 4; } neg = a >> 63; exp = (a >> 52) & 2047; frac = a & 4503599627370495; if (exp == 0) {  if (frac != 0) { refuse 5; }  return neg << 31; } if (exp < 897) {  right = 926 - exp;  if (right > 52) { refuse 5; }  m = frac | 4503599627370496;  if ((m & ((1 << right) - 1)) != 0) { refuse 5; }  return (neg << 31) | (m >> right); } if (exp > 1150) { refuse 6; } e32 = exp - 896; if ((frac & 536870911) != 0) {  if (exp == 1150) {   if ((frac >> 29) == 8388607) {    if ((frac & 536870911) >= 268435456) { refuse 6; }   }  }  refuse 5; } return (neg << 31) | (e32 << 23) | (frac >> 29); }

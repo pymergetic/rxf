@@ -1,0 +1,19 @@
+# the stdlib, in .rxfs (docs/29). Each primitive is a native instruction or two, lowered by the
+# seed's intrinsic lowering -- no C leaf function, no bytecode blob. This is what the object-world
+# `FunctionImplementation.Native` bodies become: .rxfs source the seed compiles to Machine.
+#
+# The operators lower to real instructions with the semantics the stdlib promises: wrapping
+# add/mul, bitwise, shifts with the count >= 64 -> 0 guard, unsigned compares.
+
+fn wrapping_add_uint64_t(a, b) { return a + b; }
+fn wrapping_multiply_uint64_t(a, b) { return a * b; }
+fn wrapping_subtract_uint64_t(a, b) { return a - b; }
+
+fn bit_and_uint64_t(a, b) { return a & b; }
+fn bit_or_uint64_t(a, b) { return a | b; }
+
+fn shift_left_uint64_t(a, n) { return a << n; }
+fn shift_right_uint64_t(a, n) { return a >> n; }
+
+fn equal_uint64_t(a, b) { return a == b; }
+fn less_uint64_t(a, b) { return a < b; }

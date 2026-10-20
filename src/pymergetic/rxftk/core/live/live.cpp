@@ -811,13 +811,20 @@ class Session {
                 ext_end[leaves] = f.base + fld.offset + v.size * fld.count;
                 leaves++;
             }
-            // Fields that overlap are a union in disguise: raw bytes, no references.
+            // Fields that overlap are a union in disguise: raw bytes, no references. Both indices
+            // run from 0 and the pair (y <= x) is skipped: the flattened wasm32 body of the pump
+            // turns the `y = x + 1` induction form into code whose y-indexed words read the wrong
+            // slot of the frame (every optimization level), and this shape compiles right on every
+            // machine. docs/31, "the overlap check".
             for (uint32_t x = 0; x < leaves && !none; x++)
-                for (uint32_t y = x + 1; y < leaves; y++)
+                for (uint32_t y = 0; y < leaves; y++) {
+                    if (y <= x)
+                        continue;
                     if (ext_off[x] < ext_end[y] && ext_off[y] < ext_end[x]) {
                         none = true;
                         break;
                     }
+                }
             if (!none && t.size != 0 && !(t.flags & PYMERGETIC_RXF_TYPE_FLAG_VARIABLE)) {
                 uint64_t end = 0;
                 for (uint32_t x = 0; x < leaves; x++)

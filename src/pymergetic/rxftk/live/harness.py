@@ -26,28 +26,36 @@ def table_slots(image: bytes, headroom: int = 4) -> int:
     return slots
 
 
+def fit(image: bytes) -> int:
+    """An arena that holds this image with room to grow, sized as the linker gives it
+    (link.LiveSpec: the image and a megabyte of headroom, a page at a time)."""
+    page = 4096
+    return max(8 * MiB, (len(image) + (1 << 20) + page - 1) // page * page)
+
+
 class HostImage:
     def __init__(
         self,
         image: bytes,
         *,
-        arena: int = 8 * MiB,
+        arena: int | None = None,
         log: int = 4 * MiB,
         stage: int = 4 * MiB,
         work: int = 4 * MiB,
-        emit: int = 8 * MiB,
+        emit: int | None = None,
         ring: int = 1 << 16,
         slots: int | None = None,
         committed: int = 0,
         batch: int = 64,
     ) -> None:
+        sized = fit(image)
         self.area = live.Area(
             image,
-            arena,
+            sized if arena is None else arena,
             log,
             stage,
             work,
-            emit,
+            sized if emit is None else emit,
             ring,
             slots or table_slots(image),
             committed,

@@ -19,9 +19,11 @@ from collections.abc import Mapping
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+import compile_build
 import extract_native
 import extract_wasm
 import graph_header
+import seed_build
 from native_symbols import EXPECTED as NUMERIC
 
 ROOT = HERE.parents[1]
@@ -257,7 +259,25 @@ def build_wasm(work: Path) -> dict[str, extract_wasm.Function]:
 def build_wasm_functions() -> dict[str, extract_wasm.Function]:
     """The wasm32 snippets with their function types."""
     with tempfile.TemporaryDirectory() as directory:
-        return build_wasm(Path(directory))
+        found = build_wasm(Path(directory))
+    # The migrated families take their body from the seed (`.rxfs`); the function
+    # type stays what clang says it is (same ABI), so sync's ABI derivation holds.
+    # `compile_program` is the seed's too (native/compile.rxfs, docs/29): its body
+    # comes from compile_build, the same seam graph_run has in seed_build.code.
+    for name, function in found.items():
+        if name == "compile_program":
+            found[name] = extract_wasm.Function(
+                params=function.params,
+                results=function.results,
+                body=bytes.fromhex(compile_build.code("wasm32")),
+            )
+        elif seed_build.is_seed(name):
+            found[name] = extract_wasm.Function(
+                params=function.params,
+                results=function.results,
+                body=seed_build.wasm_body(name),
+            )
+    return found
 
 
 def build() -> dict[str, dict[str, str]]:
@@ -284,6 +304,15 @@ def build() -> dict[str, dict[str, str]]:
         name: function.body.hex()
         for name, function in sorted(build_wasm_functions().items())
     }
+    # The migrated families come from `.rxfs` (the seed), not clang: their bytes
+    # replace clang's on every machine. `native/*.c` still feeds the rest.
+    # `compile_program` comes from native/compile.rxfs via compile_build.
+    for machine in result:
+        for name in result[machine]:
+            if name == "compile_program":
+                result[machine][name] = compile_build.code(machine)
+            elif seed_build.is_seed(name):
+                result[machine][name] = seed_build.code(machine, name)
     return result
 
 

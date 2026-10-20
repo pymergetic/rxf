@@ -1,0 +1,4538 @@
+# native/live.rxfs -- the live pump as a seed body (docs/30-NATIVE-PORT.md, section 12).
+#
+# A line-by-line port of the C++ of the live layer, compiled freestanding into one leaf that
+# calls nothing:
+#
+#   fn live_pump(context, area)   leaf 29 (RXF_LEAF_LIVE_PUMP), `!pp`, status-only -- native/live.cpp
+#                                 + src/pymergetic/rxftk/core/live/live.cpp
+#                                 + src/pymergetic/rxftk/core/arena/arena.cpp
+#                                 + core/arena/mem.hpp + core/hash/sha256_core.hpp
+#   fn safe_point(context, area)  leaf 38 (RXF_LEAF_SAFE_POINT), `!pp`, status-only -- native/safe.c
+#
+# The C++ classes are flattened by hand: `Session` and `Arena` members are the `var` words of the
+# fn below, every member function is a macro family (each macro header names the C++ it mirrors),
+# and the C++ `return` of a helper is `h_ok = 0/1` plus a guarded block -- a macro expands where
+# it stands, so a `return` inside one would leave the whole fn. RAII (`Arena out;` in emit) is an
+# explicit init over the emit region; `load<T>/store<T>` are the width intrinsics; `literal<N>`
+# is byte stores; `[[clang::musttail]]` is `tailcall_pp` (seed extension, see the docs).
+#
+# Memory model (the C++ atomics, spelled out): the ring words are volatile u32s paired
+# acquire/release in the C++; the seed models them as plain load32/store32. The assumption: one
+# producer, one consumer per ring, and the u32 accesses are atomic on x86_64/aarch64/wasm32; the
+# release stores publish the ring bytes before the counters on both ISAs. The differential seats
+# are single-threaded, so plain accesses see the same interleaving there.
+#
+# publish_code (aarch64 `dc cvau`/`ic ivau` over the self-copy) is not expressible in the dialect
+# and is dropped: a no-op on x86_64 and on the emulator seats. The aarch64 hardware gap is named
+# in the wire-in notes of the docs.
+
+# ---- byte memory (core/arena/mem.hpp): the loops, in their order --------------------------------
+
+sub s_cpy(Zd_cpy, Zs_cpy, Zn_cpy) {
+    var cpy_i;
+    cpy_i = 0;
+    while (cpy_i < Zn_cpy) {
+        store8(Zd_cpy + cpy_i, load8(Zs_cpy + cpy_i));
+        cpy_i = cpy_i + 1;
+    }
+}
+
+macro m_mv(Zd, Zs, Zn) {
+    var mv_i;
+    if (Zd <= Zs) {
+        mv_i = 0;
+        while (mv_i < Zn) {
+            store8(Zd + mv_i, load8(Zs + mv_i));
+            mv_i = mv_i + 1;
+        }
+    } else {
+        mv_i = Zn;
+        while (mv_i != 0) {
+            mv_i = mv_i - 1;
+            store8(Zd + mv_i, load8(Zs + mv_i));
+        }
+    }
+}
+
+sub s_zero(Zd_zero, Zn_zero) {
+    var zero_i;
+    zero_i = 0;
+    while (zero_i < Zn_zero) {
+        store8(Zd_zero + zero_i, 0);
+        zero_i = zero_i + 1;
+    }
+}
+
+# mem::compare -> `cmp_r`: 0 when the ranges are equal, 1 otherwise (the callers only test != 0).
+sub s_cmp(Za_cmp, Zb_cmp, Zn_cmp) {
+    var cmp_i;
+    cmp_r = 0;
+    cmp_i = 0;
+    while (cmp_i < Zn_cmp & cmp_r == 0) {
+        if (load8(Za_cmp + cmp_i) != load8(Zb_cmp + cmp_i)) {
+            cmp_r = 1;
+        }
+        cmp_i = cmp_i + 1;
+    }
+}
+
+# mem::length -> `len_r`: the bytes up to the NUL.
+sub s_len(Zp_len) {
+    len_r = 0;
+    while (load8(Zp_len + len_r) != 0) {
+        len_r = len_r + 1;
+    }
+}
+
+# ---- CRC-32 (IEEE, reflected, polynomial 0xEDB88320) --------------------------------------------
+
+# crc_update(crc, p, n) -> crc_r
+macro m_crc(Zc, Zp, Zn) {
+    var crc_i;
+    var crc_k;
+    crc_r = Zc;
+    crc_i = 0;
+    while (crc_i < Zn) {
+        crc_r = crc_r ^ load8(Zp + crc_i);
+        crc_k = 0;
+        while (crc_k < 8) {
+            crc_r = ((crc_r >> 1) ^ (0xEDB88320 & (0 - (crc_r & 1)))) & 0xFFFFFFFF;
+            crc_k = crc_k + 1;
+        }
+        crc_i = crc_i + 1;
+    }
+}
+
+# crc32(p, n) -> crc_r
+sub s_crc32(Zp_crc32, Zn_crc32) {
+    m_crc(0xFFFFFFFF, Zp_crc32, Zn_crc32);
+    crc_r = (~crc_r) & 0xFFFFFFFF;
+}
+
+# ---- SHA-256 (core/hash/sha256_core.hpp): state words, no tables --------------------------------
+# sh[0..31] h[0..7] (u32), sh[32..95] the 64-byte block buffer, sh[96..103] the byte count (u64),
+# sh[104..107] the bytes in the buffer. shw[0..255] is the 64-word message schedule.
+
+macro m_sha_k(Zk) {
+    store32(Zk, 0x428A2F98); store32(Zk + 4, 0x71374491); store32(Zk + 8, 0xB5C0FBCF);
+    store32(Zk + 12, 0xE9B5DBA5); store32(Zk + 16, 0x3956C25B); store32(Zk + 20, 0x59F111F1);
+    store32(Zk + 24, 0x923F82A4); store32(Zk + 28, 0xAB1C5ED5);
+    store32(Zk + 32, 0xD807AA98); store32(Zk + 36, 0x12835B01); store32(Zk + 40, 0x243185BE);
+    store32(Zk + 44, 0x550C7DC3); store32(Zk + 48, 0x72BE5D74); store32(Zk + 52, 0x80DEB1FE);
+    store32(Zk + 56, 0x9BDC06A7); store32(Zk + 60, 0xC19BF174);
+    store32(Zk + 64, 0xE49B69C1); store32(Zk + 68, 0xEFBE4786); store32(Zk + 72, 0x0FC19DC6);
+    store32(Zk + 76, 0x240CA1CC); store32(Zk + 80, 0x2DE92C6F); store32(Zk + 84, 0x4A7484AA);
+    store32(Zk + 88, 0x5CB0A9DC); store32(Zk + 92, 0x76F988DA);
+    store32(Zk + 96, 0x983E5152); store32(Zk + 100, 0xA831C66D); store32(Zk + 104, 0xB00327C8);
+    store32(Zk + 108, 0xBF597FC7); store32(Zk + 112, 0xC6E00BF3); store32(Zk + 116, 0xD5A79147);
+    store32(Zk + 120, 0x06CA6351); store32(Zk + 124, 0x14292967);
+    store32(Zk + 128, 0x27B70A85); store32(Zk + 132, 0x2E1B2138); store32(Zk + 136, 0x4D2C6DFC);
+    store32(Zk + 140, 0x53380D13); store32(Zk + 144, 0x650A7354); store32(Zk + 148, 0x766A0ABB);
+    store32(Zk + 152, 0x81C2C92E); store32(Zk + 156, 0x92722C85);
+    store32(Zk + 160, 0xA2BFE8A1); store32(Zk + 164, 0xA81A664B); store32(Zk + 168, 0xC24B8B70);
+    store32(Zk + 172, 0xC76C51A3); store32(Zk + 176, 0xD192E819); store32(Zk + 180, 0xD6990624);
+    store32(Zk + 184, 0xF40E3585); store32(Zk + 188, 0x106AA070);
+    store32(Zk + 192, 0x19A4C116); store32(Zk + 196, 0x1E376C08); store32(Zk + 200, 0x2748774C);
+    store32(Zk + 204, 0x34B0BCB5); store32(Zk + 208, 0x391C0CB3); store32(Zk + 212, 0x4ED8AA4A);
+    store32(Zk + 216, 0x5B9CCA4F); store32(Zk + 220, 0x682E6FF3);
+    store32(Zk + 224, 0x748F82EE); store32(Zk + 228, 0x78A5636F); store32(Zk + 232, 0x84C87814);
+    store32(Zk + 236, 0x8CC70208); store32(Zk + 240, 0x90BEFFFA); store32(Zk + 244, 0xA4506CEB);
+    store32(Zk + 248, 0xBEF9A3F7); store32(Zk + 252, 0xC67178F2);
+}
+
+sub s_sha_init(Zs_sha_init) {
+    m_sha_k(shk);
+    store32(Zs_sha_init, 0x6A09E667); store32(Zs_sha_init + 4, 0xBB67AE85); store32(Zs_sha_init + 8, 0x3C6EF372);
+    store32(Zs_sha_init + 12, 0xA54FF53A); store32(Zs_sha_init + 16, 0x510E527F); store32(Zs_sha_init + 20, 0x9B05688C);
+    store32(Zs_sha_init + 24, 0x1F83D9AB); store32(Zs_sha_init + 28, 0x5BE0CD19);
+    store64(Zs_sha_init + 96, 0);
+    store32(Zs_sha_init + 104, 0);
+}
+
+# sha_block(Zs, Zp): the 64 bytes at Zp -> the state words.
+sub s_sha_block(Zs_sha_block, Zp_sha_block) {
+    var sb_t;
+    var sb_x;
+    var sb_y;
+    var sb_s0;
+    var sb_s1;
+    var sb_a;
+    var sb_b;
+    var sb_c;
+    var sb_d;
+    var sb_e;
+    var sb_f;
+    var sb_g;
+    var sb_h;
+    var sb_ch;
+    var sb_t1;
+    var sb_t2;
+    var sb_maj;
+    sb_t = 0;
+    while (sb_t < 16) {
+        store32(shw + 4 * sb_t,
+                ((load8(Zp_sha_block + 4 * sb_t) << 24) | (load8(Zp_sha_block + 4 * sb_t + 1) << 16)) |
+                    ((load8(Zp_sha_block + 4 * sb_t + 2) << 8) | load8(Zp_sha_block + 4 * sb_t + 3)));
+        sb_t = sb_t + 1;
+    }
+    sb_t = 16;
+    while (sb_t < 64) {
+        sb_x = load32(shw + 4 * (sb_t - 15));
+        sb_y = load32(shw + 4 * (sb_t - 2));
+        sb_s0 = (((sb_x >> 7) | (sb_x << 25)) ^ ((sb_x >> 18) | (sb_x << 14))) ^ (sb_x >> 3);
+        sb_s1 = (((sb_y >> 17) | (sb_y << 15)) ^ ((sb_y >> 19) | (sb_y << 13))) ^ (sb_y >> 10);
+        store32(shw + 4 * sb_t,
+                (load32(shw + 4 * (sb_t - 16)) + sb_s0) & 0xFFFFFFFF);
+        store32(shw + 4 * sb_t,
+                (load32(shw + 4 * sb_t) + ((load32(shw + 4 * (sb_t - 7)) + sb_s1) & 0xFFFFFFFF)) &
+                    0xFFFFFFFF);
+        sb_t = sb_t + 1;
+    }
+    sb_a = load32(Zs_sha_block); sb_b = load32(Zs_sha_block + 4); sb_c = load32(Zs_sha_block + 8); sb_d = load32(Zs_sha_block + 12);
+    sb_e = load32(Zs_sha_block + 16); sb_f = load32(Zs_sha_block + 20); sb_g = load32(Zs_sha_block + 24); sb_h = load32(Zs_sha_block + 28);
+    sb_t = 0;
+    while (sb_t < 64) {
+        sb_s1 = (((sb_e >> 6) | (sb_e << 26)) ^ ((sb_e >> 11) | (sb_e << 21))) ^
+                ((sb_e >> 25) | (sb_e << 7));
+        sb_ch = (sb_e & sb_f) ^ ((~sb_e) & sb_g);
+        sb_t1 = (sb_h + sb_s1) & 0xFFFFFFFF;
+        sb_t1 = (sb_t1 + sb_ch) & 0xFFFFFFFF;
+        sb_t1 = (sb_t1 + load32(shk + 4 * sb_t)) & 0xFFFFFFFF;
+        sb_t1 = (sb_t1 + load32(shw + 4 * sb_t)) & 0xFFFFFFFF;
+        sb_s0 = (((sb_a >> 2) | (sb_a << 30)) ^ ((sb_a >> 13) | (sb_a << 19))) ^
+                ((sb_a >> 22) | (sb_a << 10));
+        sb_maj = (sb_a & sb_b) ^ ((sb_a & sb_c) ^ (sb_b & sb_c));
+        sb_t2 = (sb_s0 + sb_maj) & 0xFFFFFFFF;
+        sb_h = sb_g; sb_g = sb_f; sb_f = sb_e;
+        sb_e = (sb_d + sb_t1) & 0xFFFFFFFF;
+        sb_d = sb_c; sb_c = sb_b; sb_b = sb_a;
+        sb_a = (sb_t1 + sb_t2) & 0xFFFFFFFF;
+        sb_t = sb_t + 1;
+    }
+    store32(Zs_sha_block, (load32(Zs_sha_block) + sb_a) & 0xFFFFFFFF);
+    store32(Zs_sha_block + 4, (load32(Zs_sha_block + 4) + sb_b) & 0xFFFFFFFF);
+    store32(Zs_sha_block + 8, (load32(Zs_sha_block + 8) + sb_c) & 0xFFFFFFFF);
+    store32(Zs_sha_block + 12, (load32(Zs_sha_block + 12) + sb_d) & 0xFFFFFFFF);
+    store32(Zs_sha_block + 16, (load32(Zs_sha_block + 16) + sb_e) & 0xFFFFFFFF);
+    store32(Zs_sha_block + 20, (load32(Zs_sha_block + 20) + sb_f) & 0xFFFFFFFF);
+    store32(Zs_sha_block + 24, (load32(Zs_sha_block + 24) + sb_g) & 0xFFFFFFFF);
+    store32(Zs_sha_block + 28, (load32(Zs_sha_block + 28) + sb_h) & 0xFFFFFFFF);
+}
+
+# sha_update(Zs, Zp, Zn): the bytes accumulate one at a time, as in the C++.
+sub s_sha_upd(Zs_sha_upd, Zp_sha_upd, Zn_sha_upd) {
+    var su_i;
+    su_i = 0;
+    while (su_i < Zn_sha_upd) {
+        store8(Zs_sha_upd + 32 + load32(Zs_sha_upd + 104), load8(Zp_sha_upd + su_i));
+        store32(Zs_sha_upd + 104, load32(Zs_sha_upd + 104) + 1);
+        if (load32(Zs_sha_upd + 104) == 64) {
+            callsub s_sha_block(Zs_sha_upd, Zs_sha_upd + 32);
+            store64(Zs_sha_upd + 96, load64(Zs_sha_upd + 96) + 64);
+            store32(Zs_sha_upd + 104, 0);
+        }
+        su_i = su_i + 1;
+    }
+}
+
+# sha_finish(Zs, Zout): padding, then the state words big-endian.
+sub s_sha_finish(Zs_sha_finish, Zout_sha_finish) {
+    var sf_i;
+    var sf_bits;
+    sf_bits = (load64(Zs_sha_finish + 96) + load32(Zs_sha_finish + 104)) << 3;
+    # the padding is the C++ update(&pad, 1) / update(&zero, 1): every byte through the
+    # 64-byte buffer, and a buffer that fills mid-padding is compressed before the rest
+    # lands in a fresh block (sha256_core.hpp finish).
+    store8(Zs_sha_finish + 32 + load32(Zs_sha_finish + 104), 0x80);
+    store32(Zs_sha_finish + 104, load32(Zs_sha_finish + 104) + 1);
+    if (load32(Zs_sha_finish + 104) == 64) {
+        callsub s_sha_block(Zs_sha_finish, Zs_sha_finish + 32);
+        store64(Zs_sha_finish + 96, load64(Zs_sha_finish + 96) + 64);
+        store32(Zs_sha_finish + 104, 0);
+    }
+    while (load32(Zs_sha_finish + 104) != 56) {
+        store8(Zs_sha_finish + 32 + load32(Zs_sha_finish + 104), 0);
+        store32(Zs_sha_finish + 104, load32(Zs_sha_finish + 104) + 1);
+        if (load32(Zs_sha_finish + 104) == 64) {
+            callsub s_sha_block(Zs_sha_finish, Zs_sha_finish + 32);
+            store64(Zs_sha_finish + 96, load64(Zs_sha_finish + 96) + 64);
+            store32(Zs_sha_finish + 104, 0);
+        }
+    }
+    sf_i = 0;
+    while (sf_i < 8) {
+        store8(Zs_sha_finish + 32 + 56 + sf_i, (sf_bits >> (56 - 8 * sf_i)) & 0xFF);
+        sf_i = sf_i + 1;
+    }
+    callsub s_sha_block(Zs_sha_finish, Zs_sha_finish + 32);
+    sf_i = 0;
+    while (sf_i < 8) {
+        store8(Zout_sha_finish + 4 * sf_i, (load32(Zs_sha_finish + 4 * sf_i) >> 24) & 0xFF);
+        store8(Zout_sha_finish + 4 * sf_i + 1, (load32(Zs_sha_finish + 4 * sf_i) >> 16) & 0xFF);
+        store8(Zout_sha_finish + 4 * sf_i + 2, (load32(Zs_sha_finish + 4 * sf_i) >> 8) & 0xFF);
+        store8(Zout_sha_finish + 4 * sf_i + 3, load32(Zs_sha_finish + 4 * sf_i) & 0xFF);
+        sf_i = sf_i + 1;
+    }
+}
+
+# ---- the arena (core/arena/arena.cpp): allocator, index, journal over one region -----------------
+# The session arena's state is the `var` words of the fn: ab = memory base, acomm = committed,
+# alim = limit, ah = the header at ab, aj = journaling, amark/aused/abitmap = the undo log,
+# aneed = the end the last allocation asked for, saved = the header at begin(). Status words are
+# the arena::Status numbers: Ok 0, OutOfMemory 1, BadHandle 2, BadImage 3, IndexFull 4,
+# TooLarge 5, Protected 6, NameTaken 7, BadName 8, HasChildren 9, Dangling 10, BadPath 11,
+# JournalFull 12, NoJournal 13.
+
+# cell_bytes(payload, refs) -> cb_r
+sub s_cb(Zp_cb, Zr_cb) {
+    cb_r = (64 + ((Zp_cb + 15) & ~15) + 24 * Zr_cb + 15) & ~15;
+}
+
+# kind_of(cell) -> kd_r
+sub s_kd(Zc_kd) {
+    kd_r = load32(Zc_kd + 40) & 0xFF;
+}
+
+sub s_set_kind(Zc_set_kind, Zk_set_kind) {
+    store32(Zc_set_kind + 40, (load32(Zc_set_kind + 40) & ~0xFF) | Zk_set_kind);
+}
+
+# ensure(end) -> en_r: a region committed whole (PYMERGETIC_RXF_FIXED_REGION): no callback.
+sub s_ensure(Zend_ensure) {
+    if (Zend_ensure <= acomm) {
+        en_r = 0;
+    } else {
+        aneed = Zend_ensure;
+        en_r = 1;
+    }
+}
+
+# slot(handle) -> sp_r: the address of the index entry. The directory of chunk offsets is an
+# arena block at `index_off` (arena header word at 48), not the header word itself
+# (core/arena/arena.cpp `Arena::slot`).
+sub s_slot(Zh_slot) {
+    sp_r = ab + load64(ab + load64(ah + 48) + 8 * (Zh_slot / 4096)) + 64 + 8 * (Zh_slot % 4096);
+}
+
+# live(handle) -> lv_r (1/0)
+macro m_live(Zh) {
+    var sp_v;
+    lv_r = 0;
+    if (Zh < load64(ah + 88)) {
+        callsub s_slot(Zh);
+        sp_v = load64(sp_r);
+        if ((sp_v & 1) == 0) {
+            if (sp_v >= load64(ah + 56)) {
+                if (sp_v < load64(ah + 56) + load64(ah + 40)) {
+                    lv_r = 1;
+                }
+            }
+        }
+    }
+}
+
+# cell(handle) -> ce_r: the cell header address, or 0.
+sub s_cell(Zh_cell) {
+    m_live(Zh_cell);
+    if (lv_r == 0) {
+        ce_r = 0;
+    } else {
+        callsub s_slot(Zh_cell);
+        ce_r = ab + load64(sp_r);
+    }
+}
+
+# payload(handle) -> pa_r
+sub s_payload(Zh_payload) {
+    callsub s_cell(Zh_payload);
+    if (ce_r == 0) {
+        pa_r = 0;
+    } else {
+        pa_r = ce_r + 64;
+    }
+}
+
+# refs(handle) -> rr_r
+sub s_refs(Zh_refs) {
+    callsub s_cell(Zh_refs);
+    if (ce_r == 0) {
+        rr_r = 0;
+    } else {
+        rr_r = ce_r + 64 + ((load64(ce_r + 16) + 15) & ~15);
+    }
+}
+
+# name(handle) -> nm_r: "" is the first reserved byte of the header (must be zero).
+sub s_name(Zh_name) {
+    callsub s_cell(Zh_name);
+    if (ce_r == 0) {
+        nm_r = ab + 128;
+    } else {
+        if (load64(ce_r + 32) == 0) {
+            nm_r = ab + 128;
+        } else {
+            nm_r = ab + load64(ce_r + 32);
+        }
+    }
+}
+
+# write_slot(handle, value) -> ws_r
+sub s_write_slot(Zh_write_slot, Zv_write_slot) {
+    callsub s_slot(Zh_write_slot);
+    callsub s_before_write(sp_r - ab, 8);
+    ws_r = bw_r;
+    if (bw_r == 0) {
+        store64(sp_r, Zv_write_slot);
+    }
+}
+
+# init(base, committed, limit, index_capacity) -> in_r: a fresh arena in a region.
+macro m_init(Zbase, Zcomm, Zlim, Zcap) {
+    var in_chunks;
+    var in_dir;
+    var in_cells;
+    ab = Zbase;
+    acomm = Zcomm;
+    alim = Zlim;
+    ah = Zbase;
+    in_chunks = (Zcap + 4095) / 4096;
+    if (in_chunks == 0) {
+        in_chunks = 1;
+    }
+    in_r = 5;
+    if (in_chunks <= 16777216) {
+        in_dir = (in_chunks + 7) & ~7;
+        in_cells = 192 + in_dir * 8;
+        callsub s_ensure(in_cells);
+        if (en_r == 0) {
+            callsub s_zero(ab, in_cells);
+            store8(ab, 82); store8(ab + 1, 88); store8(ab + 2, 70); store8(ab + 3, 66);
+            store32(ab + 4, 6);
+            store32(ab + 8, 192);
+            store64(ab + 16, in_cells);
+            store64(ab + 24, acomm);
+            store64(ab + 32, alim);
+            store64(ab + 48, 192);
+            store64(ab + 56, in_cells);
+            store64(ab + 96, 0xFFFFFFFFFFFFFFFF);
+            store64(ab + 104, 0xFFFFFFFFFFFFFFFF);
+            store64(ab + 112, 0xFFFFFFFFFFFFFFFF);
+            store32(ab + 120, 16);
+            store32(ab + 124, 4096);
+            in_r = 0;
+        }
+    }
+}
+
+# attach() -> at_r: the arena that is in the region already (checks the header only).
+sub s_attach() {
+    at_r = 3;
+    if (ab != 0) {
+        if (acomm >= 192) {
+            if (load8(ab) == 82 & load8(ab + 1) == 88 & load8(ab + 2) == 70 & load8(ab + 3) == 66) {
+                if (load32(ab + 4) == 6) {
+                    if (load32(ab + 8) == 192) {
+                        if (load64(ab + 16) <= acomm) {
+                        if (load64(ab + 56) <= load64(ab + 16)) {
+                            store64(ab + 24, acomm);
+                            store64(ab + 32, alim);
+                            ah = ab;
+                            at_r = 0;
+                        }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+# allocate(bytes) -> al_r (status), al_at (offset)
+sub s_allocate(Zbytes_allocate) {
+    al_at = load64(ah + 56) + load64(ah + 40);
+    al_r = 5;
+    if (Zbytes_allocate <= 4611686018427387904) {
+        if (al_at + Zbytes_allocate >= al_at) {
+            callsub s_ensure(al_at + Zbytes_allocate);
+            if (en_r == 0) {
+                callsub s_zero(ab + al_at, Zbytes_allocate);
+                store64(ah + 40, load64(ah + 40) + Zbytes_allocate);
+                store64(ah + 16, load64(ah + 56) + load64(ah + 40));
+                al_r = 0;
+            } else {
+                al_r = 1;
+            }
+        }
+    }
+}
+
+# make_block(kind, payload) -> mb_r (status), mb_at (offset)
+sub s_make_block(Zkind_make_block, Zpay_make_block) {
+    callsub s_cb(Zpay_make_block, 0);
+    callsub s_allocate(cb_r);
+    mb_r = al_r;
+    mb_at = al_at;
+    if (al_r == 0) {
+        store64(ab + al_at, Zkind_make_block);
+        store64(ab + al_at + 8, 0xFFFFFFFFFFFFFFFF);
+        store64(ab + al_at + 16, Zpay_make_block);
+        store32(ab + al_at + 40, 255);
+    }
+}
+
+# intern(text, n) -> it_r (status), it_at (offset)
+macro m_intern(Ztext, Zn) {
+    var it_need;
+    var it_fit;
+    var it_pay;
+    it_r = 0;
+    it_at = 0;
+    if (Zn != 0) {
+        it_need = Zn + 1;
+        it_fit = 0;
+        if (load64(ah + 64) != 0) {
+            if (load64(ah + 72) + it_need <= load64(ab + load64(ah + 64) + 16)) {
+                it_fit = 1;
+            }
+        }
+        if (it_fit == 0) {
+            it_pay = 4096;
+            if (it_need > 4096) {
+                it_pay = (it_need + 15) & ~15;
+            }
+            callsub s_make_block(2, it_pay);
+            it_r = mb_r;
+            if (mb_r == 0) {
+                store64(ah + 64, mb_at);
+                store64(ah + 72, 0);
+            }
+        }
+        if (it_r == 0) {
+            it_at = load64(ah + 64) + 64 + load64(ah + 72);
+            callsub s_before_write(it_at, it_need);
+            it_r = bw_r;
+            if (bw_r == 0) {
+                callsub s_cpy(ab + it_at, Ztext, Zn);
+                store8(ab + it_at + Zn, 0);
+                store64(ah + 72, load64(ah + 72) + it_need);
+            }
+        }
+    }
+}
+
+# slot_for_new() -> sn_r (status), sn_h (handle)
+macro m_slot_new() {
+    var sn_chunk;
+    sn_r = 0;
+    if (load64(ah + 96) != 0xFFFFFFFFFFFFFFFF) {
+        sn_h = load64(ah + 96);
+    } else {
+        sn_h = load64(ah + 88);
+        sn_chunk = sn_h / 4096;
+        if (sn_chunk >= load64(ah + 80)) {
+            sn_r = 4;
+            if (sn_chunk < (load64(ah + 56) - load64(ah + 48)) / 8) {
+                callsub s_make_block(1, 32768);
+                sn_r = mb_r;
+                if (mb_r == 0) {
+                    callsub s_before_write(load64(ah + 48) + sn_chunk * 8, 8);
+                    sn_r = bw_r;
+                    if (bw_r == 0) {
+                        store64(ab + load64(ah + 48) + sn_chunk * 8, mb_at);
+                        store64(ah + 80, sn_chunk + 1);
+                    }
+                }
+            }
+        }
+    }
+}
+
+# create() from the cs_* spec words -> cr_r (status), cr_h (handle)
+sub s_create() {
+    var cr_before;
+    cr_r = 5;
+    cr_h = 0;
+    if (cs_payload <= 281474976710656) {
+        if (cs_refs <= 16777216) {
+            m_slot_new();
+            cr_r = sn_r;
+            cr_h = sn_h;
+            if (sn_r == 0) {
+                m_intern(cs_name, cs_name_len);
+                cr_r = it_r;
+                if (it_r == 0) {
+                    callsub s_cb(cs_payload, cs_refs);
+                    callsub s_allocate(cb_r);
+                    cr_r = al_r;
+                    if (al_r == 0) {
+                        store64(ab + al_at, cs_type);
+                        store64(ab + al_at + 8, cs_parent);
+                        store64(ab + al_at + 16, cs_payload);
+                        store64(ab + al_at + 24, cs_generation);
+                        store64(ab + al_at + 32, it_at);
+                        store32(ab + al_at + 40, cs_flags);
+                        store32(ab + al_at + 44, cs_refs);
+                        store32(ab + al_at + 56, cs_index);
+                        callsub s_slot(cr_h);
+                        cr_before = load64(sp_r);
+                        callsub s_write_slot(cr_h, al_at);
+                        cr_r = ws_r;
+                        if (ws_r == 0) {
+                            if (load64(ah + 96) == cr_h) {
+                                if (cr_before == 0xFFFFFFFFFFFFFFFF) {
+                                    store64(ah + 96, 0xFFFFFFFFFFFFFFFF);
+                                } else {
+                                    store64(ah + 96, cr_before >> 1);
+                                }
+                            } else {
+                                store64(ah + 88, cr_h + 1);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+# destroy(handle) -> de_r
+macro m_destroy(Zh) {
+    var de_c;
+    var de_next;
+    callsub s_cell(Zh);
+    de_r = 2;
+    if (ce_r != 0) {
+        de_r = 6;
+        if (Zh > 2) {
+            callsub s_cell_w(Zh);
+            de_r = 12;
+            if (cw_r != 0) {
+                de_c = cw_r;
+                if (load64(ah + 96) == 0xFFFFFFFFFFFFFFFF) {
+                    de_next = 0xFFFFFFFFFFFFFFFF;
+                } else {
+                    de_next = (load64(ah + 96) << 1) | 1;
+                }
+                callsub s_write_slot(Zh, de_next);
+                de_r = ws_r;
+                if (ws_r == 0) {
+                    callsub s_set_kind(de_c, 254);
+                    store64(ah + 96, Zh);
+                }
+            }
+        }
+    }
+}
+
+# resize(handle, payload, refs) -> rz_r
+sub s_resize(Zh_resize, Zp_resize, Zr_resize) {
+    var rz_old_off;
+    var rz_new;
+    var rz_old;
+    var rz_keep;
+    var rz_kr;
+    callsub s_cell(Zh_resize);
+    rz_r = 2;
+    if (ce_r != 0) {
+        rz_r = 5;
+        if (Zp_resize <= 281474976710656) {
+            if (Zr_resize <= 16777216) {
+                callsub s_slot(Zh_resize);
+                rz_old_off = load64(sp_r);
+                callsub s_cb(Zp_resize, Zr_resize);
+                callsub s_allocate(cb_r);
+                rz_r = al_r;
+                if (al_r == 0) {
+                    rz_new = ab + al_at;
+                    rz_old = ab + rz_old_off;
+                    callsub s_cpy(rz_new, rz_old, 64);
+                    store64(rz_new + 16, Zp_resize);
+                    store32(rz_new + 44, Zr_resize);
+                    store64(rz_new + 48, 0);
+                    rz_keep = load64(rz_old + 16);
+                    if (rz_keep > Zp_resize) {
+                        rz_keep = Zp_resize;
+                    }
+                    callsub s_cpy(rz_new + 64, rz_old + 64, rz_keep);
+                    rz_kr = load32(rz_old + 44);
+                    if (rz_kr > Zr_resize) {
+                        rz_kr = Zr_resize;
+                    }
+                    callsub s_cpy(rz_new + 64 + ((Zp_resize + 15) & ~15), rz_old + 64 + ((load64(rz_old + 16) + 15) & ~15), 24 * rz_kr);
+                    callsub s_cell_w(Zh_resize);
+                    rz_r = 12;
+                    if (cw_r != 0) {
+                        rz_old = cw_r;
+                        callsub s_write_slot(Zh_resize, al_at);
+                        rz_r = ws_r;
+                        if (ws_r == 0) {
+                            callsub s_set_kind(rz_old, 254);
+                            store64(rz_old + 48, al_at);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+# ---- the undo log (docs/19): 64-byte granules, one record of 72 bytes each ----------------------
+
+# ensure_log(end) -> el_r: a log region committed whole.
+sub s_ensure_log(Zend_ensure_log) {
+    if (Zend_ensure_log <= alog_comm) {
+        el_r = 0;
+    } else {
+        el_r = 12;
+    }
+}
+
+# begin(log_base, log_comm, log_lim) -> bg_r
+macro m_begin(Zlb, Zlc, Zll) {
+    bg_r = 13;
+    if (aj == 0) {
+        bg_r = 3;
+        if (ah != 0 & Zlb != 0) {
+            alog_base = Zlb;
+            alog_comm = Zlc;
+            alog_lim = Zll;
+            amark = load64(ah + 56) + load64(ah + 40);
+            abitmap = ((amark / 512 + 1) + 7) & ~7;
+            callsub s_ensure_log(abitmap);
+            bg_r = el_r;
+            if (el_r == 0) {
+                callsub s_zero(alog_base, abitmap);
+                aused = abitmap;
+                callsub s_cpy(saved, ah, 192);
+                aj = 1;
+            }
+        }
+    }
+}
+
+# before_write(offset, length) -> bw_r
+sub s_before_write(Zoff_before_write, Zlen_before_write) {
+    var bw_end;
+    var bw_off;
+    var bw_g;
+    var bw_stop;
+    var bw_bits;
+    var bw_bit;
+    var bw_from;
+    var bw_size;
+    bw_r = 0;
+    if (aj != 0) {
+        if (Zlen_before_write != 0) {
+            bw_end = Zoff_before_write + Zlen_before_write;
+            if (bw_end > amark) {
+                bw_end = amark;
+            }
+            bw_off = Zoff_before_write;
+            if (bw_off < 192) {
+                bw_off = 192;
+            }
+            if (bw_end > bw_off) {
+                bw_g = bw_off / 64;
+                bw_stop = 0;
+                bw_r = 0;
+                while (bw_g * 64 < bw_end & bw_stop == 0) {
+                    bw_bits = load8(alog_base + bw_g / 8);
+                    bw_bit = 1 << (bw_g % 8);
+                    if ((bw_bits & bw_bit) != 0) {
+                        bw_g = bw_g + 1;
+                    } else {
+                        callsub s_ensure_log(aused + 72);
+                        if (el_r != 0) {
+                            bw_r = 12;
+                            bw_stop = 1;
+                        } else {
+                            bw_from = bw_g * 64;
+                            bw_size = 64;
+                            if (bw_from + 64 > amark) {
+                                bw_size = amark - bw_from;
+                            }
+                            store64(alog_base + aused, bw_g);
+                            callsub s_cpy(alog_base + aused + 8, ab + bw_from, bw_size);
+                            aused = aused + 72;
+                            store8(alog_base + bw_g / 8, bw_bits | bw_bit);
+                            bw_g = bw_g + 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+macro m_commit() {
+    cm_r = 13;
+    if (aj != 0) {
+        aj = 0;
+        cm_r = 0;
+    }
+}
+
+macro m_rollback() {
+    var rb_at;
+    var rb_g;
+    var rb_from;
+    var rb_size;
+    var rb_comm;
+    var rb_lim;
+    rb_r = 13;
+    if (aj != 0) {
+        rb_at = abitmap;
+        while (rb_at < aused) {
+            rb_g = load64(alog_base + rb_at);
+            rb_from = rb_g * 64;
+            rb_size = 64;
+            if (rb_from + 64 > amark) {
+                rb_size = amark - rb_from;
+            }
+            callsub s_cpy(ab + rb_from, alog_base + rb_at + 8, rb_size);
+            rb_at = rb_at + 72;
+        }
+        rb_comm = load64(ah + 24);
+        rb_lim = load64(ah + 32);
+        callsub s_cpy(ah, saved, 192);
+        store64(ah + 24, rb_comm);
+        store64(ah + 32, rb_lim);
+        aj = 0;
+        rb_r = 0;
+    }
+}
+
+# cell_w / payload_w / refs_w: the writable accessors; 0 when the log says no.
+sub s_cell_w(Zh_cell_w) {
+    callsub s_cell(Zh_cell_w);
+    cw_r = 0;
+    if (ce_r != 0) {
+        callsub s_before_write(ce_r - ab, 64);
+        if (bw_r == 0) {
+            cw_r = ce_r;
+        }
+    }
+}
+
+sub s_payload_w(Zh_payload_w) {
+    callsub s_cell(Zh_payload_w);
+    pw_r = 0;
+    if (ce_r != 0) {
+        callsub s_before_write(ce_r + 64 - ab, load64(ce_r + 16));
+        if (bw_r == 0) {
+            pw_r = ce_r + 64;
+        }
+    }
+}
+
+sub s_refs_w(Zh_refs_w) {
+    var rw_p;
+    callsub s_cell(Zh_refs_w);
+    rw_r = 0;
+    if (ce_r != 0) {
+        rw_p = ce_r + 64 + ((load64(ce_r + 16) + 15) & ~15);
+        callsub s_before_write(rw_p - ab, 24 * load32(ce_r + 44));
+        if (bw_r == 0) {
+            rw_r = rw_p;
+        }
+    }
+}
+
+# ---- verify(): every invariant of the layout, walking the whole arena ---------------------------
+
+macro m_verify() {
+    var v_at;
+    var v_end;
+    var v_chunks;
+    var v_objects;
+    var v_names;
+    var v_c;
+    var v_size;
+    var v_kind;
+    var v_free;
+    var v_live;
+    var v_i;
+    var v_e;
+    var v_p;
+    var v_r;
+    var v_k;
+    var v_chain;
+    var v_next;
+    var v_go;
+    var v_j;
+    vf_r = 3;
+    vf_ok = 1;
+    if (ah == 0) {
+        vf_ok = 0;
+    }
+    if (load8(ah) != 82 | load8(ah + 1) != 88 | load8(ah + 2) != 70 | load8(ah + 3) != 66) {
+        vf_ok = 0;
+    }
+    if (load32(ah + 4) != 6 | load32(ah + 8) != 192) {
+        vf_ok = 0;
+    }
+    if (load32(ah + 120) != 16 | load64(ah + 48) != 192) {
+        vf_ok = 0;
+    }
+    if (load64(ah + 56) < load64(ah + 48) | load64(ah + 56) % 64 != 0 |
+        (load64(ah + 56) - load64(ah + 48)) % 64 != 0) {
+        vf_ok = 0;
+    }
+    if (load64(ah + 40) % 16 != 0 | load64(ah + 16) != load64(ah + 56) + load64(ah + 40)) {
+        vf_ok = 0;
+    }
+    if (load64(ah + 16) > load64(ah + 24) | load64(ah + 24) > acomm) {
+        vf_ok = 0;
+    }
+    if (load64(ah + 32) != 0xFFFFFFFFFFFFFFFF) {
+        if (load64(ah + 24) > load64(ah + 32)) {
+            vf_ok = 0;
+        }
+    }
+    v_j = 0;
+    while (v_j < 64) {
+        if (load8(ah + 128 + v_j) != 0) {
+            vf_ok = 0;
+        }
+        v_j = v_j + 1;
+    }
+    if (load64(ah + 80) > (load64(ah + 56) - load64(ah + 48)) / 8) {
+        vf_ok = 0;
+    }
+    if (load64(ah + 88) > load64(ah + 80) * 4096) {
+        vf_ok = 0;
+    }
+    if (vf_ok == 1) {
+        v_at = load64(ah + 56);
+        v_end = load64(ah + 56) + load64(ah + 40);
+        v_chunks = 0;
+        v_objects = 0;
+        v_names = 0;
+        if (load64(ah + 64) == 0) {
+            v_names = 1;
+        }
+        while (v_at < v_end & vf_ok == 1) {
+            if (v_end - v_at < 64) {
+                vf_ok = 0;
+            } else {
+                v_c = ab + v_at;
+                if (load32(v_c + 60) != 0) {
+                    vf_ok = 0;
+                }
+                if (load64(v_c + 16) > 281474976710656 | load32(v_c + 44) > 16777216) {
+                    vf_ok = 0;
+                }
+                callsub s_cb(load64(v_c + 16), load32(v_c + 44));
+                v_size = cb_r;
+                if (v_size > v_end - v_at) {
+                    vf_ok = 0;
+                } else {
+                    callsub s_kd(v_c);
+                    v_kind = kd_r;
+                    if (v_kind == 255) {
+                        if (load64(v_c) == 1) {
+                            if (v_chunks >= load64(ah + 80)) {
+                                vf_ok = 0;
+                            } else {
+                                if (load64(ab + load64(ah + 48) + 8 * v_chunks) != v_at) {
+                                    vf_ok = 0;
+                                }
+                                if (load64(v_c + 16) != 32768) {
+                                    vf_ok = 0;
+                                }
+                                v_chunks = v_chunks + 1;
+                            }
+                        } else {
+                            if (load64(v_c) == 2) {
+                                if (v_at == load64(ah + 64)) {
+                                    if (load64(ah + 72) > load64(v_c + 16)) {
+                                        vf_ok = 0;
+                                    } else {
+                                        v_names = 1;
+                                    }
+                                }
+                            } else {
+                                vf_ok = 0;
+                            }
+                        }
+                    } else {
+                        if (v_kind != 254) {
+                            v_objects = v_objects + 1;
+                        }
+                    }
+                    v_at = v_at + v_size;
+                }
+            }
+        }
+        if (v_at != v_end) {
+            vf_ok = 0;
+        }
+        if (v_chunks != load64(ah + 80) | v_names == 0) {
+            vf_ok = 0;
+        }
+    }
+    if (vf_ok == 1) {
+        v_free = 0;
+        v_live = 0;
+        v_end = load64(ah + 56) + load64(ah + 40);
+        v_i = 0;
+        while (v_i < load64(ah + 88) & vf_ok == 1) {
+            callsub s_slot(v_i);
+            v_e = load64(sp_r);
+            if ((v_e & 1) != 0) {
+                v_free = v_free + 1;
+            } else {
+                if (v_e < load64(ah + 56) | v_e >= v_end | v_e % 16 != 0) {
+                    vf_ok = 0;
+                } else {
+                    v_c = ab + v_e;
+                    callsub s_kd(v_c);
+                    v_kind = kd_r;
+                    if (v_kind == 255 | v_kind == 254) {
+                        vf_ok = 0;
+                    } else {
+                        if (load64(v_c) != 0xFFFFFFFFFFFFFFFF) {
+                            if (load64(v_c) >= load64(ah + 88)) {
+                                vf_ok = 0;
+                            }
+                        }
+                        if (load64(v_c + 8) != 0xFFFFFFFFFFFFFFFF) {
+                            if (load64(v_c + 8) >= load64(ah + 88)) {
+                                vf_ok = 0;
+                            }
+                        }
+                        if (load64(v_c + 32) != 0 & vf_ok == 1) {
+                            if (load64(v_c + 32) < load64(ah + 56) + 64) {
+                                vf_ok = 0;
+                            } else {
+                                v_p = load64(v_c + 32);
+                                while (v_p < v_end & load8(ab + v_p) != 0) {
+                                    v_p = v_p + 1;
+                                }
+                                if (v_p >= v_end) {
+                                    vf_ok = 0;
+                                }
+                            }
+                        }
+                        if (vf_ok == 1) {
+                            v_r = v_c + 64 + ((load64(v_c + 16) + 15) & ~15);
+                            v_k = 0;
+                            while (v_k < load32(v_c + 44) & vf_ok == 1) {
+                                if (load64(v_r + 24 * v_k) != 0xFFFFFFFFFFFFFFFF) {
+                                    if (load64(v_r + 24 * v_k) >= load64(ah + 88)) {
+                                        vf_ok = 0;
+                                    }
+                                }
+                                if (load64(v_r + 24 * v_k + 8) != 0xFFFFFFFFFFFFFFFF) {
+                                    if (load64(v_r + 24 * v_k + 8) >= load64(ah + 88)) {
+                                        vf_ok = 0;
+                                    }
+                                }
+                                v_k = v_k + 1;
+                            }
+                        }
+                        if (vf_ok == 1) {
+                            v_live = v_live + 1;
+                        }
+                    }
+                }
+            }
+            v_i = v_i + 1;
+        }
+        if (v_live != v_objects) {
+            vf_ok = 0;
+        }
+    }
+    if (vf_ok == 1) {
+        v_chain = 0;
+        v_next = load64(ah + 96);
+        v_go = 1;
+        while (v_go == 1 & vf_ok == 1) {
+            if (v_next == 0xFFFFFFFFFFFFFFFF) {
+                v_go = 0;
+            } else {
+                if (v_next >= load64(ah + 88)) {
+                    vf_ok = 0;
+                } else {
+                    v_chain = v_chain + 1;
+                    if (v_chain > v_free) {
+                        vf_ok = 0;
+                    } else {
+                        callsub s_slot(v_next);
+                        v_e = load64(sp_r);
+                        if ((v_e & 1) == 0) {
+                            vf_ok = 0;
+                        } else {
+                            if (v_e == 0xFFFFFFFFFFFFFFFF) {
+                                v_next = 0xFFFFFFFFFFFFFFFF;
+                            } else {
+                                v_next = v_e >> 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (v_chain != v_free) {
+            vf_ok = 0;
+        }
+    }
+    if (vf_ok == 1) {
+        vf_r = 0;
+    }
+}
+
+# ---- the session: scratch, the lookup table, the names (core/live/live.cpp) ----------------------
+
+sub s_scratch_reset() {
+    sat = sbase;
+}
+
+# take(bytes) -> tk_r: 16-aligned bytes of the work region, or 0.
+sub s_take(Zbytes_take) {
+    var tk_n;
+    tk_n = (Zbytes_take + 15) & ~15;
+    if (send - sat < tk_n) {
+        tk_r = 0;
+    } else {
+        tk_r = sat;
+        sat = sat + tk_n;
+    }
+}
+
+# name_hash(parent, p, n) -> nh_r (wrapping 64-bit arithmetic, as in the C++)
+sub s_name_hash(Zparent_name_hash, Zp_name_hash, Zn_name_hash) {
+    var nh_i;
+    var nh_h;
+    nh_h = 1469598103934665603 ^ (Zparent_name_hash * 0x9E3779B97F4A7C15);
+    nh_i = 0;
+    while (nh_i < Zn_name_hash) {
+        nh_h = nh_h ^ load8(Zp_name_hash + nh_i);
+        nh_h = nh_h * 1099511628211;
+        nh_i = nh_i + 1;
+    }
+    nh_r = (nh_h ^ (nh_h >> 32)) & 0xFFFFFFFF;
+}
+
+# name_equals(h, p, n) -> ne_r (1/0)
+macro m_name_eq(Zh, Zp, Zn) {
+    var ne_i;
+    callsub s_name(Zh);
+    ne_r = 1;
+    ne_i = 0;
+    while (ne_i < Zn & ne_r == 1) {
+        if (load8(nm_r + ne_i) != load8(Zp + ne_i)) {
+            ne_r = 0;
+        }
+        ne_i = ne_i + 1;
+    }
+    if (load8(nm_r + Zn) != 0) {
+        ne_r = 0;
+    }
+}
+
+# home_of(h) -> hm_r
+sub s_home(Zh_home) {
+    var hm_c;
+    callsub s_cell(Zh_home);
+    hm_c = ce_r;
+    callsub s_name(Zh_home);
+    callsub s_len(nm_r);
+    callsub s_name_hash(load64(hm_c + 8), nm_r, len_r);
+    hm_r = nh_r;
+}
+
+# find_child(parent, p, n) -> fc_r (handle or kNone)
+sub s_find_child(Zparent_find_child, Zp_find_child, Zn_find_child) {
+    var fc_mask;
+    var fc_i;
+    var fc_e;
+    var fc_done;
+    fc_mask = slts - 1;
+    callsub s_name_hash(Zparent_find_child, Zp_find_child, Zn_find_child);
+    fc_i = nh_r & fc_mask;
+    fc_r = 0xFFFFFFFFFFFFFFFF;
+    fc_done = 0;
+    while (fc_done == 0) {
+        fc_e = load32(taddr + 4 * fc_i);
+        if (fc_e == 0) {
+            fc_done = 1;
+        } else {
+            callsub s_cell(fc_e - 1);
+            if (ce_r != 0) {
+                if (load64(ce_r + 8) == Zparent_find_child) {
+                    m_name_eq(fc_e - 1, Zp_find_child, Zn_find_child);
+                    if (ne_r == 1) {
+                        fc_r = fc_e - 1;
+                        fc_done = 1;
+                    }
+                }
+            }
+            if (fc_done == 0) {
+                fc_i = (fc_i + 1) & fc_mask;
+            }
+        }
+    }
+}
+
+# table_insert(h) -> tin_r (1 ok, 0 the name is taken or the table is full)
+sub s_table_ins(Zh_table_ins) {
+    var tin_c;
+    var tin_mask;
+    var tin_i;
+    var tin_n;
+    callsub s_cell(Zh_table_ins);
+    tin_c = ce_r;
+    callsub s_name(Zh_table_ins);
+    callsub s_len(nm_r);
+    tin_n = len_r;
+    tin_r = 1;
+    if (Zh_table_ins >= 0xFFFFFFF0) {
+        tin_r = 0;
+    }
+    if (load64(ah + 88) * 2 > slts) {
+        tin_r = 0;
+    }
+    if (tin_r == 1) {
+        callsub s_find_child(load64(tin_c + 8), nm_r, tin_n);
+        if (fc_r != 0xFFFFFFFFFFFFFFFF) {
+            tin_r = 0;
+        }
+    }
+    if (tin_r == 1) {
+        tin_mask = slts - 1;
+        callsub s_name_hash(load64(tin_c + 8), nm_r, tin_n);
+        tin_i = nh_r & tin_mask;
+        while (load32(taddr + 4 * tin_i) != 0) {
+            tin_i = (tin_i + 1) & tin_mask;
+        }
+        store32(taddr + 4 * tin_i, Zh_table_ins + 1);
+    }
+}
+
+# table_remove(h): backward-shift deletion (Knuth), as in the C++
+macro m_table_del(Zh) {
+    var tdl_mask;
+    var tdl_i;
+    var tdl_j;
+    var tdl_k;
+    var tdl_between;
+    var tdl_done;
+    var tdl_inner;
+    tdl_mask = slts - 1;
+    callsub s_home(Zh);
+    tdl_i = hm_r & tdl_mask;
+    while (load32(taddr + 4 * tdl_i) != 0 & load32(taddr + 4 * tdl_i) != Zh + 1) {
+        tdl_i = (tdl_i + 1) & tdl_mask;
+    }
+    if (load32(taddr + 4 * tdl_i) != 0) {
+        tdl_done = 0;
+        while (tdl_done == 0) {
+            tdl_j = tdl_i;
+            tdl_inner = 0;
+            while (tdl_inner == 0) {
+                tdl_j = (tdl_j + 1) & tdl_mask;
+                if (load32(taddr + 4 * tdl_j) == 0) {
+                    store32(taddr + 4 * tdl_i, 0);
+                    tdl_done = 1;
+                    tdl_inner = 1;
+                } else {
+                    callsub s_home(load32(taddr + 4 * tdl_j) - 1);
+                    tdl_k = hm_r & tdl_mask;
+                    tdl_between = 0;
+                    if (tdl_i <= tdl_j) {
+                        if (tdl_i < tdl_k & tdl_k <= tdl_j) {
+                            tdl_between = 1;
+                        }
+                    } else {
+                        if (tdl_i < tdl_k | tdl_k <= tdl_j) {
+                            tdl_between = 1;
+                        }
+                    }
+                    if (tdl_between == 0) {
+                        tdl_inner = 1;
+                    }
+                }
+            }
+            if (tdl_done == 0) {
+                store32(taddr + 4 * tdl_i, load32(taddr + 4 * tdl_j));
+                tdl_i = tdl_j;
+            }
+        }
+    }
+}
+
+# build_table() -> bt_r (1/0): the (parent, name) -> handle index, open addressing.
+sub s_build_table() {
+    var bt_h;
+    var bt_n;
+    callsub s_zero(taddr, 4 * slts);
+    bt_r = 1;
+    bt_n = load64(ah + 88);
+    bt_h = 0;
+    while (bt_h < bt_n & bt_r == 1) {
+        callsub s_cell(bt_h);
+        if (ce_r != 0) {
+            if (load64(ce_r + 8) != 0xFFFFFFFFFFFFFFFF) {
+                callsub s_table_ins(bt_h);
+                bt_r = tin_r;
+            }
+        }
+        bt_h = bt_h + 1;
+    }
+}
+
+# resolve(p, n) -> rv_r (handle)
+sub s_resolve(Zp_resolve, Zn_resolve) {
+    var rv_start;
+    var rv_end;
+    var rv_go;
+    rv_r = load64(ah + 112);
+    if (rv_r != 0xFFFFFFFFFFFFFFFF) {
+        if (Zn_resolve != 0) {
+            rv_start = 0;
+            rv_end = 0;
+            rv_go = 1;
+            while (rv_go == 1) {
+                rv_end = rv_start;
+                while (rv_end < Zn_resolve & load8(Zp_resolve + rv_end) != 46) {
+                    rv_end = rv_end + 1;
+                }
+                callsub s_find_child(rv_r, Zp_resolve + rv_start, rv_end - rv_start);
+                rv_r = fc_r;
+                if (rv_r == 0xFFFFFFFFFFFFFFFF) {
+                    rv_go = 0;
+                } else {
+                    if (rv_end >= Zn_resolve) {
+                        rv_go = 0;
+                    } else {
+                        rv_start = rv_end + 1;
+                    }
+                }
+            }
+        }
+    }
+}
+
+# path_of(h, out, capacity) -> po_r (1/0), po_n (the length written)
+sub s_path_of(Zh_path_of, Zout_path_of, Zcap_path_of) {
+    var po_total;
+    var po_depth;
+    var po_pos;
+    var po_leaf;
+    var po_at;
+    var po_go;
+    po_n = 0;
+    po_total = 0;
+    po_depth = 0;
+    po_at = Zh_path_of;
+    po_r = 1;
+    po_go = 1;
+    while (po_go == 1) {
+        if (po_at == 0xFFFFFFFFFFFFFFFF) {
+            po_go = 0;
+        } else {
+            callsub s_cell(po_at);
+            if (ce_r == 0) {
+                po_r = 0;
+                po_go = 0;
+            } else {
+                if (load64(ce_r + 8) == 0xFFFFFFFFFFFFFFFF) {
+                    po_go = 0;
+                } else {
+                    callsub s_name(po_at);
+                    callsub s_len(nm_r);
+                    po_total = po_total + len_r;
+                    if (po_depth != 0) {
+                        po_total = po_total + 1;
+                    }
+                    po_depth = po_depth + 1;
+                    if (po_depth > 512 | po_total > Zcap_path_of) {
+                        po_r = 0;
+                        po_go = 0;
+                    } else {
+                        po_at = load64(ce_r + 8);
+                    }
+                }
+            }
+        }
+    }
+    if (po_r == 1) {
+        po_pos = po_total;
+        po_leaf = 1;
+        po_at = Zh_path_of;
+        po_go = 1;
+        while (po_go == 1) {
+            if (po_at == 0xFFFFFFFFFFFFFFFF) {
+                po_go = 0;
+            } else {
+                callsub s_cell(po_at);
+                if (load64(ce_r + 8) == 0xFFFFFFFFFFFFFFFF) {
+                    po_go = 0;
+                } else {
+                    callsub s_name(po_at);
+                    callsub s_len(nm_r);
+                    po_n = len_r;
+                    if (po_leaf == 1) {
+                        po_pos = po_pos - po_n;
+                        callsub s_cpy(Zout_path_of + po_pos, nm_r, po_n);
+                    } else {
+                        po_pos = po_pos - po_n - 1;
+                        callsub s_cpy(Zout_path_of + po_pos, nm_r, po_n);
+                        store8(Zout_path_of + po_pos + po_n, 46);
+                    }
+                    po_leaf = 0;
+                    po_at = load64(ce_r + 8);
+                }
+            }
+        }
+        po_n = po_total;
+    }
+}
+
+# less(a, b) -> lss_r (1 when a's name sorts before b's)
+sub s_less(Za_less, Zb_less) {
+    var lss_i;
+    var lss_x;
+    var lss_y;
+    var lss_go;
+    callsub s_name(Za_less);
+    lss_x = nm_r;
+    callsub s_name(Zb_less);
+    lss_y = nm_r;
+    lss_i = 0;
+    lss_r = 0;
+    lss_go = 1;
+    while (lss_go == 1) {
+        if (load8(lss_x + lss_i) != load8(lss_y + lss_i)) {
+            lss_r = 0;
+            if (load8(lss_x + lss_i) < load8(lss_y + lss_i)) {
+                lss_r = 1;
+            }
+            lss_go = 0;
+        } else {
+            if (load8(lss_x + lss_i) == 0) {
+                lss_r = 0;
+                lss_go = 0;
+            } else {
+                lss_i = lss_i + 1;
+            }
+        }
+    }
+}
+
+# ---- children, types, payload references (core/live/live.cpp) -----------------------------------
+# The per-request structure of the session: n_kids (handle count), kstart/klist (the children
+# lists, sorted by name where asked), kmemo/kpool/kpfx (the reference layout per Type) live in the
+# scratch region; empty0 holds the one word `0` a type without references points at.
+
+# sift(a, root, end): heap sift of the u32 handles at Za, ascending by name.
+sub s_sift(Za_sift, Zroot_sift, Zend_sift) {
+    var hs_root;
+    var hs_child;
+    var hs_t;
+    var hs_go;
+    hs_root = Zroot_sift;
+    hs_go = 1;
+    while (hs_go == 1) {
+        hs_child = 2 * hs_root + 1;
+        if (hs_child >= Zend_sift) {
+            hs_go = 0;
+        } else {
+            if (hs_child + 1 < Zend_sift) {
+                callsub s_less(load32(Za_sift + 4 * hs_child), load32(Za_sift + 4 * (hs_child + 1)));
+                if (lss_r == 1) {
+                    hs_child = hs_child + 1;
+                }
+            }
+            callsub s_less(load32(Za_sift + 4 * hs_root), load32(Za_sift + 4 * hs_child));
+            if (lss_r == 0) {
+                hs_go = 0;
+            } else {
+                hs_t = load32(Za_sift + 4 * hs_root);
+                store32(Za_sift + 4 * hs_root, load32(Za_sift + 4 * hs_child));
+                store32(Za_sift + 4 * hs_child, hs_t);
+                hs_root = hs_child;
+            }
+        }
+    }
+}
+
+# build_kids(sorted) -> bk_r (1/0): every object's children as a list in `list`, delimited by
+# `start`, each sorted by name when asked.
+sub s_build_kids(Zsorted_build_kids) {
+    var bk_cursor;
+    var bk_h;
+    var bk_i;
+    var bk_p;
+    var bk_a;
+    var bk_count;
+    var bk_s;
+    var bk_e;
+    var bk_t;
+    n_kids = load64(ah + 88);
+    bk_r = 1;
+    callsub s_take(4 * (n_kids + 1));
+    kstart = tk_r;
+    callsub s_take(4 * (n_kids + 1));
+    bk_cursor = tk_r;
+    if (kstart == 0 | bk_cursor == 0) {
+        bk_r = 0;
+    } else {
+        callsub s_zero(kstart, 4 * (n_kids + 1));
+        bk_h = 0;
+        while (bk_h < n_kids) {
+            callsub s_cell(bk_h);
+            if (ce_r != 0) {
+                if (load64(ce_r + 8) != 0xFFFFFFFFFFFFFFFF) {
+                    if (load64(ce_r + 8) < n_kids) {
+                        store32(kstart + 4 * (load64(ce_r + 8) + 1),
+                                load32(kstart + 4 * (load64(ce_r + 8) + 1)) + 1);
+                    }
+                }
+            }
+            bk_h = bk_h + 1;
+        }
+        bk_i = 0;
+        while (bk_i < n_kids) {
+            store32(kstart + 4 * (bk_i + 1),
+                    load32(kstart + 4 * (bk_i + 1)) + load32(kstart + 4 * bk_i));
+            bk_i = bk_i + 1;
+        }
+        callsub s_take(4 * (load32(kstart + 4 * n_kids) + 1));
+        klist = tk_r;
+        if (klist == 0) {
+            bk_r = 0;
+        } else {
+            callsub s_cpy(bk_cursor, kstart, 4 * (n_kids + 1));
+            bk_h = 0;
+            while (bk_h < n_kids) {
+                callsub s_cell(bk_h);
+                if (ce_r != 0) {
+                    if (load64(ce_r + 8) != 0xFFFFFFFFFFFFFFFF) {
+                        if (load64(ce_r + 8) < n_kids) {
+                            store32(klist + 4 * load32(bk_cursor + 4 * load64(ce_r + 8)), bk_h);
+                            store32(bk_cursor + 4 * load64(ce_r + 8),
+                                    load32(bk_cursor + 4 * load64(ce_r + 8)) + 1);
+                        }
+                    }
+                }
+                bk_h = bk_h + 1;
+            }
+            if (Zsorted_build_kids != 0) {
+                bk_p = 0;
+                while (bk_p < n_kids) {
+                    bk_a = klist + 4 * load32(kstart + 4 * bk_p);
+                    bk_count = load32(kstart + 4 * (bk_p + 1)) - load32(kstart + 4 * bk_p);
+                    if (bk_count >= 2) {
+                        bk_s = bk_count / 2;
+                        while (bk_s != 0) {
+                            bk_s = bk_s - 1;
+                            callsub s_sift(bk_a, bk_s, bk_count);
+                        }
+                        bk_e = bk_count - 1;
+                        while (bk_e != 0) {
+                            bk_t = load32(bk_a);
+                            store32(bk_a, load32(bk_a + 4 * bk_e));
+                            store32(bk_a + 4 * bk_e, bk_t);
+                            callsub s_sift(bk_a, 0, bk_e);
+                            bk_e = bk_e - 1;
+                        }
+                    }
+                    bk_p = bk_p + 1;
+                }
+            }
+        }
+    }
+}
+
+# type_info(t, buf) -> tif_r (1/0): the 48-byte Type payload, and its descriptor tag.
+sub s_type_info(Zt_type_info, Zbuf_type_info) {
+    callsub s_cell(Zt_type_info);
+    tif_r = 0;
+    if (ce_r != 0) {
+        if (load64(ce_r) == 1) {
+            if (load64(ce_r + 16) == 48) {
+                callsub s_cpy(Zbuf_type_info, ce_r + 64, 48);
+                if (load32(Zbuf_type_info) == 0x54595045) {
+                    tif_r = 1;
+                }
+            }
+        }
+    }
+}
+
+# field_info(f, buf) -> fif_r (1/0): the 48-byte Field payload, not CHILDREN/INVERSE.
+sub s_field_info(Zf_field_info, Zbuf_field_info) {
+    callsub s_cell(Zf_field_info);
+    fif_r = 0;
+    if (ce_r != 0) {
+        if (load64(ce_r) == 2) {
+            if (load64(ce_r + 16) == 48) {
+                callsub s_cpy(Zbuf_field_info, ce_r + 64, 48);
+                if (load32(Zbuf_field_info) == 0x464C4420) {
+                    if ((load32(Zbuf_field_info + 4) & 0x30) == 0) {
+                        fif_r = 1;
+                    }
+                }
+            }
+        }
+    }
+}
+
+# has_fields(t) -> hf_r (1/0): a readable Field among the children of the type.
+sub s_has_fields(Zt_has_fields) {
+    var hf_k;
+    hf_r = 0;
+    if (Zt_has_fields < n_kids) {
+        hf_k = load32(kstart + 4 * Zt_has_fields);
+        while (hf_k < load32(kstart + 4 * (Zt_has_fields + 1)) & hf_r == 0) {
+            callsub s_field_info(load32(klist + 4 * hf_k), flH);
+            if (fif_r == 1) {
+                hf_r = 1;
+            }
+            hf_k = hf_k + 1;
+        }
+    }
+}
+
+# refs_of(type) -> ro_r (1/0), ro_words (the u32 words: count, then the payload offsets; bit 31:
+# the reference may be unset). The frames of the depth-first walk are the 72-byte records of the
+# `rframes` region: type 0, pos 8, end 12, base 16, vtype 24, voff 32, vsize 40, vcount 48,
+# i 56, active 64.
+sub s_refs_of(Ztype_refs_of) {
+    var ro_nrefs;
+    var ro_leaves;
+    var ro_none;
+    var ro_sp;
+    var ro_f;
+    var ro_g;
+    var ro_at;
+    var ro_fh;
+    var ro_end;
+    var ro_x;
+    var ro_y;
+    var ro_k;
+    var ro_it;
+    var ro_skip;
+    var ro_go_extent;
+    ro_r = 1;
+    store32(empty0, 0);
+    if (Ztype_refs_of == 0xFFFFFFFFFFFFFFFF | Ztype_refs_of >= n_kids) {
+        ro_words = empty0;
+    } else {
+        if (load32(kmemo + 4 * Ztype_refs_of) != 0) {
+            if (load32(kmemo + 4 * Ztype_refs_of) == 1) {
+                ro_words = empty0;
+            } else {
+                ro_words = kpool + 4 * (load32(kmemo + 4 * Ztype_refs_of) - 2);
+            }
+        } else {
+            ro_nrefs = 0;
+            ro_leaves = 0;
+            ro_none = 0;
+            callsub s_type_info(Ztype_refs_of, tyT);
+            if (tif_r == 0) {
+                ro_none = 1;
+            } else {
+                if (load32(tyT + 4) == 8) {
+                    ro_none = 1;
+                } else {
+                    callsub s_has_fields(Ztype_refs_of);
+                    if (hf_r == 0) {
+                        ro_none = 1;
+                    }
+                }
+            }
+            if (ro_none == 0) {
+                store64(rframes, Ztype_refs_of);
+                store32(rframes + 8, load32(kstart + 4 * Ztype_refs_of));
+                store32(rframes + 12, load32(kstart + 4 * (Ztype_refs_of + 1)));
+                store64(rframes + 16, 0);
+                store8(rframes + 64, 0);
+                ro_sp = 1;
+                while (ro_sp > 0 & ro_none == 0 & ro_r == 1) {
+                    ro_f = rframes + 72 * (ro_sp - 1);
+                    ro_skip = 0;
+                    ro_go_extent = 0;
+                    if (load8(ro_f + 64) != 0) {
+                        if (load64(ro_f + 56) < load64(ro_f + 48)) {
+                            ro_at = load64(ro_f + 16) + load64(ro_f + 32) +
+                                    load64(ro_f + 56) * load64(ro_f + 40);
+                            store64(ro_f + 56, load64(ro_f + 56) + 1);
+                            ro_g = rframes + 72 * ro_sp;
+                            store64(ro_g, load64(ro_f + 24));
+                            store32(ro_g + 8, load32(kstart + 4 * load64(ro_f + 24)));
+                            store32(ro_g + 12, load32(kstart + 4 * (load64(ro_f + 24) + 1)));
+                            store64(ro_g + 16, ro_at);
+                            store8(ro_g + 64, 0);
+                            ro_sp = ro_sp + 1;
+                            ro_skip = 1;
+                        } else {
+                            store8(ro_f + 64, 0);
+                        }
+                    }
+                    if (ro_skip == 0) {
+                        if (load32(ro_f + 8) == load32(ro_f + 12)) {
+                            ro_sp = ro_sp - 1;
+                            ro_skip = 1;
+                        }
+                    }
+                    if (ro_skip == 0) {
+                        ro_fh = load32(klist + 4 * load32(ro_f + 8));
+                        store32(ro_f + 8, load32(ro_f + 8) + 1);
+                        callsub s_field_info(ro_fh, flF);
+                        if (fif_r == 0) {
+                            ro_skip = 1;
+                        }
+                    }
+                    if (ro_skip == 0) {
+                        callsub s_type_info(load64(flF + 16), tyV);
+                        if (tif_r == 0) {
+                            ro_none = 1;
+                        }
+                        if (load64(flF + 32) == 0 | load64(flF + 32) > 2147483648) {
+                            ro_none = 1;
+                        }
+                        if (load64(flF + 24) > 2147483648 | load64(tyV + 8) > 2147483648) {
+                            ro_none = 1;
+                        }
+                        if (ro_none == 0) {
+                            if ((load32(flF + 4) & 8) != 0) {
+                                if (ro_nrefs >= 128 | ro_leaves >= 256) {
+                                    ro_r = 0;
+                                } else {
+                                    if (load32(tyV + 4) != 3 | load64(tyV + 8) != 8) {
+                                        ro_none = 1;
+                                    } else {
+                                        if (load64(flF + 32) != 1) {
+                                            ro_none = 1;
+                                        } else {
+                                            if (load64(ro_f + 16) + load64(flF + 24) >= 1073741824) {
+                                                ro_none = 1;
+                                            } else {
+                                                ro_end = load64(ro_f + 16) + load64(flF + 24);
+                                                store32(roffsets + 4 * ro_nrefs, ro_end);
+                                                if ((load32(flF + 4) & 2) != 0) {
+                                                    store32(roffsets + 4 * ro_nrefs,
+                                                            load32(roffsets + 4 * ro_nrefs) | 0x80000000);
+                                                }
+                                                ro_nrefs = ro_nrefs + 1;
+                                                store64(rext_off + 8 * ro_leaves, ro_end);
+                                                store64(rext_end + 8 * ro_leaves, ro_end + 8);
+                                                ro_leaves = ro_leaves + 1;
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (load32(tyV + 4) == 7) {
+                                    callsub s_has_fields(load64(flF + 16));
+                                    if (hf_r == 1) {
+                                        if (ro_sp - 1 >= 6) {
+                                            ro_none = 1;
+                                        } else {
+                                            store64(ro_f + 24, load64(flF + 16));
+                                            store64(ro_f + 32, load64(flF + 24));
+                                            store64(ro_f + 40, load64(tyV + 8));
+                                            store64(ro_f + 48, load64(flF + 32));
+                                            store64(ro_f + 56, 0);
+                                            store8(ro_f + 64, 1);
+                                        }
+                                    } else {
+                                        ro_go_extent = 1;
+                                    }
+                                } else {
+                                    ro_go_extent = 1;
+                                }
+                                if (ro_go_extent == 1) {
+                                    if (ro_leaves >= 256) {
+                                        ro_r = 0;
+                                    } else {
+                                        if (load64(tyV + 8) == 0) {
+                                            ro_none = 1;
+                                        } else {
+                                            store64(rext_off + 8 * ro_leaves,
+                                                    load64(ro_f + 16) + load64(flF + 24));
+                                            store64(rext_end + 8 * ro_leaves,
+                                                    load64(ro_f + 16) + load64(flF + 24) +
+                                                        load64(tyV + 8) * load64(flF + 32));
+                                            ro_leaves = ro_leaves + 1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (ro_r == 1) {
+                # fields that overlap are a union in disguise: raw bytes, no references
+                if (ro_none == 0) {
+                    ro_x = 0;
+                    while (ro_x < ro_leaves & ro_none == 0) {
+                        ro_y = ro_x + 1;
+                        while (ro_y < ro_leaves & ro_none == 0) {
+                            if (load64(rext_off + 8 * ro_x) < load64(rext_end + 8 * ro_y)) {
+                                if (load64(rext_off + 8 * ro_y) < load64(rext_end + 8 * ro_x)) {
+                                    ro_none = 1;
+                                }
+                            }
+                            ro_y = ro_y + 1;
+                        }
+                        ro_x = ro_x + 1;
+                    }
+                }
+                if (ro_none == 0) {
+                    if (load64(tyT + 8) != 0) {
+                        if ((load32(tyT + 36) & 1) == 0) {
+                            ro_end = 0;
+                            ro_x = 0;
+                            while (ro_x < ro_leaves) {
+                                if (load64(rext_end + 8 * ro_x) > ro_end) {
+                                    ro_end = load64(rext_end + 8 * ro_x);
+                                }
+                                ro_x = ro_x + 1;
+                            }
+                            if (ro_end > load64(tyT + 8)) {
+                                ro_none = 1;
+                            }
+                        }
+                    }
+                }
+                if (ro_none == 0) {
+                    if ((load32(tyT + 36) & 1) != 0) {
+                        # the fixed part of a variable type ends where its last field ends
+                        ro_end = 0;
+                        ro_x = 0;
+                        while (ro_x < ro_leaves) {
+                            if (load64(rext_end + 8 * ro_x) > ro_end) {
+                                ro_end = load64(rext_end + 8 * ro_x);
+                            }
+                            ro_x = ro_x + 1;
+                        }
+                        if (ro_end > 0xFFFFFFFF) {
+                            store32(kpfx + 4 * Ztype_refs_of, 0xFFFFFFFF);
+                        } else {
+                            store32(kpfx + 4 * Ztype_refs_of, ro_end);
+                        }
+                    }
+                }
+                if (ro_none == 1 | ro_nrefs == 0) {
+                    store32(kmemo + 4 * Ztype_refs_of, 1);
+                    ro_words = empty0;
+                } else {
+                    if (pool_len + 1 + ro_nrefs > 16384) {
+                        ro_r = 0;
+                    } else {
+                        store32(kmemo + 4 * Ztype_refs_of, pool_len + 2);
+                        store32(kpool + 4 * pool_len, ro_nrefs);
+                        ro_k = 0;
+                        while (ro_k < ro_nrefs) {
+                            store32(kpool + 4 * (pool_len + 1 + ro_k),
+                                    load32(roffsets + 4 * ro_k));
+                            ro_k = ro_k + 1;
+                        }
+                        ro_words = kpool + 4 * pool_len;
+                        pool_len = pool_len + 1 + ro_nrefs;
+                    }
+                }
+            }
+        }
+    }
+}
+
+# prepare_types() -> pt_r (1/0): the memo, the pool of reference layouts, the prefixes.
+sub s_prep_types() {
+    callsub s_take(4 * (n_kids + 1));
+    kmemo = tk_r;
+    callsub s_take(4 * 16384);
+    kpool = tk_r;
+    pt_r = 1;
+    if (kmemo == 0 | kpool == 0) {
+        pt_r = 0;
+    } else {
+        callsub s_take(4 * (n_kids + 1));
+        kpfx = tk_r;
+        if (kpfx == 0) {
+            pt_r = 0;
+        } else {
+            callsub s_zero(kmemo, 4 * (n_kids + 1));
+            callsub s_zero(kpfx, 4 * (n_kids + 1));
+            pool_len = 0;
+            store32(empty0, 0);
+        }
+    }
+}
+
+# ---- state words of a cell (live.cpp:46) and the literals the linker names ---------------------
+
+sub s_state_of(Zc_state_of) {
+    so_r = (load32(Zc_state_of + 40) >> 8) & 63;
+}
+
+macro m_disp_of(Zc) {
+    callsub s_state_of(Zc);
+    disp_r = (so_r >> 1) & 3;
+}
+
+sub s_mob_of(Zc_mob_of) {
+    callsub s_state_of(Zc_mob_of);
+    mob_r = (so_r >> 4) & 3;
+}
+
+# The literals of live.cpp:1257 (`literal<N>`): bytes from immediates in `lit`.
+macro m_lit_pymergetic() {
+    store8(lit, 112); store8(lit + 1, 121); store8(lit + 2, 109); store8(lit + 3, 101);
+    store8(lit + 4, 114); store8(lit + 5, 103); store8(lit + 6, 101); store8(lit + 7, 116);
+    store8(lit + 8, 105); store8(lit + 9, 99);
+}
+
+macro m_lit_rxf() {
+    store8(lit, 114); store8(lit + 1, 120); store8(lit + 2, 102);
+}
+
+macro m_lit_foundation() {
+    store8(lit, 102); store8(lit + 1, 111); store8(lit + 2, 117); store8(lit + 3, 110);
+    store8(lit + 4, 100); store8(lit + 5, 97); store8(lit + 6, 116); store8(lit + 7, 105);
+    store8(lit + 8, 111); store8(lit + 9, 110);
+}
+
+macro m_lit_graph() {
+    store8(lit, 103); store8(lit + 1, 114); store8(lit + 2, 97); store8(lit + 3, 112);
+    store8(lit + 4, 104);
+}
+
+macro m_lit_run() {
+    store8(lit, 114); store8(lit + 1, 117); store8(lit + 2, 110);
+}
+
+macro m_lit_leaf() {
+    store8(lit, 76); store8(lit + 1, 101); store8(lit + 2, 97); store8(lit + 3, 102);
+}
+
+macro m_lit_semantic() {
+    store8(lit, 83); store8(lit + 1, 101); store8(lit + 2, 109); store8(lit + 3, 97);
+    store8(lit + 4, 110); store8(lit + 5, 116); store8(lit + 6, 105); store8(lit + 7, 99);
+    store8(lit + 8, 79); store8(lit + 9, 98); store8(lit + 10, 106); store8(lit + 11, 101);
+    store8(lit + 12, 99); store8(lit + 13, 116);
+}
+
+macro m_lit_object_id() {
+    store8(lit, 111); store8(lit + 1, 98); store8(lit + 2, 106); store8(lit + 3, 101);
+    store8(lit + 4, 99); store8(lit + 5, 116); store8(lit + 6, 95); store8(lit + 7, 105);
+    store8(lit + 8, 100);
+}
+
+macro m_lit_x8664() {
+    store8(lit, 120); store8(lit + 1, 56); store8(lit + 2, 54); store8(lit + 3, 95);
+    store8(lit + 4, 54); store8(lit + 5, 52); store8(lit + 6, 95); store8(lit + 7, 108);
+    store8(lit + 8, 105); store8(lit + 9, 110); store8(lit + 10, 117); store8(lit + 11, 120);
+}
+
+macro m_lit_aarch64() {
+    store8(lit, 97); store8(lit + 1, 97); store8(lit + 2, 114); store8(lit + 3, 99);
+    store8(lit + 4, 104); store8(lit + 5, 54); store8(lit + 6, 52); store8(lit + 7, 95);
+    store8(lit + 8, 108); store8(lit + 9, 105); store8(lit + 10, 110); store8(lit + 11, 117);
+    store8(lit + 12, 120);
+}
+
+# child_named(parent, lit, n) -> cn_r (live.cpp:1257)
+sub s_child_named(Zparent_child_named, Zn_child_named) {
+    if (Zparent_child_named == 0xFFFFFFFFFFFFFFFF) {
+        cn_r = 0xFFFFFFFFFFFFFFFF;
+    } else {
+        callsub s_find_child(Zparent_child_named, lit, Zn_child_named);
+        cn_r = fc_r;
+    }
+}
+
+# name_is(h, lit, n) -> ni_r (live.cpp:1265)
+sub s_name_is(Zh_name_is, Zn_name_is) {
+    var ni_i;
+    var ni_bad;
+    callsub s_name(Zh_name_is);
+    ni_bad = 0;
+    ni_i = 0;
+    while (ni_i < Zn_name_is) {
+        if (load8(nm_r + ni_i) != load8(lit + ni_i)) {
+            ni_bad = 1;
+        }
+        ni_i = ni_i + 1;
+    }
+    ni_r = 0;
+    if (ni_bad == 0) {
+        if (load8(nm_r + Zn_name_is) == 0) {
+            ni_r = 1;
+        }
+    }
+}
+
+# string_at(offset, strings, size) -> sa_r, sa_p, sa_n (live.cpp:1483)
+sub s_string_at(Zoff_string_at, Zstrings_string_at, Zsize_string_at) {
+    var sa_e;
+    var sa_go;
+    sa_r = 0;
+    if (Zoff_string_at < Zsize_string_at) {
+        sa_e = Zoff_string_at;
+        sa_go = 1;
+        while (sa_go == 1) {
+            if (sa_e >= Zsize_string_at) {
+                sa_go = 0;
+            } else {
+                if (load8(Zstrings_string_at + sa_e) == 0) {
+                    sa_go = 0;
+                } else {
+                    sa_e = sa_e + 1;
+                }
+            }
+        }
+        if (sa_e < Zsize_string_at) {
+            sa_p = Zstrings_string_at + Zoff_string_at;
+            sa_n = sa_e - Zoff_string_at;
+            sa_r = 1;
+        }
+    }
+}
+
+# reason_of(status) -> ro2_r (live.cpp:1498): the arena status becomes a refusal reason.
+sub s_reason_of(Zs_reason_of) {
+    ro2_r = 6;
+    if (Zs_reason_of == 12) {
+        ro2_r = 7;
+    }
+    if (Zs_reason_of == 7) {
+        ro2_r = 4;
+    }
+    if (Zs_reason_of == 8) {
+        ro2_r = 5;
+    }
+    if (Zs_reason_of == 6) {
+        ro2_r = 10;
+    }
+    if (Zs_reason_of == 10) {
+        ro2_r = 9;
+    }
+    if (Zs_reason_of == 11) {
+        ro2_r = 3;
+    }
+    if (Zs_reason_of == 2) {
+        ro2_r = 3;
+    }
+}
+
+# path_id(h, buffer) -> pi_r (1/0), pi_id: the first 8 bytes (little-endian) of the SHA-256 of
+# the path of the object (live.cpp:1273).
+sub s_path_id(Zh_path_id, Zbuf_path_id) {
+    var pi_n;
+    callsub s_path_of(Zh_path_id, Zbuf_path_id, 1024);
+    pi_r = 0;
+    if (po_r == 1) {
+        pi_n = po_n;
+        callsub s_sha_init(shh);
+        callsub s_sha_upd(shh, Zbuf_path_id, pi_n);
+        callsub s_sha_finish(shh, shd);
+        pi_id = load64(shd);
+        pi_r = 1;
+    }
+}
+
+# sift_rows(a, root, end): heap sort of the 32-byte Rows by their id (live.cpp:1284).
+sub s_sift_rows(Za_sift_rows, Zroot_sift_rows, Zend_sift_rows) {
+    var sr_root;
+    var sr_child;
+    var sr_t;
+    var sr_go;
+    sr_root = Zroot_sift_rows;
+    sr_go = 1;
+    while (sr_go == 1) {
+        sr_child = 2 * sr_root + 1;
+        if (sr_child >= Zend_sift_rows) {
+            sr_go = 0;
+        } else {
+            if (sr_child + 1 < Zend_sift_rows) {
+                if (load64(Za_sift_rows + 32 * sr_child) < load64(Za_sift_rows + 32 * (sr_child + 1))) {
+                    sr_child = sr_child + 1;
+                }
+            }
+            if (load64(Za_sift_rows + 32 * sr_root) >= load64(Za_sift_rows + 32 * sr_child)) {
+                sr_go = 0;
+            } else {
+                callsub s_cpy(srt, Za_sift_rows + 32 * sr_root, 32);
+                callsub s_cpy(Za_sift_rows + 32 * sr_root, Za_sift_rows + 32 * sr_child, 32);
+                callsub s_cpy(Za_sift_rows + 32 * sr_child, srt, 32);
+                sr_root = sr_child;
+            }
+        }
+    }
+}
+
+# linkable() -> lk_r (live.cpp:1075): there is a context with entries the image may fill.
+sub s_linkable() {
+    lk_r = 0;
+    if (ctx != 0) {
+        if (load32(ar + 248) != 0) {
+            lk_r = 1;
+        }
+    }
+}
+
+# code_address(function) -> ca_r (1/0), ca_at, ca_bytes (live.cpp:1303): the Code of a native
+# Function for this machine, as an address and a byte range.
+macro m_code_addr(Zfunction) {
+    var ca_code;
+    var ca_c;
+    var ca_pay;
+    var ca_entry;
+    var ca_bytes;
+    ca_r = 0;
+    ca_code = 0xFFFFFFFFFFFFFFFF;
+    if (load32(ar + 252) == 1) {
+        m_lit_x8664();
+        callsub s_child_named(Zfunction, 12);
+        ca_code = cn_r;
+    }
+    if (load32(ar + 252) == 2) {
+        m_lit_aarch64();
+        callsub s_child_named(Zfunction, 13);
+        ca_code = cn_r;
+    }
+    if (ca_code == 0xFFFFFFFFFFFFFFFF) {
+        ca_r = 0;
+    } else {
+        callsub s_cell(ca_code);
+        ca_c = ce_r;
+        if (ca_c == 0) {
+            ca_r = 0;
+        } else {
+            if (load64(ca_c + 16) < 56) {
+                ca_r = 0;
+            } else {
+                ca_pay = ca_c + 64;
+                ca_entry = load64(ca_pay + 40);
+                ca_bytes = load64(ca_pay + 48);
+                if (ca_bytes > load64(ca_c + 16) - 56) {
+                    ca_r = 0;
+                } else {
+                    if (ca_entry >= ca_bytes + 1) {
+                        ca_r = 0;
+                    } else {
+                        ca_at = ca_pay + load64(ca_c + 16) - ca_bytes + ca_entry;
+                        ca_rng0 = ca_pay + load64(ca_c + 16) - ca_bytes;
+                        ca_rng1 = ca_bytes;
+                        ca_r = 1;
+                    }
+                }
+            }
+        }
+    }
+}
+
+# compact_scan() -> cs2_r (live.cpp:1211): a pinned object forbids compaction.
+macro m_compact_scan() {
+    var cs2_n;
+    var cs2_h;
+    cs2_r = 1;
+    cs2_n = load64(ah + 88);
+    cs2_h = 0;
+    while (cs2_h < cs2_n) {
+        if (cs2_r == 1) {
+            callsub s_cell(cs2_h);
+            if (ce_r != 0) {
+                callsub s_mob_of(ce_r);
+                if (mob_r == 1) {
+                    jb_reason = 13;
+                    cs2_r = 0;
+                }
+            }
+        }
+        cs2_h = cs2_h + 1;
+    }
+}
+
+# compact_copy() -> cc_r (live.cpp:1224): the emitted bytes replace the arena's.
+macro m_compact_copy() {
+    var cc_len;
+    var cc_before;
+    var cc_comm;
+    var cc_base;
+    cc_len = jb_emitted;
+    cc_before = load64(ah + 16);
+    cc_comm = acomm;
+    cc_base = load64(ar + 8);
+    callsub s_cpy(cc_base, jemit_base, cc_len);
+    if (cc_before > cc_len) {
+        callsub s_zero(cc_base + cc_len, cc_before - cc_len);
+    }
+    store64(cc_base + 24, cc_comm);
+    store64(cc_base + 32, 0xFFFFFFFFFFFFFFFF);
+    ab = cc_base;
+    acomm = cc_comm;
+    alim = load64(ar + 16);
+    ah = 0;
+    callsub s_attach();
+    cc_r = 0;
+    if (at_r == 0) {
+        store32(ar + 140, 0);
+        store64(ar + 240, load64(ar + 240) + 1);
+        jb_reclaimed = cc_before - cc_len;
+        callsub s_linkable();
+        cc_r = 1;
+        if (lk_r == 1) {
+            callsub s_build_table();
+            if (bt_r == 1) {
+                store32(ar + 140, 1);
+            }
+        }
+    } else {
+        jb_reason = 6;
+    }
+}
+
+# ---- the canonical form (live.cpp:872) ------------------------------------------------------------
+
+# emit() -> em_r (1/0), em_len, em_rsn: the compacted image to the emit region, its digest to the
+# area. `Arena out` over the emit region is the arena state pushed aside and reloaded around each
+# out call (m_arena_push/pop); the session reads of one iteration all happen before the swap.
+macro m_emit() {
+    var em_n;
+    var em_keep;
+    var em_h;
+    var em_kept;
+    var em_go;
+    var em_c;
+    var em_type;
+    var em_rp;
+    var em_k;
+    var em_t;
+    var em_gone;
+    var em_order;
+    var em_remap;
+    var em_stack;
+    var em_count;
+    var em_sp;
+    var em_at;
+    var em_b;
+    var em_e;
+    var em_child;
+    var em_i;
+    var em_old;
+    var em_nref;
+    var em_words;
+    var em_offset;
+    var em_before;
+    var em_now;
+    var em_made;
+    var em_payload;
+    var em_to;
+    var em_w;
+    var em_entry;
+    var em_init_r;
+    em_r = 0;
+    em_rsn = 8;
+    callsub s_scratch_reset();
+    em_n = load64(ah + 88);
+    em_go = 0;
+    if (em_n < 0xFFFFFFF0) {
+        callsub s_take(em_n + 1);
+        em_keep = tk_r;
+        if (em_keep != 0) {
+            callsub s_build_kids(1);
+            if (bk_r == 1) {
+                callsub s_prep_types();
+                if (pt_r == 1) {
+                    em_go = 1;
+                }
+            }
+        }
+    }
+    if (em_go == 1) {
+        em_kept = 0;
+        em_h = 0;
+        while (em_h < em_n) {
+            callsub s_cell(em_h);
+            if (ce_r != 0) {
+                m_disp_of(ce_r);
+                if (disp_r == 0) {
+                    store8(em_keep + em_h, 1);
+                    em_kept = em_kept + 1;
+                } else {
+                    store8(em_keep + em_h, 0);
+                }
+            } else {
+                store8(em_keep + em_h, 0);
+            }
+            em_h = em_h + 1;
+        }
+        em_rsn = 9;
+        em_go = 0;
+        if (em_n > 2) {
+            if (load8(em_keep) == 1) {
+                if (load8(em_keep + 1) == 1) {
+                    if (load8(em_keep + 2) == 1) {
+                        em_go = 1;
+                    }
+                }
+            }
+        }
+    }
+    if (em_go == 1) {
+        em_h = 0;
+        while (em_h < em_n & em_go == 1) {
+            if (load8(em_keep + em_h) == 1) {
+                callsub s_cell(em_h);
+                em_c = ce_r;
+                if (load64(em_c + 8) != 0xFFFFFFFFFFFFFFFF) {
+                    if (load64(em_c + 8) >= em_n) {
+                        em_go = 0;
+                    } else {
+                        if (load8(em_keep + load64(em_c + 8)) == 0) {
+                            em_go = 0;
+                        }
+                    }
+                }
+                if (em_go == 1) {
+                    if (load64(em_c) != 0xFFFFFFFFFFFFFFFF) {
+                        if (load64(em_c) >= em_n) {
+                            em_go = 0;
+                        } else {
+                            if (load8(em_keep + load64(em_c)) == 0) {
+                                em_go = 0;
+                            }
+                        }
+                    }
+                }
+                if (em_go == 1) {
+                    callsub s_refs(em_h);
+                    em_rp = rr_r;
+                    em_k = 0;
+                    while (em_k < load32(em_c + 44) & em_go == 1) {
+                        em_t = load64(em_rp + 24 * em_k);
+                        em_gone = 0;
+                        if (em_t != 0xFFFFFFFFFFFFFFFF) {
+                            if (em_t >= em_n) {
+                                em_gone = 1;
+                            } else {
+                                if (load8(em_keep + em_t) == 0) {
+                                    em_gone = 1;
+                                }
+                            }
+                        }
+                        if (em_gone == 1) {
+                            if (load16(em_rp + 24 * em_k + 18) == 0) {
+                                em_go = 0;
+                            }
+                        }
+                        if (em_go == 1) {
+                            if (load64(em_rp + 24 * em_k + 8) != 0xFFFFFFFFFFFFFFFF) {
+                                if (load64(em_rp + 24 * em_k + 8) >= em_n) {
+                                    em_go = 0;
+                                } else {
+                                    if (load8(em_keep + load64(em_rp + 24 * em_k + 8)) == 0) {
+                                        em_go = 0;
+                                    }
+                                }
+                            }
+                        }
+                        em_k = em_k + 1;
+                    }
+                }
+            }
+            em_h = em_h + 1;
+        }
+    }
+    if (em_go == 1) {
+        em_rsn = 8;
+        callsub s_take(4 * (em_kept + 4));
+        em_order = tk_r;
+        callsub s_take(4 * (em_n + 1));
+        em_remap = tk_r;
+        callsub s_take(4 * (em_n + 4));
+        em_stack = tk_r;
+        if (em_order == 0 | em_remap == 0 | em_stack == 0) {
+            em_go = 0;
+        } else {
+            em_count = 0;
+            store32(em_order + 4 * em_count, 0);
+            em_count = em_count + 1;
+            store32(em_order + 4 * em_count, 1);
+            em_count = em_count + 1;
+            store32(em_order + 4 * em_count, 2);
+            em_count = em_count + 1;
+            em_sp = 0;
+            store32(em_stack, 0);
+            em_sp = 1;
+            while (em_sp > 0 & em_go == 1) {
+                em_sp = em_sp - 1;
+                em_at = load32(em_stack + 4 * em_sp);
+                if (em_at > 2) {
+                    if (em_count >= em_kept) {
+                        em_rsn = 11;
+                        em_go = 0;
+                    } else {
+                        store32(em_order + 4 * em_count, em_at);
+                        em_count = em_count + 1;
+                    }
+                }
+                if (em_go == 1) {
+                    em_b = load32(kstart + 4 * em_at);
+                    em_e = load32(kstart + 4 * (em_at + 1));
+                    em_k = em_e;
+                    while (em_k > em_b & em_go == 1) {
+                        em_child = load32(klist + 4 * (em_k - 1));
+                        if (load8(em_keep + em_child) == 1) {
+                            if (em_sp >= em_n) {
+                                em_go = 0;
+                            } else {
+                                store32(em_stack + 4 * em_sp, em_child);
+                                em_sp = em_sp + 1;
+                            }
+                        }
+                        em_k = em_k - 1;
+                    }
+                }
+            }
+        }
+    }
+    if (em_go == 1) {
+        if (em_count != em_kept) {
+            em_rsn = 11;
+            em_go = 0;
+        }
+    }
+    if (em_go == 1) {
+        em_i = 0;
+        while (em_i < em_n) {
+            store32(em_remap + 4 * em_i, 0xFFFFFFFF);
+            em_i = em_i + 1;
+        }
+        em_i = 0;
+        while (em_i < em_count) {
+            store32(em_remap + 4 * load32(em_order + 4 * em_i), em_i);
+            em_i = em_i + 1;
+        }
+    }
+    if (em_go == 1) {
+        em_rsn = 6;
+        callsub s_arena_push();
+        m_init(jemit_base, jemit_cap, jemit_cap, em_kept);
+        em_init_r = in_r;
+        callsub s_arena_pop();
+        if (em_init_r != 0) {
+            em_go = 0;
+        }
+        em_i = 0;
+        while (em_i < em_count & em_go == 1) {
+            em_old = load32(em_order + 4 * em_i);
+            callsub s_cell(em_old);
+            em_c = ce_r;
+            callsub s_refs(em_old);
+            em_rp = rr_r;
+            em_nref = 0;
+            em_k = 0;
+            while (em_k < load32(em_c + 44)) {
+                em_t = load64(em_rp + 24 * em_k);
+                if (em_t == 0xFFFFFFFFFFFFFFFF) {
+                    em_nref = em_nref + 1;
+                } else {
+                    if (em_t < em_n) {
+                        if (load8(em_keep + em_t) == 1) {
+                            em_nref = em_nref + 1;
+                        }
+                    }
+                }
+                em_k = em_k + 1;
+            }
+            callsub s_mob_of(em_c);
+            # the canonical state of an emitted cell: provenance IMAGE (1) at shift 0, disposition
+            # RETAIN (0) at 1, cleanliness CLEAN (0) at 3, the old mobility at 4
+            em_state = 1 | (mob_r << 4);
+            if (load64(em_c) == 0xFFFFFFFFFFFFFFFF | load64(em_c) >= em_n) {
+                cs_type = 0xFFFFFFFFFFFFFFFF;
+            } else {
+                cs_type = load32(em_remap + 4 * load64(em_c));
+                if (cs_type == 0xFFFFFFFF) {
+                    cs_type = 0xFFFFFFFFFFFFFFFF;
+                }
+            }
+            if (load64(em_c + 8) == 0xFFFFFFFFFFFFFFFF | load64(em_c + 8) >= em_n) {
+                cs_parent = 0xFFFFFFFFFFFFFFFF;
+            } else {
+                cs_parent = load32(em_remap + 4 * load64(em_c + 8));
+                if (cs_parent == 0xFFFFFFFF) {
+                    cs_parent = 0xFFFFFFFFFFFFFFFF;
+                }
+            }
+            callsub s_name(em_old);
+            cs_name = nm_r;
+            callsub s_len(nm_r);
+            cs_name_len = len_r;
+            cs_flags = (load32(em_c + 40) & 0xFFFFC0FF) | (em_state << 8);
+            cs_generation = load64(em_c + 24);
+            cs_index = load32(em_c + 56);
+            cs_payload = load64(em_c + 16);
+            cs_refs = em_nref;
+            em_words = empty0;
+            if (cs_payload != 0) {
+                em_type = load64(em_c);
+                callsub s_refs_of(em_type);
+                if (ro_r == 0) {
+                    em_go = 0;
+                } else {
+                    em_words = ro_words;
+                }
+            }
+            if (em_go == 1) {
+                callsub s_arena_push();
+                m_arena_load_out();
+                callsub s_create();
+                em_made = cr_h;
+                if (cr_r != 0) {
+                    em_go = 0;
+                }
+                if (em_go == 1) {
+                    if (cs_payload != 0) {
+                        callsub s_payload(em_made);
+                        em_payload = pa_r;
+                        callsub s_cpy(em_payload, em_c + 64, cs_payload);
+                        em_k = 0;
+                        while (em_k < load32(em_words) & em_go == 1) {
+                            em_offset = load32(em_words + 4 + 4 * em_k) & 0x7FFFFFFF;
+                            if (em_offset + 8 <= cs_payload) {
+                                em_before = load64(em_payload + em_offset);
+                                if (em_before != 0xFFFFFFFFFFFFFFFF) {
+                                    em_now = 0xFFFFFFFFFFFFFFFF;
+                                    if (em_before < em_n) {
+                                        if (load32(em_remap + 4 * em_before) != 0xFFFFFFFF) {
+                                            em_now = load32(em_remap + 4 * em_before);
+                                        }
+                                    }
+                                    if (em_now == 0xFFFFFFFFFFFFFFFF) {
+                                        if ((load32(em_words + 4 + 4 * em_k) & 0x80000000) == 0) {
+                                            em_rsn = 9;
+                                            em_go = 0;
+                                        }
+                                    }
+                                    if (em_go == 1) {
+                                        store64(em_payload + em_offset, em_now);
+                                    }
+                                }
+                            }
+                            em_k = em_k + 1;
+                        }
+                        if (em_go == 1) {
+                            em_rsn = 6;
+                        }
+                    }
+                }
+                if (em_go == 1) {
+                    if (em_nref != 0) {
+                        callsub s_refs(em_made);
+                        em_to = rr_r;
+                        em_w = 0;
+                        em_k = 0;
+                        while (em_k < load32(em_c + 44)) {
+                            em_t = load64(em_rp + 24 * em_k);
+                            em_gone = 0;
+                            if (em_t != 0xFFFFFFFFFFFFFFFF) {
+                                if (em_t >= em_n) {
+                                    em_gone = 1;
+                                } else {
+                                    if (load8(em_keep + em_t) == 0) {
+                                        em_gone = 1;
+                                    }
+                                }
+                            }
+                            if (em_gone == 0) {
+                                callsub s_cpy(em_to + 24 * em_w, em_rp + 24 * em_k, 24);
+                                if (em_t == 0xFFFFFFFFFFFFFFFF) {
+                                    store64(em_to + 24 * em_w, 0xFFFFFFFFFFFFFFFF);
+                                } else {
+                                    store64(em_to + 24 * em_w, load32(em_remap + 4 * em_t));
+                                }
+                                if (load64(em_rp + 24 * em_k + 8) == 0xFFFFFFFFFFFFFFFF |
+                                    load64(em_rp + 24 * em_k + 8) >= em_n) {
+                                    store64(em_to + 24 * em_w + 8, 0xFFFFFFFFFFFFFFFF);
+                                } else {
+                                    if (load32(em_remap + 4 * load64(em_rp + 24 * em_k + 8)) ==
+                                        0xFFFFFFFF) {
+                                        store64(em_to + 24 * em_w + 8, 0xFFFFFFFFFFFFFFFF);
+                                    } else {
+                                        store64(em_to + 24 * em_w + 8,
+                                                load32(em_remap + 4 * load64(em_rp + 24 * em_k + 8)));
+                                    }
+                                }
+                                em_w = em_w + 1;
+                            }
+                            em_k = em_k + 1;
+                        }
+                    }
+                }
+                callsub s_arena_pop();
+            }
+            em_i = em_i + 1;
+        }
+    }
+    if (em_go == 1) {
+        store32(jemit_base + 12, load32(ah + 12));
+        store64(jemit_base + 112, 0);
+        em_entry = load64(ah + 104);
+        if (em_entry != 0xFFFFFFFFFFFFFFFF) {
+            if (em_entry >= em_n) {
+                em_rsn = 9;
+                em_go = 0;
+            } else {
+                if (load8(em_keep + em_entry) == 0) {
+                    em_rsn = 9;
+                    em_go = 0;
+                }
+            }
+        }
+    }
+    if (em_go == 1) {
+        if (em_entry == 0xFFFFFFFFFFFFFFFF) {
+            store64(jemit_base + 104, 0xFFFFFFFFFFFFFFFF);
+        } else {
+            store64(jemit_base + 104, load32(em_remap + 4 * em_entry));
+        }
+        store64(jemit_base + 24, load64(jemit_base + 16));
+        store64(jemit_base + 32, 0xFFFFFFFFFFFFFFFF);
+        callsub s_sha_init(shh);
+        callsub s_sha_upd(shh, jemit_base, load64(jemit_base + 16));
+        callsub s_sha_finish(shh, ar + 192);
+        em_len = load64(jemit_base + 16);
+        store64(ar + 184, em_len);
+        em_rsn = 0;
+        em_r = 1;
+    }
+}
+
+# ---- linking (live.cpp:1323): the entries and function slots of the context, from the arena ------
+
+# relink() -> rl_r (1/0), rl_entries, rl_slots; jdry: check only; jguard: what runs must stay.
+macro m_relink() {
+    var rl_n;
+    var rl_rows;
+    var rl_type_ids;
+    var rl_known;
+    var rl_path;
+    var rl_count;
+    var rl_h;
+    var rl_c;
+    var rl_type;
+    var rl_kind;
+    var rl_prefix;
+    var rl_id;
+    var rl_named;
+    var rl_f;
+    var rl_i;
+    var rl_s;
+    var rl_e;
+    var rl_fc;
+    var rl_ftable;
+    var rl_addrs;
+    var rl_addressed;
+    var rl_run;
+    var rl_rc;
+    var rl_rp;
+    var rl_k;
+    var rl_role;
+    var rl_lid;
+    var rl_at;
+    var rl_go;
+    rl_r = 0;
+    rl_entries = 0;
+    rl_slots = 0;
+    rl_go = 1;
+    jb_reason = 8;
+    callsub s_scratch_reset();
+    callsub s_build_kids(0);
+    if (bk_r == 0) {
+        rl_go = 0;
+    } else {
+        callsub s_prep_types();
+        if (pt_r == 0) {
+            rl_go = 0;
+        }
+    }
+    if (rl_go == 1) {
+        rl_n = n_kids;
+        callsub s_take(32 * (rl_n + 1));
+        rl_rows = tk_r;
+        callsub s_take(8 * (rl_n + 1));
+        rl_type_ids = tk_r;
+        callsub s_take(rl_n + 1);
+        rl_known = tk_r;
+        callsub s_take(1024);
+        rl_path = tk_r;
+        if (rl_rows == 0 | rl_type_ids == 0 | rl_known == 0 | rl_path == 0) {
+            rl_go = 0;
+        } else {
+            callsub s_zero(rl_known, rl_n + 1);
+            rl_count = 0;
+            rl_h = 0;
+            while (rl_h < rl_n & rl_go == 1) {
+                callsub s_cell(rl_h);
+                rl_c = ce_r;
+                if (rl_c != 0) {
+                    callsub s_kd(rl_c);
+                    rl_kind = kd_r;
+                    if (rl_kind != 255) {
+                        if (rl_kind != 254) {
+                            rl_type = load64(rl_c);
+                            if (rl_type != 0xFFFFFFFFFFFFFFFF) {
+                                jb_reason = 9;
+                                if (rl_type >= rl_n) {
+                                    rl_go = 0;
+                                } else {
+                                    callsub s_cell(rl_type);
+                                    if (ce_r == 0) {
+                                        rl_go = 0;
+                                    }
+                                }
+                                if (rl_go == 1) {
+                                    jb_reason = 12;
+                                    callsub s_refs_of(rl_type);
+                                    if (ro_r == 0) {
+                                        rl_go = 0;
+                                    }
+                                }
+                                if (rl_go == 1) {
+                                    rl_prefix = load32(kpfx + 4 * rl_type);
+                                    if (rl_prefix > load64(rl_c + 16)) {
+                                        rl_go = 0;
+                                    }
+                                }
+                                if (rl_go == 1) {
+                                    jb_reason = 11;
+                                    if (load8(rl_known + rl_type) == 0) {
+                                        callsub s_path_id(rl_type, rl_path);
+                                        if (pi_r == 0) {                                            rl_go = 0;
+                                        } else {
+                                            store64(rl_type_ids + 8 * rl_type, pi_id);
+                                            store8(rl_known + rl_type, 1);
+                                        }
+                                    }
+                                }
+                                if (rl_go == 1) {
+                                    rl_named = 0;
+                                    rl_id = 0;
+                                    m_lit_semantic();
+                                    callsub s_name_is(rl_type, 14);
+                                    if (ni_r == 1) {
+                                        m_lit_object_id();
+                                        callsub s_child_named(rl_type, 9);
+                                        rl_f = cn_r;
+                                        if (rl_f != 0xFFFFFFFFFFFFFFFF) {
+                                            callsub s_field_info(rl_f, flF);
+                                            if (fif_r == 1) {
+                                                if (load64(flF + 24) + 8 <= load64(rl_c + 16)) {
+                                                    rl_id = load64(rl_c + 64 + load64(flF + 24));
+                                                    rl_named = 1;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if (rl_named == 0) {
+                                        callsub s_path_id(rl_h, rl_path);
+                                        if (pi_r == 0) {                                            rl_go = 0;
+                                        } else {
+                                            rl_id = pi_id;
+                                        }
+                                    }
+                                }
+                                if (rl_go == 1) {
+                                    store64(rl_rows + 32 * rl_count, rl_id);
+                                    store64(rl_rows + 32 * rl_count + 8,
+                                            load64(rl_type_ids + 8 * rl_type));
+                                    store64(rl_rows + 32 * rl_count + 16,
+                                            rl_c + 64 + rl_prefix);
+                                    store64(rl_rows + 32 * rl_count + 24,
+                                            load64(rl_c + 16) - rl_prefix);
+                                    rl_count = rl_count + 1;
+                                }
+                            }
+                        }
+                    }
+                }
+                rl_h = rl_h + 1;
+            }
+        }
+    }
+    if (rl_go == 1) {
+        if (rl_count > 1) {
+            rl_s = rl_count / 2;
+            while (rl_s != 0) {
+                rl_s = rl_s - 1;
+                callsub s_sift_rows(rl_rows, rl_s, rl_count);
+            }
+            rl_e = rl_count - 1;
+            while (rl_e != 0) {
+                callsub s_cpy(srt, rl_rows, 32);
+                callsub s_cpy(rl_rows, rl_rows + 32 * rl_e, 32);
+                callsub s_cpy(rl_rows + 32 * rl_e, srt, 32);
+                callsub s_sift_rows(rl_rows, 0, rl_e);
+                rl_e = rl_e - 1;
+            }
+        }
+    }
+    if (rl_go == 1) {
+        jb_reason = 11;
+        rl_i = 0;
+        while (rl_i < rl_count & rl_go == 1) {
+            if (load64(rl_rows + 32 * rl_i) <= 8) {                rl_go = 0;
+            } else {
+                if (rl_i > 0) {
+                    if (load64(rl_rows + 32 * rl_i) == load64(rl_rows + 32 * (rl_i - 1))) {                        rl_go = 0;
+                    }
+                }
+            }
+            rl_i = rl_i + 1;
+        }
+    }
+    if (rl_go == 1) {
+        if (8 + rl_count > load32(ar + 248)) {            rl_go = 0;
+        }
+    }
+    if (rl_go == 1) {
+        rl_fc = load64(ctx + 16);
+        rl_ftable = load64(ctx + 24);
+        callsub s_take(8 * (rl_fc + 1));
+        rl_addrs = tk_r;
+        if (rl_addrs == 0) {
+            jb_reason = 8;
+            rl_go = 0;
+        } else {
+            callsub s_zero(rl_addrs, 8 * (rl_fc + 1));
+            rl_addressed = 1;
+            if (load32(ar + 252) == 3) {
+                rl_addressed = 0;
+            }
+            if (rl_addressed == 1) {
+                rl_run = load64(ah + 112);
+                m_lit_pymergetic();
+                callsub s_child_named(rl_run, 10);
+                rl_run = cn_r;
+                m_lit_rxf();
+                callsub s_child_named(rl_run, 3);
+                rl_run = cn_r;
+                m_lit_foundation();
+                callsub s_child_named(rl_run, 10);
+                rl_run = cn_r;
+                m_lit_graph();
+                callsub s_child_named(rl_run, 5);
+                rl_run = cn_r;
+                m_lit_run();
+                callsub s_child_named(rl_run, 3);
+                rl_run = cn_r;
+                if (rl_run == 0xFFFFFFFFFFFFFFFF) {                    rl_go = 0;
+                } else {
+                    callsub s_cell(rl_run);
+                    rl_rc = ce_r;
+                    if (rl_rc == 0) {                        rl_go = 0;
+                    } else {
+                        callsub s_refs(rl_run);
+                        rl_rp = rr_r;
+                        rl_k = 0;
+                        while (rl_k < load32(rl_rc + 44) & rl_go == 1) {
+                            rl_role = load64(rl_rp + 24 * rl_k + 8);
+                            if (rl_role != 0xFFFFFFFFFFFFFFFF) {
+                                callsub s_cell(rl_role);
+                                if (ce_r != 0) {
+                                    m_lit_leaf();
+                                    callsub s_name_is(rl_role, 4);
+                                    if (ni_r == 1) {
+                                        rl_lid = load32(rl_rp + 24 * rl_k + 20);
+                                        if (rl_lid == 0 | rl_lid > rl_fc) {                                            rl_go = 0;
+                                        } else {
+                                            if (load64(rl_rp + 24 * rl_k) == 0xFFFFFFFFFFFFFFFF) {                                                rl_go = 0;
+                                            } else {
+                                                m_code_addr(load64(rl_rp + 24 * rl_k));
+                                                if (ca_r == 0) {                                                    rl_go = 0;
+                                                } else {
+                                                    store64(rl_addrs + 8 * (rl_lid - 1), ca_at);
+                                                    if (jguard == 1) {
+                                                        if (load32(ar + 256) != 0 |
+                                                            (rl_lid == 29 & load32(ar + 260) == 0)) {
+                                                            jb_reason = 13;
+                                                            rl_at = ca_rng0 - load64(ar + 8);
+                                                            if (rl_at + ca_rng1 > jb_emitted) {
+                                                                rl_go = 0;
+                                                            } else {
+                                                                callsub s_cmp(ca_rng0, jemit_base + rl_at,
+                                                                      ca_rng1);
+                                                                if (cmp_r != 0) {
+                                                                    rl_go = 0;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            rl_k = rl_k + 1;
+                        }
+                    }
+                }
+                if (rl_go == 1) {
+                    rl_k = 0;
+                    while (rl_k < rl_fc & rl_go == 1) {
+                        if (load64(rl_addrs + 8 * rl_k) == 0) {                            rl_go = 0;
+                        } else {
+                            if (load64(rl_ftable + 24 * rl_k) != rl_k + 1) {                                rl_go = 0;
+                            }
+                        }
+                        rl_k = rl_k + 1;
+                    }
+                }
+            }
+        }
+    }
+    if (rl_go == 1) {
+        rl_entries = 8 + rl_count;
+        rl_slots = 0;
+        if (rl_addressed == 1) {
+            rl_slots = rl_fc;
+        }
+        if (jdry == 0) {
+            rl_at = load64(ctx + 40) + 640;
+            rl_i = 0;
+            while (rl_i < rl_count) {
+                store64(rl_at, load64(rl_rows + 32 * rl_i));
+                store64(rl_at + 8, 1);
+                store64(rl_at + 16, load64(rl_rows + 32 * rl_i + 8));
+                store64(rl_at + 24, load64(rl_rows + 32 * rl_i + 16));
+                store64(rl_at + 32, load64(rl_rows + 32 * rl_i + 24));
+                store64(rl_at + 40, load64(rl_rows + 32 * rl_i + 24));
+                store64(rl_at + 48, 1);
+                store64(rl_at + 56, 0);
+                store64(rl_at + 64, 0);
+                store64(rl_at + 72, 0);
+                rl_at = rl_at + 80;
+                rl_i = rl_i + 1;
+            }
+            store64(ctx + 32, 8 + rl_count);
+            if (rl_addressed == 1) {
+                rl_k = 0;
+                while (rl_k < rl_fc) {
+                    store64(rl_ftable + 24 * rl_k + 16, load64(rl_addrs + 8 * rl_k));
+                    rl_k = rl_k + 1;
+                }
+            }
+        }
+        jb_reason = 0;
+        rl_r = 1;
+    }
+}
+
+# ---- the arena of `Arena out` over the emit region: the session's arena state, pushed aside ------
+
+sub s_arena_push() {
+    ap_ab = ab;
+    ap_acomm = acomm;
+    ap_alim = alim;
+    ap_ah = ah;
+    ap_aneed = aneed;
+    ap_aj = aj;
+    ap_alb = alog_base;
+    ap_alc = alog_comm;
+    ap_all = alog_lim;
+    ap_amark = amark;
+    ap_abitmap = abitmap;
+    ap_aused = aused;
+}
+
+sub s_arena_pop() {
+    ab = ap_ab;
+    acomm = ap_acomm;
+    alim = ap_alim;
+    ah = ap_ah;
+    aneed = ap_aneed;
+    aj = ap_aj;
+    alog_base = ap_alb;
+    alog_comm = ap_alc;
+    alog_lim = ap_all;
+    amark = ap_amark;
+    abitmap = ap_abitmap;
+    aused = ap_aused;
+}
+
+macro m_arena_load_out() {
+    ab = jemit_base;
+    acomm = jemit_cap;
+    alim = jemit_cap;
+    ah = jemit_base;
+    aneed = 0;
+    aj = 0;
+}
+
+# ---- good_name (live.cpp:84): text without control characters, without '.', not '@', UTF-8 ------
+
+macro m_good_name(Zp, Zn) {
+    var gn_i;
+    var gn_b;
+    var gn_extra;
+    var gn_low;
+    var gn_code;
+    var gn_k;
+    var gn_bad;
+    gn_r = 0;
+    if (Zn != 0) {
+        if (load8(Zp) != 64) {
+            gn_bad = 0;
+            gn_i = 0;
+            while (gn_i < Zn) {
+                if (load8(Zp + gn_i) == 46 | load8(Zp + gn_i) < 32 | load8(Zp + gn_i) == 127) {
+                    gn_bad = 1;
+                }
+                gn_i = gn_i + 1;
+            }
+            gn_i = 0;
+            while (gn_i < Zn & gn_bad == 0) {
+                gn_b = load8(Zp + gn_i);
+                if (gn_b < 128) {
+                    gn_i = gn_i + 1;
+                } else {
+                    gn_extra = 0;
+                    gn_low = 128;
+                    gn_code = 0;
+                    if (gn_b >= 194 & gn_b <= 223) {
+                        gn_extra = 1;
+                        gn_code = gn_b & 31;
+                    } else {
+                        if (gn_b >= 224 & gn_b <= 239) {
+                            gn_extra = 2;
+                            gn_code = gn_b & 15;
+                            gn_low = 2048;
+                        } else {
+                            if (gn_b >= 240 & gn_b <= 244) {
+                                gn_extra = 3;
+                                gn_code = gn_b & 7;
+                                gn_low = 65536;
+                            } else {
+                                gn_bad = 1;
+                            }
+                        }
+                    }
+                    if (gn_bad == 0) {
+                        if (gn_i + gn_extra >= Zn) {
+                            gn_bad = 1;
+                        } else {
+                            gn_k = 1;
+                            while (gn_k <= gn_extra & gn_bad == 0) {
+                                if ((load8(Zp + gn_i + gn_k) & 192) != 128) {
+                                    gn_bad = 1;
+                                } else {
+                                    gn_code = (gn_code << 6) | (load8(Zp + gn_i + gn_k) & 63);
+                                }
+                                gn_k = gn_k + 1;
+                            }
+                            if (gn_bad == 0) {
+                                if (gn_code < gn_low | gn_code > 1114111) {
+                                    gn_bad = 1;
+                                } else {
+                                    if (gn_code >= 55296 & gn_code <= 57343) {
+                                        gn_bad = 1;
+                                    }
+                                }
+                            }
+                            if (gn_bad == 0) {
+                                gn_i = gn_i + gn_extra + 1;
+                            }
+                        }
+                    }
+                }
+            }
+            if (gn_bad == 0) {
+                gn_r = 1;
+            }
+        }
+    }
+}
+
+# ---- applying a delta (live.cpp:1514) ------------------------------------------------------------
+
+# apply_prepare() -> ap_r (1/0): the format of every operation of the staged delta (live.cpp:1519).
+macro m_apply_prepare() {
+    var ap_len;
+    var ap_d;
+    var ap_strings_end;
+    var ap_ops_start;
+    var ap_fixups;
+    var ap_pos;
+    var ap_i;
+    var ap_op;
+    var ap_size;
+    var ap_padded;
+    var ap_tail;
+    var ap_k;
+    var ap_s;
+    var ap_go;
+    jb_at_op = 0;
+    jb_reason = 1;
+    ap_r = 0;
+    ap_len = jb_len;
+    ap_d = load64(ar + 40);
+    if (ap_len >= 64) {
+        callsub s_cpy(jdhead, ap_d, 64);
+        if (load32(jdhead) == 0x44465852) {
+            if (load32(jdhead + 4) == 1) {
+                ap_strings_end = 64 + load32(jdhead + 12);
+                ap_ops_start = (ap_strings_end + 7) & ~7;
+                jops_start = ap_ops_start;
+                if (ap_strings_end <= ap_len) {
+                    if (ap_ops_start <= ap_len) {
+                        jb_ssize = load32(jdhead + 12);
+                        ap_go = 1;
+                        if (jb_ssize != 0) {
+                            if (load8(ap_d + 64 + jb_ssize - 1) != 0) {
+                                ap_go = 0;
+                            }
+                        }
+                        ap_fixups = 0;
+                        ap_pos = ap_ops_start;
+                        ap_i = 0;
+                        while (ap_i < load32(jdhead + 8) & ap_go == 1) {
+                            jb_at_op = ap_i;
+                            if (ap_pos + 8 > ap_len) {
+                                ap_go = 0;
+                            } else {
+                                ap_op = load32(ap_d + ap_pos);
+                                if (ap_op == 1 | ap_op == 2) {
+                                    if (ap_pos + 48 > ap_len) {
+                                        ap_go = 0;
+                                    } else {
+                                        ap_padded = (load32(ap_d + ap_pos + 32) + 7) & ~7;
+                                        ap_size = 48 + ap_padded +
+                                                  8 * load32(ap_d + ap_pos + 40) +
+                                                  16 * load32(ap_d + ap_pos + 36);
+                                        if (ap_pos + ap_size > ap_len) {
+                                            ap_go = 0;
+                                        } else {
+                                            callsub s_string_at(load32(ap_d + ap_pos + 4), ap_d + 64,
+                                                        jb_ssize);
+                                            if (sa_r == 0) {
+                                                ap_go = 0;
+                                            }
+                                        }
+                                        if (ap_go == 1) {
+                                            if (load32(ap_d + ap_pos + 8) != 0xFFFFFFFF) {
+                                                callsub s_string_at(load32(ap_d + ap_pos + 8), ap_d + 64,
+                                                            jb_ssize);
+                                                if (sa_r == 0) {
+                                                    ap_go = 0;
+                                                } else {
+                                                    ap_fixups = ap_fixups + 1;
+                                                }
+                                            }
+                                        }
+                                        if (ap_go == 1) {
+                                            ap_tail = ap_d + ap_pos + 48 + ap_padded;
+                                            ap_k = 0;
+                                            while (ap_k < load32(ap_d + ap_pos + 40) & ap_go == 1) {
+                                                if (load32(ap_tail + 8 * ap_k) + 8 >
+                                                    load32(ap_d + ap_pos + 32)) {
+                                                    ap_go = 0;
+                                                } else {
+                                                    if (load32(ap_tail + 8 * ap_k + 4) !=
+                                                        0xFFFFFFFF) {
+                                                        callsub s_string_at(load32(ap_tail + 8 * ap_k + 4),
+                                                                    ap_d + 64, jb_ssize);
+                                                        if (sa_r == 0) {
+                                                            ap_go = 0;
+                                                        } else {
+                                                            ap_fixups = ap_fixups + 1;
+                                                        }
+                                                    }
+                                                }
+                                                ap_k = ap_k + 1;
+                                            }
+                                        }
+                                        if (ap_go == 1) {
+                                            ap_tail = ap_tail + 8 * load32(ap_d + ap_pos + 40);
+                                            ap_k = 0;
+                                            while (ap_k < load32(ap_d + ap_pos + 36) & ap_go == 1) {
+                                                if (load32(ap_tail + 16 * ap_k) != 0xFFFFFFFF) {
+                                                    callsub s_string_at(load32(ap_tail + 16 * ap_k),
+                                                                ap_d + 64, jb_ssize);
+                                                    if (sa_r == 0) {
+                                                        ap_go = 0;
+                                                    } else {
+                                                        ap_fixups = ap_fixups + 1;
+                                                    }
+                                                }
+                                                if (ap_go == 1) {
+                                                    if (load32(ap_tail + 16 * ap_k + 4) !=
+                                                        0xFFFFFFFF) {
+                                                        callsub s_string_at(load32(ap_tail + 16 * ap_k + 4),
+                                                                    ap_d + 64, jb_ssize);
+                                                        if (sa_r == 0) {
+                                                            ap_go = 0;
+                                                        } else {
+                                                            ap_fixups = ap_fixups + 1;
+                                                        }
+                                                    }
+                                                }
+                                                ap_k = ap_k + 1;
+                                            }
+                                        }
+                                        if (ap_go == 1) {
+                                            ap_pos = ap_pos + ap_size;
+                                        }
+                                    }
+                                } else {
+                                    if (ap_op == 3 | ap_op == 4) {
+                                        ap_s = load32(ap_d + ap_pos + 4);
+                                        if (ap_op != 4 | ap_s != 0xFFFFFFFF) {
+                                            callsub s_string_at(ap_s, ap_d + 64, jb_ssize);
+                                            if (sa_r == 0) {
+                                                ap_go = 0;
+                                            }
+                                        }
+                                        if (ap_go == 1) {
+                                            ap_pos = ap_pos + 8;
+                                        }
+                                    } else {
+                                        ap_go = 0;
+                                    }
+                                }
+                            }
+                            ap_i = ap_i + 1;
+                        }
+                        if (ap_go == 1) {
+                            if (ap_pos == ap_len) {
+                                jb_fixups = ap_fixups;
+                                jb_at_op = 0;
+                                ap_r = 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+# apply_replay() -> ar_r (1/0): the operations on the journal (live.cpp:1616). The journal stays
+# open: whatever went wrong is the caller's to roll back.
+macro m_apply_replay() {
+    var ar_d;
+    var ar_strings;
+    var ar_pos;
+    var ar_opos;
+    var ar_pend;
+    var ar_npend;
+    var ar_i;
+    var ar_op;
+    var ar_p;
+    var ar_n;
+    var ar_padded;
+    var ar_body;
+    var ar_patches;
+    var ar_rlist;
+    var ar_h;
+    var ar_cut;
+    var ar_name;
+    var ar_name_len;
+    var ar_parent;
+    var ar_old;
+    var ar_to;
+    var ar_k;
+    var ar_s;
+    var ar_t;
+    var ar_ok;
+    var ar_go2;
+    ar_r = 0;
+    ar_ok = 1;
+    ar_d = load64(ar + 40);
+    ar_strings = ar_d + 64;
+    callsub s_scratch_reset();
+    jb_reason = 8;
+    callsub s_take(20 * (jb_fixups + 1));
+    ar_pend = tk_r;
+    if (ar_pend == 0) {
+        ar_ok = 0;
+    }
+    if (ar_ok == 1) {
+        ar_npend = 0;
+        jb_reason = 7;
+        m_begin(load64(ar + 24), load64(ar + 32), load64(ar + 32));
+        if (bg_r != 0) {
+            ar_ok = 0;
+        }
+    }
+    if (ar_ok == 1) {
+        ar_pos = jops_start;
+        ar_i = 0;
+        while (ar_i < load32(jdhead + 8) & ar_ok == 1) {
+            jb_at_op = ar_i;
+            ar_opos = ar_pos;
+            ar_op = load32(ar_d + ar_opos);
+            if (ar_op == 1 | ar_op == 2) {
+                ar_padded = (load32(ar_d + ar_opos + 32) + 7) & ~7;
+                ar_body = ar_d + ar_opos + 48;
+                ar_patches = ar_body + ar_padded;
+                ar_rlist = ar_patches + 8 * load32(ar_d + ar_opos + 40);
+                ar_pos = ar_opos + 48 + ar_padded + 8 * load32(ar_d + ar_opos + 40) +
+                         16 * load32(ar_d + ar_opos + 36);
+                callsub s_string_at(load32(ar_d + ar_opos + 4), ar_strings, jb_ssize);
+                ar_p = sa_p;
+                ar_n = sa_n;
+                if (ar_op == 1) {
+                    ar_cut = ar_n;
+                    ar_go2 = 1;
+                    while (ar_go2 == 1) {
+                        if (ar_cut == 0) {
+                            ar_go2 = 0;
+                        } else {
+                            if (load8(ar_p + ar_cut - 1) == 46) {
+                                ar_go2 = 0;
+                            } else {
+                                ar_cut = ar_cut - 1;
+                            }
+                        }
+                    }
+                    ar_name = ar_p + ar_cut;
+                    ar_name_len = ar_n - ar_cut;
+                    ar_parent = load64(ah + 112);
+                    if (ar_cut > 0) {
+                        callsub s_resolve(ar_p, ar_cut - 1);
+                        ar_parent = rv_r;
+                    }
+                    if (ar_n == 0 | ar_parent == 0xFFFFFFFFFFFFFFFF) {
+                        jb_reason = 3;
+                        ar_ok = 0;
+                    } else {
+                        m_good_name(ar_name, ar_name_len);
+                        if (gn_r == 0) {
+                            jb_reason = 5;
+                            ar_ok = 0;
+                        } else {
+                            callsub s_find_child(ar_parent, ar_name, ar_name_len);
+                            if (fc_r != 0xFFFFFFFFFFFFFFFF) {
+                                jb_reason = 4;
+                                ar_ok = 0;
+                            }
+                        }
+                    }
+                    if (ar_ok == 1) {
+                        cs_type = 0xFFFFFFFFFFFFFFFF;
+                        cs_parent = ar_parent;
+                        cs_name = ar_name;
+                        cs_name_len = ar_name_len;
+                        cs_flags = load32(ar_d + ar_opos + 12);
+                        cs_generation = load64(ar_d + ar_opos + 24);
+                        cs_index = load32(ar_d + ar_opos + 16);
+                        cs_payload = load32(ar_d + ar_opos + 32);
+                        cs_refs = load32(ar_d + ar_opos + 36);
+                        callsub s_create();
+                        ar_h = cr_h;
+                        if (cr_r != 0) {
+                            callsub s_reason_of(cr_r);
+                            jb_reason = ro2_r;
+                            ar_ok = 0;
+                        } else {
+                            callsub s_table_ins(ar_h);
+                            if (tin_r == 0) {
+                                jb_reason = 4;
+                                ar_ok = 0;
+                            }
+                        }
+                    }
+                } else {
+                    callsub s_resolve(ar_p, ar_n);
+                    ar_h = rv_r;
+                    if (ar_h == 0xFFFFFFFFFFFFFFFF) {
+                        jb_reason = 3;
+                        ar_ok = 0;
+                    }
+                    if (ar_ok == 1) {
+                        callsub s_cell(ar_h);
+                        ar_old = ce_r;
+                        if (load64(ar_old + 16) != load32(ar_d + ar_opos + 32)) {
+                            callsub s_resize(ar_h, load32(ar_d + ar_opos + 32),
+                                     load32(ar_d + ar_opos + 36));
+                            if (rz_r != 0) {
+                                callsub s_reason_of(rz_r);
+                                jb_reason = ro2_r;
+                                ar_ok = 0;
+                            }
+                        } else {
+                            if (load32(ar_old + 44) != load32(ar_d + ar_opos + 36)) {
+                                callsub s_resize(ar_h, load32(ar_d + ar_opos + 32),
+                                         load32(ar_d + ar_opos + 36));
+                                if (rz_r != 0) {
+                                    callsub s_reason_of(rz_r);
+                                    jb_reason = ro2_r;
+                                    ar_ok = 0;
+                                }
+                            }
+                        }
+                    }
+                    if (ar_ok == 1) {
+                        callsub s_cell_w(ar_h);
+                        if (cw_r == 0) {
+                            jb_reason = 7;
+                            ar_ok = 0;
+                        } else {
+                            store32(cw_r + 40, load32(ar_d + ar_opos + 12));
+                            store64(cw_r + 24, load64(ar_d + ar_opos + 24));
+                            store32(cw_r + 56, load32(ar_d + ar_opos + 16));
+                        }
+                    }
+                }
+                if (ar_ok == 1) {
+                    if (load32(ar_d + ar_opos + 32) != 0) {
+                        callsub s_payload_w(ar_h);
+                        if (pw_r == 0) {
+                            jb_reason = 7;
+                            ar_ok = 0;
+                        } else {
+                            callsub s_cpy(pw_r, ar_body, load32(ar_d + ar_opos + 32));
+                        }
+                    }
+                }
+                if (ar_ok == 1) {
+                    if (load32(ar_d + ar_opos + 8) != 0xFFFFFFFF) {
+                        store32(ar_pend + 20 * ar_npend, ar_h);
+                        store32(ar_pend + 20 * ar_npend + 4, 0);
+                        store32(ar_pend + 20 * ar_npend + 8, 0);
+                        store32(ar_pend + 20 * ar_npend + 12, load32(ar_d + ar_opos + 8));
+                        store32(ar_pend + 20 * ar_npend + 16, ar_i);
+                        ar_npend = ar_npend + 1;
+                    } else {
+                        callsub s_cell_w(ar_h);
+                        if (cw_r == 0) {
+                            jb_reason = 7;
+                            ar_ok = 0;
+                        } else {
+                            store64(cw_r, 0xFFFFFFFFFFFFFFFF);
+                        }
+                    }
+                }
+                if (ar_ok == 1) {
+                    ar_k = 0;
+                    while (ar_k < load32(ar_d + ar_opos + 40) & ar_ok == 1) {
+                        if (load32(ar_patches + 8 * ar_k + 4) == 0xFFFFFFFF) {
+                            callsub s_payload_w(ar_h);
+                            if (pw_r == 0) {
+                                jb_reason = 7;
+                                ar_ok = 0;
+                            } else {
+                                store64(pw_r + load32(ar_patches + 8 * ar_k), 0xFFFFFFFFFFFFFFFF);
+                            }
+                        } else {
+                            store32(ar_pend + 20 * ar_npend, ar_h);
+                            store32(ar_pend + 20 * ar_npend + 4, 1);
+                            store32(ar_pend + 20 * ar_npend + 8, load32(ar_patches + 8 * ar_k));
+                            store32(ar_pend + 20 * ar_npend + 12, load32(ar_patches + 8 * ar_k + 4));
+                            store32(ar_pend + 20 * ar_npend + 16, ar_i);
+                            ar_npend = ar_npend + 1;
+                        }
+                        ar_k = ar_k + 1;
+                    }
+                }
+                if (ar_ok == 1) {
+                    if (load32(ar_d + ar_opos + 36) != 0) {
+                        callsub s_refs_w(ar_h);
+                        if (rw_r == 0) {
+                            jb_reason = 7;
+                            ar_ok = 0;
+                        } else {
+                            ar_to = rw_r;
+                            ar_k = 0;
+                            while (ar_k < load32(ar_d + ar_opos + 36)) {
+                                store64(ar_to + 24 * ar_k, 0xFFFFFFFFFFFFFFFF);
+                                store64(ar_to + 24 * ar_k + 8, 0xFFFFFFFFFFFFFFFF);
+                                store16(ar_to + 24 * ar_k + 16, load16(ar_rlist + 16 * ar_k + 8));
+                                store16(ar_to + 24 * ar_k + 18, load16(ar_rlist + 16 * ar_k + 10));
+                                store32(ar_to + 24 * ar_k + 20, load32(ar_rlist + 16 * ar_k + 12));
+                                if (load32(ar_rlist + 16 * ar_k) != 0xFFFFFFFF) {
+                                    store32(ar_pend + 20 * ar_npend, ar_h);
+                                    store32(ar_pend + 20 * ar_npend + 4, 2);
+                                    store32(ar_pend + 20 * ar_npend + 8, ar_k);
+                                    store32(ar_pend + 20 * ar_npend + 12,
+                                            load32(ar_rlist + 16 * ar_k));
+                                    store32(ar_pend + 20 * ar_npend + 16, ar_i);
+                                    ar_npend = ar_npend + 1;
+                                }
+                                if (load32(ar_rlist + 16 * ar_k + 4) != 0xFFFFFFFF) {
+                                    store32(ar_pend + 20 * ar_npend, ar_h);
+                                    store32(ar_pend + 20 * ar_npend + 4, 3);
+                                    store32(ar_pend + 20 * ar_npend + 8, ar_k);
+                                    store32(ar_pend + 20 * ar_npend + 12,
+                                            load32(ar_rlist + 16 * ar_k + 4));
+                                    store32(ar_pend + 20 * ar_npend + 16, ar_i);
+                                    ar_npend = ar_npend + 1;
+                                }
+                                ar_k = ar_k + 1;
+                            }
+                        }
+                    }
+                }
+            } else {
+                if (ar_op == 3) {
+                    callsub s_string_at(load32(ar_d + ar_opos + 4), ar_strings, jb_ssize);
+                    ar_p = sa_p;
+                    ar_n = sa_n;
+                    ar_pos = ar_opos + 8;
+                    callsub s_resolve(ar_p, ar_n);
+                    ar_h = rv_r;
+                    if (ar_h == 0xFFFFFFFFFFFFFFFF) {
+                        jb_reason = 3;
+                        ar_ok = 0;
+                    } else {
+                        if (ar_h <= 2) {
+                            jb_reason = 10;
+                            ar_ok = 0;
+                        } else {
+                            m_table_del(ar_h);
+                            m_destroy(ar_h);
+                            if (de_r != 0) {
+                                callsub s_reason_of(de_r);
+                                jb_reason = ro2_r;
+                                ar_ok = 0;
+                            }
+                        }
+                    }
+                } else {
+                    ar_s = load32(ar_d + ar_opos + 4);
+                    ar_pos = ar_opos + 8;
+                    ar_h = 0xFFFFFFFFFFFFFFFF;
+                    if (ar_s != 0xFFFFFFFF) {
+                        callsub s_string_at(ar_s, ar_strings, jb_ssize);
+                        callsub s_resolve(sa_p, sa_n);
+                        ar_h = rv_r;
+                        if (ar_h == 0xFFFFFFFFFFFFFFFF) {
+                            jb_reason = 3;
+                            ar_ok = 0;
+                        }
+                    }
+                    if (ar_ok == 1) {
+                        store64(ah + 104, ar_h);
+                    }
+                }
+            }
+            ar_i = ar_i + 1;
+        }
+    }
+    if (ar_ok == 1) {
+        ar_k = 0;
+        while (ar_k < ar_npend & ar_ok == 1) {
+            jb_at_op = load32(ar_pend + 20 * ar_k + 16);
+            callsub s_string_at(load32(ar_pend + 20 * ar_k + 12), ar_strings, jb_ssize);
+            callsub s_resolve(sa_p, sa_n);
+            ar_t = rv_r;
+            if (ar_t == 0xFFFFFFFFFFFFFFFF) {
+                jb_reason = 3;
+                ar_ok = 0;
+            } else {
+                if (load32(ar_pend + 20 * ar_k + 4) == 0) {
+                    callsub s_cell_w(load32(ar_pend + 20 * ar_k));
+                    if (cw_r == 0) {
+                        ar_ok = 0;
+                    } else {
+                        store64(cw_r, ar_t);
+                    }
+                } else {
+                    if (load32(ar_pend + 20 * ar_k + 4) == 1) {
+                        callsub s_payload_w(load32(ar_pend + 20 * ar_k));
+                        if (pw_r == 0) {
+                            ar_ok = 0;
+                        } else {
+                            store64(pw_r + load32(ar_pend + 20 * ar_k + 8), ar_t);
+                        }
+                    } else {
+                        callsub s_refs_w(load32(ar_pend + 20 * ar_k));
+                        if (rw_r == 0) {
+                            ar_ok = 0;
+                        } else {
+                            if (load32(ar_pend + 20 * ar_k + 4) == 2) {
+                                store64(rw_r + 24 * load32(ar_pend + 20 * ar_k + 8), ar_t);
+                            } else {
+                                store64(rw_r + 24 * load32(ar_pend + 20 * ar_k + 8) + 8, ar_t);
+                            }
+                        }
+                    }
+                }
+                if (ar_ok == 0) {
+                    jb_reason = 7;
+                }
+            }
+            ar_k = ar_k + 1;
+        }
+    }
+    if (ar_ok == 1) {
+        jb_reason = 11;
+        m_check_all();
+        if (ck_r == 1) {
+            m_verify();
+            if (vf_r == 0) {
+                ar_r = 1;
+            }
+        }
+    }
+}
+
+# check_all() -> ck_r (live.cpp:1864): every handle something holds points at an object that is
+# there.
+macro m_check_all() {
+    var ck_n;
+    var ck_h;
+    var ck_c;
+    var ck_rp;
+    var ck_k;
+    var ck_words;
+    var ck_off;
+    var ck_val;
+    callsub s_scratch_reset();
+    ck_n = load64(ah + 88);
+    jb_reason = 8;
+    ck_r = 0;
+    callsub s_build_kids(0);
+    if (bk_r == 1) {
+        callsub s_prep_types();
+        if (pt_r == 1) {
+            jb_reason = 9;
+            ck_r = 1;
+            if (load64(ah + 104) != 0xFFFFFFFFFFFFFFFF) {
+                callsub s_cell(load64(ah + 104));
+                if (ce_r == 0) {
+                    ck_r = 0;
+                }
+            }
+            ck_h = 0;
+            while (ck_h < ck_n & ck_r == 1) {
+                callsub s_cell(ck_h);
+                ck_c = ce_r;
+                if (ck_c != 0) {
+                    if (load64(ck_c + 8) != 0xFFFFFFFFFFFFFFFF) {
+                        callsub s_cell(load64(ck_c + 8));
+                        if (ce_r == 0) {
+                            ck_r = 0;
+                        }
+                    }
+                    if (ck_r == 1) {
+                        if (load64(ck_c) != 0xFFFFFFFFFFFFFFFF) {
+                            callsub s_cell(load64(ck_c));
+                            if (ce_r == 0) {
+                                ck_r = 0;
+                            }
+                        }
+                    }
+                    if (ck_r == 1) {
+                        callsub s_refs(ck_h);
+                        ck_rp = rr_r;
+                        ck_k = 0;
+                        while (ck_k < load32(ck_c + 44) & ck_r == 1) {
+                            if (load64(ck_rp + 24 * ck_k) != 0xFFFFFFFFFFFFFFFF) {
+                                callsub s_cell(load64(ck_rp + 24 * ck_k));
+                                if (ce_r == 0) {
+                                    ck_r = 0;
+                                }
+                            }
+                            if (ck_r == 1) {
+                                if (load64(ck_rp + 24 * ck_k + 8) != 0xFFFFFFFFFFFFFFFF) {
+                                    callsub s_cell(load64(ck_rp + 24 * ck_k + 8));
+                                    if (ce_r == 0) {
+                                        ck_r = 0;
+                                    }
+                                }
+                            }
+                            ck_k = ck_k + 1;
+                        }
+                    }
+                    if (ck_r == 1) {
+                        if (load64(ck_c + 16) != 0) {
+                            if (load64(ck_c) != 0xFFFFFFFFFFFFFFFF) {
+                                callsub s_refs_of(load64(ck_c));
+                                if (ro_r == 0) {
+                                    jb_reason = 12;
+                                    ck_r = 0;
+                                } else {
+                                    ck_words = ro_words;
+                                    ck_k = 0;
+                                    while (ck_k < load32(ck_words)) {
+                                        ck_off = load32(ck_words + 4 + 4 * ck_k) & 0x7FFFFFFF;
+                                        if (ck_off + 8 <= load64(ck_c + 16)) {
+                                            ck_val = load64(ck_c + 64 + ck_off);
+                                            if (ck_val != 0xFFFFFFFFFFFFFFFF) {
+                                                callsub s_cell(ck_val);
+                                                if (ce_r == 0) {
+                                                    ck_r = 0;
+                                                }
+                                            }
+                                        }
+                                        ck_k = ck_k + 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                ck_h = ck_h + 1;
+            }
+        }
+    }
+}
+
+# ---- the job machine (live.cpp:1054) and serve (live.cpp:180) ------------------------------------
+
+# run_job(job): kJobEmit 1, kJobRelink 2, kJobCompact 3, kJobApply 4 (live.cpp:1079).
+macro m_run_job(Zjob) {
+    var rj_ph;
+    var rj_loop;
+    jb_at_op = 0;
+    jb_reason = 0;
+    jok = 0;
+    jb_reclaimed = 0;
+    jb_emitted = 0;
+    jb_le = 0;
+    jb_ls = 0;
+    jb_override = 0;
+    jguard = 0;
+    rj_ph = 2;
+    if (Zjob == 1) {
+        jemit_next = 11;
+        rj_ph = 0;
+    } else {
+        if (Zjob == 2) {
+            jrelink_next = 11;
+            jdry = 0;
+            rj_ph = 1;
+            callsub s_linkable();
+            if (lk_r == 0) {
+                jb_reason = 15;
+                rj_ph = 12;
+            }
+        } else {
+            if (Zjob == 3) {
+                rj_ph = 7;
+            }
+        }
+    }
+    rj_loop = 1;
+    while (rj_loop == 1) {
+        if (rj_ph == 0) {
+            m_emit();
+            if (em_r == 1) {
+                jb_emitted = em_len;
+                rj_ph = jemit_next;
+            } else {
+                if (jb_override != 0) {
+                    jb_reason = jb_override;
+                }
+                rj_ph = 12;
+            }
+            jb_override = 0;
+        } else {
+            if (rj_ph == 1) {
+                m_relink();
+                if (rl_r == 1) {
+                    jb_le = rl_entries;
+                    jb_ls = rl_slots;
+                    rj_ph = jrelink_next;
+                } else {
+                    rj_ph = 12;
+                }
+            } else {
+                if (rj_ph == 2) {
+                    m_apply_prepare();
+                    if (ap_r == 0) {
+                        rj_ph = 12;
+                    } else {
+                        if ((load32(jdhead + 16) & 1) != 0) {
+                            jb_override = 2;
+                            jemit_next = 3;
+                            rj_ph = 0;
+                        } else {
+                            rj_ph = 4;
+                        }
+                    }
+                } else {
+                    if (rj_ph == 3) {
+                        callsub s_cmp(ar + 192, jdhead + 24, 32);
+                        if (cmp_r != 0) {
+                            jb_reason = 2;
+                            rj_ph = 12;
+                        } else {
+                            rj_ph = 4;
+                        }
+                    } else {
+                        if (rj_ph == 4) {
+                            m_apply_replay();
+                            if (ar_r == 1) {
+                                jemit_next = 5;
+                                rj_ph = 0;
+                            } else {
+                                rj_ph = 12;
+                            }
+                        } else {
+                            if (rj_ph == 5) {
+                                rj_ph = 6;
+                                callsub s_linkable();
+                                if (lk_r == 1) {
+                                    jdry = 0;
+                                    jrelink_next = 6;
+                                    rj_ph = 1;
+                                }
+                            } else {
+                                if (rj_ph == 6) {
+                                    m_commit();
+                                    rj_ph = 11;
+                                } else {
+                                    if (rj_ph == 7) {
+                                        m_compact_scan();
+                                        if (cs2_r == 0) {
+                                            rj_ph = 12;
+                                        } else {
+                                            rj_ph = 8;
+                                            callsub s_linkable();
+                                            if (lk_r == 1) {
+                                                jdry = 1;
+                                                jrelink_next = 8;
+                                                rj_ph = 1;
+                                            }
+                                        }
+                                    } else {
+                                        if (rj_ph == 8) {
+                                            jdry = 0;
+                                            jemit_next = 9;
+                                            rj_ph = 0;
+                                        } else {
+                                            if (rj_ph == 9) {
+                                                rj_ph = 10;
+                                                callsub s_linkable();
+                                                if (lk_r == 1) {
+                                                    jdry = 1;
+                                                    jguard = 1;
+                                                    jrelink_next = 10;
+                                                    rj_ph = 1;
+                                                }
+                                            } else {
+                                                if (rj_ph == 10) {
+                                                    jdry = 0;
+                                                    jguard = 0;
+                                                    rj_ph = 11;
+                                                    m_compact_copy();
+                                                    if (cc_r == 0) {
+                                                        rj_ph = 12;
+                                                    } else {
+                                                        callsub s_linkable();
+                                                        if (lk_r == 1) {
+                                                            jrelink_next = 11;
+                                                            rj_ph = 1;
+                                                        }
+                                                    }
+                                                } else {
+                                                    if (rj_ph == 12) {
+                                                        if (aj != 0) {
+                                                            m_rollback();
+                                                            callsub s_build_table();
+                                                            if (bt_r == 1) {
+                                                                store32(ar + 140, 1);
+                                                            } else {
+                                                                store32(ar + 140, 0);
+                                                            }
+                                                        }
+                                                        jok = 0;
+                                                        rj_loop = 0;
+                                                    } else {
+                                                        if (Zjob != 1) {
+                                                            store32(ar + 268, load32(ar + 268) + 1);
+                                                        }
+                                                        jok = 1;
+                                                        rj_loop = 0;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+# serve(op, argument, rq, rl, rs) -> sv_status, sv_rsl, sv_rarg (live.cpp:180).
+macro m_serve(Zop, Zarg, Zrq, Zrl, Zrs) {
+    var se_c;
+    var se_name;
+    var se_n;
+    var se_h;
+    var se_at;
+    var se_k;
+    var se_count;
+    var se_bytes;
+    var se_job;
+    var se_done;
+    sv_status = 0;
+    sv_rsl = 0;
+    sv_rarg = Zarg;
+    callsub s_scratch_reset();
+    se_job = 0;
+    se_done = 0;
+    if (Zop == 1) {
+        callsub s_cpy(Zrs, Zrq, Zrl);
+        sv_rsl = Zrl;
+        se_done = 1;
+    }
+    if (se_done == 0) {
+        if (Zop == 2) {
+            store32(Zrs, 1);
+            store32(Zrs + 4, 0);
+            store64(Zrs + 8, load64(ah + 88));
+            store64(Zrs + 16, load64(ah + 16));
+            store64(Zrs + 24, load64(ar + 16));
+            store64(Zrs + 32, load64(ar + 48));
+            store64(Zrs + 40, load64(ar + 80));
+            store64(Zrs + 48, load64(ar + 64));
+            store64(Zrs + 56, load64(ar + 160));
+            store64(Zrs + 64, load64(ar + 168));
+            store64(Zrs + 72, acomm);
+            sv_rsl = 80;
+            se_done = 1;
+        }
+    }
+    if (se_done == 0) {
+        if (Zop == 3) {
+            callsub s_cpy(Zrs, ah, 192);
+            sv_rsl = 192;
+            se_done = 1;
+        }
+    }
+    if (se_done == 0) {
+        if (Zop == 4) {
+            callsub s_resolve(Zrq, Zrl);
+            se_h = rv_r;
+            if (se_h == 0xFFFFFFFFFFFFFFFF) {
+                sv_status = 3;
+            } else {
+                store64(Zrs, se_h);
+                sv_rsl = 8;
+            }
+            se_done = 1;
+        }
+    }
+    if (se_done == 0) {
+        if (Zop == 5) {
+            if (Zrl < 8) {
+                sv_status = 4;
+            } else {
+                callsub s_path_of(load64(Zrq), Zrs, 1024);
+                if (po_r == 0) {
+                    sv_status = 3;
+                } else {
+                    sv_rsl = po_n;
+                }
+            }
+            se_done = 1;
+        }
+    }
+    if (se_done == 0) {
+        if (Zop == 6) {
+            if (Zrl < 8) {
+                sv_status = 4;
+            } else {
+                callsub s_cell(load64(Zrq));
+                se_c = ce_r;
+                if (se_c == 0) {
+                    sv_status = 3;
+                } else {
+                    callsub s_name(load64(Zrq));
+                    se_name = nm_r;
+                    callsub s_len(se_name);
+                    se_n = len_r;
+                    if (se_n > 900) {
+                        se_n = 900;
+                    }
+                    store64(Zrs, load64(se_c));
+                    store64(Zrs + 8, load64(se_c + 8));
+                    store64(Zrs + 16, load64(se_c + 16));
+                    store64(Zrs + 24, load64(se_c + 24));
+                    store32(Zrs + 32, load32(se_c + 40));
+                    store32(Zrs + 36, load32(se_c + 44));
+                    store32(Zrs + 40, load32(se_c + 56));
+                    store32(Zrs + 44, se_n);
+                    callsub s_cpy(Zrs + 48, se_name, se_n);
+                    sv_rsl = 48 + se_n;
+                }
+            }
+            se_done = 1;
+        }
+    }
+    if (se_done == 0) {
+        if (Zop == 7) {
+            if (Zrl < 16) {
+                sv_status = 4;
+            } else {
+                callsub s_cell(load64(Zrq));
+                se_c = ce_r;
+                if (se_c == 0) {
+                    sv_status = 3;
+                } else {
+                    if (load32(Zrq + 8) > load64(se_c + 16)) {
+                        sv_status = 4;
+                    } else {
+                        se_count = load32(Zrq + 12);
+                        if (se_count > 1024) {
+                            se_count = 1024;
+                        }
+                        if (se_count > load64(se_c + 16) - load32(Zrq + 8)) {
+                            se_count = load64(se_c + 16) - load32(Zrq + 8);
+                        }
+                        callsub s_payload(load64(Zrq));
+                        callsub s_cpy(Zrs, pa_r + load32(Zrq + 8), se_count);
+                        sv_rsl = se_count;
+                    }
+                }
+            }
+            se_done = 1;
+        }
+    }
+    if (se_done == 0) {
+        if (Zop == 8) {
+            if (Zrl < 12) {
+                sv_status = 4;
+            } else {
+                se_at = load32(Zrq + 8);
+                se_count = 0;
+                while (se_at < load64(ah + 88) & se_count < 120) {
+                    callsub s_cell(se_at);
+                    se_c = ce_r;
+                    if (se_c != 0) {
+                        if (load64(se_c + 8) == load64(Zrq)) {
+                            store64(Zrs + 8 + 8 * se_count, se_at);
+                            se_count = se_count + 1;
+                        }
+                    }
+                    se_at = se_at + 1;
+                }
+                store32(Zrs, se_count);
+                if (se_at >= load64(ah + 88)) {
+                    store32(Zrs + 4, 0xFFFFFFFF);
+                } else {
+                    store32(Zrs + 4, se_at);
+                }
+                sv_rsl = 8 + 8 * se_count;
+            }
+            se_done = 1;
+        }
+    }
+    if (se_done == 0) {
+        if (Zop == 9) {
+            if (Zrl < 12) {
+                sv_status = 4;
+            } else {
+                callsub s_cell(load64(Zrq));
+                se_c = ce_r;
+                if (se_c == 0) {
+                    sv_status = 3;
+                } else {
+                    callsub s_refs(load64(Zrq));
+                    se_count = 0;
+                    se_k = load32(Zrq + 8);
+                    while (se_k < load32(se_c + 44) & se_count < 40) {
+                        callsub s_cpy(Zrs + 8 + 24 * se_count, rr_r + 24 * se_k, 24);
+                        se_k = se_k + 1;
+                        se_count = se_count + 1;
+                    }
+                    store32(Zrs, se_count);
+                    store32(Zrs + 4, load32(se_c + 44));
+                    sv_rsl = 8 + 24 * se_count;
+                }
+            }
+            se_done = 1;
+        }
+    }
+    if (se_done == 0) {
+        if (Zop == 16) {
+            store32(ar + 144, 0);
+            se_done = 1;
+        }
+    }
+    if (se_done == 0) {
+        if (Zop == 17) {
+            if (Zarg + Zrl > load64(ar + 48)) {
+                sv_status = 5;
+            } else {
+                callsub s_cpy(load64(ar + 40) + Zarg, Zrq, Zrl);
+                if (Zarg + Zrl > load32(ar + 144)) {
+                    store32(ar + 144, Zarg + Zrl);
+                }
+            }
+            se_done = 1;
+        }
+    }
+    if (se_done == 0) {
+        if (Zop == 18) {
+            if (Zrl < 36) {
+                sv_status = 4;
+            } else {
+                jb_len = load32(Zrq);
+                if (jb_len > load32(ar + 144)) {
+                    sv_status = 4;
+                } else {
+                    callsub s_sha_init(shh);
+                    callsub s_sha_upd(shh, load64(ar + 40), jb_len);
+                    callsub s_sha_finish(shh, shd);
+                    callsub s_cmp(shd, Zrq + 4, 32);
+                    if (cmp_r != 0) {
+                        sv_status = 6;
+                    } else {
+                        se_job = 4;
+                    }
+                }
+            }
+            se_done = 1;
+        }
+    }
+    if (se_done == 0) {
+        if (Zop == 32 | Zop == 33) {
+            se_job = 1;
+            se_done = 1;
+        }
+    }
+    if (se_done == 0) {
+        if (Zop == 34) {
+            if (Zrl < 4) {
+                sv_status = 4;
+            } else {
+                se_count = load32(Zrq);
+                if (Zarg > load64(ar + 184)) {
+                    sv_status = 4;
+                } else {
+                    if (se_count > 1024) {
+                        se_count = 1024;
+                    }
+                    if (se_count > load64(ar + 184) - Zarg) {
+                        se_count = load64(ar + 184) - Zarg;
+                    }
+                    callsub s_cpy(Zrs, jemit_base + Zarg, se_count);
+                    sv_rsl = se_count;
+                }
+            }
+            se_done = 1;
+        }
+    }
+    if (se_done == 0) {
+        if (Zop == 36) {
+            if (Zrl < 8) {
+                sv_status = 4;
+            } else {
+                se_bytes = load64(Zrq);
+                if (se_bytes < acomm | se_bytes > load64(ar + 16)) {
+                    store32(Zrs, 0);
+                    store32(Zrs + 4, 14);
+                    sv_rsl = 8;
+                    sv_status = 9;
+                } else {
+                    store64(ar + 224, se_bytes);
+                    store64(ar + 232, 0);
+                    store64(Zrs, se_bytes);
+                    sv_rsl = 8;
+                }
+            }
+            se_done = 1;
+        }
+    }
+    if (se_done == 0) {
+        if (Zop == 35) {
+            se_job = 3;
+            se_done = 1;
+        }
+    }
+    if (se_done == 0) {
+        if (Zop == 37) {
+            se_job = 2;
+            se_done = 1;
+        }
+    }
+    if (se_done == 0) {
+        if (Zop == 48) {
+            store32(ar + 176, Zarg);
+            store32(Zrs, load32(ar + 180));
+            sv_rsl = 4;
+            se_done = 1;
+        }
+    }
+    if (se_done == 0) {
+        sv_status = 2;
+    }
+    if (sv_status == 0) {
+        if (se_job != 0) {
+            m_run_job(se_job);
+            if (se_job == 1) {
+                if (jok == 0) {
+                    store32(Zrs, 0);
+                    store32(Zrs + 4, jb_reason);
+                    sv_rsl = 8;
+                    sv_status = 8;
+                } else {
+                    if (Zop == 32) {
+                        callsub s_cpy(Zrs, ar + 192, 32);
+                        sv_rsl = 32;
+                    } else {
+                        store64(Zrs, jb_emitted);
+                        callsub s_cpy(Zrs + 8, ar + 192, 32);
+                        sv_rsl = 40;
+                    }
+                }
+            } else {
+                if (se_job == 2) {
+                    if (jok == 0) {
+                        store32(Zrs, 0);
+                        store32(Zrs + 4, jb_reason);
+                        sv_rsl = 8;
+                        sv_status = 9;
+                    } else {
+                        store32(Zrs, jb_le);
+                        store32(Zrs + 4, jb_ls);
+                        sv_rsl = 8;
+                    }
+                } else {
+                    if (se_job == 3) {
+                        if (jok == 0) {
+                            store32(Zrs, 0);
+                            store32(Zrs + 4, jb_reason);
+                            sv_rsl = 8;
+                            sv_status = 9;
+                        } else {
+                            store64(Zrs, load64(ah + 88));
+                            store64(Zrs + 8, load64(ah + 16));
+                            callsub s_cpy(Zrs + 16, ar + 192, 32);
+                            store64(Zrs + 48, jb_reclaimed);
+                            sv_rsl = 56;
+                        }
+                    } else {
+                        if (jok == 1) {
+                            store64(ar + 160, load64(ar + 160) + 1);
+                            callsub s_cpy(Zrs, ar + 192, 32);
+                            sv_rsl = 32;
+                        } else {
+                            store64(ar + 168, load64(ar + 168) + 1);
+                            if (jb_reason == 6) {
+                                if (aneed > acomm) {
+                                    se_bytes = aneed + 3 * jb_len + 4096;
+                                    if (se_bytes > load64(ar + 16)) {
+                                        se_bytes = load64(ar + 16);
+                                    }
+                                    store64(ar + 232, se_bytes);
+                                }
+                            }
+                            store32(Zrs, jb_at_op);
+                            store32(Zrs + 4, jb_reason);
+                            sv_rsl = 8;
+                            sv_status = 7;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+# --- end of part 4c ---
+
+
+
+
+# ============================================================================
+# open / pump (native/live.cpp Session::open + Session::pump)
+# ============================================================================
+
+macro m_open() {
+    op_r = 0;
+    if (load32(ar) == 0x4556494C) {
+        if (load32(ar + 4) == 1) {
+            ab = load64(ar + 8);
+            acomm = load64(ar + 224);
+            if (acomm == 0) {
+                acomm = load64(ar + 16);
+            }
+            alim = load64(ar + 16);
+            if (acomm <= alim) {
+                callsub s_attach();
+                if (at_r == 0) {
+                    slts = load32(ar + 136);
+                    if (slts >= 8) {
+                        if ((slts & (slts - 1)) == 0) {
+                            if (slts * 4 <= load64(ar + 64)) {
+                                taddr = load64(ar + 56);
+                                sbase = load64(ar + 56) + ((slts * 4 + 15) & ~15);
+                                send = load64(ar + 56) + load64(ar + 64);
+                                sat = sbase;
+                                if (load32(ar + 140) == 1) {
+                                    op_r = 1;
+                                } else {
+                                    callsub s_build_table();
+                                    if (bt_r == 1) {
+                                        store32(ar + 140, 1);
+                                        op_r = 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+macro m_pump(Zlimit, Zreloc) {
+    m_open();
+    pu_served = 0;
+    if (op_r == 1) {
+        pu_rx = load64(ar + 88);
+        pu_tx = load64(ar + 104);
+        pu_rx_mask = load32(ar + 96) - 1;
+        pu_tx_mask = load32(ar + 112) - 1;
+        pu_go = 1;
+        while (pu_served < Zlimit & pu_go == 1) {
+            pu_head = load32(ar + 120);
+            pu_tail = load32(ar + 124);
+            pu_available = pu_head - pu_tail;
+            if (pu_available < 20) {
+                pu_go = 0;
+            } else {
+                pu_i = 0;
+                while (pu_i < 16) {
+                    store8(rqbuf + pu_i, load8(pu_rx + ((pu_tail + pu_i) & pu_rx_mask)));
+                    pu_i = pu_i + 1;
+                }
+                pu_len = load16(rqbuf + 12);
+                if (load16(rqbuf) != 0x5852 | pu_len > 1024) {
+                    store32(ar + 124, pu_tail + 1);
+                } else {
+                    pu_total = 16 + pu_len + 4;
+                    if (pu_available < pu_total) {
+                        pu_go = 0;
+                    } else {
+                        pu_i = 16;
+                        while (pu_i < pu_total) {
+                            store8(rqbuf + pu_i, load8(pu_rx + ((pu_tail + pu_i) & pu_rx_mask)));
+                            pu_i = pu_i + 1;
+                        }
+                        callsub s_crc32(rqbuf, pu_total - 4);
+                        if (load32(rqbuf + pu_total - 4) != crc_r) {
+                            store32(ar + 124, pu_tail + 1);
+                        } else {
+                            pu_tx_used = load32(ar + 128) - load32(ar + 132);
+                            if (load32(ar + 112) - pu_tx_used < 1044) {
+                                pu_go = 0;
+                            } else {
+                                pu_stop = 0;
+                                if (Zreloc != 0) {
+                                    if (load8(rqbuf + 2) == 35) {
+                                        if (load32(ar + 264) == 0 & load32(ar + 260) == 0 &
+                                            load32(ar + 256) == 0) {
+                                            if (load32(ar + 252) != 3) {
+                                                store32(ar + 264, 1);
+                                                pu_stop = 1;
+                                            }
+                                        }
+                                    }
+                                }
+                                if (pu_stop == 0) {
+                                    m_serve(load8(rqbuf + 2), load32(rqbuf + 8), rqbuf + 16, pu_len, rsbuf + 16);
+                                    store16(rsbuf, 0x5852);
+                                    store8(rsbuf + 2, load8(rqbuf + 2) | 128);
+                                    store8(rsbuf + 3, 0);
+                                    store32(rsbuf + 4, load32(rqbuf + 4));
+                                    store32(rsbuf + 8, sv_rarg);
+                                    store16(rsbuf + 12, sv_rsl);
+                                    store16(rsbuf + 14, sv_status);
+                                    pu_out_total = 16 + sv_rsl + 4;
+                                    callsub s_crc32(rsbuf, pu_out_total - 4);
+                                    store32(rsbuf + pu_out_total - 4, crc_r);
+                                    pu_out_head = load32(ar + 128);
+                                    pu_i = 0;
+                                    while (pu_i < pu_out_total) {
+                                        store8(pu_tx + ((pu_out_head + pu_i) & pu_tx_mask), load8(rsbuf + pu_i));
+                                        pu_i = pu_i + 1;
+                                    }
+                                    store32(ar + 128, pu_out_head + pu_out_total);
+                                    store32(ar + 124, pu_tail + pu_total);
+                                    store32(ar + 148, sv_status);
+                                    store64(ar + 152, load64(ar + 152) + 1);
+                                    pu_served = pu_served + 1;
+                                } else {
+                                    pu_go = 0;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+# native/live.cpp own_body: which native_slot_24 owns `pc()` -- and the code size
+# that owns it. Needed so live_pump can copy its own rx body into log space and
+# tail-call it after the compactor overwrote the image.
+macro m_own_body() {
+    ob_self = 0;
+    ob_size = 0;
+    if (context != 0) {
+        ob_slots = load64(context + 24);
+        ob_entries = load64(context + 40);
+        ob_pc = pc();
+        ob_done = 0;
+        ob_k = 0;
+        while (ob_k < load64(context + 16) & ob_done == 0) {
+            if (load64(ob_slots + 24 * ob_k) == 29) {
+                ob_i = 0;
+                while (ob_i < load64(context + 32) & ob_done == 0) {
+                    if (load64(ob_entries + 80 * ob_i + 24) == load64(ob_slots + 24 * ob_k + 16)) {
+                        if (ob_pc >= load64(ob_slots + 24 * ob_k + 16)) {
+                            if (ob_pc < load64(ob_slots + 24 * ob_k + 16) + load64(ob_entries + 80 * ob_i + 32)) {
+                                ob_size = load64(ob_entries + 80 * ob_i + 32);
+                                ob_self = load64(ob_slots + 24 * ob_k + 16);
+                                ob_done = 1;
+                            }
+                        }
+                    }
+                    ob_i = ob_i + 1;
+                }
+            }
+            ob_k = ob_k + 1;
+        }
+    }
+}
+
+# ============================================================================
+# entry points (safe_point is NOT here: its one defining source is native/safe/safe.rxfs,
+# wired by tools/native/seed_build.py SOURCES -- this file is the live pump alone)
+# ============================================================================
+
+fn live_pump(context, area) {
+    var at, caps, capc, cap_i, cap_go, ctx;
+    var ab, acomm, alim, at_r, op_r, slts, taddr, sbase, send, sat;
+    var aneed, acache, ar, ah, aj, amark, aused, abitmap, al_at, al_r;
+    var alog_base, alog_comm, alog_lim;
+    var mb_at, mb_r, in_r, bg_r, cm_r, rb_r, rz_r, de_r, cw_r, el_r;
+    var ob_slots, ob_entries, ob_pc, ob_k, ob_i, ob_done, ob_self, ob_size, ob_ground, ob_copy_i;
+    var pu_served, pu_rx, pu_tx, pu_rx_mask, pu_tx_mask, pu_go, pu_stop;
+    var pu_head, pu_tail, pu_available, pu_i, pu_len, pu_total, pu_tx_used, pu_out_total, pu_out_head;
+    var pu_limit, pu_stop_after, pu_clear_reloc, pu_phase, pu_again;
+    var crc_r, crc_i, crc_k, cmp_r, len_r;
+    var cq_r, cr_h, cr_r, cs2_r, ck_r, cn_r, cc_r;
+    var cs_type, cs_parent, cs_generation, cs_flags, cs_index, cs_name, cs_name_len, cs_payload, cs_refs;
+    var sn_r, sn_h, ce_r, sp_r, lv_r, pa_r, rr_r, kd_r, nm_r, fc_r, in_free, in_cells, in_dir, in_chunks;
+    var ne_r, nh_r, hm_r, tin_r, it_r, it_at, tk_r, pw_r, rw_r, lss_r;
+    var bk_r, bt_r, rv_r, vf_r, vf_ok, po_n, po_r, cn_r2, tif_r, fif_r, hf_r;
+    var n_kids, kstart, klist, kmemo, kpool, kpfx, pool_len;
+    var ro_r, ro_words, ro2_r, sa_r, sa_p, sa_n, ni_r, em_r, em_rsn, em_len, em_state;
+    var lk_r, ca_r, ca_at, ca_rng0, ca_rng1, rl_r, rl_entries, rl_slots;
+    var sv_status, sv_rsl, sv_rarg, jok, jb_le, jb_ls, jb_override, jemit_next, jrelink_next;
+    var jb_at_op, jb_len, jb_ssize, jb_fixups, jb_reason, jb_emitted, jb_reclaimed;
+    var jguard, jdry, jops_start, ap_r, ap_len, ap_s, ap_op, ap_ops_start, ap_strings_end;
+    var ap_i, ap_k, ap_d, ap_ab, ap_ah, ap_alim, ap_acomm, ap_aneed, ap_aj;
+    var ap_alb, ap_alc, ap_all, ap_amark, ap_abitmap, ap_aused, ap_fixups, ap_pos, ap_size, ap_go, ap_tail, ap_padded;
+    var gn_r, ar_r, ws_r, bw_r, mb_r2, tmp8_r, tmp32_r;
+    var cb_r, en_r, disp_r, mob_r, so_r, pi_r, pi_id, pt_r;
+    var rqbuf[1044], rsbuf[1044];
+    var shk[256], shw[256], shh[128], shd[32];
+    var saved[192], jdhead[64], srt[32], empty0[8], lit[64];
+    var tyT[48], tyV[48], flF[48], flH[48];
+    var rframes[432], roffsets[512], rext_off[2048], rext_end[2048];
+    var jemit_base, jemit_cap, scratch_base;
+
+    # native/live.cpp:101
+    at = area;
+    if (at == 0) {
+        if (context != 0) {
+            caps = load64(context + 56);
+            capc = load64(context + 48);
+            cap_i = 0;
+            cap_go = 1;
+            while (cap_i < capc & cap_go == 1) {
+                if (load64(caps + 24 * cap_i) == 1) {
+                    at = load64(caps + 24 * cap_i + 16);
+                    cap_go = 0;
+                }
+                cap_i = cap_i + 1;
+            }
+        }
+    }
+    if (at == 0) {
+        refuse 13;
+    }
+    ar = at;
+    ctx = context;
+    jemit_base = load64(ar + 72);
+    jemit_cap = load64(ar + 80);
+    scratch_base = load64(ar + 56);
+
+    # native/live.cpp:120..168 -- one pump macro expansion, two phases. The C++ calls
+    # pump() at four sites (wasm stop / relocated / batch / decay-failure); the Seed
+    # port drives those sites through pu_limit/pu_stop_after/pu_phase so the serve
+    # machinery exists exactly once in the emitted body -- the self-copy in the
+    # relocation path copies THIS body, and four copies would quadruple it.
+    pu_limit = 64;
+    pu_stop_after = 0;
+    pu_clear_reloc = 0;
+    if (load32(ar + 252) == 3) {
+        pu_stop_after = 1;
+    } else {
+        if (load32(ar + 260) != 0) {
+            pu_limit = 1;
+            pu_stop_after = 1;
+            pu_clear_reloc = 1;
+        }
+    }
+    pu_phase = 0;
+    pu_again = 1;
+    while (pu_again == 1) {
+        pu_again = 0;
+        m_pump(pu_limit, 1);
+        if (pu_clear_reloc == 1) {
+            store32(ar + 260, 0);
+        }
+        if (pu_stop_after == 1) {
+            refuse 0;
+        }
+        if (pu_phase == 0) {
+            if (load32(ar + 264) != 1) {
+                refuse 0;
+            }
+            # native/live.cpp:139 -- the compactor asked for relocation: copy our own
+            # rx body into log space (aligned) and tail-call the copy
+            ob_self = 0;
+            ob_size = 0;
+            if (context != 0) {
+                m_own_body();
+            }
+            ob_ground = (load64(ar + 24) + 63) & ~63;
+            if (ob_self == 0 | ob_ground + ob_size > load64(ar + 24) + load64(ar + 32)) {
+                store32(ar + 264, 2);
+                pu_phase = 1;
+                pu_again = 1;
+            } else {
+                ob_copy_i = 0;
+                while (ob_copy_i < ob_size) {
+                    store8(ob_ground + ob_copy_i, load8(ob_self + ob_copy_i));
+                    ob_copy_i = ob_copy_i + 1;
+                }
+                store32(ar + 260, 1);
+                store32(ar + 264, 0);
+                tailcall_pp(ob_ground, context, area);
+                refuse 0;
+            }
+        } else {
+            store32(ar + 264, 0);
+            refuse 0;
+        }
+    }
+    refuse 0;
+}
+

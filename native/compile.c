@@ -46,12 +46,9 @@ typedef unsigned long rxf_uptr;
 typedef long long rxf_i64;
 
 /* In: the program and the room for the code. Out: how many bytes the code takes (also when the
- * room is too small), and the word of the program that was refused. */
-typedef struct {
-    rxf_u64 program, program_size, out, out_capacity;
-    rxf_u64 work, work_capacity; /* 8 bytes for each word of the program */
-    rxf_u64 out_size, at;
-} rxf_compile_request;
+ * room is too small), and the word of the program that was refused. The struct is the one of
+ * compile.h, the header of this compiler. */
+#include "compile.h"
 
 #define RXF_NO_INSTRUCTION 0xFFFFFFFFU
 /* Beyond the frame of the program the code keeps what an edge stages, and the copies of the
@@ -1682,16 +1679,21 @@ RXF_INLINE rxf_u32 instruction_size(const rxf_cc *e, rxf_u64 pc, rxf_u64 *words)
         return have(e, pc, 10) ? RXF_OK : RXF_REFUSE_OUT_OF_RANGE;
     case RXF_OP_GOTO:
         status = edge_size(e, pc + 1, &first);
+        if (status)
+            return status;
         *words = 1 + first;
-        return status;
+        return RXF_OK;
     case RXF_OP_BRANCH:
         if (!have(e, pc, 5))
             return RXF_REFUSE_OUT_OF_RANGE;
         status = edge_size(e, pc + 5, &first);
-        if (!status)
-            status = edge_size(e, pc + 5 + first, &second);
+        if (status)
+            return status;
+        status = edge_size(e, pc + 5 + first, &second);
+        if (status)
+            return status;
         *words = 5 + first + second;
-        return status;
+        return RXF_OK;
     case RXF_OP_SWITCH:
         if (!have(e, pc, 5) || w[4] > e->count || !have(e, pc, 5 + w[4]))
             return RXF_REFUSE_OUT_OF_RANGE;

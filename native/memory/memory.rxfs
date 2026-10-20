@@ -1,0 +1,188 @@
+# The memory/runtime words of native/stdlib_memory.c as `.rxfs` (docs/29): the
+# direct-args status-out ABI with the same refuses as the C (OUT_OF_RANGE 6, ALIGNMENT 7,
+# INVALID_UTF8 8) and the same destination-buffer side effects, differential-tested
+# against it on status, out bytes and the destination buffers. `load8`/`store8` are the
+# seed's memory intrinsics; a body that writes no result (store_u32) answers a status
+# only. The runtime family (contexts, handles, transactions) is native/runtime/runtime.rxfs.
+
+# The memory words of the stdlib (docs/29): the bounds of the destination or the pair
+# refuse RXF_REFUSE_OUT_OF_RANGE (6) before a byte moves, and the loop is the same word
+# for copy/fill/zero (what lands is the argument).
+macro mem_bound(n, LEN) { if (n > LEN) { refuse 6; } }
+macro mem_loop(dst, VAL) {
+ i = 0;
+ while (i < count) {
+  store8(dst + i, VAL);
+  i = i + 1;
+ }
+}
+# The load/store of one u32: the alignment must be a power of two dividing the offset
+# (RXF_REFUSE_ALIGNMENT 7), the 4 bytes must be inside the span (OUT_OF_RANGE 6) and the
+# endianness is 1 (little) or 2 (big).
+macro u32_guard(alignment, offset, len) {
+ if (alignment == 0) { refuse 7; }
+ if ((alignment & (alignment - 1)) != 0) { refuse 7; }
+ if ((offset & (alignment - 1)) != 0) { refuse 7; }
+ if (offset > len) { refuse 6; }
+ if (4 > len - offset) { refuse 6; }
+ if (endian != 1) { if (endian != 2) { refuse 6; } }
+}
+
+
+fn memory_copy(dst, dst_len, src, src_len, count) {
+ mem_bound(count, dst_len);
+ mem_bound(count, src_len);
+ var i;
+ mem_loop(dst, load8(src + i));
+ return 0;
+}
+fn memory_move(dst, dst_len, src, src_len, count) {
+ mem_bound(count, dst_len);
+ mem_bound(count, src_len);
+ var i;
+ if (dst < src) {
+  mem_loop(dst, load8(src + i));
+ }
+ if (dst > src) {
+  i = count;
+  while (i != 0) {
+   store8(dst + i - 1, load8(src + i - 1));
+   i = i - 1;
+  }
+ }
+ return 0;
+}
+fn memory_fill(dst, dst_len, value, count) {
+ mem_bound(count, dst_len);
+ var i;
+ mem_loop(dst, value);
+ return 0;
+}
+fn memory_zero(dst, dst_len, count) {
+ mem_bound(count, dst_len);
+ var i;
+ mem_loop(dst, 0);
+ return 0;
+}
+fn memory_compare(a, a_len, b, b_len, count) {
+ mem_bound(count, a_len);
+ mem_bound(count, b_len);
+ var i, x, y, result;
+ i = 0;
+ result = 0;
+ while (i < count) {
+  x = load8(a + i);
+  y = load8(b + i);
+  if (x != y) {
+   result = 0 - 1;
+   if (x > y) { result = 1; }
+   i = count;
+  }
+  i = i + 1;
+ }
+ return result;
+}
+
+
+fn load_u32(src, len, offset, alignment, endian) {
+ u32_guard(alignment, offset, len);
+ var p, v;
+ p = src + offset;
+ v = 0;
+ if (endian == 1) {
+  v = load8(p) | (load8(p + 1) << 8) | (load8(p + 2) << 16) | (load8(p + 3) << 24);
+ }
+ if (endian == 2) {
+  v = (load8(p) << 24) | (load8(p + 1) << 16) | (load8(p + 2) << 8) | load8(p + 3);
+ }
+ return v;
+}
+fn store_u32(dst, len, offset, alignment, endian, value) {
+ u32_guard(alignment, offset, len);
+ var p;
+ p = dst + offset;
+ if (endian == 1) {
+  store8(p, value & 255);
+  store8(p + 1, (value >> 8) & 255);
+  store8(p + 2, (value >> 16) & 255);
+  store8(p + 3, (value >> 24) & 255);
+ }
+ if (endian == 2) {
+  store8(p, (value >> 24) & 255);
+  store8(p + 1, (value >> 16) & 255);
+  store8(p + 2, (value >> 8) & 255);
+  store8(p + 3, value & 255);
+ }
+ return 0;
+}
+
+
+# The utf8 words and the hashes: the validator refuses RXF_REFUSE_INVALID_UTF8 (8) on an
+# overlong form, a surrogate or a scalar past 1114111, and answers the scalar count; the
+# hashes are FNV-1a over the bytes or over the 8 bytes of a u64 word.
+fn utf8_validate(s, len) {
+ var i, n, c, need, minimum, scalar, j;
+ i = 0;
+ n = 0;
+ while (i < len) {
+  c = load8(s + i);
+  i = i + 1;
+  if (c < 128) {
+   n = n + 1;
+  } else {
+   need = 0;
+   minimum = 0;
+   scalar = c;
+   if ((c & 224) == 192) { need = 1; minimum = 128; scalar = c & 31; }
+   if ((c & 224) != 192) {
+    if ((c & 240) == 224) { need = 2; minimum = 2048; scalar = c & 15; }
+   }
+   if ((c & 224) != 192) {
+    if ((c & 240) != 224) {
+     if ((c & 248) == 240) { need = 3; minimum = 65536; scalar = c & 7; }
+    }
+   }
+   if ((c & 224) != 192) {
+    if ((c & 240) != 224) {
+     if ((c & 248) != 240) { refuse 8; }
+    }
+   }
+   if (need > len - i) { refuse 8; }
+   j = 0;
+   while (j < need) {
+    c = load8(s + i);
+    i = i + 1;
+    if ((c & 192) != 128) { refuse 8; }
+    scalar = (scalar << 6) | (c & 63);
+    j = j + 1;
+   }
+   if (scalar < minimum) { refuse 8; }
+   if (scalar > 1114111) { refuse 8; }
+   if (scalar >= 55296) {
+    if (scalar <= 57343) { refuse 8; }
+   }
+   n = n + 1;
+  }
+ }
+ return n;
+}
+fn hash_bytes(src, len, seed) {
+ var h, i;
+ h = 14695981039346656037 ^ seed;
+ i = 0;
+ while (i < len) {
+  h = (h ^ load8(src + i)) * 1099511628211;
+  i = i + 1;
+ }
+ return h;
+}
+fn hash_u64(key, seed) {
+ var h, i;
+ h = seed;
+ i = 0;
+ while (i < 8) {
+  h = (h ^ ((key >> (i * 8)) & 255)) * 1099511628211;
+  i = i + 1;
+ }
+ return h;
+}

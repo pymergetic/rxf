@@ -1,0 +1,258 @@
+# The Uart capability of native/uart.c as `.rxfs` (docs/19): the rings of the live area
+# and the device behind the capability. The device model is the machine's own fill
+# (all-platforms: the module face does not change, the access does): x86_64 has the 16550
+# at ports or in memory and the PL011 in memory (`in8`/`out8` for the port kind),
+# aarch64 only the memory devices, wasm32 the two FIFOs in linear memory the host is the
+# line of. The capability's generation word (graph.h) says which device it is and how its
+# registers lie. Nothing waits: a byte the device cannot take or give now is left for the
+# next call. The memory words are those of core/live/live.h.
+macro nothing() { }
+macro rd_port(OFF) {
+ if (is_port != 0) { v = in8(base + OFF); }
+ if (is_port == 0) {
+  if (wide != 0) { v = load32(base + OFF); }
+  if (wide == 0) { v = load8(base + OFF); }
+ }
+}
+macro wr_port(OFF, VAL) {
+ if (is_port != 0) { out8(base + OFF, VAL); }
+ if (is_port == 0) {
+  if (wide != 0) { store32(base + OFF, VAL); }
+  if (wide == 0) { store8(base + OFF, VAL); }
+ }
+}
+macro rd_mem(OFF) {
+ if (wide != 0) { v = load32(base + OFF); }
+ if (wide == 0) { v = load8(base + OFF); }
+}
+macro wr_mem(OFF, VAL) {
+ if (wide != 0) { store32(base + OFF, VAL); }
+ if (wide == 0) { store8(base + OFF, VAL); }
+}
+macro port_init() { is_port = 0; }
+macro port_kind() {
+ if (kind == 4) {
+  soff = 5;
+  smask = 1;
+  inv = 0;
+  cmask = 32;
+  cinv = 0;
+  is_port = 1;
+ }
+}
+# The memory devices behind the capability (kind 2 the 16550 in memory, registers
+# `shift` apart; kind 3 the PL011, register 24 its flags; kind 4 the 16550 at ports,
+# x86_64 only). The kind of the machine (NLO..NHI in the low byte of the generation) is
+# its default device. RD/WR name the machine's device access, so the pump is one program.
+macro uart_pump_mem(RD, WR, NLO, NHI, INIT, PORT) {
+ found = 0;
+ if (area != 0) { found = 1; }
+ count = load64(c + 48);
+ table = load64(c + 56);
+ i = 0;
+ base = 0;
+ kind = 0;
+ shift = 0;
+ wide = 0;
+ INIT
+ while (i < count) {
+  if (load64(table + i * 24) == 1) {
+   if (area == 0) { area = load64(table + i * 24 + 16); found = found | 1; }
+  }
+  if (load64(table + i * 24) == 2) {
+   v = load64(table + i * 24 + 8);
+   n = v & 255;
+   if (n < 2) { n = NLO; }
+   if (n > NHI) { n = 0; }
+   if (n != 0) {
+    base = load64(table + i * 24 + 16);
+    kind = n;
+    shift = (v >> 8) & 15;
+    wide = 0;
+    if ((v & 4096) != 0) { wide = 1; }
+    found = found | 2;
+   }
+  }
+  i = i + 1;
+ }
+ if (found != 3) { refuse 13; }
+ doff = 0;
+ soff = 0;
+ smask = 0;
+ inv = 0;
+ cmask = 0;
+ cinv = 0;
+ if (kind == 3) {
+  soff = 24;
+  smask = 16;
+  inv = 1;
+  cmask = 32;
+  cinv = 1;
+ }
+ if (kind == 2) {
+  soff = 5 << shift;
+  smask = 1;
+  inv = 0;
+  cmask = 32;
+  cinv = 0;
+ }
+ PORT
+ rx = load64(area + 88);
+ v = load64(area + 96);
+ rxs = (v & 4294967295) - 1;
+ budget = 65536;
+ loop = 1;
+ while (loop != 0) {
+  if (budget == 0) { loop = 0; }
+  if (loop != 0) {
+   RD(soff)
+   ok = 0;
+   if (inv == 0) { if ((v & smask) != 0) { ok = 1; } }
+   if (inv != 0) {
+    ok = 1;
+    if ((v & smask) != 0) { ok = 0; }
+   }
+   if (ok == 0) { loop = 0; }
+  }
+  if (loop != 0) {
+   head = load32(area + 120);
+   tail = load32(area + 124);
+   n = (head - tail) & 4294967295;
+   if (n > rxs) { loop = 0; }
+  }
+  if (loop != 0) {
+   RD(doff)
+   head = load32(area + 120);
+   store8(rx + (head & rxs), v & 255);
+   store32(area + 120, (head + 1) & 4294967295);
+   budget = budget - 1;
+  }
+ }
+ tx = load64(area + 104);
+ v = load64(area + 112);
+ txs = (v & 4294967295) - 1;
+ budget = 65536;
+ loop = 1;
+ while (loop != 0) {
+  if (budget == 0) { loop = 0; }
+  if (loop != 0) {
+   head = load32(area + 128);
+   tail = load32(area + 132);
+   if (tail == head) { loop = 0; }
+  }
+  if (loop != 0) {
+   RD(soff)
+   ok = 0;
+   if (cinv == 0) { if ((v & cmask) != 0) { ok = 1; } }
+   if (cinv != 0) {
+    ok = 1;
+    if ((v & cmask) != 0) { ok = 0; }
+   }
+   if (ok == 0) { loop = 0; }
+  }
+  if (loop != 0) {
+   tail = load32(area + 132);
+   n = load8(tx + (tail & txs)) & 255;
+   WR(doff, n)
+   store32(area + 132, (tail + 1) & 4294967295);
+   budget = budget - 1;
+  }
+ }
+ return 0;
+}
+
+fn uart_pump_x64(c, area) {
+ if (c == 0) { refuse 13; }
+ var table, count, i, base, kind, shift, wide, found, v, n, head, tail, rx, rxs, tx, txs, budget, loop, ok, inv, smask, soff, doff, cmask, cinv, is_port;
+ uart_pump_mem(rd_port, wr_port, 4, 4, port_init(), port_kind());
+}
+fn uart_pump_arm64(c, area) {
+ if (c == 0) { refuse 13; }
+ var table, count, i, base, kind, shift, wide, found, v, n, head, tail, rx, rxs, tx, txs, budget, loop, ok, inv, smask, soff, doff, cmask, cinv;
+ uart_pump_mem(rd_mem, wr_mem, 3, 3, nothing(), nothing());
+}
+
+
+# wasm32's own fill: the host is the line. `rx_head` (the host writes), `rx_tail` (this),
+# `tx_head` (this), `tx_tail` (the host), then the two byte FIFOs of graph.h's layout.
+fn uart_pump_wasm(c, area) {
+ if (c == 0) { refuse 13; }
+ var table, count, i, base, found, v, n, head, tail, rx, rxs, tx, txs, budget, loop, ok;
+ found = 0;
+ if (area != 0) { found = 1; }
+ count = load64(c + 48);
+ table = load64(c + 56);
+ i = 0;
+ base = 0;
+ while (i < count) {
+  if (load64(table + i * 24) == 1) {
+   if (area == 0) {
+    area = load64(table + i * 24 + 16);
+    found = found | 1;
+   }
+  }
+  if (load64(table + i * 24) == 2) {
+   base = load64(table + i * 24 + 16);
+   found = found | 2;
+  }
+  i = i + 1;
+ }
+ if (found != 3) { refuse 13; }
+ rx = load64(area + 88);
+ v = load64(area + 96);
+ rxs = (v & 4294967295) - 1;
+ budget = 65536;
+ loop = 1;
+ while (loop != 0) {
+  if (budget == 0) { loop = 0; }
+  if (loop != 0) {
+   ok = 0;
+   if (load32(base) != load32(base + 4)) { ok = 1; }
+   if (ok == 0) { loop = 0; }
+  }
+  if (loop != 0) {
+   head = load32(area + 120);
+   tail = load32(area + 124);
+   n = (head - tail) & 4294967295;
+   if (n > rxs) { loop = 0; }
+  }
+  if (loop != 0) {
+   tail = load32(base + 4);
+   v = load8(base + 64 + (tail & 255));
+   store32(base + 4, (tail + 1) & 4294967295);
+   head = load32(area + 120);
+   store8(rx + (head & rxs), v);
+   store32(area + 120, (head + 1) & 4294967295);
+   budget = budget - 1;
+  }
+ }
+ tx = load64(area + 104);
+ v = load64(area + 112);
+ txs = (v & 4294967295) - 1;
+ budget = 65536;
+ loop = 1;
+ while (loop != 0) {
+  if (budget == 0) { loop = 0; }
+  if (loop != 0) {
+   head = load32(area + 128);
+   tail = load32(area + 132);
+   if (tail == head) { loop = 0; }
+  }
+  if (loop != 0) {
+   ok = 0;
+   n = (load32(base + 8) - load32(base + 12)) & 4294967295;
+   if (n < 256) { ok = 1; }
+   if (ok == 0) { loop = 0; }
+  }
+  if (loop != 0) {
+   tail = load32(area + 132);
+   v = load8(tx + (tail & txs));
+   head = load32(base + 8);
+   store8(base + 320 + (head & 255), v);
+   store32(base + 8, (head + 1) & 4294967295);
+   store32(area + 132, (tail + 1) & 4294967295);
+   budget = budget - 1;
+  }
+ }
+ return 0;
+}

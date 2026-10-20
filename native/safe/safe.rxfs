@@ -1,0 +1,41 @@
+# The safe point of compiled code at an edge that goes back (native/safe.c, doc words:
+# docs/19). It finds the live pump in the function table of the context (slot id 29 =
+# RXF_LEAF_LIVE_PUMP) and serves the doorbell: ack the peer's break, run the pump while it
+# holds it, restore in_run and answer STALE_GENERATION (12) when the area's epoch moved
+# under the caller. The pump is a `call_pp` of the address in the slot: the same shaped
+# call every compiled body makes.
+
+fn safe_point(c, area) {
+ if (c == 0) { refuse 13; }
+ if (area == 0) { refuse 13; }
+ if (load32(area + 120) == load32(area + 124)) {
+  if (load32(area + 176) == 0) { return 0; }
+ }
+ var table, count, i, pump, epoch, outer, running, req;
+ count = load64(c + 16);
+ table = load64(c + 24);
+ i = 0;
+ pump = 0;
+ while (i < count) {
+  if (load64(table + i * 24) == 29) {
+   if (pump == 0) { pump = load64(table + i * 24 + 16); }
+  }
+  i = i + 1;
+ }
+ if (pump == 0) { return 0; }
+ epoch = load32(area + 268);
+ outer = load32(area + 256);
+ store32(area + 256, 1);
+ running = 1;
+ while (running != 0) {
+  req = load32(area + 176);
+  store32(area + 180, 0);
+  if (req != 0) { store32(area + 180, 1); }
+  call_pp(pump, c, area);
+  if (load32(area + 176) == 0) { running = 0; }
+ }
+ store32(area + 180, 0);
+ store32(area + 256, outer);
+ if (load32(area + 268) == epoch) { return 0; }
+ refuse 12;
+}

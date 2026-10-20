@@ -1,0 +1,29 @@
+# The wrapping arithmetic of native/stdlib*.c (docs/29): the C wraps in the unsigned
+# type and the result store truncates to the width, so the body is the plain operation
+# and the object ABI (the specs of the call) carries the widths. Compiled by
+# tools/native/seed_build.py with the seed (native/seed/seed.c) on every machine.
+
+fn wrapping_add_int8_t(a, b) { return a + b; }
+fn wrapping_add_int16_t(a, b) { return a + b; }
+fn wrapping_add_int32_t(a, b) { return a + b; }
+fn wrapping_add_int64_t(a, b) { return a + b; }
+fn wrapping_add_uint8_t(a, b) { return a + b; }
+fn wrapping_add_uint16_t(a, b) { return a + b; }
+fn wrapping_add_uint32_t(a, b) { return a + b; }
+fn wrapping_add_uint64_t(a, b) { return a + b; }
+fn wrapping_subtract_int8_t(a, b) { return a - b; }
+fn wrapping_subtract_int16_t(a, b) { return a - b; }
+fn wrapping_subtract_int32_t(a, b) { return a - b; }
+fn wrapping_subtract_int64_t(a, b) { return a - b; }
+fn wrapping_subtract_uint8_t(a, b) { return a - b; }
+fn wrapping_subtract_uint16_t(a, b) { return a - b; }
+fn wrapping_subtract_uint32_t(a, b) { return a - b; }
+fn wrapping_subtract_uint64_t(a, b) { return a - b; }
+fn wrapping_multiply_int8_t(a, b) { return a * b; }
+fn wrapping_multiply_int16_t(a, b) { return a * b; }
+fn wrapping_multiply_int32_t(a, b) { return a * b; }
+fn wrapping_multiply_int64_t(a, b) { return a * b; }
+fn wrapping_multiply_uint8_t(a, b) { return a * b; }
+fn wrapping_multiply_uint16_t(a, b) { return a * b; }
+fn wrapping_multiply_uint32_t(a, b) { return a * b; }
+fn wrapping_multiply_uint64_t(a, b) { return a * b; }

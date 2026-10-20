@@ -1,0 +1,115 @@
+# The float/double words of the stdlib: the IEEE-754 bit logic for the compares (order by
+# sign, then zero, then the significand) and the `fadd` family with the finite checks
+# around it for the arithmetic. The format is its bit masks -- EXP/SIGN/MANT below -- so
+# float and double are the same program at two widths, one short head per variant
+# (docs/29).
+
+# The IEEE-754 words of the stdlib (docs/29). The formats are their bit masks: EXP the
+# exponent bits (all set is a NaN or an infinity -- refuse NON_FINITE 4), SIGN the sign
+# bit, MANT the significand bits. A compare orders the bit patterns by sign first, then
+# zero, then the significand -- the arithmetic runs the `fadd` family with the finite
+# checks around it (refuse 5 INEXACT never here: the ops are the format's own).
+macro f_finite(x, EXP) { if ((x & EXP) == EXP) { refuse 4; } }
+macro f_unpack(a, b, EXP, SIGN, MANT) {
+ f_finite(a, EXP);
+ f_finite(b, EXP);
+ var sa, sb, za, zb, v;
+ sa = a & SIGN;
+ sb = b & SIGN;
+ za = (a & MANT) == 0;
+ zb = (b & MANT) == 0;
+}
+macro f_less_v(a, b, SIGN, MANT) {
+ v = 0;
+ if (za) { if (zb) { v = 0; } if (zb == 0) { if (sb == 0) { v = 1; } } }
+ else {
+  if (zb) { if (sa != 0) { v = 1; } }
+  if (zb == 0) {
+   if (sa == sb) {
+    if (sa == 0) { v = (a & MANT) < (b & MANT); }
+    if (sa != 0) { v = (a & MANT) > (b & MANT); }
+   }
+   if (sa != sb) { if (sa != 0) { v = 1; } }
+  }
+ }
+}
+macro f_more_v(a, b, SIGN, MANT) {
+ v = 0;
+ if (zb) { if (za) { v = 0; } if (za == 0) { if (sa == 0) { v = 1; } } }
+ else {
+  if (za) { if (sb != 0) { v = 1; } }
+  if (za == 0) {
+   if (sb == sa) {
+    if (sb == 0) { v = (b & MANT) < (a & MANT); }
+    if (sb != 0) { v = (b & MANT) > (a & MANT); }
+   }
+   if (sb != sa) { if (sb != 0) { v = 1; } }
+  }
+ }
+}
+macro f_equal_v(a, b) {
+ v = a == b;
+ if (za) { if (zb) { v = 1; } }
+ return v;
+}
+macro f_pick_min(a, b) {
+ var r;
+ r = b;
+ if (v != 0) { r = a; }
+ if (za) { if (zb) { r = a | b; } }
+ return r;
+}
+macro f_pick_max(a, b, SIGN) {
+ var r;
+ r = b;
+ if (v != 0) { r = a; }
+ if (za) { if (zb) { r = (a & b) & SIGN; } }
+ return r;
+}
+macro f_eval(a, b, EXP, OP) {
+ var v;
+ v = OP(a, b);
+ f_finite(v, EXP);
+ return v;
+}
+macro f_checked(a, b, EXP, OP) {
+ f_finite(a, EXP);
+ f_finite(b, EXP);
+ f_eval(a, b, EXP, OP);
+}
+macro f_negate(a, EXP, SIGN) {
+ f_finite(a, EXP);
+ return a ^ SIGN;
+}
+macro f_absolute(a, EXP, MANT) {
+ f_finite(a, EXP);
+ return a & MANT;
+}
+macro f_divide(a, b, EXP, MANT) {
+ f_finite(a, EXP);
+ f_finite(b, EXP);
+ if ((b & MANT) == 0) { refuse 2; }
+ f_eval(a, b, EXP, fdiv);
+}
+
+
+fn less_float(a, b) { f_unpack(a, b, 2139095040, 2147483648, 2147483647); f_less_v(a, b, 2147483648, 2147483647); return v; }
+fn minimum_float(a, b) { f_unpack(a, b, 2139095040, 2147483648, 2147483647); f_less_v(a, b, 2147483648, 2147483647); f_pick_min(a, b); }
+fn maximum_float(a, b) { f_unpack(a, b, 2139095040, 2147483648, 2147483647); f_more_v(a, b, 2147483648, 2147483647); f_pick_max(a, b, 2147483648); }
+fn equal_float(a, b) { f_unpack(a, b, 2139095040, 2147483648, 2147483647); f_equal_v(a, b); }
+fn checked_add_float(a, b) { f_checked(a, b, 2139095040, fadd); }
+fn checked_subtract_float(a, b) { f_checked(a, b, 2139095040, fsub); }
+fn checked_multiply_float(a, b) { f_checked(a, b, 2139095040, fmul); }
+fn checked_negate_float(a) { f_negate(a, 2139095040, 2147483648); }
+fn checked_absolute_float(a) { f_absolute(a, 2139095040, 2147483647); }
+fn divide_float(a, b) { f_divide(a, b, 2139095040, 2147483647); }
+fn less_double(a, b) { f_unpack(a, b, 9218868437227405312, 9223372036854775808, 9223372036854775807); f_less_v(a, b, 9223372036854775808, 9223372036854775807); return v; }
+fn minimum_double(a, b) { f_unpack(a, b, 9218868437227405312, 9223372036854775808, 9223372036854775807); f_less_v(a, b, 9223372036854775808, 9223372036854775807); f_pick_min(a, b); }
+fn maximum_double(a, b) { f_unpack(a, b, 9218868437227405312, 9223372036854775808, 9223372036854775807); f_more_v(a, b, 9223372036854775808, 9223372036854775807); f_pick_max(a, b, 9223372036854775808); }
+fn equal_double(a, b) { f_unpack(a, b, 9218868437227405312, 9223372036854775808, 9223372036854775807); f_equal_v(a, b); }
+fn checked_add_double(a, b) { f_checked(a, b, 9218868437227405312, fadd); }
+fn checked_subtract_double(a, b) { f_checked(a, b, 9218868437227405312, fsub); }
+fn checked_multiply_double(a, b) { f_checked(a, b, 9218868437227405312, fmul); }
+fn checked_negate_double(a) { f_negate(a, 9218868437227405312, 9223372036854775808); }
+fn checked_absolute_double(a) { f_absolute(a, 9218868437227405312, 9223372036854775807); }
+fn divide_double(a, b) { f_divide(a, b, 9218868437227405312, 9223372036854775807); }

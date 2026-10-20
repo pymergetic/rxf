@@ -1,0 +1,60 @@
+# The saturating arithmetic of the stdlib: the limit of the type where the wrapping words
+# would wrap. MAX/MIN are arguments of the shared guard, so the shape of the check exists
+# once per operation and each width/signedness is a short head.
+
+macro saturating_add_s(a, b, MAX, MIN) {
+ if (b > 0) { if (a > (MAX - b)) { return MAX; } }
+ if (b < 0) { if (a < (MIN - b)) { return MIN; } }
+ return a + b;
+}
+macro saturating_add_u(a, b, MAX) {
+ if (a > (MAX - b)) { return MAX; }
+ return a + b;
+}
+macro saturating_subtract_s(a, b, MIN, MAX) {
+ if (b > 0) { if (a < (MIN + b)) { return MIN; } }
+ if (b < 0) { if (a > (MAX + b)) { return MAX; } }
+ return a - b;
+}
+macro saturating_subtract_u(a, b) {
+ if (a < b) { return 0; }
+ return a - b;
+}
+macro saturating_multiply_s(a, b, MIN, MAX) {
+ if (b == 0) { return a * b; }
+ if (b == -1) { if (a == MIN) { return MAX; } return a * b; }
+ if (b > 0) { if (a < (MIN / b)) { return MIN; } if (a > (MAX / b)) { return MAX; } }
+ else { if (a > (MIN / b)) { return MIN; } if (a < (MAX / b)) { return MAX; } }
+ return a * b;
+}
+macro saturating_multiply_u(a, b, MAX) {
+ if (b == 0) { return a * b; }
+ if (a > (MAX / b)) { return MAX; }
+ return a * b;
+}
+
+
+fn saturating_add_int8_t(a, b) { saturating_add_s(a, b, 127, -128); }
+fn saturating_add_int16_t(a, b) { saturating_add_s(a, b, 32767, -32768); }
+fn saturating_add_int32_t(a, b) { saturating_add_s(a, b, 2147483647, -2147483648); }
+fn saturating_add_int64_t(a, b) { saturating_add_s(a, b, 9223372036854775807, -9223372036854775808); }
+fn saturating_add_uint8_t(a, b) { saturating_add_u(a, b, 255); }
+fn saturating_add_uint16_t(a, b) { saturating_add_u(a, b, 65535); }
+fn saturating_add_uint32_t(a, b) { saturating_add_u(a, b, 4294967295); }
+fn saturating_add_uint64_t(a, b) { saturating_add_u(a, b, 18446744073709551615); }
+fn saturating_subtract_int8_t(a, b) { saturating_subtract_s(a, b, -128, 127); }
+fn saturating_subtract_int16_t(a, b) { saturating_subtract_s(a, b, -32768, 32767); }
+fn saturating_subtract_int32_t(a, b) { saturating_subtract_s(a, b, -2147483648, 2147483647); }
+fn saturating_subtract_int64_t(a, b) { saturating_subtract_s(a, b, -9223372036854775808, 9223372036854775807); }
+fn saturating_subtract_uint8_t(a, b) { saturating_subtract_u(a, b); }
+fn saturating_subtract_uint16_t(a, b) { saturating_subtract_u(a, b); }
+fn saturating_subtract_uint32_t(a, b) { saturating_subtract_u(a, b); }
+fn saturating_subtract_uint64_t(a, b) { saturating_subtract_u(a, b); }
+fn saturating_multiply_int8_t(a, b) { saturating_multiply_s(a, b, -128, 127); }
+fn saturating_multiply_int16_t(a, b) { saturating_multiply_s(a, b, -32768, 32767); }
+fn saturating_multiply_int32_t(a, b) { saturating_multiply_s(a, b, -2147483648, 2147483647); }
+fn saturating_multiply_int64_t(a, b) { saturating_multiply_s(a, b, -9223372036854775808, 9223372036854775807); }
+fn saturating_multiply_uint8_t(a, b) { saturating_multiply_u(a, b, 255); }
+fn saturating_multiply_uint16_t(a, b) { saturating_multiply_u(a, b, 65535); }
+fn saturating_multiply_uint32_t(a, b) { saturating_multiply_u(a, b, 4294967295); }
+fn saturating_multiply_uint64_t(a, b) { saturating_multiply_u(a, b, 18446744073709551615); }

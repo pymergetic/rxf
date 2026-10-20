@@ -1,0 +1,37 @@
+# The compare words of the stdlib for the integer types: less/equal answer a u8 0/1,
+# minimum/maximum answer the value itself. The operand specs carry each side's width and
+# sign (a signed compare for the signed types); the float/double forms live in
+# native/float/float.rxfs (the IEEE sign/mantissa logic they share is there).
+
+fn less_int8_t(a, b) { return a < b; }
+fn equal_int8_t(a, b) { return a == b; }
+fn minimum_int8_t(a, b) { if (a < b) { return a; } return b; }
+fn maximum_int8_t(a, b) { if (a > b) { return a; } return b; }
+fn less_int16_t(a, b) { return a < b; }
+fn equal_int16_t(a, b) { return a == b; }
+fn minimum_int16_t(a, b) { if (a < b) { return a; } return b; }
+fn maximum_int16_t(a, b) { if (a > b) { return a; } return b; }
+fn less_int32_t(a, b) { return a < b; }
+fn equal_int32_t(a, b) { return a == b; }
+fn minimum_int32_t(a, b) { if (a < b) { return a; } return b; }
+fn maximum_int32_t(a, b) { if (a > b) { return a; } return b; }
+fn less_int64_t(a, b) { return a < b; }
+fn equal_int64_t(a, b) { return a == b; }
+fn minimum_int64_t(a, b) { if (a < b) { return a; } return b; }
+fn maximum_int64_t(a, b) { if (a > b) { return a; } return b; }
+fn less_uint8_t(a, b) { return a < b; }
+fn equal_uint8_t(a, b) { return a == b; }
+fn minimum_uint8_t(a, b) { if (a < b) { return a; } return b; }
+fn maximum_uint8_t(a, b) { if (a > b) { return a; } return b; }
+fn less_uint16_t(a, b) { return a < b; }
+fn equal_uint16_t(a, b) { return a == b; }
+fn minimum_uint16_t(a, b) { if (a < b) { return a; } return b; }
+fn maximum_uint16_t(a, b) { if (a > b) { return a; } return b; }
+fn less_uint32_t(a, b) { return a < b; }
+fn equal_uint32_t(a, b) { return a == b; }
+fn minimum_uint32_t(a, b) { if (a < b) { return a; } return b; }
+fn maximum_uint32_t(a, b) { if (a > b) { return a; } return b; }
+fn less_uint64_t(a, b) { return a < b; }
+fn equal_uint64_t(a, b) { return a == b; }
+fn minimum_uint64_t(a, b) { if (a < b) { return a; } return b; }
+fn maximum_uint64_t(a, b) { if (a > b) { return a; } return b; }

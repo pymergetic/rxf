@@ -1,0 +1,23 @@
+# The shift words of the stdlib: an out-of-range count refuses (RXF_REFUSE_SHIFT_COUNT = 3)
+# before the shift runs, so `shift_left_uint64_t(1, 64)` refuses rather than shifting by
+# the masked count the hardware would use. The count is the u32 of the C; the value keeps
+# its signedness (a signed `>>` fills the sign, then the width store truncates).
+
+macro shift_guard(bits) { if (count >= bits) { refuse 3; } }
+
+fn shift_left_int8_t(a, count) { shift_guard(8); return a << count; }
+fn shift_left_int16_t(a, count) { shift_guard(16); return a << count; }
+fn shift_left_int32_t(a, count) { shift_guard(32); return a << count; }
+fn shift_left_int64_t(a, count) { shift_guard(64); return a << count; }
+fn shift_left_uint8_t(a, count) { shift_guard(8); return a << count; }
+fn shift_left_uint16_t(a, count) { shift_guard(16); return a << count; }
+fn shift_left_uint32_t(a, count) { shift_guard(32); return a << count; }
+fn shift_left_uint64_t(a, count) { shift_guard(64); return a << count; }
+fn shift_right_int8_t(a, count) { shift_guard(8); return a >> count; }
+fn shift_right_int16_t(a, count) { shift_guard(16); return a >> count; }
+fn shift_right_int32_t(a, count) { shift_guard(32); return a >> count; }
+fn shift_right_int64_t(a, count) { shift_guard(64); return a >> count; }
+fn shift_right_uint8_t(a, count) { shift_guard(8); return a >> count; }
+fn shift_right_uint16_t(a, count) { shift_guard(16); return a >> count; }
+fn shift_right_uint32_t(a, count) { shift_guard(32); return a >> count; }
+fn shift_right_uint64_t(a, count) { shift_guard(64); return a >> count; }
