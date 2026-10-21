@@ -1,9 +1,12 @@
-/* The interpreter of native/graph.c on the host: one shared library the tests run programs with.
+/* The host glue of the starter's interpreter: one shared library the tests run programs with.
  *
  * rxf_sim interprets the words of a program a step at a time in Python; this is the same run on
- * the real interpreter, natively. The library is rxf_graph_run (native/graph.c) with the leaves
- * the starter ships -- the C of native/basics.c, stdlib_memory.c, stdlib_runtime.c and safe.c,
- * linked as they are. Nothing here interprets a word; the interpreter is graph.c.
+ * the real interpreter, natively. The interpreter and the leaves are the seed's machine code
+ * (native/graph.rxfs and the families of native/), the same bytes the starter ships for
+ * x86_64: tests/rxf_native.py builds them with the seed builders and loads them into this
+ * process, and this file holds only what a host is -- the tables of a context, the objects of
+ * a run, the flat memory of its addresses, and the step budget at the safe point. Nothing here
+ * interprets a word and nothing here is a leaf: the code of the seed is.
  *
  * A run answers (status, value) like rxf_sim.run: the header of the program names the frame and
  * the parameter slots, the arguments fill them, and the leaves read and write the flat memory the
@@ -19,8 +22,9 @@
 #include <setjmp.h>
 #include <string.h>
 
-/* The types of native/basics.h name the shapes of the leaves below; the headers are reached
- * relative to this file so any compiler finds them the same way (with or without -I native). */
+/* The types and constants of the ABI the seed's leaves are called with (native/basics.h,
+ * graph.h, stdlib_runtime.h); the headers are reached relative to this file so any compiler
+ * finds them the same way (with or without -I native). */
 #include "../../native/basics.h"
 #include "../../native/graph.h"
 #include "../../native/stdlib_memory.h"
@@ -50,32 +54,9 @@
  * the frames are variable length (native/graph.h); the tests return whole words. */
 #define RXF_HOST_OUT_ROOM RXF_GRAPH_CELL_BYTES
 
-/* The leaves of native/basics.c (their shapes are the ones native/graph.h gives their ids). */
-rxf_u32 rxf_wrapping_add_uint64_t(rxf_u64, rxf_u64, rxf_u64 *);
-rxf_u32 rxf_wrapping_subtract_uint64_t(rxf_u64, rxf_u64, rxf_u64 *);
-rxf_u32 rxf_bit_and_uint64_t(rxf_u64, rxf_u64, rxf_u64 *);
-rxf_u32 rxf_bit_or_uint64_t(rxf_u64, rxf_u64, rxf_u64 *);
-rxf_u32 rxf_bit_not_uint64_t(rxf_u64, rxf_u64 *);
-rxf_u32 rxf_equal_uint64_t(rxf_u64, rxf_u64, rxf_u8 *);
-rxf_u32 rxf_less_uint64_t(rxf_u64, rxf_u64, rxf_u8 *);
-rxf_u32 rxf_shift_left_uint64_t(rxf_u64, rxf_u32, rxf_u64 *);
-rxf_u32 rxf_shift_right_uint64_t(rxf_u64, rxf_u32, rxf_u64 *);
-rxf_u32 rxf_checked_add_uint32_t(rxf_u32, rxf_u32, rxf_u32 *);
-rxf_u32 rxf_checked_subtract_uint32_t(rxf_u32, rxf_u32, rxf_u32 *);
-rxf_u32 rxf_checked_multiply_uint32_t(rxf_u32, rxf_u32, rxf_u32 *);
-rxf_u32 rxf_divide_uint32_t(rxf_u32, rxf_u32, rxf_u32 *);
-rxf_u32 rxf_remainder_uint32_t(rxf_u32, rxf_u32, rxf_u32 *);
-rxf_u32 rxf_divide_int32_t(rxf_i32, rxf_i32, rxf_i32 *);
-rxf_u32 rxf_remainder_int32_t(rxf_i32, rxf_i32, rxf_i32 *);
-rxf_u32 rxf_wrapping_multiply_uint64_t(rxf_u64, rxf_u64, rxf_u64 *);
-rxf_u32 rxf_checked_multiply_uint64_t(rxf_u64, rxf_u64, rxf_u64 *);
-rxf_u32 rxf_divide_uint64_t(rxf_u64, rxf_u64, rxf_u64 *);
-rxf_u32 rxf_remainder_uint64_t(rxf_u64, rxf_u64, rxf_u64 *);
-rxf_u32 rxf_checked_multiply_int64_t(rxf_i64, rxf_i64, rxf_i64 *);
-rxf_u32 rxf_divide_int64_t(rxf_i64, rxf_i64, rxf_i64 *);
-rxf_u32 rxf_remainder_int64_t(rxf_i64, rxf_i64, rxf_i64 *);
-/* The safe point of compiled code (native/safe.c). */
-rxf_u32 rxf_safe_point(rxf_runtime_context *, void *);
+/* The interpreter is called the way native/graph.h declares it -- the ABI the boot trampolines
+ * use too -- through the address its code was loaded at (tests/rxf_native.py). */
+typedef __typeof__(&rxf_graph_run) rxf_graph_run_fn;
 
 /* The state of the runner: the tables of one context and the budget of the run that goes. One
  * run at a time in a process; the tests are one run at a time. */
@@ -89,18 +70,24 @@ static struct {
     rxf_u64 out[RXF_HOST_OUT_ROOM / 8];
     jmp_buf escape; /* where a run that does not end is stopped */
     rxf_u64 steps;
-    rxf_u64 budget; /* steps, or 0 when the caller keeps no budget */
+    rxf_u64 budget;       /* steps, or 0 when the caller keeps no budget */
+    rxf_graph_run_fn run; /* the seed's graph_run, at the address it was loaded at */
 } host;
 
 /* The pump in the slot of RXF_LEAF_LIVE_PUMP: there is no live layer on the host. The runner
  * keeps its step budget at this doorbell -- the safe point of the interpreter calls it before
- * every instruction while the rx ring has something in it. */
+ * every instruction while the rx ring has something in it. It is the one leaf this file is:
+ * the address the caller puts in the table of the run (rxf_host_pump_address). */
 static rxf_u32 rxf_host_pump(rxf_runtime_context *c, void *area) {
     (void)c;
     (void)area;
     if (host.budget && ++host.steps > host.budget)
         longjmp(host.escape, 1);
     return RXF_OK;
+}
+
+void *rxf_host_pump_address(void) {
+    return (void *)rxf_host_pump;
 }
 
 /* The doorbell of the step budget: something in the rx ring makes the safe point of the
@@ -112,74 +99,27 @@ static void rxf_host_arm(rxf_u64 on) {
     *head = on ? 1 : 0;
 }
 
-void rxf_host_init(void) {
-    /* The function table of the context: every leaf finds its C by its id. find_leaf walks the
-     * table, so the pump and the leaves a program calls most come first. Not here: the uart of a
-     * machine (native/uart.c) and the compiler of native/compile.c -- a program that calls them
-     * is refused UNBOUND, as rxf_sim refuses the leaves it does not run. */
-    static const struct {
-        rxf_u64 id;
-        void *address;
-    } leaves[] = {
-        {RXF_LEAF_LIVE_PUMP, (void *)rxf_host_pump},
-        {RXF_LEAF_WRAPPING_ADD_UINT64_T, (void *)rxf_wrapping_add_uint64_t},
-        {RXF_LEAF_MEMORY_COPY, (void *)rxf_memory_copy},
-        {RXF_LEAF_WRAPPING_SUBTRACT_UINT64_T, (void *)rxf_wrapping_subtract_uint64_t},
-        {RXF_LEAF_BIT_AND_UINT64_T, (void *)rxf_bit_and_uint64_t},
-        {RXF_LEAF_BIT_OR_UINT64_T, (void *)rxf_bit_or_uint64_t},
-        {RXF_LEAF_SHIFT_LEFT_UINT64_T, (void *)rxf_shift_left_uint64_t},
-        {RXF_LEAF_SHIFT_RIGHT_UINT64_T, (void *)rxf_shift_right_uint64_t},
-        {RXF_LEAF_EQUAL_UINT64_T, (void *)rxf_equal_uint64_t},
-        {RXF_LEAF_LESS_UINT64_T, (void *)rxf_less_uint64_t},
-        {RXF_LEAF_MEMORY_FILL, (void *)rxf_memory_fill},
-        {RXF_LEAF_MEMORY_COMPARE, (void *)rxf_memory_compare},
-        {RXF_LEAF_BIT_NOT_UINT64_T, (void *)rxf_bit_not_uint64_t},
-        {RXF_LEAF_HASH_U64, (void *)rxf_hash_u64},
-        {RXF_LEAF_CHECKED_ADD_UINT32_T, (void *)rxf_checked_add_uint32_t},
-        {RXF_LEAF_CHECKED_SUBTRACT_UINT32_T, (void *)rxf_checked_subtract_uint32_t},
-        {RXF_LEAF_CHECKED_MULTIPLY_UINT32_T, (void *)rxf_checked_multiply_uint32_t},
-        {RXF_LEAF_DIVIDE_UINT32_T, (void *)rxf_divide_uint32_t},
-        {RXF_LEAF_REMAINDER_UINT32_T, (void *)rxf_remainder_uint32_t},
-        {RXF_LEAF_DIVIDE_INT32_T, (void *)rxf_divide_int32_t},
-        {RXF_LEAF_REMAINDER_INT32_T, (void *)rxf_remainder_int32_t},
-        {RXF_LEAF_WRAPPING_MULTIPLY_UINT64_T, (void *)rxf_wrapping_multiply_uint64_t},
-        {RXF_LEAF_CHECKED_MULTIPLY_UINT64_T, (void *)rxf_checked_multiply_uint64_t},
-        {RXF_LEAF_CHECKED_MULTIPLY_INT64_T, (void *)rxf_checked_multiply_int64_t},
-        {RXF_LEAF_DIVIDE_UINT64_T, (void *)rxf_divide_uint64_t},
-        {RXF_LEAF_REMAINDER_UINT64_T, (void *)rxf_remainder_uint64_t},
-        {RXF_LEAF_DIVIDE_INT64_T, (void *)rxf_divide_int64_t},
-        {RXF_LEAF_REMAINDER_INT64_T, (void *)rxf_remainder_int64_t},
-        {RXF_LEAF_RUNTIME_HASH_MAP_LOOKUP, (void *)rxf_runtime_hash_map_lookup},
-        {RXF_LEAF_RUNTIME_HASH_SET_LOOKUP, (void *)rxf_runtime_hash_set_lookup},
-        {RXF_LEAF_RUNTIME_BEGIN_PRIVATE, (void *)rxf_runtime_begin_private},
-        {RXF_LEAF_RUNTIME_RESOLVE, (void *)rxf_runtime_resolve},
-        {RXF_LEAF_RUNTIME_ALLOCATE_PREPARE, (void *)rxf_runtime_allocate_prepare},
-        {RXF_LEAF_RUNTIME_PUBLISH, (void *)rxf_runtime_publish},
-        {RXF_LEAF_RUNTIME_ROLLBACK, (void *)rxf_runtime_rollback},
-        {RXF_LEAF_RUNTIME_BORROW, (void *)rxf_runtime_borrow},
-        {RXF_LEAF_RUNTIME_RELEASE_BORROW, (void *)rxf_runtime_release_borrow},
-        {RXF_LEAF_RUNTIME_PIN, (void *)rxf_runtime_pin},
-        {RXF_LEAF_RUNTIME_UNPIN, (void *)rxf_runtime_unpin},
-        {RXF_LEAF_RUNTIME_READ, (void *)rxf_runtime_read},
-        {RXF_LEAF_RUNTIME_WRITE, (void *)rxf_runtime_write},
-        {RXF_LEAF_RUNTIME_APPEND, (void *)rxf_runtime_append},
-        {RXF_LEAF_RUNTIME_FORMAT_U32, (void *)rxf_runtime_format_u32},
-        {RXF_LEAF_RUNTIME_SEARCH, (void *)rxf_runtime_search},
-        {RXF_LEAF_RUNTIME_CLEANUP, (void *)rxf_runtime_cleanup},
-        {RXF_LEAF_SAFE_POINT, (void *)rxf_safe_point},
-    };
+/* The tables of the run that goes: the interpreter and the leaves are the seed's code, at the
+ * addresses the caller loaded them at (tests/rxf_native.py), in the order find_leaf walks the
+ * table -- the pump and the leaves a program calls most come first. Not in it: the uart of a
+ * machine (the seed's uart_pump) and the compiler (compile_program) -- a program that calls
+ * them is refused UNBOUND, as rxf_sim refuses the leaves it does not run. The caller passes at
+ * most as many leaves as the table holds. */
+void rxf_host_init(const void *graph_run, const rxf_u64 *leaf_ids, const rxf_u64 *leaf_addresses,
+                   rxf_u64 leaf_count) {
     memset(&host, 0, sizeof(host));
-    for (rxf_u64 i = 0; i < sizeof(leaves) / sizeof(leaves[0]); i++) {
-        host.functions[i].id = leaves[i].id;
+    host.run = (rxf_graph_run_fn)graph_run;
+    for (rxf_u64 i = 0; i < leaf_count; i++) {
+        host.functions[i].id = leaf_ids[i];
         host.functions[i].generation = RXF_HOST_GENERATION;
-        host.functions[i].address = (rxf_u64)(unsigned long long)leaves[i].address;
+        host.functions[i].address = leaf_addresses[i];
     }
     host.capabilities[0].id = RXF_CAPABILITY_CHANNEL;
     host.capabilities[0].generation = RXF_HOST_GENERATION;
     host.capabilities[0].address = (rxf_u64)(unsigned long long)host.area;
     host.context.version = RXF_RUNTIME_ABI_VERSION;
     host.context.size = sizeof(rxf_runtime_context);
-    host.context.function_count = sizeof(leaves) / sizeof(leaves[0]);
+    host.context.function_count = leaf_count;
     host.context.functions = (rxf_u64)(unsigned long long)host.functions;
     host.context.object_count = 1;
     host.context.objects = (rxf_u64)(unsigned long long)host.objects;
@@ -250,8 +190,8 @@ RXF_FUNCTION rxf_u32 rxf_host_run(const void *words, rxf_u64 words_bytes, const 
         return RXF_HOST_NO_END;
     }
     rxf_object_handle program = {RXF_HOST_PROGRAM_ID, RXF_HOST_GENERATION, 0};
-    rxf_u32 status = rxf_graph_run(&host.context, program, (rxf_u64)(unsigned long long)args,
-                                   args_bytes / 8, host.out);
+    rxf_u32 status = host.run(&host.context, program, (rxf_u64)(unsigned long long)args,
+                              args_bytes / 8, host.out);
     host.budget = 0;
     rxf_host_arm(0);
     *out = host.out[0];

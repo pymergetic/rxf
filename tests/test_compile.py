@@ -1,6 +1,6 @@
 """The compiler in the image (docs/19, WP12): a program of the interpreter becomes machine code.
 
-`compile.program` (leaf 31, `native/compile.c`) is native code of every machine. Given the words of a
+`compile.program` (leaf 31, `native/compile.rxfs`) is native code of every machine. Given the words of a
 program it writes the code of the machine it runs on: x86_64, aarch64, or the body of a wasm32
 function. The test runs both, the interpreter and the compiled code, on the same arguments in the
 same memory, on each machine, and holds them to the same status and the same value.

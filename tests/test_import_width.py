@@ -33,11 +33,10 @@ import rximport
 
 from pymergetic.rxftk.core import tree
 
-from . import rxf_native
+from . import rxf_native, seed_object
 from .snippets import STARTER
 
 CORPUS = Path(__file__).parent / "import_corpus"
-NATIVE = Path(__file__).parents[1] / "native"
 CLANG = "clang-18"
 OK = 0
 WANTED = {"use_gate", "gate_tag", "enter", "__wires_boot"}
@@ -338,7 +337,7 @@ def test_the_64_bit_twin_of_the_same_source_places_the_pointer_word_at_its_own_s
     shared = tmp_path / "libwidth32.so"
     subprocess.run(
         [CLANG, "-O1", "-shared", "-fPIC", str(CORPUS / "width32.c"),
-         str(NATIVE / "basics.c"), str(NATIVE / "stdlib_memory.c"), "-o", str(shared)],
+         str(seed_object.write([CORPUS / "width32.c"])), "-o", str(shared)],
         check=True,
     )  # fmt: skip
     native = ctypes.CDLL(str(shared))

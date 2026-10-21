@@ -17,8 +17,7 @@ The wasm32 body's ``call_indirect`` names a leaf's function type by the position
 the leaf's signature in the type section of whoever composes the snippets: the
 composer (``tests/wasm.py module_of``) puts one type per leaf in the order of the
 leaf ids, so ``call_types()`` is that list, one entry per leaf, and the ``@`` argv
-must be it. ``tools/native/extract_wasm.py`` canonicalizes clang's bodies to the
-same indices.
+must be it -- the shapes of ``seed_build.call_type_letters()`` are the same indices.
 """
 
 from __future__ import annotations

@@ -1,13 +1,13 @@
 """The pumps of the providers as Functions of the starter.
 
-``live.pump`` is the native leaf of ``native/live.cpp``: it takes the area of a channel and
+``live.pump`` is the native leaf of ``native/live.rxfs``: it takes the area of a channel and
 serves the frames waiting in its receive ring (``core/live/live.h``). Like ``graph.run`` it is
 a copy of a runtime function with the same shape, here ``runtime.cleanup`` (the context and one
 pointer, a status back). ``sync.py`` writes the bytes of every machine into it; this module
 makes the Function and its record, and ``leaf id 29`` of ``native/graph.h`` names it. The
-UART provider (``native/uart.c``, leaf 30) is the second one, in the module ``uart``; the
-compiler of programs (``native/compile.c``, leaf 31) is ``compile.program``; the safe point
-of compiled code (``native/safe.c``, leaf 38) is ``safe.point``.
+UART provider (``native/uart/uart.rxfs``, leaf 30) is the second one, in the module ``uart``;
+the compiler of programs (``native/compile.rxfs``, leaf 31) is ``compile.program``; the safe
+point of compiled code (``native/safe/safe.rxfs``, leaf 38) is ``safe.point``.
 
 ``tiny.compile`` is not native: it is the compiler of ``native/tiny/*.rxfs`` as a program (a
 Function of the Bytecode format that ``graph.run`` interprets), the one that, run by the
@@ -30,20 +30,20 @@ FOUNDATION = Path("pymergetic/rxf/foundation")
 SOURCE = "cleanup"
 ROOT = Path(__file__).resolve().parents[2]
 # Each module has one Function (a `pump`, the `program` compiler); its meaning is the files it is
-# defined by.
+# defined by -- the Seed source of the leaf and the layout it works on.
 MODULES = {
     "live": (
         "pump",
-        (ROOT / "src/pymergetic/rxftk/core/live/live.h",),
-    ),  # the layout of the area and the frames
-    "uart": ("pump", (ROOT / "native/uart.c",)),  # the registers it moves bytes through
+        (ROOT / "native/live.rxfs", ROOT / "src/pymergetic/rxftk/core/live/live.h"),
+    ),  # the pump it is, and the layout of the area and the frames
+    "uart": ("pump", (ROOT / "native/uart/uart.rxfs",)),  # the registers it moves bytes through
     "safe": (
         "point",
-        (ROOT / "native/safe.c", ROOT / "src/pymergetic/rxftk/core/live/live.h"),
+        (ROOT / "native/safe/safe.rxfs", ROOT / "src/pymergetic/rxftk/core/live/live.h"),
     ),  # the words of the area it looks at
     "compile": (
         "program",
-        (ROOT / "native/compile.c", ROOT / "native/graph.h"),
+        (ROOT / "native/compile.rxfs", ROOT / "native/graph.h"),
     ),  # the code it writes
 }
 

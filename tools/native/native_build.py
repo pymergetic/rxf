@@ -1,8 +1,10 @@
-"""Compile the native leaf snippets with pinned Clang and list their bytes.
+"""Build the native snippets from their Seed sources, one function per machine.
 
-The C sources live in ``native/``. Each function is compiled once per machine
-(``x86_64``, ``aarch64``), is relocation-free, and is cut out of the object
-file by ``extract_native``. The starter holds these bytes as ``Code`` objects.
+Every snippet is a ``.rxfs`` ``fn`` of ``native/``, compiled by the seed CLI
+(``native/seed/seed.c``) to the object ABI of its machine -- the bytes the
+starter holds as ``Code`` objects. This module is the one build path: no C
+compiler is in it (docs/31 step 5, "builders = Seed only"). The families below
+name the snippets by the module of the starter they land in.
 
     python tools/native/native_build.py OUTDIR      # writes OUTDIR/<machine>.json
 """
@@ -11,49 +13,21 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
-import subprocess
 import sys
-import tempfile
-from collections.abc import Mapping
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-import compile_build
-import extract_native
-import extract_wasm
-import graph_header
 import seed_build
 from native_symbols import EXPECTED as NUMERIC
 
 ROOT = HERE.parents[1]
 NATIVE = ROOT / "native"
-CLANG = "clang-18"
-LINKER = "ld.lld-18"
-WASM_LINKER = "wasm-ld-18"
-PINNED = "18.1.3"
-MACHINES = {
-    "x86_64": "x86_64-unknown-linux-gnu",
-    "aarch64": "aarch64-none-elf",
-    "wasm32": "wasm32-unknown-unknown",
-}
-FLAGS = (
-    "-std=c11",
-    "-O2",
-    "-ffreestanding",
-    "-fno-builtin",
-    "-fno-stack-protector",
-    "-fno-unwind-tables",
-    "-fno-asynchronous-unwind-tables",
-    "-ffunction-sections",
-    "-fdata-sections",
-    "-fno-ident",
-    "-fno-addrsig",
-    "-fno-pic",
-    "-fno-jump-tables",
-    "-fno-vectorize",
-    "-fno-slp-vectorize",  # a vector constant pool would be a relocation (see CPP_FLAGS)
-)
+
+# The machines of the starter, and the seed CLI's target word for each.
+MACHINES = dict(seed_build.TARGET)
+# What CompilerProvenance records as ``compiler_major``: the seed recipe's major.
+SEED_MAJOR = "1"
+
 MEMORY = {
     "memory_copy",
     "memory_move",
@@ -93,227 +67,59 @@ LIVE = {"live_pump"}
 UART = {"uart_pump"}
 SAFE = {"safe_point"}
 COMPILE = {"compile_program"}
-# Which sources make which symbols.
-UNITS: tuple[tuple[tuple[str, ...], set[str]], ...] = (
-    (("basics.c", "conversions.c"), set(NUMERIC)),
-    (("stdlib_memory.c",), MEMORY),
-    (("stdlib_runtime.c",), RUNTIME),
-    (("graph.c",), GRAPH),
-    (("live.cpp",), LIVE),
-    (("uart.c",), UART),
-    (("safe.c",), SAFE),
-    (("compile.c",), COMPILE),
-)
-# The C++ of the core (src/) as one native leaf: smaller code, no SIMD (a constant pool would be a
-# relocation), nothing that needs a runtime.
-CPP_FLAGS = (
-    "-std=c++20",
-    "-Os",
-    "-fno-exceptions",
-    "-fno-rtti",
-    "-fno-vectorize",
-    "-fno-slp-vectorize",
-)
-CPP_INCLUDE = ROOT / "src"
-GENERAL_REGISTERS = {"x86_64", "aarch64"}  # no vector registers, so no constant pool
 
 
-def flags_for(source: str, machine: str) -> list[str]:
-    """The compiler flags of one source file on one machine."""
-    if not source.endswith(".cpp"):
-        return list(FLAGS)
-    flags = [f for f in FLAGS if f not in ("-std=c11", "-O2")]
-    flags += CPP_FLAGS
-    if machine in GENERAL_REGISTERS:
-        flags.append("-mgeneral-regs-only")
-    flags += ["-I", str(CPP_INCLUDE)]
-    return flags
+def build() -> dict[str, dict[str, str]]:
+    """Return ``{machine: {name: hex}}`` for every snippet, from its Seed source."""
+    return {
+        machine: {name: seed_build.code(machine, name) for name in seed_build.keys()}
+        for machine in MACHINES
+    }
+
+
+def sources() -> list[Path]:
+    """Every file the recipe reads: the Seed sources, the seed compiler, and the
+    drivers that point its CLI at the right ``fn``."""
+    drivers = (
+        "native_build.py",
+        "seed_build.py",
+        "graph_build.py",
+        "compile_build.py",
+        "live_build.py",
+        "native_symbols.py",
+    )
+    return [
+        NATIVE / "seed" / "seed.c",
+        *sorted(NATIVE.rglob("*.rxfs")),
+        *(HERE / driver for driver in drivers),
+    ]
 
 
 def recipe(machine: str) -> dict[str, object]:
-    """Everything that turns the C sources into the bytes of one machine."""
-    linking = (
-        [
-            WASM_LINKER,
-            "--no-entry",
-            "--import-memory",
-            "--import-table",
-            "--emit-relocs",
-            "--export=rxf_<name>",
-        ]
-        if machine == "wasm32"
-        else [LINKER, "-r", "--unique"]
-    )
+    """Everything that turns the Seed sources into the bytes of one machine: the
+    seed CLI's words per function (its ``fn`` and the shape of its operands)."""
     return {
-        "compiler": CLANG,
-        "version": PINNED,
+        "compiler": "seed",
+        "version": SEED_MAJOR,
         "target": MACHINES[machine],
-        "flags": list(FLAGS),
-        "cpp_flags": [
-            *CPP_FLAGS,
-            *(["-mgeneral-regs-only"] if machine in GENERAL_REGISTERS else []),
-        ],
-        "link": linking,
+        "functions": {
+            name: [seed_build.fn_of(name, machine), *seed_build.shape_of(name)]
+            for name in seed_build.keys()
+        },
     }
 
 
 def recipe_digest(machine: str) -> str:
-    """SHA-256 of the recipe as canonical JSON: what ``CompilerProvenance`` records."""
-    text = json.dumps(recipe(machine), sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(text.encode()).hexdigest()
-
-
-def clang_version() -> str:
-    out = subprocess.run(
-        [CLANG, "--version"], check=True, text=True, capture_output=True
-    ).stdout
-    match = re.search(r"clang version (\d+\.\d+\.\d+)", out)
-    if match is None:
-        raise RuntimeError(f"cannot read the version of {CLANG}")
-    return match.group(1)
-
-
-def compile_unit(
-    sources: tuple[str, ...], target: str, machine: str, work: Path, expected: set[str]
-) -> Mapping[str, Mapping[str, object]]:
-    objects: list[Path] = []
-    for source in sources:
-        obj = work / f"{source}.o"
-        subprocess.run(
-            [
-                CLANG,
-                "-target",
-                target,
-                *flags_for(source, machine),
-                "-c",
-                str(NATIVE / source),
-                "-o",
-                str(obj),
-            ],
-            check=True,
-        )
-        objects.append(obj)
-    combined: Path
-    if len(objects) == 1:
-        combined = objects[0]
-    else:
-        combined = work / f"{sources[0]}.all.o"
-        subprocess.run(
-            [LINKER, "-r", "--unique", *map(str, objects), "-o", str(combined)],
-            check=True,
-        )
-    return extract_native.extract(combined, machine, expected)
-
-
-def build_wasm(work: Path) -> dict[str, extract_wasm.Function]:
-    """Compile every unit for wasm32, link them once, and cut the bodies out."""
-    target = MACHINES["wasm32"]
-    objects: list[Path] = []
-    for sources, _ in UNITS:
-        for source in sources:
-            obj = work / f"{source}.wasm.o"
-            subprocess.run(
-                [
-                    CLANG,
-                    "-target",
-                    target,
-                    *flags_for(source, "wasm32"),
-                    "-c",
-                    str(NATIVE / source),
-                    "-o",
-                    str(obj),
-                ],
-                check=True,
-            )
-            problems = extract_wasm.check_object(obj)
-            if problems:
-                raise RuntimeError(
-                    f"{source} does not stand alone on wasm32: {problems}"
-                )
-            objects.append(obj)
-    names = {name for _, expected in UNITS for name in expected}
-    linked = work / "snippets.wasm"
-    subprocess.run(
-        [
-            WASM_LINKER,
-            "--no-entry",
-            "--import-memory",
-            "--import-table",
-            "--emit-relocs",
-            *(f"--export=rxf_{name}" for name in sorted(names)),
-            *map(str, objects),
-            "-o",
-            str(linked),
-        ],
-        check=True,
+    """SHA-256 of the recipe and the sources it names: what ``CompilerProvenance``
+    records, so a changed source or shape moves the pin."""
+    digest = hashlib.sha256()
+    digest.update(
+        json.dumps(recipe(machine), sort_keys=True, separators=(",", ":")).encode()
     )
-    by_id = sorted(graph_header.leaves().items(), key=lambda leaf: leaf[1])
-    found = extract_wasm.read_module(
-        linked,
-        {f"rxf_{name}" for name in names},
-        tuple(f"rxf_{name}" for name, _ in by_id),
-    )
-    return {name[4:]: function for name, function in found.items()}
-
-
-def build_wasm_functions() -> dict[str, extract_wasm.Function]:
-    """The wasm32 snippets with their function types."""
-    with tempfile.TemporaryDirectory() as directory:
-        found = build_wasm(Path(directory))
-    # The migrated families take their body from the seed (`.rxfs`); the function
-    # type stays what clang says it is (same ABI), so sync's ABI derivation holds.
-    # `compile_program` is the seed's too (native/compile.rxfs, docs/29): its body
-    # comes from compile_build, the same seam graph_run has in seed_build.code.
-    for name, function in found.items():
-        if name == "compile_program":
-            found[name] = extract_wasm.Function(
-                params=function.params,
-                results=function.results,
-                body=bytes.fromhex(compile_build.code("wasm32")),
-            )
-        elif seed_build.is_seed(name):
-            found[name] = extract_wasm.Function(
-                params=function.params,
-                results=function.results,
-                body=seed_build.wasm_body(name),
-            )
-    return found
-
-
-def build() -> dict[str, dict[str, str]]:
-    """Return ``{machine: {name: hex}}`` for every snippet."""
-    version = clang_version()
-    if version != PINNED:
-        raise RuntimeError(f"expected clang {PINNED}, got {version}")
-    result: dict[str, dict[str, str]] = {}
-    for machine, target in MACHINES.items():
-        if machine == "wasm32":
-            continue
-        functions: dict[str, str] = {}
-        with tempfile.TemporaryDirectory() as directory:
-            for sources, expected in UNITS:
-                found = compile_unit(
-                    sources, target, machine, Path(directory), expected
-                )
-                for name, record in found.items():
-                    if name in functions:
-                        raise RuntimeError(f"{name} is defined twice")
-                    functions[name] = str(record["hex"])
-        result[machine] = dict(sorted(functions.items()))
-    result["wasm32"] = {
-        name: function.body.hex()
-        for name, function in sorted(build_wasm_functions().items())
-    }
-    # The migrated families come from `.rxfs` (the seed), not clang: their bytes
-    # replace clang's on every machine. `native/*.c` still feeds the rest.
-    # `compile_program` comes from native/compile.rxfs via compile_build.
-    for machine in result:
-        for name in result[machine]:
-            if name == "compile_program":
-                result[machine][name] = compile_build.code(machine)
-            elif seed_build.is_seed(name):
-                result[machine][name] = seed_build.code(machine, name)
-    return result
+    for path in sources():
+        digest.update(path.name.encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
 
 
 def main() -> None:
@@ -325,8 +131,8 @@ def main() -> None:
         payload = {
             "machine": machine,
             "target": MACHINES[machine],
-            "compiler": f"clang-{PINNED}",
-            "recipe": " ".join(FLAGS),
+            "compiler": "seed",
+            "recipe": recipe(machine),
             "functions": functions,
         }
         (out / f"{machine}.json").write_text(

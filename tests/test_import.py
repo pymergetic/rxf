@@ -12,9 +12,9 @@ inputs:
   delta -> ``Image.apply`` -> ``compose.programs`` -> the program words ->
   ``rxf_native.run``, the real interpreter of ``native/graph.c``;
 * natively: the same source compiled by the same family of compiler into a shared library
-  and called with ctypes. ``leaf.c``, ``memory.c`` and ``slots.c`` are linked with
-  ``native/basics.c`` and ``native/stdlib_memory.c`` so a leaf call runs the very same C
-  on both sides.
+  and called with ctypes. ``leaf.c``, ``memory.c`` and ``slots.c`` are linked with the
+  leaves' own bodies, the seed's object-ABI code (``tests/seed_object.py``), so a leaf call
+  runs the very same code on both sides.
 
 The contract of the importer: deterministic code without undefined behavior has the same
 observable behavior on both sides. Each test compares ``(status, value)`` per input
@@ -49,12 +49,11 @@ import rxpy
 
 from pymergetic.rxftk.core import tree
 
-from . import graph_world, rxf_native
+from . import graph_world, rxf_native, seed_object
 from .emulator import Blob, Emulator, Integer
 from .snippets import STARTER
 
 CORPUS = Path(__file__).parent / "import_corpus"
-NATIVE = Path(__file__).parents[1] / "native"
 CLANG = "clang-18"
 CLANGXX = "clang++-18"
 RUSTC = rximport.RUSTC  # rustc of the PATH, or ~/.cargo/bin/rustc
@@ -684,6 +683,17 @@ FRIENDS: dict[str, tuple[str, ...]] = {
 }
 
 
+def leaf_object() -> str:
+    """The leaf bodies a differential's link binds beside the corpus file.
+
+    They are the seed's object-ABI code packed as an object file (``tests/seed_object.py``)
+    -- the same bytes the imported graph calls -- never a C twin of a seed card. Every
+    corpus source is named so one object serves every differential link; a name that no
+    snippet defines (a type or an inline helper of the headers) is left to the corpus."""
+    sources = sorted(CORPUS.glob("*.c")) + sorted(CORPUS.glob("*.cpp"))
+    return str(seed_object.write(sources))
+
+
 def link(file: Path, shared: Path) -> None:
     """The corpus file and the leaves it calls, as one shared library: the compiler of the
     suffix (clang for C, clang++ for C++, rustc for Rust)."""
@@ -698,7 +708,7 @@ def link(file: Path, shared: Path) -> None:
     subprocess.run(
         [compiler, "-O1", "-shared", "-fPIC", str(file),
          *(str(CORPUS / friend) for friend in FRIENDS.get(file.name, ())),
-         str(NATIVE / "basics.c"), str(NATIVE / "stdlib_memory.c"),
+         leaf_object(),
          "-o", str(shared)],
         check=True,
     )  # fmt: skip
@@ -1528,7 +1538,7 @@ def test_the_type_name_path_reaches_the_qstr_program(tmp_path: Path):
          # path only needs obj's ctor to bump once and the qstr pool to answer
          "-Wl,--allow-multiple-definition",
          str(CORPUS / "qstr.c"), str(CORPUS / "obj.c"), str(CORPUS / "obj_stubs.c"),
-         str(NATIVE / "basics.c"), str(NATIVE / "stdlib_memory.c"), "-o", str(shared)],
+         leaf_object(), "-o", str(shared)],
         check=True,
     )  # fmt: skip
     native = ctypes.CDLL(str(shared))
@@ -1644,7 +1654,7 @@ def test_the_unary_slot_dispatch_routes_to_the_type_body(tmp_path: Path):
         subprocess.run(
             [CLANG, "-O1", "-shared", "-fPIC", "-Wl,--allow-multiple-definition",
              str(CORPUS / "qstr.c"), str(CORPUS / "obj.c"), str(CORPUS / "obj_stubs.c"),
-             str(NATIVE / "basics.c"), str(NATIVE / "stdlib_memory.c"), "-o", str(shared)],
+             leaf_object(), "-o", str(shared)],
             check=True,
         )  # fmt: skip
         native = ctypes.CDLL(str(shared))
@@ -1774,7 +1784,7 @@ def test_the_true_check_rides_the_slot_lookup_program(tmp_path: Path):
     subprocess.run(
         [CLANG, "-O1", "-shared", "-fPIC", "-Wl,--allow-multiple-definition",
          str(CORPUS / "qstr.c"), str(CORPUS / "obj.c"), str(CORPUS / "obj_stubs.c"),
-         str(NATIVE / "basics.c"), str(NATIVE / "stdlib_memory.c"), "-o", str(shared)],
+         leaf_object(), "-o", str(shared)],
         check=True,
     )  # fmt: skip
     native = ctypes.CDLL(str(shared))
@@ -2011,7 +2021,7 @@ def test_the_int_maybe_writes_the_caller_out_cell(tmp_path: Path):
     subprocess.run(
         [CLANG, "-O1", "-shared", "-fPIC", "-Wl,--allow-multiple-definition",
          str(CORPUS / "qstr.c"), str(CORPUS / "obj.c"), str(CORPUS / "obj_stubs.c"),
-         str(NATIVE / "basics.c"), str(NATIVE / "stdlib_memory.c"), "-o", str(shared)],
+         leaf_object(), "-o", str(shared)],
         check=True,
     )  # fmt: skip
     native = ctypes.CDLL(str(shared))
@@ -2165,7 +2175,7 @@ def test_the_out_param_callee_is_a_call_card(tmp_path: Path):
     subprocess.run(
         [CLANG, "-O1", "-shared", "-fPIC", "-Wl,--allow-multiple-definition",
          str(CORPUS / "qstr.c"), str(CORPUS / "outparam.c"),
-         str(NATIVE / "basics.c"), str(NATIVE / "stdlib_memory.c"), "-o", str(shared)],
+         leaf_object(), "-o", str(shared)],
         check=True,
     )  # fmt: skip
     native = ctypes.CDLL(str(shared))
@@ -2394,7 +2404,7 @@ def test_the_interning_path_lowers_with_variable_frames(tmp_path: Path):
         shared = tmp_path / "libqstr.so"
         subprocess.run(
             [CLANG, "-O1", "-shared", "-fPIC", str(CORPUS / "qstr.c"),
-             str(NATIVE / "basics.c"), str(NATIVE / "stdlib_memory.c"), "-o", str(shared)],
+             leaf_object(), "-o", str(shared)],
             check=True,
         )  # fmt: skip
         native = ctypes.CDLL(str(shared))

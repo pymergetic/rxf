@@ -2,7 +2,8 @@
 
 * ``graph.run`` is a native Function like the leaves: its Code and ABI are made
   from a copy of ``runtime.append`` (one handle, one pointer, two words in the
-  same registers), with the bytes of ``native/graph.c``. It names the leaves it
+  same registers), with the bytes of ``native/graph.rxfs`` (the seed build,
+  ``tools/native/native_build.py``). It names the leaves it
   calls, by their id in ``native/graph.h``, with one ``Leaf`` reference each.
 * Every semantic Function with a ``SemanticGraph`` gets one ``Code`` of format
   ``Bytecode``: the program that ``compose.py`` makes of the graph. It is the

@@ -62,7 +62,7 @@ def test_one_function_resolves_on_every_target():
         assert "refusal" not in facts, target
         assert facts["format"] == ("Wasm" if target == "wasm32_wasm_c" else "Machine")
         assert int(facts["byte_count"]) > 0
-        assert facts["provenance"].startswith("clang_"), facts
+        assert facts["provenance"].startswith("seed_"), facts
         assert facts["abi"], facts
 
 

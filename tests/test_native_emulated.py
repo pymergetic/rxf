@@ -129,7 +129,7 @@ def arithmetic_snippets() -> dict[str, dict]:
 
 
 def test_the_arithmetic_leaves_refuse_and_compute_as_the_leaf_contract_says():
-    """The bodies of the multiply, divide and remainder leaves (native/basics.c) on both
+    """The bodies of the multiply, divide and remainder leaves (native/numeric/*.rxfs) on both
     machines, at every boundary the contract names: 0, 1, -1, the extremes, wrap-around
     products, a division by zero and INT_MIN / -1. Refusals are the codes of the contract
     (OVERFLOW and DIVISION_BY_ZERO of native/basics.h)."""
@@ -189,7 +189,7 @@ def checked_saturating_snippets() -> dict[str, dict]:
 
 
 def test_the_checked_and_saturating_leaves_refuse_and_compute_as_the_contract_says():
-    """The bodies of the checked and saturating leaves (native/basics.c) on both machines,
+    """The bodies of the checked and saturating leaves (native/numeric/*.rxfs) on both machines,
     at every boundary the contract names: the extremes where an add, subtract or multiply
     crosses the type's bound in either direction, and MIN for the checked negate and
     absolute. A checked leaf refuses OVERFLOW and writes nothing; a saturating leaf clamps

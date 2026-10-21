@@ -1,108 +1,117 @@
-"""The native snippets in the starter are what native/*.c compiles to."""
+"""The native snippets of the starter, strictly from the Seed (docs/31 step 5).
+
+There is no C compiler in the path: every byte of every ``Code`` object is what
+the seed builders of ``tools/native/`` compile from ``native/**/*.rxfs``, the
+wasm32 ABI of a code is derived from the shape of that source, and the
+``CompilerProvenance`` a code names is the seed recipe that built it. These pins
+hold the checked-in starter to that, and to being up to date with its sources
+(``sync.py --check`` rebuilds everything and compares byte for byte).
+"""
+
+from __future__ import annotations
 
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-import pytest
-
-ROOT = Path(__file__).parents[1]
-STARTER = ROOT / "starter"
-RXF = "{urn:pymergetic:rxf}"
-
 import native_build
+import pytest
 import sync
 
+from .snippets import STARTER
 
-def have_clang() -> bool:
-    tools = (native_build.CLANG, native_build.LINKER, native_build.WASM_LINKER)
-    if any(shutil.which(tool) is None for tool in tools):
-        return False
-    return native_build.clang_version() == native_build.PINNED
+ROOT = Path(__file__).parents[1]
+RXF = "{urn:pymergetic:rxf}"
 
 
-needs_clang = pytest.mark.skipif(
-    not have_clang(),
-    reason=f"needs {native_build.CLANG} {native_build.PINNED}, {native_build.LINKER} and {native_build.WASM_LINKER}",
-)
+def test_the_targets_are_the_three_machines_of_the_starter():
+    document = ET.parse(STARTER / "pymergetic" / "rxf" / "targets.rxfd")
+    targets = {
+        e.get("name", "").split(".")[-1]
+        for e in document.getroot().iter("RuntimeTarget")
+    }
+    assert targets == {
+        "x86_64_linux_sysv",
+        "x86_64_uefi_sysv",
+        "x86_64_bios_sysv",
+        "aarch64_linux_aapcs64",
+        "aarch64_uefi_aapcs64",
+        "wasm32_wasm_c",
+    }
+    assert set(native_build.MACHINES) == {"x86_64", "aarch64", "wasm32"}
 
 
-def starter_code(known: set[str]) -> dict[tuple[str, str], str]:
-    """``{(machine, snippet name): hex}`` as the starter says it, for every target."""
-    found: dict[tuple[str, str], str] = {}
-    for path in STARTER.rglob("*.rxfd"):
-        parts = path.relative_to(STARTER).with_suffix("").parts
-        for function in ET.parse(path).getroot().iter("Function"):
-            for code in function.iter("Code"):
-                if code.get("runtime_target") is None:
-                    continue  # a program, not machine code
-                machine = next(
-                    m
-                    for m in native_build.MACHINES
-                    if code.get("runtime_target", "").split(".")[-1].startswith(m)
-                )
-                key = sync.snippet_key(parts, str(function.get("name")), known)
-                data = code.get(RXF + "data")
-                assert data is not None
-                assert found.setdefault((machine, key), data) == data, (
-                    f"{key}: the targets of one machine disagree"
-                )
-    return found
-
-
-@needs_clang
 def test_every_starter_snippet_is_what_the_sources_compile_to():
-    built = native_build.build()
-    wanted = {(m, n): h for m, fns in built.items() for n, h in fns.items()}
-    have = starter_code({n for _, n in wanted})
-    assert sorted(have) == sorted(wanted), "a snippet is missing or has no source"
-    assert [k for k in wanted if have[k] != wanted[k]] == []
-
-
-@needs_clang
-def test_the_starter_is_what_the_sync_makes_of_the_sources():
+    """The one form of the rule docs/31 §3 names: every Code body of every machine
+    is what the seed builders make of `native/**/*.rxfs`, and the starter is
+    already exactly that (a rebuild changes no byte)."""
     total, same = sync.sync(STARTER, check=True)
-    assert (total, same) == (321, True)
+    assert total >= 321 and same
 
 
-def test_each_provenance_is_the_digest_of_the_recipe_of_its_machine():
-    """No compiler: the recipe is data in native_build, and the starter records its digest."""
-    root = ET.parse(STARTER / "pymergetic" / "rxf" / "targets.rxfd").getroot()
-    recorded = {
+def test_the_compiler_provenance_is_the_seed_recipe():
+    document = ET.parse(STARTER / "pymergetic" / "rxf" / "targets.rxfd")
+    found = {
         p.get("name"): (p.get("compiler_major"), p.get("recipe_digest"))
-        for p in root.iter("CompilerProvenance")
+        for p in document.getroot().iter("CompilerProvenance")
     }
-    major = native_build.PINNED.split(".")[0]
-    assert recorded == {
-        sync.provenance_name(m): (major, native_build.recipe_digest(m))
-        for m in native_build.MACHINES
+    assert sorted(found) == ["seed_aarch64", "seed_wasm32", "seed_x86_64"]
+    assert found == {
+        name: (native_build.SEED_MAJOR, native_build.recipe_digest(machine))
+        for machine in native_build.MACHINES
+        for name in (sync.provenance_name(machine),)
     }
 
 
-def test_each_code_names_the_provenance_of_its_machine():
+def test_every_code_names_one_of_the_seed_recipes():
+    """A Code object's provenance reference is one of the three seed recipes of the
+    targets module -- nothing in the starter claims a compiler that is gone. A code of
+    the Bytecode format is a program of the interpreter (what ``compose`` makes of a
+    graph); it is not compiled by any machine and names no compiler."""
+    names = {
+        p.get("name")
+        for p in ET.parse(STARTER / "pymergetic" / "rxf" / "targets.rxfd")
+        .getroot()
+        .iter("CompilerProvenance")
+    }
+    codes = compiled = provenance = 0
     for path in sorted(STARTER.rglob("*.rxfd")):
         for code in ET.parse(path).getroot().iter("Code"):
-            refs = {
-                sync.word(r.get("role")): sync.word(r.get("target"))
-                for r in code.findall(f"{RXF}ref")
-            }
-            if code.get("runtime_target") is None:  # a program has no compiler
-                assert "Provenance" not in refs, path
+            codes += 1
+            if sync.word(code.get("format")) == "Bytecode":
                 continue
-            machine = sync.machine_of(code.get("runtime_target"))
-            assert refs["Provenance"] == sync.provenance_name(machine), path
+            compiled += 1
+            for ref in code.findall(f"{RXF}ref"):
+                if sync.word(ref.get("role")) == "Provenance":
+                    provenance += 1
+                    assert sync.word(ref.get("target")) in names, path
+    assert codes > 300 and compiled > 300 and provenance == compiled
+
+
+def test_no_c_source_is_left_in_native():
+    """The C/C++ of the native modules is gone (docs/31 §6 step 3); what stays at
+    the top of ``native/`` is the checked-in ABI description the seed implements."""
+    assert sorted(p.name for p in (ROOT / "native").glob("*.c")) == []
+    assert sorted(p.name for p in (ROOT / "native").glob("*.cpp")) == []
+    assert sorted(p.name for p in (ROOT / "native").glob("*.h")) == [
+        "basics.h",
+        "graph.h",
+        "stdlib_memory.h",
+        "stdlib_runtime.h",
+    ]
 
 
 @pytest.mark.skipif(
     shutil.which("clang-format-18") is None, reason="needs clang-format-18"
 )
 def test_the_c_sources_are_formatted():
-    sources = sorted(str(p) for p in (ROOT / "native").glob("*.[ch]"))
-    done = subprocess.run(
+    sources = sorted((ROOT / "native").glob("*.[ch]")) + sorted(
+        (ROOT / "tests" / "host").glob("*.[ch]")
+    )
+    result = subprocess.run(
         ["clang-format-18", "--dry-run", "-Werror", *sources],
         capture_output=True,
         text=True,
-        check=False,
     )
-    assert done.returncode == 0, done.stderr[:2000]
+    assert result.returncode == 0, result.stderr

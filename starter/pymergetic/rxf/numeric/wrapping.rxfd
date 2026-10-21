@@ -22,11 +22,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.add_int16_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.add_int16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="2161e8b9c58cf930048bb070fd347d5d0b0688ae57eae5593c8c064d9523ee28" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9003c40d3e00f1ff8800640f9003c40d3e10741f82000008b60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int16_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.add_int16_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.add_int16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="2161e8b9c58cf930048bb070fd347d5d0b0688ae57eae5593c8c064d9523ee28" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9003c40d3e00f1ff8800640f9003c40d3e10741f82000008b60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int16_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="int16_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int16_t" />
@@ -53,7 +53,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.add_int16_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.add_int16_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="33" semantic_digest="2161e8b9c58cf930048bb070fd347d5d0b0688ae57eae5593c8c064d9523ee28" rxf:data="01027e2000ad42ffff03832001ad42ffff03837c2103200220033d010041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int16_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.add_int16_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="2" alignment="2" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -63,15 +63,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.add_int16_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.add_int16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="85" semantic_digest="2161e8b9c58cf930048bb070fd347d5d0b0688ae57eae5593c8c064d9523ee28" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c1584801c86641890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int16_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.add_int16_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.add_int16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="85" semantic_digest="2161e8b9c58cf930048bb070fd347d5d0b0688ae57eae5593c8c064d9523ee28" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c1584801c86641890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int16_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.add_int16_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.add_int16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="85" semantic_digest="2161e8b9c58cf930048bb070fd347d5d0b0688ae57eae5593c8c064d9523ee28" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c1584801c86641890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int16_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="add_int16_t_contract" operation="@kinds.NumericOperation.WrappingAdd" policy="@kinds.NumericPolicy.Wrap" width="16" signed="1" source_type="int16_t" destination_type="int16_t" />
@@ -91,11 +91,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.add_int32_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.add_int32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="9568063988fc1de0e28252be8b811dcf0b9bc1606c3bcea9275a7be29118d404" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9007c40d3e00f1ff8800640f9007c40d3e10741f82000008b600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int32_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.add_int32_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.add_int32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="9568063988fc1de0e28252be8b811dcf0b9bc1606c3bcea9275a7be29118d404" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9007c40d3e00f1ff8800640f9007c40d3e10741f82000008b600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int32_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="int32_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int32_t" />
@@ -122,7 +122,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.add_int32_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.add_int32_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="23" semantic_digest="9568063988fc1de0e28252be8b811dcf0b9bc1606c3bcea9275a7be29118d404" rxf:data="01027e2000ad2001ad7c2103200220033e020041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int32_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.add_int32_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -132,15 +132,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.add_int32_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.add_int32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="9568063988fc1de0e28252be8b811dcf0b9bc1606c3bcea9275a7be29118d404" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c1584801c841890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int32_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.add_int32_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.add_int32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="9568063988fc1de0e28252be8b811dcf0b9bc1606c3bcea9275a7be29118d404" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c1584801c841890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int32_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.add_int32_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.add_int32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="9568063988fc1de0e28252be8b811dcf0b9bc1606c3bcea9275a7be29118d404" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c1584801c841890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int32_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="add_int32_t_contract" operation="@kinds.NumericOperation.WrappingAdd" policy="@kinds.NumericPolicy.Wrap" width="32" signed="1" source_type="int32_t" destination_type="int32_t" />
@@ -160,11 +160,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.add_int64_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.add_int64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="72" semantic_digest="e10e4ee20a12d2c9785c412ce2947438eaa079c9ea1dba471c850674e8dd9381" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9e00f1ff8800640f9e10741f82000008b600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int64_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.add_int64_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.add_int64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="72" semantic_digest="e10e4ee20a12d2c9785c412ce2947438eaa079c9ea1dba471c850674e8dd9381" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9e00f1ff8800640f9e10741f82000008b600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int64_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="int64_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int64_t" />
@@ -191,7 +191,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.add_int64_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.add_int64_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="21" semantic_digest="e10e4ee20a12d2c9785c412ce2947438eaa079c9ea1dba471c850674e8dd9381" rxf:data="01027e200020017c21032002200337030041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int64_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.add_int64_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -201,15 +201,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.add_int64_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.add_int64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="76" semantic_digest="e10e4ee20a12d2c9785c412ce2947438eaa079c9ea1dba471c850674e8dd9381" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c1584801c849890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int64_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.add_int64_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.add_int64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="76" semantic_digest="e10e4ee20a12d2c9785c412ce2947438eaa079c9ea1dba471c850674e8dd9381" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c1584801c849890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int64_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.add_int64_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.add_int64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="76" semantic_digest="e10e4ee20a12d2c9785c412ce2947438eaa079c9ea1dba471c850674e8dd9381" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c1584801c849890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int64_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="add_int64_t_contract" operation="@kinds.NumericOperation.WrappingAdd" policy="@kinds.NumericPolicy.Wrap" width="64" signed="1" source_type="int64_t" destination_type="int64_t" />
@@ -229,11 +229,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.add_int8_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.add_int8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="56e15c7f0413bf1d95f39e6c96b1d327c1e03c58a417af1f472f78fc32ff7a9c" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9001c40d3e00f1ff8800640f9001c40d3e10741f82000008b60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int8_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.add_int8_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.add_int8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="56e15c7f0413bf1d95f39e6c96b1d327c1e03c58a417af1f472f78fc32ff7a9c" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9001c40d3e00f1ff8800640f9001c40d3e10741f82000008b60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int8_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="int8_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int8_t" />
@@ -260,7 +260,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.add_int8_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.add_int8_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="31" semantic_digest="56e15c7f0413bf1d95f39e6c96b1d327c1e03c58a417af1f472f78fc32ff7a9c" rxf:data="01027e2000ad42ff01832001ad42ff01837c2103200220033c000041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int8_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.add_int8_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="1" alignment="1" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -270,15 +270,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.add_int8_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.add_int8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="84" semantic_digest="56e15c7f0413bf1d95f39e6c96b1d327c1e03c58a417af1f472f78fc32ff7a9c" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c1584801c841880731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int8_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.add_int8_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.add_int8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="84" semantic_digest="56e15c7f0413bf1d95f39e6c96b1d327c1e03c58a417af1f472f78fc32ff7a9c" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c1584801c841880731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int8_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.add_int8_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.add_int8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="84" semantic_digest="56e15c7f0413bf1d95f39e6c96b1d327c1e03c58a417af1f472f78fc32ff7a9c" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c1584801c841880731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_int8_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="add_int8_t_contract" operation="@kinds.NumericOperation.WrappingAdd" policy="@kinds.NumericPolicy.Wrap" width="8" signed="1" source_type="int8_t" destination_type="int8_t" />
@@ -298,11 +298,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.add_uint16_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.add_uint16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="74bd36e71f5d18b9475b8388452d80cc5457804768c731c85a8e6bdd12ab767d" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9003c40d3e00f1ff8800640f9003c40d3e10741f82000008b60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint16_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.add_uint16_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.add_uint16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="74bd36e71f5d18b9475b8388452d80cc5457804768c731c85a8e6bdd12ab767d" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9003c40d3e00f1ff8800640f9003c40d3e10741f82000008b60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint16_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="uint16_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint16_t" />
@@ -329,7 +329,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.add_uint16_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.add_uint16_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="33" semantic_digest="74bd36e71f5d18b9475b8388452d80cc5457804768c731c85a8e6bdd12ab767d" rxf:data="01027e2000ad42ffff03832001ad42ffff03837c2103200220033d010041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint16_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.add_uint16_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="2" alignment="2" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -339,15 +339,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.add_uint16_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.add_uint16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="85" semantic_digest="74bd36e71f5d18b9475b8388452d80cc5457804768c731c85a8e6bdd12ab767d" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c1584801c86641890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint16_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.add_uint16_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.add_uint16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="85" semantic_digest="74bd36e71f5d18b9475b8388452d80cc5457804768c731c85a8e6bdd12ab767d" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c1584801c86641890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint16_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.add_uint16_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.add_uint16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="85" semantic_digest="74bd36e71f5d18b9475b8388452d80cc5457804768c731c85a8e6bdd12ab767d" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c1584801c86641890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint16_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="add_uint16_t_contract" operation="@kinds.NumericOperation.WrappingAdd" policy="@kinds.NumericPolicy.Wrap" width="16" source_type="uint16_t" destination_type="uint16_t" />
@@ -367,11 +367,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.add_uint32_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.add_uint32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="1e42426b4077f3ad9a1bbc049622b026f7db9d50ad56eb6df96658a65bd953ad" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9007c40d3e00f1ff8800640f9007c40d3e10741f82000008b600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint32_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.add_uint32_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.add_uint32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="1e42426b4077f3ad9a1bbc049622b026f7db9d50ad56eb6df96658a65bd953ad" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9007c40d3e00f1ff8800640f9007c40d3e10741f82000008b600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint32_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="uint32_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint32_t" />
@@ -398,7 +398,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.add_uint32_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.add_uint32_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="23" semantic_digest="1e42426b4077f3ad9a1bbc049622b026f7db9d50ad56eb6df96658a65bd953ad" rxf:data="01027e2000ad2001ad7c2103200220033e020041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint32_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.add_uint32_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -408,15 +408,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.add_uint32_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.add_uint32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="1e42426b4077f3ad9a1bbc049622b026f7db9d50ad56eb6df96658a65bd953ad" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c1584801c841890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint32_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.add_uint32_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.add_uint32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="1e42426b4077f3ad9a1bbc049622b026f7db9d50ad56eb6df96658a65bd953ad" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c1584801c841890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint32_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.add_uint32_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.add_uint32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="1e42426b4077f3ad9a1bbc049622b026f7db9d50ad56eb6df96658a65bd953ad" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c1584801c841890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint32_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="add_uint32_t_contract" operation="@kinds.NumericOperation.WrappingAdd" policy="@kinds.NumericPolicy.Wrap" width="32" source_type="uint32_t" destination_type="uint32_t" />
@@ -436,11 +436,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.add_uint64_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.add_uint64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="72" semantic_digest="2b8134fede3abd5234c939bead09144244f519b1e54b13873e3291cea30614e1" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9e00f1ff8800640f9e10741f82000008b600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint64_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.add_uint64_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.add_uint64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="72" semantic_digest="2b8134fede3abd5234c939bead09144244f519b1e54b13873e3291cea30614e1" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9e00f1ff8800640f9e10741f82000008b600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint64_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="uint64_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint64_t" />
@@ -467,7 +467,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.add_uint64_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.add_uint64_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="21" semantic_digest="2b8134fede3abd5234c939bead09144244f519b1e54b13873e3291cea30614e1" rxf:data="01027e200020017c21032002200337030041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint64_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.add_uint64_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -477,15 +477,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.add_uint64_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.add_uint64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="76" semantic_digest="2b8134fede3abd5234c939bead09144244f519b1e54b13873e3291cea30614e1" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c1584801c849890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint64_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.add_uint64_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.add_uint64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="76" semantic_digest="2b8134fede3abd5234c939bead09144244f519b1e54b13873e3291cea30614e1" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c1584801c849890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint64_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.add_uint64_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.add_uint64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="76" semantic_digest="2b8134fede3abd5234c939bead09144244f519b1e54b13873e3291cea30614e1" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c1584801c849890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint64_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="add_uint64_t_contract" operation="@kinds.NumericOperation.WrappingAdd" policy="@kinds.NumericPolicy.Wrap" width="64" source_type="uint64_t" destination_type="uint64_t" />
@@ -505,11 +505,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.add_uint8_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.add_uint8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="4650f1ddf8e1c53a2476c6c52b3596c4e37b42403f6e1ed5b3d057ac4f9432af" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9001c40d3e00f1ff8800640f9001c40d3e10741f82000008b60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint8_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.add_uint8_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.add_uint8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="4650f1ddf8e1c53a2476c6c52b3596c4e37b42403f6e1ed5b3d057ac4f9432af" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9001c40d3e00f1ff8800640f9001c40d3e10741f82000008b60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint8_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="uint8_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint8_t" />
@@ -536,7 +536,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.add_uint8_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.add_uint8_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="31" semantic_digest="4650f1ddf8e1c53a2476c6c52b3596c4e37b42403f6e1ed5b3d057ac4f9432af" rxf:data="01027e2000ad42ff01832001ad42ff01837c2103200220033c000041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint8_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.add_uint8_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="1" alignment="1" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -546,15 +546,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.add_uint8_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.add_uint8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="84" semantic_digest="4650f1ddf8e1c53a2476c6c52b3596c4e37b42403f6e1ed5b3d057ac4f9432af" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c1584801c841880731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint8_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.add_uint8_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.add_uint8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="84" semantic_digest="4650f1ddf8e1c53a2476c6c52b3596c4e37b42403f6e1ed5b3d057ac4f9432af" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c1584801c841880731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint8_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.add_uint8_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.add_uint8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="84" semantic_digest="4650f1ddf8e1c53a2476c6c52b3596c4e37b42403f6e1ed5b3d057ac4f9432af" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c1584801c841880731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.add_uint8_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="add_uint8_t_contract" operation="@kinds.NumericOperation.WrappingAdd" policy="@kinds.NumericPolicy.Wrap" width="8" source_type="uint8_t" destination_type="uint8_t" />
@@ -574,11 +574,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.multiply_int16_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.multiply_int16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="1e8f1909a4f9c315c5280a6f51368c606350d054617e9742bcddc6fa54b73f98" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9003c40d3e00f1ff8800640f9003c40d3e10741f8207c009b60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int16_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.multiply_int16_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.multiply_int16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="1e8f1909a4f9c315c5280a6f51368c606350d054617e9742bcddc6fa54b73f98" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9003c40d3e00f1ff8800640f9003c40d3e10741f8207c009b60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int16_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="int16_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int16_t" />
@@ -605,7 +605,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.multiply_int16_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.multiply_int16_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="33" semantic_digest="1e8f1909a4f9c315c5280a6f51368c606350d054617e9742bcddc6fa54b73f98" rxf:data="01027e2000ad42ffff03832001ad42ffff03837e2103200220033d010041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int16_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.multiply_int16_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="2" alignment="2" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -615,15 +615,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.multiply_int16_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.multiply_int16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="85" semantic_digest="1e8f1909a4f9c315c5280a6f51368c606350d054617e9742bcddc6fa54b73f98" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c15848f7e16641890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int16_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.multiply_int16_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.multiply_int16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="85" semantic_digest="1e8f1909a4f9c315c5280a6f51368c606350d054617e9742bcddc6fa54b73f98" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c15848f7e16641890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int16_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.multiply_int16_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.multiply_int16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="85" semantic_digest="1e8f1909a4f9c315c5280a6f51368c606350d054617e9742bcddc6fa54b73f98" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c15848f7e16641890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int16_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="multiply_int16_t_contract" operation="@kinds.NumericOperation.WrappingMultiply" policy="@kinds.NumericPolicy.Wrap" width="16" signed="1" source_type="int16_t" destination_type="int16_t" />
@@ -643,11 +643,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.multiply_int32_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.multiply_int32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="464eb7b315ac7fa242083d9ea3d4289aecef4f623aca200da98c06d7271abeee" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9007c40d3e00f1ff8800640f9007c40d3e10741f8207c009b600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int32_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.multiply_int32_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.multiply_int32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="464eb7b315ac7fa242083d9ea3d4289aecef4f623aca200da98c06d7271abeee" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9007c40d3e00f1ff8800640f9007c40d3e10741f8207c009b600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int32_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="int32_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int32_t" />
@@ -674,7 +674,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.multiply_int32_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.multiply_int32_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="23" semantic_digest="464eb7b315ac7fa242083d9ea3d4289aecef4f623aca200da98c06d7271abeee" rxf:data="01027e2000ad2001ad7e2103200220033e020041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int32_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.multiply_int32_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -684,15 +684,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.multiply_int32_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.multiply_int32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="464eb7b315ac7fa242083d9ea3d4289aecef4f623aca200da98c06d7271abeee" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c15848f7e141890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int32_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.multiply_int32_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.multiply_int32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="464eb7b315ac7fa242083d9ea3d4289aecef4f623aca200da98c06d7271abeee" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c15848f7e141890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int32_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.multiply_int32_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.multiply_int32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="464eb7b315ac7fa242083d9ea3d4289aecef4f623aca200da98c06d7271abeee" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c15848f7e141890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int32_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="multiply_int32_t_contract" operation="@kinds.NumericOperation.WrappingMultiply" policy="@kinds.NumericPolicy.Wrap" width="32" signed="1" source_type="int32_t" destination_type="int32_t" />
@@ -712,11 +712,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.multiply_int64_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.multiply_int64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="72" semantic_digest="7333a4f9d6fce11472ed44a929fac57800e10efc2b4ccefc0c71720f3857c1c2" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9e00f1ff8800640f9e10741f8207c009b600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int64_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.multiply_int64_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.multiply_int64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="72" semantic_digest="7333a4f9d6fce11472ed44a929fac57800e10efc2b4ccefc0c71720f3857c1c2" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9e00f1ff8800640f9e10741f8207c009b600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int64_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="int64_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int64_t" />
@@ -743,7 +743,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.multiply_int64_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.multiply_int64_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="21" semantic_digest="7333a4f9d6fce11472ed44a929fac57800e10efc2b4ccefc0c71720f3857c1c2" rxf:data="01027e200020017e21032002200337030041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int64_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.multiply_int64_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -753,15 +753,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.multiply_int64_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.multiply_int64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="76" semantic_digest="7333a4f9d6fce11472ed44a929fac57800e10efc2b4ccefc0c71720f3857c1c2" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c15848f7e149890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int64_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.multiply_int64_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.multiply_int64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="76" semantic_digest="7333a4f9d6fce11472ed44a929fac57800e10efc2b4ccefc0c71720f3857c1c2" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c15848f7e149890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int64_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.multiply_int64_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.multiply_int64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="76" semantic_digest="7333a4f9d6fce11472ed44a929fac57800e10efc2b4ccefc0c71720f3857c1c2" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c15848f7e149890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int64_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="multiply_int64_t_contract" operation="@kinds.NumericOperation.WrappingMultiply" policy="@kinds.NumericPolicy.Wrap" width="64" signed="1" source_type="int64_t" destination_type="int64_t" />
@@ -781,11 +781,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.multiply_int8_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.multiply_int8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="6d7c8c504e744487261e625df53562cc281f10740f45fce4d62797d2851294b7" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9001c40d3e00f1ff8800640f9001c40d3e10741f8207c009b60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int8_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.multiply_int8_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.multiply_int8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="6d7c8c504e744487261e625df53562cc281f10740f45fce4d62797d2851294b7" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9001c40d3e00f1ff8800640f9001c40d3e10741f8207c009b60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int8_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="int8_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int8_t" />
@@ -812,7 +812,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.multiply_int8_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.multiply_int8_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="31" semantic_digest="6d7c8c504e744487261e625df53562cc281f10740f45fce4d62797d2851294b7" rxf:data="01027e2000ad42ff01832001ad42ff01837e2103200220033c000041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int8_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.multiply_int8_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="1" alignment="1" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -822,15 +822,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.multiply_int8_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.multiply_int8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="84" semantic_digest="6d7c8c504e744487261e625df53562cc281f10740f45fce4d62797d2851294b7" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c15848f7e141880731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int8_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.multiply_int8_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.multiply_int8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="84" semantic_digest="6d7c8c504e744487261e625df53562cc281f10740f45fce4d62797d2851294b7" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c15848f7e141880731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int8_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.multiply_int8_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.multiply_int8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="84" semantic_digest="6d7c8c504e744487261e625df53562cc281f10740f45fce4d62797d2851294b7" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c15848f7e141880731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_int8_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="multiply_int8_t_contract" operation="@kinds.NumericOperation.WrappingMultiply" policy="@kinds.NumericPolicy.Wrap" width="8" signed="1" source_type="int8_t" destination_type="int8_t" />
@@ -850,11 +850,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.multiply_uint16_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.multiply_uint16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="e5018c223a943fae4a22c8534982fc3f6005775a272a0dbbeb54cf15fee27c22" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9003c40d3e00f1ff8800640f9003c40d3e10741f8207c009b60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint16_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.multiply_uint16_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.multiply_uint16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="e5018c223a943fae4a22c8534982fc3f6005775a272a0dbbeb54cf15fee27c22" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9003c40d3e00f1ff8800640f9003c40d3e10741f8207c009b60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint16_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="uint16_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint16_t" />
@@ -881,7 +881,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.multiply_uint16_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.multiply_uint16_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="33" semantic_digest="e5018c223a943fae4a22c8534982fc3f6005775a272a0dbbeb54cf15fee27c22" rxf:data="01027e2000ad42ffff03832001ad42ffff03837e2103200220033d010041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint16_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.multiply_uint16_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="2" alignment="2" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -891,15 +891,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.multiply_uint16_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.multiply_uint16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="85" semantic_digest="e5018c223a943fae4a22c8534982fc3f6005775a272a0dbbeb54cf15fee27c22" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c15848f7e16641890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint16_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.multiply_uint16_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.multiply_uint16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="85" semantic_digest="e5018c223a943fae4a22c8534982fc3f6005775a272a0dbbeb54cf15fee27c22" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c15848f7e16641890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint16_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.multiply_uint16_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.multiply_uint16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="85" semantic_digest="e5018c223a943fae4a22c8534982fc3f6005775a272a0dbbeb54cf15fee27c22" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c15848f7e16641890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint16_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="multiply_uint16_t_contract" operation="@kinds.NumericOperation.WrappingMultiply" policy="@kinds.NumericPolicy.Wrap" width="16" source_type="uint16_t" destination_type="uint16_t" />
@@ -919,11 +919,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.multiply_uint32_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.multiply_uint32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="441a44f600baa077e16a2645ebf0ee036948f1a6aadf13a00065a215be5423ee" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9007c40d3e00f1ff8800640f9007c40d3e10741f8207c009b600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint32_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.multiply_uint32_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.multiply_uint32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="441a44f600baa077e16a2645ebf0ee036948f1a6aadf13a00065a215be5423ee" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9007c40d3e00f1ff8800640f9007c40d3e10741f8207c009b600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint32_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="uint32_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint32_t" />
@@ -950,7 +950,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.multiply_uint32_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.multiply_uint32_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="23" semantic_digest="441a44f600baa077e16a2645ebf0ee036948f1a6aadf13a00065a215be5423ee" rxf:data="01027e2000ad2001ad7e2103200220033e020041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint32_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.multiply_uint32_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -960,15 +960,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.multiply_uint32_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.multiply_uint32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="441a44f600baa077e16a2645ebf0ee036948f1a6aadf13a00065a215be5423ee" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c15848f7e141890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint32_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.multiply_uint32_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.multiply_uint32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="441a44f600baa077e16a2645ebf0ee036948f1a6aadf13a00065a215be5423ee" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c15848f7e141890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint32_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.multiply_uint32_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.multiply_uint32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="441a44f600baa077e16a2645ebf0ee036948f1a6aadf13a00065a215be5423ee" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c15848f7e141890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint32_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="multiply_uint32_t_contract" operation="@kinds.NumericOperation.WrappingMultiply" policy="@kinds.NumericPolicy.Wrap" width="32" source_type="uint32_t" destination_type="uint32_t" />
@@ -988,11 +988,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.multiply_uint64_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.multiply_uint64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="72" semantic_digest="cf737fdb6686477a564fe6c8ee80e330dfbce3ed639611ff28b8f8bf1fee11ec" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9e00f1ff8800640f9e10741f8207c009b600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint64_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.multiply_uint64_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.multiply_uint64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="72" semantic_digest="cf737fdb6686477a564fe6c8ee80e330dfbce3ed639611ff28b8f8bf1fee11ec" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9e00f1ff8800640f9e10741f8207c009b600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint64_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="uint64_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint64_t" />
@@ -1019,7 +1019,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.multiply_uint64_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.multiply_uint64_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="21" semantic_digest="cf737fdb6686477a564fe6c8ee80e330dfbce3ed639611ff28b8f8bf1fee11ec" rxf:data="01027e200020017e21032002200337030041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint64_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.multiply_uint64_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -1029,15 +1029,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.multiply_uint64_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.multiply_uint64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="76" semantic_digest="cf737fdb6686477a564fe6c8ee80e330dfbce3ed639611ff28b8f8bf1fee11ec" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c15848f7e149890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint64_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.multiply_uint64_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.multiply_uint64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="76" semantic_digest="cf737fdb6686477a564fe6c8ee80e330dfbce3ed639611ff28b8f8bf1fee11ec" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c15848f7e149890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint64_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.multiply_uint64_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.multiply_uint64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="76" semantic_digest="cf737fdb6686477a564fe6c8ee80e330dfbce3ed639611ff28b8f8bf1fee11ec" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c15848f7e149890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint64_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="multiply_uint64_t_contract" operation="@kinds.NumericOperation.WrappingMultiply" policy="@kinds.NumericPolicy.Wrap" width="64" source_type="uint64_t" destination_type="uint64_t" />
@@ -1057,11 +1057,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.multiply_uint8_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.multiply_uint8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="ec36404a431435f8a4b173b72d15df8ebe0d96ba377e2b026ffef7d6c29d0fab" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9001c40d3e00f1ff8800640f9001c40d3e10741f8207c009b60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint8_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.multiply_uint8_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.multiply_uint8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="ec36404a431435f8a4b173b72d15df8ebe0d96ba377e2b026ffef7d6c29d0fab" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9001c40d3e00f1ff8800640f9001c40d3e10741f8207c009b60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint8_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="uint8_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint8_t" />
@@ -1088,7 +1088,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.multiply_uint8_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.multiply_uint8_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="31" semantic_digest="ec36404a431435f8a4b173b72d15df8ebe0d96ba377e2b026ffef7d6c29d0fab" rxf:data="01027e2000ad42ff01832001ad42ff01837e2103200220033c000041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint8_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.multiply_uint8_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="1" alignment="1" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -1098,15 +1098,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.multiply_uint8_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.multiply_uint8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="84" semantic_digest="ec36404a431435f8a4b173b72d15df8ebe0d96ba377e2b026ffef7d6c29d0fab" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c15848f7e141880731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint8_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.multiply_uint8_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.multiply_uint8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="84" semantic_digest="ec36404a431435f8a4b173b72d15df8ebe0d96ba377e2b026ffef7d6c29d0fab" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c15848f7e141880731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint8_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.multiply_uint8_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.multiply_uint8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="84" semantic_digest="ec36404a431435f8a4b173b72d15df8ebe0d96ba377e2b026ffef7d6c29d0fab" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c15848f7e141880731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.multiply_uint8_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="multiply_uint8_t_contract" operation="@kinds.NumericOperation.WrappingMultiply" policy="@kinds.NumericPolicy.Wrap" width="8" source_type="uint8_t" destination_type="uint8_t" />
@@ -1126,11 +1126,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.subtract_int16_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.subtract_int16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="d7784b3f4626f4ccc0c18cabc2f348093a2b52b21849215e7ea13349e2b6e783" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9003c40d3e00f1ff8800640f9003c40d3e10741f8200000cb60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int16_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.subtract_int16_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.subtract_int16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="d7784b3f4626f4ccc0c18cabc2f348093a2b52b21849215e7ea13349e2b6e783" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9003c40d3e00f1ff8800640f9003c40d3e10741f8200000cb60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int16_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="int16_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int16_t" />
@@ -1157,7 +1157,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.subtract_int16_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.subtract_int16_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="33" semantic_digest="d7784b3f4626f4ccc0c18cabc2f348093a2b52b21849215e7ea13349e2b6e783" rxf:data="01027e2000ad42ffff03832001ad42ffff03837d2103200220033d010041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int16_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.subtract_int16_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="2" alignment="2" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -1167,15 +1167,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.subtract_int16_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.subtract_int16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="85" semantic_digest="d7784b3f4626f4ccc0c18cabc2f348093a2b52b21849215e7ea13349e2b6e783" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c1584829c86641890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int16_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.subtract_int16_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.subtract_int16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="85" semantic_digest="d7784b3f4626f4ccc0c18cabc2f348093a2b52b21849215e7ea13349e2b6e783" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c1584829c86641890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int16_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.subtract_int16_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.subtract_int16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="85" semantic_digest="d7784b3f4626f4ccc0c18cabc2f348093a2b52b21849215e7ea13349e2b6e783" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c1584829c86641890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int16_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="subtract_int16_t_contract" operation="@kinds.NumericOperation.WrappingSubtract" policy="@kinds.NumericPolicy.Wrap" width="16" signed="1" source_type="int16_t" destination_type="int16_t" />
@@ -1195,11 +1195,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.subtract_int32_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.subtract_int32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="26583b28302e3ac36064d2180eb3a972645887e5f509fd1057a3e7071cc129e5" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9007c40d3e00f1ff8800640f9007c40d3e10741f8200000cb600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int32_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.subtract_int32_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.subtract_int32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="26583b28302e3ac36064d2180eb3a972645887e5f509fd1057a3e7071cc129e5" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9007c40d3e00f1ff8800640f9007c40d3e10741f8200000cb600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int32_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="int32_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int32_t" />
@@ -1226,7 +1226,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.subtract_int32_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.subtract_int32_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="23" semantic_digest="26583b28302e3ac36064d2180eb3a972645887e5f509fd1057a3e7071cc129e5" rxf:data="01027e2000ad2001ad7d2103200220033e020041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int32_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.subtract_int32_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -1236,15 +1236,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.subtract_int32_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.subtract_int32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="26583b28302e3ac36064d2180eb3a972645887e5f509fd1057a3e7071cc129e5" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c1584829c841890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int32_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.subtract_int32_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.subtract_int32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="26583b28302e3ac36064d2180eb3a972645887e5f509fd1057a3e7071cc129e5" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c1584829c841890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int32_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.subtract_int32_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.subtract_int32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="26583b28302e3ac36064d2180eb3a972645887e5f509fd1057a3e7071cc129e5" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c1584829c841890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int32_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="subtract_int32_t_contract" operation="@kinds.NumericOperation.WrappingSubtract" policy="@kinds.NumericPolicy.Wrap" width="32" signed="1" source_type="int32_t" destination_type="int32_t" />
@@ -1264,11 +1264,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.subtract_int64_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.subtract_int64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="72" semantic_digest="523db207df356949dde9261ac94c9415c16fa7017de117d280108602b13cc909" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9e00f1ff8800640f9e10741f8200000cb600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int64_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.subtract_int64_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.subtract_int64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="72" semantic_digest="523db207df356949dde9261ac94c9415c16fa7017de117d280108602b13cc909" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9e00f1ff8800640f9e10741f8200000cb600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int64_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="int64_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int64_t" />
@@ -1295,7 +1295,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.subtract_int64_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.subtract_int64_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="21" semantic_digest="523db207df356949dde9261ac94c9415c16fa7017de117d280108602b13cc909" rxf:data="01027e200020017d21032002200337030041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int64_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.subtract_int64_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -1305,15 +1305,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.subtract_int64_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.subtract_int64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="76" semantic_digest="523db207df356949dde9261ac94c9415c16fa7017de117d280108602b13cc909" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c1584829c849890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int64_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.subtract_int64_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.subtract_int64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="76" semantic_digest="523db207df356949dde9261ac94c9415c16fa7017de117d280108602b13cc909" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c1584829c849890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int64_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.subtract_int64_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.subtract_int64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="76" semantic_digest="523db207df356949dde9261ac94c9415c16fa7017de117d280108602b13cc909" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c1584829c849890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int64_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="subtract_int64_t_contract" operation="@kinds.NumericOperation.WrappingSubtract" policy="@kinds.NumericPolicy.Wrap" width="64" signed="1" source_type="int64_t" destination_type="int64_t" />
@@ -1333,11 +1333,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.subtract_int8_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.subtract_int8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="fcaed099e15e0c8556e4a4dd36d132be59970864a775a2651992cd6f601e9f80" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9001c40d3e00f1ff8800640f9001c40d3e10741f8200000cb60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int8_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.subtract_int8_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.subtract_int8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="fcaed099e15e0c8556e4a4dd36d132be59970864a775a2651992cd6f601e9f80" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9001c40d3e00f1ff8800640f9001c40d3e10741f8200000cb60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int8_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="int8_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int8_t" />
@@ -1364,7 +1364,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.subtract_int8_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.subtract_int8_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="31" semantic_digest="fcaed099e15e0c8556e4a4dd36d132be59970864a775a2651992cd6f601e9f80" rxf:data="01027e2000ad42ff01832001ad42ff01837d2103200220033c000041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int8_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.subtract_int8_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="1" alignment="1" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -1374,15 +1374,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.subtract_int8_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.subtract_int8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="84" semantic_digest="fcaed099e15e0c8556e4a4dd36d132be59970864a775a2651992cd6f601e9f80" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c1584829c841880731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int8_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.subtract_int8_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.subtract_int8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="84" semantic_digest="fcaed099e15e0c8556e4a4dd36d132be59970864a775a2651992cd6f601e9f80" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c1584829c841880731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int8_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.subtract_int8_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.subtract_int8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="84" semantic_digest="fcaed099e15e0c8556e4a4dd36d132be59970864a775a2651992cd6f601e9f80" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c1584829c841880731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_int8_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="subtract_int8_t_contract" operation="@kinds.NumericOperation.WrappingSubtract" policy="@kinds.NumericPolicy.Wrap" width="8" signed="1" source_type="int8_t" destination_type="int8_t" />
@@ -1402,11 +1402,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.subtract_uint16_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.subtract_uint16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="a2959ec094bf4add0d863e6aeb838bda12bae6eea5bef5d4488c4800c16e234b" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9003c40d3e00f1ff8800640f9003c40d3e10741f8200000cb60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint16_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.subtract_uint16_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.subtract_uint16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="a2959ec094bf4add0d863e6aeb838bda12bae6eea5bef5d4488c4800c16e234b" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9003c40d3e00f1ff8800640f9003c40d3e10741f8200000cb60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint16_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="uint16_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint16_t" />
@@ -1433,7 +1433,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.subtract_uint16_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.subtract_uint16_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="33" semantic_digest="a2959ec094bf4add0d863e6aeb838bda12bae6eea5bef5d4488c4800c16e234b" rxf:data="01027e2000ad42ffff03832001ad42ffff03837d2103200220033d010041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint16_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.subtract_uint16_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="2" alignment="2" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -1443,15 +1443,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.subtract_uint16_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.subtract_uint16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="85" semantic_digest="a2959ec094bf4add0d863e6aeb838bda12bae6eea5bef5d4488c4800c16e234b" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c1584829c86641890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint16_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.subtract_uint16_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.subtract_uint16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="85" semantic_digest="a2959ec094bf4add0d863e6aeb838bda12bae6eea5bef5d4488c4800c16e234b" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c1584829c86641890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint16_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.subtract_uint16_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.subtract_uint16_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="85" semantic_digest="a2959ec094bf4add0d863e6aeb838bda12bae6eea5bef5d4488c4800c16e234b" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c1584829c86641890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint16_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="subtract_uint16_t_contract" operation="@kinds.NumericOperation.WrappingSubtract" policy="@kinds.NumericPolicy.Wrap" width="16" source_type="uint16_t" destination_type="uint16_t" />
@@ -1471,11 +1471,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.subtract_uint32_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.subtract_uint32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="e9fa9d67572887f4021fc0144746b03fe9b5eb139320e918c8594013a7b5b736" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9007c40d3e00f1ff8800640f9007c40d3e10741f8200000cb600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint32_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.subtract_uint32_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.subtract_uint32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="e9fa9d67572887f4021fc0144746b03fe9b5eb139320e918c8594013a7b5b736" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9007c40d3e00f1ff8800640f9007c40d3e10741f8200000cb600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint32_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="uint32_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint32_t" />
@@ -1502,7 +1502,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.subtract_uint32_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.subtract_uint32_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="23" semantic_digest="e9fa9d67572887f4021fc0144746b03fe9b5eb139320e918c8594013a7b5b736" rxf:data="01027e2000ad2001ad7d2103200220033e020041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint32_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.subtract_uint32_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -1512,15 +1512,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.subtract_uint32_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.subtract_uint32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="e9fa9d67572887f4021fc0144746b03fe9b5eb139320e918c8594013a7b5b736" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c1584829c841890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint32_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.subtract_uint32_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.subtract_uint32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="e9fa9d67572887f4021fc0144746b03fe9b5eb139320e918c8594013a7b5b736" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c1584829c841890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint32_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.subtract_uint32_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.subtract_uint32_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="e9fa9d67572887f4021fc0144746b03fe9b5eb139320e918c8594013a7b5b736" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c1584829c841890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint32_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="subtract_uint32_t_contract" operation="@kinds.NumericOperation.WrappingSubtract" policy="@kinds.NumericPolicy.Wrap" width="32" source_type="uint32_t" destination_type="uint32_t" />
@@ -1540,11 +1540,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.subtract_uint64_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.subtract_uint64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="72" semantic_digest="00d608e8cbe60b6488a0b20698137bd8a87ca6902712ac7c00a6235ce5987c70" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9e00f1ff8800640f9e10741f8200000cb600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint64_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.subtract_uint64_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.subtract_uint64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="72" semantic_digest="00d608e8cbe60b6488a0b20698137bd8a87ca6902712ac7c00a6235ce5987c70" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9e00f1ff8800640f9e10741f8200000cb600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint64_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="uint64_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint64_t" />
@@ -1571,7 +1571,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.subtract_uint64_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.subtract_uint64_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="21" semantic_digest="00d608e8cbe60b6488a0b20698137bd8a87ca6902712ac7c00a6235ce5987c70" rxf:data="01027e200020017d21032002200337030041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint64_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.subtract_uint64_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -1581,15 +1581,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.subtract_uint64_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.subtract_uint64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="76" semantic_digest="00d608e8cbe60b6488a0b20698137bd8a87ca6902712ac7c00a6235ce5987c70" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c1584829c849890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint64_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.subtract_uint64_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.subtract_uint64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="76" semantic_digest="00d608e8cbe60b6488a0b20698137bd8a87ca6902712ac7c00a6235ce5987c70" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c1584829c849890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint64_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.subtract_uint64_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.subtract_uint64_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="76" semantic_digest="00d608e8cbe60b6488a0b20698137bd8a87ca6902712ac7c00a6235ce5987c70" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c1584829c849890731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint64_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="subtract_uint64_t_contract" operation="@kinds.NumericOperation.WrappingSubtract" policy="@kinds.NumericPolicy.Wrap" width="64" source_type="uint64_t" destination_type="uint64_t" />
@@ -1609,11 +1609,11 @@
       </ABISignature>
       <Code name="aarch64_linux" owner_function="@wrapping.subtract_uint8_t" runtime_target="@targets.aarch64_linux_aapcs64" signature="@wrapping.subtract_uint8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="95d4e51be5f9f915b99c7ae4244276eecde9029b7c56400ea3b60c45f2dccf07" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9001c40d3e00f1ff8800640f9001c40d3e10741f8200000cb60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint8_t.aapcs64_linux_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Code name="aarch64_uefi" owner_function="@wrapping.subtract_uint8_t" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@wrapping.subtract_uint8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="80" semantic_digest="95d4e51be5f9f915b99c7ae4244276eecde9029b7c56400ea3b60c45f2dccf07" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9001c40d3e00f1ff8800640f9001c40d3e10741f8200000cb60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint8_t.aapcs64_uefi_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_aarch64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
       <Signature name="signature" return_type="uint8_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint8_t" />
@@ -1640,7 +1640,7 @@
       </ABISignature>
       <Code name="wasm32" owner_function="@wrapping.subtract_uint8_t" runtime_target="@targets.wasm32_wasm_c" signature="@wrapping.subtract_uint8_t.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="31" semantic_digest="95d4e51be5f9f915b99c7ae4244276eecde9029b7c56400ea3b60c45f2dccf07" rxf:data="01027e2000ad42ff01832001ad42ff01837d2103200220033c000041000f0b">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint8_t.wasm_c_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_wasm32" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
       <ABISignature name="wasm_c_status_out" target="@targets.wasm32_wasm_c" kind="@kinds.AbiKind.Wasm" class_count="2" output_class="3" location_count="4" rxf:data="0101">
         <ABIValueLocation name="argument[0]" association="@wrapping.subtract_uint8_t.signature.operand[0]" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="1" alignment="1" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" rxf:data="000000000000000000000000" />
@@ -1650,15 +1650,15 @@
       </ABISignature>
       <Code name="x86_64_bios" owner_function="@wrapping.subtract_uint8_t" runtime_target="@targets.x86_64_bios_sysv" signature="@wrapping.subtract_uint8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="84" semantic_digest="95d4e51be5f9f915b99c7ae4244276eecde9029b7c56400ea3b60c45f2dccf07" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c1584829c841880731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint8_t.sysv_bios_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_linux" owner_function="@wrapping.subtract_uint8_t" runtime_target="@targets.x86_64_linux_sysv" signature="@wrapping.subtract_uint8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="84" semantic_digest="95d4e51be5f9f915b99c7ae4244276eecde9029b7c56400ea3b60c45f2dccf07" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c1584829c841880731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint8_t.sysv_status_out" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
       <Code name="x86_64_uefi" owner_function="@wrapping.subtract_uint8_t" runtime_target="@targets.x86_64_uefi_sysv" signature="@wrapping.subtract_uint8_t.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="84" semantic_digest="95d4e51be5f9f915b99c7ae4244276eecde9029b7c56400ea3b60c45f2dccf07" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c1584829c841880731c04881c410000000415f5b5dc3">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@wrapping.subtract_uint8_t.sysv_status_out_x86_64_uefi_sysv" />
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.clang_x86_64" />
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
     <NumericContract name="subtract_uint8_t_contract" operation="@kinds.NumericOperation.WrappingSubtract" policy="@kinds.NumericPolicy.Wrap" width="8" source_type="uint8_t" destination_type="uint8_t" />

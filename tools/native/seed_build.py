@@ -397,23 +397,97 @@ SOURCES: dict[str, tuple[str, str, str, int]] = {
 
 def fn_of(key: str, machine: str) -> str:
     """The `.rxfs` fn a key compiles: the row's fn, except uart_pump, which has one
-    fn per machine (the seed lowers its port calls per target)."""
-    return f"uart_pump_{TARGET[machine]}" if key == "uart_pump" else SOURCES[key][1]
+    fn per machine (the seed lowers its port calls per target). Each program source
+    has its one fn, named for its key."""
+    if key == "uart_pump":
+        return f"uart_pump_{TARGET[machine]}"
+    if key in PROGRAMS:
+        return key
+    return SOURCES[key][1]
+
+
+# The three programs whose shapes their own builders hold (the interpreter of
+# native/graph.rxfs, the compiler of native/compile.rxfs, the pump of
+# native/live.rxfs); a key is one of these or a row of SOURCES.
+PROGRAMS = ("graph_run", "compile_program", "live_pump")
 
 
 def is_seed(key: str) -> bool:
-    """True if this key is a seed-codegen snippet (not a clang unit)."""
-    return key in SOURCES or key == "graph_run"
+    """True if this key is a snippet the seed compiles (every key is)."""
+    return key in SOURCES or key in PROGRAMS
+
+
+def shape_of(key: str) -> tuple[str, int]:
+    """``(shape, store width)`` of a key: its C operands as the seed spells them."""
+    if key in SOURCES:
+        return SOURCES[key][2], SOURCES[key][3]
+    if key == "graph_run":
+        import graph_build
+
+        return graph_build.SELF, graph_build.STOREW
+    if key == "compile_program":
+        import compile_build
+
+        return compile_build.SELF, compile_build.STOREW
+    if key == "live_pump":
+        import live_build
+
+        return live_build.SELF, live_build.STOREW
+    raise KeyError(key)
+
+
+def keys() -> list[str]:
+    """Every snippet key, sorted: what `native_build.build()` compiles."""
+    return sorted([*SOURCES, *PROGRAMS])
+
+
+# The wasm32 value type a C operand is passed as: a real pointer is an i32 address,
+# an object handle (its 24 bytes) goes by address, a u64 (or a 64-bit address it
+# carries) is i64, the narrower integers are i32, the reals f32/f64.
+TOKEN_WASM = {
+    "1u": "i32", "1s": "i32", "2u": "i32", "2s": "i32",
+    "4u": "i32", "4s": "i32", "8u": "i64", "8s": "i64",
+    "8p": "i32", "4f": "f32", "8f": "f64",
+}  # fmt: skip
+LETTER_WASM = {"p": "i32", "H": "i32", "q": "i64", "d": "i32", "w": "i32", "b": "i32"}
+
+
+def wasm_params(key: str) -> tuple[str, ...]:
+    """The wasm32 value types the C function of a key takes.
+
+    The derivation is from the key's shape -- the C ABI of the key as the seed
+    spells it (docs/29), the one place it is written down. A shape spelled in
+    operands takes the store of its result after them; the letters form spells its
+    parameters whole, an out pointer among them. The result is always a status
+    (``i32``), written through the out parameter.
+    """
+    shape, storew = shape_of(key)
+    if shape.startswith("!"):
+        return tuple(LETTER_WASM[letter] for letter in shape[1:])
+    params = [TOKEN_WASM[token] for token in shape.split()]
+    if storew:
+        params.append("i32")
+    return tuple(params)
 
 
 def code(machine: str, key: str) -> str:
     """The hex of the object-ABI code for ``key`` on ``machine``."""
     if key == "graph_run":
         # native/graph.rxfs (docs/29): the graph interpreter itself, the same seed
-        # on every machine -- this is where its bytes come from, not clang.
+        # on every machine -- this is where its bytes come from.
         import graph_build
 
         return graph_build.code(machine)
+    if key == "compile_program":
+        # native/compile.rxfs: the compiler that writes a program's machine code.
+        import compile_build
+
+        return compile_build.code(machine)
+    if key == "live_pump":
+        # native/live.rxfs: the pump that serves the frames of a channel.
+        import live_build
+
+        return live_build.code(machine)
     source, fn, shape, storew = SOURCES[key]
     argv = [str(seed_bin()), "codegen", TARGET[machine], "object", str(storew),
             "#" + fn_of(key, machine)]

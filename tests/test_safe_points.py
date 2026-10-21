@@ -2,7 +2,7 @@
 
 The interpreter looks at the doorbell of the Channel between two instructions. Compiled code looks
 at it at every edge that goes back, between the copies of the edge and its jump, by calling the leaf
-`safe_point` (native/safe.c). These are the cases of `test_live_control.py` once more, with the loop
+`safe_point` (native/safe/safe.rxfs). These are the cases of `test_live_control.py` once more, with the loop
 compiled by the compiler of the image (leaf 31) on the three machines: a request that waits is served
 mid-loop; a break that is held keeps the loop in the pump; a change of the image that the pump
 commits makes the compiled code answer STALE_GENERATION (it holds the addresses of its moment) and

@@ -1,17 +1,18 @@
 """Write the derived native objects of the starter: BIOS and wasm32.
 
 The starter keeps, for every native function, its machine code per target next
-to the ABI that says how to call it. The x86_64 and aarch64 sets come from
-`native_build.py`, the sources of truth for the bytes are `native/*.c`. This script
-adds what follows from them:
+to the ABI that says how to call it. The sets come from `native_build.py`, and
+the sources of truth for the bytes are the Seed sources of `native/**/*.rxfs`
+(docs/29). This script adds what follows from them:
 
 * ``x86_64_bios``: the x86_64 bytes (Stage 2 runs them in long mode) with the
   System V ABI of the BIOS target.
-* ``wasm32``: the function body that clang and wasm-ld make of the same C, with
-  an ABI derived from the function type of that body and the semantic ABI of
-  the x86_64 set (same arguments, same meaning, the wasm32 way of passing).
+* ``wasm32``: the function body the seed makes for that target, with an ABI
+  derived from the shape of the function (the C operands the seed spells) and
+  the semantic ABI of the x86_64 set (same arguments, same meaning, the wasm32
+  way of passing).
 
-Both are rewritten on every run, so a changed C file shows up here.
+Both are rewritten on every run, so a changed source shows up here.
 
     python tools/native/sync.py [--check] [STARTER]
 
@@ -31,11 +32,11 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 import compose
-import extract_wasm
 import graph_header
 import graph_sync
 import live_sync
 import native_build
+import seed_build
 
 from pymergetic.rxftk.core import tree
 
@@ -58,7 +59,8 @@ class SyncError(Exception):
 
 
 def provenance_name(machine: str) -> str:
-    return f"clang_{machine}"
+    """The seed recipe pin the CompilerProvenance points at."""
+    return f"seed_{machine}"
 
 
 def machine_of(target: str | None) -> str:
@@ -138,22 +140,26 @@ def wasm_type_of(location: ET.Element) -> str:
 
 
 def wasm_abi(
-    template: ET.Element, function: extract_wasm.Function, label: str
+    template: ET.Element, params: tuple[str, ...], results: tuple[str, ...], label: str
 ) -> ET.Element:
+    """The wasm32 ABI of a function: the semantic ABI of the x86_64 set, passed
+    the wasm32 way. ``params`` and ``results`` are what the seed's shape of the
+    function derives (``seed_build.wasm_params``): the C ABI of the body the
+    wasm32 ``Code`` object holds."""
     abi = copy.deepcopy(template)
     abi.set("name", WASM_ABI)
     abi.set("target", "@targets.wasm32_wasm_c")
     abi.set("kind", "@kinds.AbiKind.Wasm")
     locations = [c for c in abi if c.tag == "ABIValueLocation"]
-    params = order(locations)
-    if len(params) != len(function.params):
+    ordered = order(locations)
+    if len(ordered) != len(params):
         raise SyncError(
-            f"{label}: the C function takes {len(function.params)} parameters "
-            f"{function.params}, its ABI describes {len(params)}"
+            f"{label}: the C function takes {len(params)} parameters "
+            f"{params}, its ABI describes {len(ordered)}"
         )
-    if function.results != ("i32",):
-        raise SyncError(f"{label}: expected a status result, got {function.results}")
-    for index, location in enumerate(params):
+    if results != ("i32",):
+        raise SyncError(f"{label}: expected a status result, got {results}")
+    for index, location in enumerate(ordered):
         passing = word(location.get("passing"))
         if passing == "Stack":  # a struct by value: wasm32 passes it by address
             location.set("passing", "@kinds.AbiPassing.Pointer")
@@ -164,12 +170,12 @@ def wasm_abi(
         ):
             # The C function says how wide the address is: a real pointer on
             # wasm32, or a 64-bit address carried in a u64.
-            address = "8" if function.params[index] == "i64" else "4"
+            address = "8" if params[index] == "i64" else "4"
             location.set("width", address)
             location.set("alignment", address)
-        if wasm_type_of(location) != function.params[index]:
+        if wasm_type_of(location) != params[index]:
             raise SyncError(
-                f"{label}: parameter {index} is {function.params[index]} in the C "
+                f"{label}: parameter {index} is {params[index]} in the C "
                 f"function, the ABI says {wasm_type_of(location)}"
             )
         location.set("register_bank", "@kinds.RegisterBank.Local")
@@ -182,7 +188,6 @@ def sync_file(
     path: Path,
     parts: tuple[str, ...],
     bytes_of: dict[str, dict[str, str]],
-    wasm: dict[str, extract_wasm.Function],
 ) -> int:
     document = ET.parse(path)
     known = set(bytes_of["x86_64"])
@@ -220,15 +225,16 @@ def sync_file(
         code.set("runtime_target", "@targets.x86_64_bios_sysv")
         retarget(code, str(template.get("name")), BIOS_ABI)
         function.extend((abi, code))
-        # wasm32: the body, and an ABI that follows from its type.
-        body = wasm[key]
-        abi = wasm_abi(template, body, label)
+        # wasm32: the body the seed makes for that target, and an ABI that follows
+        # from the shape of the function (the C operands its seed spells).
+        abi = wasm_abi(template, seed_build.wasm_params(key), ("i32",), label)
         code = copy.deepcopy(linux)
         code.set("name", WASM)
         code.set("runtime_target", "@targets.wasm32_wasm_c")
         code.set("format", "@kinds.CodeFormat.Wasm")
-        code.set("byte_count", str(len(body.body)))
-        code.set(DATA, body.body.hex())
+        body = bytes_of["wasm32"][key]
+        code.set("byte_count", str(len(body) // 2))
+        code.set(DATA, body)
         retarget(code, str(template.get("name")), WASM_ABI)
         function.extend((abi, code))
         set_provenance(function)
@@ -265,7 +271,7 @@ def write_provenance(path: Path) -> None:
     """One CompilerProvenance per machine in the targets module."""
     document = ET.parse(path)
     module = next(document.getroot().iter("Module"))
-    major = native_build.PINNED.split(".")[0]
+    major = native_build.SEED_MAJOR
     for machine in native_build.MACHINES:
         ET.SubElement(
             module,
@@ -316,7 +322,6 @@ def sync_bytecode(work: Path) -> int:
 def sync(starter: Path, check: bool = False) -> tuple[int, bool]:
     """Return (functions written, the starter is already what this makes)."""
     bytes_of = native_build.build()
-    wasm = native_build.build_wasm_functions()
     with tempfile.TemporaryDirectory() as directory:
         work = Path(directory) / "starter"
         shutil.copytree(starter, work)
@@ -333,7 +338,7 @@ def sync(starter: Path, check: bool = False) -> tuple[int, bool]:
         total = 0
         for path in sorted(work.rglob("*.rxfd")):
             parts = path.relative_to(work).with_suffix("").parts
-            total += sync_file(path, parts, bytes_of, wasm)
+            total += sync_file(path, parts, bytes_of)
         write_provenance(work / "pymergetic" / "rxf" / "targets.rxfd")
         sync_bytecode(work)
         image = tree.load(work)
