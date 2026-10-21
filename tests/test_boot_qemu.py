@@ -86,9 +86,16 @@ def artifacts(tmp_path_factory, image):
 
 
 def boot(command: list[str], serial: Path) -> tuple[int, bytes]:
-    """One machine run: its exit and what the serial line carried."""
+    """One machine run: its exit and what the serial line carried.
+
+    KVM first, TCG second: the guest is our own kernel and runs the same either
+    way, but TCG boots it at interpretation speed. On a host without usable KVM
+    (or a foreign target like aarch64 on x86) QEMU falls back to the next
+    ``-accel`` in the list by itself.
+    """
     done = subprocess.run(
-        command + ["-display", "none", "-no-reboot",
+        command + ["-accel", "kvm", "-accel", "tcg",
+                   "-display", "none", "-no-reboot",
                    "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
                    "-serial", f"file:{serial}"],
         capture_output=True,
