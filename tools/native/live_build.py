@@ -28,11 +28,11 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 
 import seed_build
+import seed_cache
 
 HERE = Path(__file__).resolve().parent
 SOURCE = HERE.parents[1] / "native" / "live.rxfs"
@@ -74,10 +74,7 @@ def code(machine: str) -> str:
         SELF,
         *(f"@{letters}" for letters in seed_build.call_type_letters()),
     ]
-    proc = subprocess.run(
-        argv, input=source(), capture_output=True, text=True, check=True
-    )
-    return proc.stdout.strip()
+    return seed_cache.run(argv, source())
 
 
 def build() -> dict[str, str]:

@@ -16,9 +16,12 @@ of the result store -- the C ABI of the key (docs/29), not its program.
 
 from __future__ import annotations
 
+import hashlib
+import os
 import subprocess
-import tempfile
 from pathlib import Path
+
+import seed_cache
 
 HERE = Path(__file__).resolve().parent
 PACKAGE = HERE.parents[1]
@@ -32,15 +35,24 @@ _seed_bin = None
 
 
 def seed_bin() -> Path:
-    """Path to the compiled seed codegen CLI."""
+    """Path to the compiled seed codegen CLI, one binary per ``seed.c``.
+
+    The path is content-addressed (hash of ``seed.c``), not a tempdir: the cache
+    keys of ``seed_cache`` include this argv, so a new ``seed.c`` is a new path,
+    is a new key -- and every worker on the machine shares the one binary.
+    """
     global _seed_bin
     if _seed_bin is None or not _seed_bin.exists():
-        tmp = tempfile.mkdtemp(prefix="rxf_seed_")
-        out = Path(tmp) / "seed"
-        subprocess.run(
-            ["cc", "-O2", str(SEED_C), "-o", str(out)],
-            check=True, capture_output=True, text=True,
-        )
+        digest = hashlib.sha256(SEED_C.read_bytes()).hexdigest()[:16]
+        out = seed_cache.CACHE / "bin" / f"seed-{digest}"
+        if not out.exists():
+            out.parent.mkdir(parents=True, exist_ok=True)
+            tmp = out.with_name(f"{out.name}.{os.getpid()}.tmp")
+            subprocess.run(
+                ["cc", "-O2", str(SEED_C), "-o", str(tmp)],
+                check=True, capture_output=True, text=True,
+            )
+            tmp.replace(out)
         _seed_bin = out
     return _seed_bin
 
@@ -496,9 +508,7 @@ def code(machine: str, key: str) -> str:
         argv.extend(f"@{letters}" for letters in call_type_letters())
     else:
         argv.extend(shape.split())
-    proc = subprocess.run(argv, input=(PACKAGE / source).read_text(),
-                          capture_output=True, text=True, check=True)
-    return proc.stdout.strip()
+    return seed_cache.run(argv, (PACKAGE / source).read_text())
 
 
 def compile_body(machine: str, body: str, params: str, specs: str, storew: int) -> str:
@@ -506,8 +516,7 @@ def compile_body(machine: str, body: str, params: str, specs: str, storew: int) 
     source = f"fn f({params}) {{ {body} }}\n"
     argv = [str(seed_bin()), "codegen", TARGET[machine], "object", str(storew), "!" + specs,
             *(f"@{letters}" for letters in call_type_letters())]
-    proc = subprocess.run(argv, input=source, capture_output=True, text=True, check=True)
-    return proc.stdout.strip()
+    return seed_cache.run(argv, source)
 
 
 def wasm_body(key: str) -> bytes:
