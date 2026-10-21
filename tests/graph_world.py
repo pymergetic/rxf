@@ -9,6 +9,7 @@ function table lies behind it, because its addresses are a machine's own.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import struct
 import subprocess
@@ -345,6 +346,15 @@ def request_of(case: Case) -> bytes:
     )
 
 
+# The code a compile writes depends on the program and the leaves that are present,
+# not on the arguments or the heap state the case runs with (probe: 16 case pairs
+# sharing a program, byte-identical code on x86_64 and aarch64). Cases come in sets
+# that share a program, so the emulated compile is memoized per worker --
+# (status, at, size, code, tables) per key. The run below stays per case: it is what
+# the arguments differ in.
+_COMPILED: dict[tuple, tuple[int, int, int, bytes, bytes]] = {}
+
+
 def compiled(machine: str, code: Code, case: Case) -> Compiled:
     """The compiler of one machine run on the program of the case, and then the code it wrote."""
     emulator = Emulator(machine)
@@ -355,13 +365,30 @@ def compiled(machine: str, code: Code, case: Case) -> Compiled:
     present = sorted((i, a) for i, a in addresses.items() if i not in case.absent)
     emulator.write(BASE, memory(case, present))
     emulator.write(REQUEST_AT, request_of(case))
-    status = emulator.call(
-        addresses[graph_header.leaves()["compile_program"]],
-        [Integer(CONTEXT), Integer(REQUEST_AT)],
-    )
-    *_, size, at = struct.unpack("<8Q", emulator.read(REQUEST_AT, 64))
+    key = (machine, hashlib.sha256(case.program).digest(), tuple(sorted(case.absent)))
+    hit = _COMPILED.get(key)
+    if hit is None:
+        status = emulator.call(
+            addresses[graph_header.leaves()["compile_program"]],
+            [Integer(CONTEXT), Integer(REQUEST_AT)],
+        )
+        *_, size, at = struct.unpack("<8Q", emulator.read(REQUEST_AT, 64))
+        if status:
+            hit = (status, at, size, b"", b"")
+        else:
+            hit = (
+                status,
+                at,
+                size,
+                emulator.read(CODE_AT, size),
+                emulator.read(TABLES_AT, TABLE_BYTES),
+            )
+        _COMPILED[key] = hit
+    status, at, size, body, tables = hit
     if status:
         return Compiled(status, at, size, None)
+    emulator.write(CODE_AT, body)
+    emulator.write(TABLES_AT, tables)
     result = emulator.call(
         CODE_AT,
         [
