@@ -481,7 +481,7 @@ the first:
 
 ```
 cap.crypto   curve25519, chacha20poly1305, blake2s, hkdf, (aes-gcm for TLS suites)
-             one card, one defining lang (RS), one set of test vectors
+             one card, one defining lang (the words of native/crypto), one set of test vectors
 net.tls      TLS 1.3, both roles (TlsConfig.role), over cap.net.socket streams
 net.wg       WireGuard, device = server AND client (peers), over cap.net.socket datagrams
 ```

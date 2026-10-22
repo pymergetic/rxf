@@ -108,12 +108,20 @@ shell, in this order:
   [17](17-OPERATING-SYSTEM-PATH.md) are still the open work of that document.
 - A prove that asserts *no face code lives in a shell file* (a lint of the boundary itself)
   is **[missing]**; until it exists, the rule is enforced by review and by the seat proves.
-- The words first rule is **[partial]**: the hash side and ChaCha20-Poly1305 of the crypto card
-  are written and proven as words (SHA-256, HMAC-SHA-256, HKDF, BLAKE2s-256 keyed and unkeyed,
-  the AEAD of ChaCha20-Poly1305 in `native/crypto/*.rxfs`, `tests/test_crypto_rxfs.py`:
-  FIPS 180-4, RFC 4231, RFC 5869, RFC 7693, RFC 8439 on the simulator, the interpreter of
-  every machine and the code the in-image compiler makes); AES-GCM, the key-agreement
-  primitive, and the shims that call the words, are the open work it names.
+- The words first rule is **[present]** for the crypto card: every primitive is written and
+  proven as words (SHA-256, HMAC-SHA-256, HKDF, HMAC-BLAKE2s, BLAKE2s-256 keyed and unkeyed,
+  the AEADs of ChaCha20-Poly1305 and AES-256-GCM, and the X25519 key agreement in
+  `native/crypto/*.rxfs`, `tests/test_crypto_rxfs.py`: FIPS 180-4, RFC 4231, RFC 5869, RFC 2104
+  against the Python `hmac` module, RFC 7693, RFC 8439, FIPS 197, the GCM vectors of NIST CAVP
+  and RFC 7748 §5.2/§6.1 — run on the simulator, the interpreter of every machine and the code
+  the in-image compiler makes, one `.so` for all of them). The Rust tree of `native/crypto/src/`
+  and its cargo import lane are **retired**: `native/crypto/pm_crypto.c` is the only C fill
+  behind `include/pm_crypto.h`, it compiles the words to native machine code in its own image
+  ([18](18-IN-IMAGE-COMPILER.md)) at init and falls back to the interpreter when no executable
+  memory exists. What remains a card property, not a seat property, is timing: the X25519
+  ladder runs at milliseconds per agreement with the in-image compiler and at seconds per
+  agreement through the plain interpreter (the simulator costs minutes). That is throughput,
+  not correctness — every execution path proves the same RFC 7748 vectors.
 
 This design names no runtime provider. Providers are external and optional — Metal among
 them ([integrations/metal.md](integrations/metal.md)); its concepts and maps stay in its own

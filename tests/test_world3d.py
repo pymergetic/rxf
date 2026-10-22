@@ -2,13 +2,14 @@
 
 The exporter turns one image into the scene input JSON (documented in the
 docstring of ``pymergetic.rxftk.world.export``). The world IS the arena — a projection, never a
-second truth — so these tests pin the projection: deterministic and golden (the checked-in
-``static/scene/demo-scene.json``), schema-validated, and complete at the edges the runtime
-leaves behind (poison, stale handles, empty regions).
+second truth — so these tests pin the projection: deterministic and golden (a pinned content
+digest of the demo export — never a checked-in JSON dump), schema-validated, and complete at the
+edges the runtime leaves behind (poison, stale handles, empty regions).
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -27,6 +28,7 @@ from pymergetic.rxftk.world import (
     VENDOR_BABYLON,
     WORLD_DIR,
     WORLD_PAGE,
+    Layers,
     SchemaError,
     attach_world,
     export_world,
@@ -36,8 +38,18 @@ from pymergetic.rxftk.world import (
 from pymergetic.rxftk.world.demo import demo_inspector
 from pymergetic.rxftk.world.export import POISON_BYTE, POISON_RUN
 
-GOLDEN = STATIC_DIR / "scene" / "demo-scene.json"
+# The golden is a content digest, not a checked-in dump: the demo export is regenerated in the
+# test and hashed, so a routing or layout change trips this one line to confirm it was intended.
+# scene.bin is the raw .rxfb the static seat reads — kept fresh beside it.
+DEMO_DIGEST = "e66268e12ed6b1d81143f8557fc6643b337971948b5124f514e1eb2b87b94b47"
+SCENE_BIN = STATIC_DIR / "scene" / "scene.bin"
 SCRIPTS = (STATIC_DIR / "scene" / "rxf-world.js", STATIC_DIR / "scene" / "rxf-world-hud.js")
+# the reader and its worker are ES modules (the page imports them on the binary lane); node
+# checks them in module mode — same gate, the mode the files are loaded in
+ESM_SCRIPTS = (
+    STATIC_DIR / "scene" / "rxf-reader.js",
+    STATIC_DIR / "scene" / "rxf-reader-worker.js",
+)
 
 
 @pytest.fixture(scope="module")
@@ -57,9 +69,18 @@ def test_the_demo_export_is_deterministic():
     assert once.endswith("\n") and json.loads(once)["schema"] == SCHEMA
 
 
-def test_the_demo_export_matches_the_checked_in_golden():
-    assert GOLDEN.is_file(), "regenerate with: python -m pymergetic.rxftk.world.demo > demo-scene.json"
-    assert scene_json(demo_inspector()) == GOLDEN.read_text(encoding="utf-8")
+def test_the_demo_export_matches_the_pinned_digest():
+    digest = hashlib.sha256(scene_json(demo_inspector()).encode()).hexdigest()
+    assert digest == DEMO_DIGEST, (
+        "the demo world changed — confirm it was intended, then set DEMO_DIGEST to:\n" + digest
+    )
+
+
+def test_the_checked_in_scene_bin_is_current():
+    """The static seat (``static/scene/index.html``) reads the checked-in ``scene.bin``. Refresh
+    it with ``python -m pymergetic.rxftk.world.demo > static/scene/scene.bin`` when the world
+    changes, so the standalone seat never renders a stale world."""
+    assert SCENE_BIN.read_bytes() == demo_inspector().image.to_bytes()
 
 
 # ---- the schema -----------------------------------------------------------------------------------
@@ -406,10 +427,11 @@ def test_the_template_and_scripts_load_only_local_assets():
     assert config_match is not None
     config = json.loads(config_match.group(1))
     assert config["sceneUrl"].split("?")[0] == "scene.json"  # served by the /world/ route
-    assert (WORLD_DIR / config["fallbackUrl"].split("?")[0]).is_file()
+    assert config["binUrl"].split("?")[0] == "scene.bin"  # the raw image, same route
+    assert (WORLD_DIR / config["readerUrl"].split("?")[0]).is_file()  # the reader the page imports
+    assert (WORLD_DIR / config["workerUrl"].split("?")[0]).is_file()  # the reader's own thread
     assert VENDOR_BABYLON.is_file()
     assert (VENDOR_BABYLON.parent / "license.md").is_file()
-    assert (STATIC_DIR / "scene" / "demo-scene.json") == GOLDEN
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
@@ -421,8 +443,23 @@ def test_the_scene_scripts_parse(script: Path):
     assert result.returncode == 0, result.stderr
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+@pytest.mark.parametrize("script", ESM_SCRIPTS, ids=lambda path: path.name)
+def test_the_scene_modules_parse(script: Path):
+    """The reader is an ES module (the page imports it on the binary lane): checked in the
+    mode it is loaded in, never as a classic script."""
+    result = subprocess.run(
+        ["node", "--input-type=module", "--check"],
+        input=script.read_text(encoding="utf-8"),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_the_scene_scripts_stay_deterministic():
-    for script in SCRIPTS:
+    for script in (*SCRIPTS, *ESM_SCRIPTS):
         source = script.read_text(encoding="utf-8")
         assert "Math.random(" not in source
         assert "http://" not in source and "https://" not in source
@@ -460,3 +497,100 @@ def test_attach_world_registers_the_routes():
     validate_scene(served)
     redirect = handlers["/world"]()
     assert redirect.headers["location"] == "/world/"
+
+
+# ---- the scene session: the layers, one slice at a time -------------------------------------------
+
+
+def test_the_layers_compute_on_demand_never_the_whole_blob():
+    """The session's contract (the user's "no blob"): the page asks for the layer it wants
+    next and the host computes just that. Asking for the buildings computes neither cables
+    nor streets; the cables compute when the cables are asked for (their route and their
+    packing are one computation over the same street runs — a cable's drawn legs are a
+    product of the ducts that carry it)."""
+    stages: list[str] = []
+    layers = Layers(demo_inspector(), report=lambda stage, done, total: stages.append(stage))
+    layers.cells()
+    assert not {"streets", "routing", "packages"} & set(stages), (
+        "asking for the buildings computed the cables or the streets"
+    )
+    layers.routed()
+    assert "routing" in stages, "the cables did not compute on demand"
+    assert "packages" not in stages, "asking for the cables computed the ducts"
+    layers.bundles()
+    assert "packages" in stages, "the ducts did not compute on demand"
+
+
+def _client():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    attach_world(app, demo_inspector())
+    return TestClient(app)
+
+
+def test_the_session_manifest_lists_the_plan_and_the_districts():
+    manifest = _client().get("/world/scene.json?parts=1").json()
+    assert manifest["schema"] == SCHEMA
+    assert manifest["plan"] == [
+        "cells",
+        "voids",
+        "blocks",
+        "streets",
+        "frame",
+        "edges",
+        "bundles",
+        "stubs",
+        "counts",
+    ]
+    assert manifest["slice"] >= 1
+    assert manifest["regions"] == export_world(demo_inspector())["regions"]
+
+
+def test_the_session_slices_reassemble_the_document():
+    """The slices are the document, paged: whatever the page pulls slice by slice equals what
+    the one-shot face serves — one truth, two shapes. The packing's verdict per cable (the
+    ``stubs``) rides the ``stubs`` part and folds back onto the cables."""
+    client = _client()
+    whole = export_world(demo_inspector())
+    pulled: dict[str, list] = {name: [] for name in ("cells", "voids", "blocks", "streets", "edges", "bundles")}
+    for name in pulled:
+        at = 0
+        while True:
+            part = client.get(
+                f"/world/scene.json?part={name}&offset={at}&limit=40"
+            ).json()
+            assert part["total"] == len(whole[name])
+            pulled[name].extend(part["items"])
+            at += part["count"]
+            if at >= part["total"]:
+                break
+    stubs = client.get("/world/scene.json?part=stubs").json()["value"]
+    for edge in pulled["edges"]:
+        edge["stubs"] = stubs.get(edge["id"])
+    for name in pulled:
+        assert pulled[name] == whole[name], f"the {name} slices do not reassemble"
+    frame = client.get("/world/scene.json?part=frame").json()["value"]
+    assert frame["ring"] == whole["ring"] and frame["metrics"] == whole["metrics"]
+    counts = client.get("/world/scene.json?part=counts").json()["value"]
+    assert counts == whole["counts"]
+
+
+def test_a_session_slice_can_be_one_district():
+    """The spatial pull: `region=` is what a viewport-driven load asks for — the buildings of
+    one district, nothing else."""
+    client = _client()
+    whole = export_world(demo_inspector())
+    region = max(whole["regions"], key=lambda item: item["cell_count"])
+    part = client.get(f"/world/scene.json?part=cells&region={region['id']}&limit=500").json()
+    assert part["total"] == region["cell_count"] > 0
+    assert {cell["region"] for cell in part["items"]} == {str(region["id"])}
+    assert part["items"] == [cell for cell in whole["cells"] if cell["region"] == str(region["id"])]
+
+
+def test_the_session_answers_honestly_on_a_bad_part():
+    client = _client()
+    assert client.get("/world/scene.json?part=nope").status_code == 404
+    progress = client.get("/world/scene.json/progress").json()
+    assert set(progress) == {"state", "stage", "done", "total", "elapsed"}

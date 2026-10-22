@@ -2,12 +2,14 @@
 
 Two things were demo before this file pinned them otherwise:
 
-* the 3D world fell back to the checked-in synthetic scene (`world/static/scene/demo-scene.json`)
-  no matter which image the app inspected — now `create_app` wires `attach_world` and
-  `GET /world/scene.json` is the exported scene of the image under test, never the demo (the
-  full-starter pin runs in the gate: `world/export.py` buckets the cell stream per district and
-  finds the rail junctions and nearest rails through indexes, so a real image's scene exports in
-  about a minute);
+* the 3D world fell back to the checked-in synthetic demo scene
+  no matter which image the app inspected — now `create_app` wires `attach_world` and the world
+  page loads the image under test: `GET /world/scene.bin` hands the browser the raw `.rxfb`
+  (read in the page by `rxf-reader.js` — no export on the host at all), and the scene SESSION
+  face stays beside it: `GET /world/scene.json?parts=1` the plan, then the layers one after
+  another, slice by slice (buildings, cables, ducts — computed on demand, never one blob).
+  The full-starter pin runs in the gate at that shape:
+  the buildings and cables of the real `starter/` tree, never the demo;
 * the editor's compile / install / poke answered "no running image" — now `rxf server serve`
   runs one (`server/live/runner.py`: the linked image, its own interpreter and live leaf, the
   front end seeded once per docs/19), and those same routes run FOR REAL against it.
@@ -33,19 +35,16 @@ from pymergetic.rxftk.live.front import identity
 from pymergetic.rxftk.server.app import PokeBody, SourceBody, create_app
 from pymergetic.rxftk.server.inspector import Inspector
 from pymergetic.rxftk.world import scene_json
+from pymergetic.rxftk.world.demo import demo_inspector
 
 ROOT = Path(__file__).parents[1]
 STARTER = ROOT / "starter"
-DEMO_GOLDEN = (
-    ROOT
-    / "src"
-    / "pymergetic"
-    / "rxftk"
-    / "world"
-    / "static"
-    / "scene"
-    / "demo-scene.json"
-)
+# The synthetic demo, computed live — the anti-demo-drift reference. It is never a checked-in
+# file: the world must serve the inspected image, not this (so the tests compare against the
+# demo's own content, not a stale golden on disk).
+DEMO_SCENE = json.loads(scene_json(demo_inspector()))
+DEMO_JSON = scene_json(demo_inspector()).encode()
+DEMO_IMAGE = demo_inspector().image.to_bytes()
 MODULE = "pymergetic.rxf.selfedit"
 
 TRIPLE = """\
@@ -77,10 +76,26 @@ def test_the_world_of_the_real_starter_app_is_wired_to_its_inspector(image: Imag
     the world of the image under inspection, wired after the routes."""
     app = create_app(image)
     paths = {getattr(route, "path", "") for route in app.routes}
-    assert {"/world", "/world/", "/world/scene.json"} <= paths
+    assert {"/world", "/world/", "/world/scene.bin", "/world/scene.json"} <= paths
     assert any(path.startswith("/world/static") for path in paths)
     page = TestClient(app).get("/world/", follow_redirects=False)
     assert page.status_code == 200
+
+
+def test_the_world_serves_the_raw_image_for_the_browser_reader(image: Image):
+    """`GET /world/scene.bin` is the image itself: the raw `.rxfb` bytes the page reads in the
+    browser with `static/scene/rxf-reader.js` — the very bytes `Image.to_bytes()` hands out
+    (the arena verbatim, never a projection, never the demo scene). The reader is served too:
+    the fast lane is bytes plus one reader file, nothing else."""
+    client = TestClient(create_app(image))
+    response = client.get("/world/scene.bin")
+    assert response.status_code == 200
+    assert response.content == image.to_bytes()
+    assert response.content[:4] == b"RXFB"
+    assert response.content != DEMO_IMAGE
+    reader = client.get("/world/static/scene/rxf-reader.js")
+    assert reader.status_code == 200
+    assert "export function readWorld" in reader.text
 
 
 def test_the_world_serves_the_scene_of_the_inspected_image_not_the_demo():
@@ -93,26 +108,47 @@ def test_the_world_serves_the_scene_of_the_inspected_image_not_the_demo():
     assert response.status_code == 200
     served = response.json()
     assert served == json.loads(scene_json(Inspector(image)))
-    demo = json.loads(DEMO_GOLDEN.read_text(encoding="utf-8"))
+    demo = DEMO_SCENE
     assert served != demo, (
         "the world served the synthetic demo scene instead of the inspected image"
     )
-    assert response.content != DEMO_GOLDEN.read_bytes()
+    assert response.content != DEMO_JSON
 
 
-def test_the_world_serves_the_scene_of_the_real_starter_tree_not_the_demo(image: Image):
-    """The flagship pin: `GET /world/scene.json` of the real `starter/` tree equals its
-    `scene_json` and is not the demo golden — two exports of a real image's scale, in the
-    gate's normal time (the wiring is pinned above)."""
-    response = TestClient(create_app(image)).get("/world/scene.json")
-    assert response.status_code == 200
-    served = response.json()
-    assert served == json.loads(scene_json(Inspector(image)))
-    demo = json.loads(DEMO_GOLDEN.read_text(encoding="utf-8"))
-    assert served != demo, (
-        "the world served the synthetic demo scene instead of the real image"
-    )
-    assert response.content != DEMO_GOLDEN.read_bytes()
+def _pull(client: TestClient, name: str) -> list[dict]:
+    """One layer, slice by slice — the way the page loads it (the session's shape)."""
+    items: list[dict] = []
+    at = 0
+    while True:
+        part = client.get(f"/world/scene.json?part={name}&offset={at}&limit=2000").json()
+        items.extend(part["items"])
+        at += part["count"]
+        if at >= part["total"]:
+            return items
+
+
+def test_the_world_session_serves_the_real_starter_tree_not_the_demo(image: Image):
+    """The flagship pin, at the session's shape (the layer protocol the world page speaks):
+    the parts of the real `starter/` tree are the real image's scale — every cell of the
+    stream, every cable of the refs, routed — and are NOT the checked-in demo scene (the
+    anti-demo-drift pin: the demo golden may not stand in for real data). The layers come
+    one after another, slice by slice: the host never has to hand out one blob."""
+    client = TestClient(create_app(image))
+    manifest = client.get("/world/scene.json?parts=1").json()
+    demo = DEMO_SCENE
+    assert manifest["regions"] != demo["regions"], "the session served the demo's districts"
+
+    stream = list(Inspector(image).cells())
+    buildings = _pull(client, "cells")
+    assert len(buildings) == len(stream) > len(demo["cells"])
+    assert {cell["handle"] for cell in buildings if cell["handle"] is not None} == {
+        int(cell["handle"]) for cell in stream if cell["handle"] is not None
+    }
+
+    cables = _pull(client, "edges")
+    assert cables and len(cables) != demo["counts"]["edges"]
+    assert all("route" in cable for cable in cables)
+    assert any(cable["route"] for cable in cables), "the cables came unrouted"
 
 
 # ---- B + C: the serve runner, end to end ----------------------------------------------------------

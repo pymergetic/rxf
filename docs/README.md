@@ -91,6 +91,7 @@ Read in order:
 22. [Recipes: how work gets into the object world](26-RECIPES.md)
 23. [Editing: one mutation is one delta](27-EDITING.md)
 24. [Unified seat design: the image, the face, the fill, and the shell](28-UNIFIED-SEAT-DESIGN.md)
+25. [The seed compiler: an image that is `.rxfs` only](29-THE-SEED-COMPILER.md)
 
 These documents specify RXF independently of any runtime provider. The optional Metal binding
 is described separately in [`integrations/metal.md`](integrations/metal.md).
@@ -243,19 +244,28 @@ seam — `pymergetic.rxftk.console.world` — with no second channel and no seco
 
 The image renders as an RTS city over the same cells the inspector reads: every cell is a
 block-stack building whose floors are the cell anatomy in S1 payload coloring — checksum
-teal, poison red, generation gold — the reference edges are Manhattan-routed ground cables
-between the lots, and the run cells ride the ready-ring as tram units under glowing curbs.
-The minimap is a real top-down projection of the same document (districts, buildings by
+teal, poison red, generation gold — and one grid law runs the city (*jede Zelle gleiche
+Grundgröße*): every district plots on the same rule whether its bytes carry cells or not,
+every floor tile is exactly one grid step, and every building stands on the same base, its
+height carrying its mass. The reference edges are Manhattan-routed flat traces over the
+streets, shown by click: select a building and its linked objects and their tracks light up
+by degree (1st cyan, 2nd gold, 3rd magenta) — and the run cells ride the ready-ring as tram
+units under glowing curbs. The minimap is a real top-down projection of the same document
+(districts, buildings by
 family, void tiles in red, the camera's viewport); clicking it jumps the camera, clicking a
 building selects its cell in the HUD, and WASD moves camera-relative. The scene draws the
 checked-in demo world — the `demo_world.rxfd`
 delta plus the traces a running snapshot carries (a stale handle's ghost cables, the 0xA5
-poison of compaction), exported to `demo-scene.json` as a byte-exact golden the tests pin —
-with no randomness behind any frame.
+poison of compaction), exported to the raw `scene.bin` the browser reads (the export pinned as a
+content digest in the tests) — with no randomness behind any frame. The page loads it **from the raw image bytes**
+(`GET /world/scene.bin`) and reads the arena in the browser (`static/scene/rxf-reader.js`),
+pinned to the Python exporter's client face by `tests/test_reader_js.py`; the JSON scene
+session (`/world/scene.json`, sliced by layer and region) stays the tool and test face beside
+it.
 
-![The world overview: block-stack buildings in S1 payload coloring, the ready-ring with its tram units, and the minimap](images/world-overview.png)
+![The world overview: one uniform grid of district plates (same tiles, same building base, empty districts included), the ready-ring with its tram units, and the minimap](images/world-overview.png)
 
-![Top-down tactical view: a selected run tower (system.runs.tick) with the HUD's live cell fields](images/world-tactical.png)
+![Top-down tactical view: a selected run tower (system.runs.tick) with its linked neighborhood colored by degree and the HUD's live cell fields](images/world-tactical.png)
 
 ## Layout
 

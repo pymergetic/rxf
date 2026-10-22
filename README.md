@@ -131,35 +131,56 @@ it.
 
 ### The 3D world: the image as an RTS city
 
-The world view draws the checked-in demo world over the same cells the inspector reads:
-cells are block-stack buildings, references are cables that fly on **module-depth sheets**
-(root 0, `a` 1, `a.b` 2, ... — one altitude per level, so a dense reference mesh reads as
-stacked layers instead of one flat grid), references that share a street stretch are packaged
-into **one duct** — drawn once, thicker the more it carries, one color stripe per member in
-that member's own fresh/ghost paint, while each member shrinks to its own last-mile stub
-where the duct leaves it (what a package carries it does not draw again) — and the ready-ring
-is the boulevard where the run cells ride. The wiring carries one detail limit per view — the named skeleton wide, the named
-backbone midway, every cable up close — and clicking a building lights its own cables up on
-their sheets. WASD moves camera-relative; the minimap is a real top-down projection of the
-same document.
+The world view draws the checked-in demo world over the same cells the inspector reads. One
+grid law runs the whole city (**jede Zelle gleiche Grundgröße**): every district plots on the
+same rule — its byte span at the one layout scale, whether its bytes carry cells or not, so an
+empty district is the same plate as a built one — every floor tile is exactly one grid step,
+and every building stands on the same base, its height carrying its mass. Cells are block-stack
+buildings whose floors are the cell anatomy, dead/poisoned memory is rubble and void tiles, and
+the ready-ring is the boulevard where the run cells ride.
 
-![The demo world from the north-east: the city diagonal, the ring, the ducts on the shared street stretches, and the cables flying their module-depth sheets](docs/images/world-overview.png)
+Handle references are **flat traces over the streets** — a circuit board, not a cable car —
+and they stay hidden until a building is clicked: then its linked objects and their tracks
+light up **by degree** — the 1st degree in one color, from those the 2nd, from those the 3rd,
+and no further. One look answers what talks to this, and to what of that. WASD moves
+camera-relative; the minimap is a real top-down projection of the same document.
 
-![Street level: one duct per shared stretch carries a stripe per member while the stubs climb to the blocks and the paint stays flat on the ground](docs/images/world-streets.png)
+The world loads **from the raw image**: the page fetches `/world/scene.bin` — the arena
+verbatim, the same `.rxfb` bytes the inspector reads — and lays the city out in the browser
+with `static/scene/rxf-reader.js`, the real reader of the arena format (header, cells,
+references, the type meta). No export runs on the host's blocking path, and the packing of
+the ducts (the slow pass of a real image — minutes) is deliberately not on this lane at all:
+cables draw their own routes and nothing shares a duct until the JSON face says so. The read
+runs in its own thread (`rxf-reader-worker.js`), so the loading face keeps breathing while
+the arena is laid out. Until the first frame the face says exactly where things are: the
+bytes landing, the read, the build ("the arena · 3.2 of 5.5 MB"), never a blank background.
+
+The scene session stays beside it as the JSON face: the host computes the layers on demand
+and the page (or a test, or a tool) pulls them one after another, slice by slice
+(`/world/scene.json?parts=1` is the plan, `?part=…&offset=…` one slice, `?region=…` one
+district) — never one giant export. One document, two languages: `tests/test_reader_js.py`
+pins the JS reader to the Python exporter's client face (`export_world(…, packing=False)`),
+so the world the browser computes from bytes is the export's own output.
+
+![The demo world from the north-east: one uniform grid of district plates — same tiles, same building base, empty districts included — with the ring road around it](docs/images/world-overview.png)
+
+![Street level: the street paint and the district plates all sit flat on the ground, one tile size everywhere](docs/images/world-streets.png)
 
 ![The ring road's corner: clean chamfers, no spikes](docs/images/world-ring.png)
 
-Click a building and the image answers: the HUD's cell fields fill along the bottom, and the
+Click a building and the image answers: the HUD's cell fields fill along the bottom, the
 datasheet opens beside the scene — `IMAGE — read from the cell` above `WORLD — the view's own
-reading`.
+reading` — and the wiring to the linked objects lights up flat over the streets, colored by
+degree up to the 3rd.
 
-![Top-down on the selected run tower (system.runs.tick), the HUD's cell fields filled](docs/images/world-tactical.png)
+![Top-down on the selected run tower (system.runs.tick): the linked neighborhood colored by degree (1st cyan, 2nd gold, 3rd magenta), the HUD's cell fields filled](docs/images/world-tactical.png)
 
 ![The selected cell's datasheet pane open](docs/images/world-datasheet.png)
 
 The scene draws `demo_world.rxfd` plus the traces a running snapshot carries (a stale
-handle's ghost cables, the `0xA5` poison of compaction), exported to `demo-scene.json` as a
-byte-exact golden the tests pin — no randomness behind any frame. At the extreme angles the
+handle's ghost cables, the `0xA5` poison of compaction), exported to the raw `scene.bin` the
+browser reads (the export pinned as a content digest in the tests) — no randomness behind any
+frame. At the extreme angles the
 text stays readable: name labels and checksums hold at pitch 90 and pitch 68.
 
 ![Pitch 90 straight down: name labels and checksums stay readable](docs/images/world-proof-topdown.png)
