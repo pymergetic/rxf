@@ -26,8 +26,9 @@ CompileFlags:
 # The wrapper seats are x86 freestanding C (binary/builder.py); pin what the builds pass
 # so an editor without a compile entry cannot analyze them for another target.
 If:
-  PathMatch: .*/native/wrap/.*\.(c|h)$
+  PathMatch: .*native/wrap/.*\.(c|h)$
 CompileFlags:
+  CompilationDatabase: None
   Add:
     - -target
     - x86_64-unknown-linux-gnu
@@ -42,8 +43,9 @@ CompileFlags:
 # red. entry.c, world.c and uart_x86_64.c build for several seats; they are
 # pinned to their first seat (x86_64), the rest is one seat each.
 If:
-  PathMatch: .*/boot/(image_stub/)?.*\.(c|h)$
+  PathMatch: .*boot/(image_stub/)?.*\.(c|h)$
 CompileFlags:
+  CompilationDatabase: None
   Add:
     - -ffreestanding
     - -fno-builtin
@@ -55,7 +57,7 @@ CompileFlags:
     - -I/home/ladmin/Devel/os-sdk/packages/rxf/native
 ---
 If:
-  PathMatch: .*/boot/image_stub/(entry|world|uart_x86_64)\.c$
+  PathMatch: .*boot/image_stub/(entry|world|uart_x86_64)\.c$
 CompileFlags:
   Add:
     - -target
@@ -63,14 +65,14 @@ CompileFlags:
     - -DRXF_BOOT_SEAT_X86
 ---
 If:
-  PathMatch: .*/boot/uefi_stub\.c$
+  PathMatch: .*boot/uefi_stub\.c$
 CompileFlags:
   Add:
     - -target
     - x86_64-windows-msvc
 ---
 If:
-  PathMatch: .*/boot/image_stub/uart_aarch64\.c$
+  PathMatch: .*boot/image_stub/uart_aarch64\.c$
 CompileFlags:
   Add:
     - -target
@@ -78,7 +80,7 @@ CompileFlags:
     - -DRXF_BOOT_SEAT_A64
 ---
 If:
-  PathMatch: .*/boot/(image_stub/uart_wasm32\.c|wasm_shim\.c)$
+  PathMatch: .*boot/(image_stub/uart_wasm32\.c|wasm_shim\.c)$
 CompileFlags:
   Add:
     - -target
@@ -87,6 +89,6 @@ CompileFlags:
 # The boot sector and aarch64 trampoline are pure gas (x86_64.S has no
 # includes); clang's parser is not gas and every directive lights up.
 If:
-  PathMatch: .*/boot/.*\.(S|s)$
+  PathMatch: .*boot/.*\.(S|s)$
 Diagnostics:
   Suppress: ["*"]
