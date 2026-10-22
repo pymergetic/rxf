@@ -34,3 +34,59 @@ CompileFlags:
     - -std=c11
     - -ffreestanding
     - -fno-builtin
+---
+# boot/ is freestanding per-seat C (boot/Makefile) with no compile database
+# entry: one source per machine, no libc headers, include roots outside src/.
+# Pin each file to the flags and target its seat builds with, or an editor
+# analyzes an aarch64 UART with host defaults and every type in graph.h is
+# red. entry.c, world.c and uart_x86_64.c build for several seats; they are
+# pinned to their first seat (x86_64), the rest is one seat each.
+If:
+  PathMatch: .*/boot/(image_stub/)?.*\.(c|h)$
+CompileFlags:
+  Add:
+    - -ffreestanding
+    - -fno-builtin
+    - -fno-stack-protector
+    - -fno-pic
+    - -fno-asynchronous-unwind-tables
+    - -I/home/ladmin/Devel/os-sdk/packages/rxf/boot
+    - -I/home/ladmin/Devel/os-sdk/packages/rxf/boot/image_stub
+    - -I/home/ladmin/Devel/os-sdk/packages/rxf/native
+---
+If:
+  PathMatch: .*/boot/image_stub/(entry|world|uart_x86_64)\.c$
+CompileFlags:
+  Add:
+    - -target
+    - x86_64-unknown-none-elf
+    - -DRXF_BOOT_SEAT_X86
+---
+If:
+  PathMatch: .*/boot/uefi_stub\.c$
+CompileFlags:
+  Add:
+    - -target
+    - x86_64-windows-msvc
+---
+If:
+  PathMatch: .*/boot/image_stub/uart_aarch64\.c$
+CompileFlags:
+  Add:
+    - -target
+    - aarch64-none-elf
+    - -DRXF_BOOT_SEAT_A64
+---
+If:
+  PathMatch: .*/boot/(image_stub/uart_wasm32\.c|wasm_shim\.c)$
+CompileFlags:
+  Add:
+    - -target
+    - wasm32
+---
+# The boot sector and aarch64 trampoline are pure gas (x86_64.S has no
+# includes); clang's parser is not gas and every directive lights up.
+If:
+  PathMatch: .*/boot/.*\.(S|s)$
+Diagnostics:
+  Suppress: ["*"]
