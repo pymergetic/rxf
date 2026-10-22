@@ -1,0 +1,70 @@
+# The AES-256-GCM of a message (FIPS 197, NIST SP 800-38D): the symmetric AEAD of the crypto
+# words of the image, and the piece the published vectors pin one by one.
+#
+# This is the defining source of the card's AES-256-GCM. The words are the program every
+# machine runs (native/graph.h) -- the interpreter, and the in-image compiler of docs/18. The
+# Rust tree of src/ is retired: the suite of native/crypto/ is written here and its vectors
+# pass through these words (test_crypto_rxfs.py).
+#
+# The kernel is aes_gcm_words.rxfs (the numbers) and aes_gcm_kernel.rxfs (the procs) -- the one
+# source of the block cipher and the GHASH. This file is the program around it. It takes whole
+# words: the face (op), the key (key, 32 bytes), the nonce (nonce, 12 bytes), the additional
+# data (aad, aad_len), the bytes in (text, text_len), where the answer lands (out), and a work
+# region of at least 704 bytes (work). It answers 0.
+#
+# The faces -- the block cipher the FIPS 197 vectors pin on its own, and the AEAD
+# construction of SP 800-38D §7:
+#
+#   FACE_ENCBLOCK   1   one block of the cipher (FIPS 197 §5.1): key and the 16 bytes of text
+#                       answer 16 bytes at out
+#   FACE_SEAL       2   the AEAD seal (§7.1): text, text_len is the plaintext, and out
+#                       receives the ciphertext || the 16-byte tag (text_len + 16 bytes)
+#   FACE_OPEN       3   the AEAD open (§7.2): text, text_len is the ciphertext || the 16-byte
+#                       tag, and out receives the plaintext (text_len - 16 bytes)
+#
+# The nonce is the card's fixed 12 bytes, so J0 = nonce || 0x00000001 (§7.1). An open whose
+# tag is not the tag of these bytes refuses RXF_REFUSE_OUT_OF_RANGE -- the run ends and
+# nothing of the plaintext is written, what the C face reads as `false`.
+
+include "aes_gcm_words.rxfs";
+
+program aes_gcm(op, key, nonce, aad, aad_len, text, text_len, out, work) {
+    var sp;
+    var k0;
+    var a0, a1, a2, a3, a4, a5, a6;
+    var b0, b1, b2, b3, b4, b5, b6, b7;
+    var e0, e1, e2, e3, e4, e5, e6, e7;
+    var s0, s1, s2, s3, s4, s5;
+    var g0, g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12;
+    var h0, h1, h2;
+
+    sp = work + WSTACK;
+
+    if op == FACE_ENCBLOCK {
+        k0 = key;
+        call aes256_expand;
+        h0 = 0;
+        while h0 < 16 {
+            store8(work + WBLOCK + h0, load8(text + h0));
+            h0 = h0 + 1;
+        }
+        call aes256_encrypt;
+        h0 = 0;
+        while h0 < 16 {
+            store8(out + h0, load8(work + WBLOCK + h0));
+            h0 = h0 + 1;
+        }
+        return 0;
+    }
+    if op == FACE_SEAL {
+        call gcm_seal;
+        return 0;
+    }
+    if op == FACE_OPEN {
+        call gcm_open;
+        return 0;
+    }
+    refuse RXF_REFUSE_UNSUPPORTED;
+}
+
+include "aes_gcm_kernel.rxfs";

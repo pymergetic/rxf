@@ -1,0 +1,78 @@
+# The HMAC kernel (RFC 2104) over the BLAKE2s-256 of blake2s_kernel.rxfs: the second flavor
+# of the one HMAC interface, the one HKDF's BLAKE2s face (hkdf_blake2s) is built from. The
+# procs are named like hmac_kernel.rxfs's because a program includes exactly one flavor of
+# HMAC -- the names are the interface, not a flavor.
+#
+# The frame contract adds to the kernel's:
+#
+#   m0 .. m5              the interface and scratch of the HMAC procs
+#
+# The procs, in the order a caller uses them: hmac_key (which key), hmac_begin (start the
+# inner hash), hmac_update (a piece of the message, as often as it comes), hmac_end (where
+# the 32-byte tag lands). The message may come in pieces; the key is set once. A key longer
+# than the block is hashed first (unkeyed BLAKE2s-256, as RFC 2104 asks of any hash).
+
+include "blake2s_kernel.rxfs";
+
+proc hmac_key {
+    # m0 = the key, m1 = its length: a key longer than the block is hashed first
+    fill(work + WKPAD, 0, 64);
+    if m1 > 64 {
+        k3 = 0;
+        k4 = 32;
+        call blake2s_init;
+        k0 = m0;
+        k1 = m1;
+        call blake2s_update;
+        k2 = work + WKPAD;
+        call blake2s_final;
+    } else {
+        copy(work + WKPAD, m0, m1);
+    }
+    # the blocks of the message: K' ^ ipad and K' ^ opad
+    m5 = 0;
+    while m5 < 64 {
+        m2 = load8(work + WKPAD + m5) & 0xFF;
+        store8(work + WIPAD + m5, xor8_(m2, 0x36));
+        store8(work + WOPAD + m5, xor8_(m2, 0x5C));
+        m5 = m5 + 1;
+    }
+    ret;
+}
+
+proc hmac_begin {
+    # the inner hash: (K' ^ ipad) is its first block
+    k3 = 0;
+    k4 = 32;
+    call blake2s_init;
+    k0 = work + WIPAD;
+    k1 = 64;
+    call blake2s_update;
+    ret;
+}
+
+proc hmac_update {
+    # m2 = a piece of the message, m3 = its length
+    k0 = m2;
+    k1 = m3;
+    call blake2s_update;
+    ret;
+}
+
+proc hmac_end {
+    # m4 = where the 32-byte tag lands
+    k2 = work + WINNER;
+    call blake2s_final;
+    k3 = 0;
+    k4 = 32;
+    call blake2s_init;
+    k0 = work + WOPAD;
+    k1 = 64;
+    call blake2s_update;
+    k0 = work + WINNER;
+    k1 = 32;
+    call blake2s_update;
+    k2 = m4;
+    call blake2s_final;
+    ret;
+}

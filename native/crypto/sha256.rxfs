@@ -2,8 +2,8 @@
 #
 # This is the defining source of the card's SHA-256. The words are the program every machine
 # runs (native/graph.h) -- the interpreter, and the in-image compiler of docs/18. The Rust tree
-# of src/ retires when the suite of native/crypto/ is written here and its vectors pass through
-# these words; until then both are pinned by their tests and this file is the one being built up.
+# of src/ is retired: the suite of native/crypto/ is written here and its vectors pass through
+# these words (test_crypto_rxfs.py).
 #
 # The kernel is sha256_words.rxfs (the numbers) and sha256_kernel.rxfs (the procs) -- the one
 # source of the compression. This file is the program around it. It takes whole words: the

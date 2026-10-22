@@ -1,0 +1,482 @@
+# The AES-256-GCM kernel (FIPS 197, NIST SP 800-38D) of the crypto words: the one source of
+# the block cipher and the GHASH, shared by the programs that seal and open (aes_gcm.rxfs).
+# It is `.rxfs` (tools/native/rxfc.py); the frame contract is the one of
+# chacha20poly1305_kernel.rxfs: the procs take their scratch from the frame of the run, so the
+# entry of every program that includes this file declares:
+#
+#   k0                  the 32-byte key aes256_expand reads
+#   a0                  the byte sbox_compute maps, and gf8mul's interface: a1, a2 its
+#                       factors, a3 its product, a4 .. a6 its scratch
+#   b0 .. b7            the chain of the GF(2^8) powers inside sbox_compute
+#   e0 .. e7            the scratch of the schedule and the rounds (e1 is the round counter
+#                       aes256_encrypt keeps across its calls)
+#   s0 .. s5            the walk of gctr_apply (s0 the bytes, s1 their count, s2 where the
+#                       xored bytes land)
+#   g0 .. g12           gf128_mul (g0 and g1 its factors, g2 where the product lands) and the
+#                       scratch of ghash_update
+#   h0 .. h2            the scratch of the AEAD construction
+#   sp                  the stack of the ways back, at work + WSTACK
+#
+# The numbers are aes_gcm_words.rxfs (the work layout and the arithmetic), which the program
+# includes before its entry. The procs, in the order a caller uses them: sbox_compute (the
+# Rijndael S-box of one byte -- computed as the inverse in GF(2^8) and the affine map of
+# FIPS 197 §5.1.1, never a table), aes256_expand (the 60 words of the schedule, §5.2),
+# aes256_encrypt (one block, §5.1), gf128_mul (the GHASH multiply over GF(2^128), SP 800-38D
+# §6.3), ghash_update (a piece of the bytes to mac, as often as it comes), and the AEAD
+# construction of §7: gcm_seal (the ciphertext || tag of a plaintext) and gcm_open (the
+# plaintext of a ciphertext || tag, refused when the tag is not the tag of these bytes --
+# RXF_REFUSE_OUT_OF_RANGE, what the C face reads as `false`).
+#
+# Every step is the same for every value: the multiply walks its bits under a mask, the S-box
+# computes its inverse, and the tag compare ors all differences -- no step branches on a bit
+# of a secret. There is no table anywhere in these words.
+
+# ---- the multiply of two bytes (the language has no `*` of two runtime values) ----------------------
+proc gf8mul {
+    # a3 = a1 * a2 over GF(2^8) with the Rijndael polynomial x^8+x^4+x^3+x+1: eight shift and
+    # add steps, the walking factor reducing with xtime each step (FIPS 197 §4.2)
+    a3 = 0;
+    a4 = a2 & 0xFF;
+    a5 = a1 & 0xFF;
+    a6 = 0;
+    while a6 < 8 {
+        a3 = xor8_(a3, a4 & (0 - (a5 & 1)));
+        a4 = xtime8_(a4);
+        a5 = a5 >> 1;
+        a6 = a6 + 1;
+    }
+    ret;
+}
+
+# ---- the S-box of one byte (FIPS 197 §5.1.1) ------------------------------------------------------
+proc sbox_compute {
+    # a0 = SBOX(a0): the inverse of the byte in GF(2^8) -- x^254, seven squares and six
+    # multiplies -- and then the affine map with its constant 0x63. x = 0 inverts to 0, which
+    # is the map the table has too
+    b0 = a0 & 0xFF;
+    a1 = b0;
+    a2 = b0;
+    call gf8mul;
+    b1 = a3;
+    a1 = b1;
+    a2 = b1;
+    call gf8mul;
+    b2 = a3;
+    a1 = b2;
+    a2 = b2;
+    call gf8mul;
+    b3 = a3;
+    a1 = b3;
+    a2 = b3;
+    call gf8mul;
+    b4 = a3;
+    a1 = b4;
+    a2 = b4;
+    call gf8mul;
+    b5 = a3;
+    a1 = b5;
+    a2 = b5;
+    call gf8mul;
+    b6 = a3;
+    a1 = b6;
+    a2 = b6;
+    call gf8mul;
+    b7 = a3;
+    a1 = b7;
+    a2 = b6;
+    call gf8mul;
+    b7 = a3;
+    a1 = b7;
+    a2 = b5;
+    call gf8mul;
+    b7 = a3;
+    a1 = b7;
+    a2 = b4;
+    call gf8mul;
+    b7 = a3;
+    a1 = b7;
+    a2 = b3;
+    call gf8mul;
+    b7 = a3;
+    a1 = b7;
+    a2 = b2;
+    call gf8mul;
+    b7 = a3;
+    a1 = b7;
+    a2 = b1;
+    call gf8mul;
+    b7 = a3;
+    a0 = b7;
+    a0 = xor8_(xor8_(xor8_(xor8_(a0, rotl8_(a0, 1)), rotl8_(a0, 2)), rotl8_(a0, 3)), rotl8_(a0, 4));
+    a0 = xor8_(a0, 0x63);
+    ret;
+}
+
+# ---- the schedule of the round keys (FIPS 197 §5.2) -----------------------------------------------
+proc aes256_expand {
+    # k0 = the 32-byte key: 60 words of four bytes each at work + WRK, Nk = 8, Nr = 14
+    e0 = 0;
+    while e0 < 32 {
+        store8(work + WRK + e0, load8(k0 + e0));
+        e0 = e0 + 1;
+    }
+    e1 = 32;
+    e2 = 0;
+    e3 = 1;
+    while e1 < 240 {
+        e4 = load8(work + WRK + e1 - 4);
+        e5 = load8(work + WRK + e1 - 3);
+        e6 = load8(work + WRK + e1 - 2);
+        e7 = load8(work + WRK + e1 - 1);
+        if e2 == 0 {
+            # every eighth word: SubWord(RotWord(temp)) with the Rcon of the round
+            a0 = e4;
+            call sbox_compute;
+            e4 = a0;
+            a0 = e5;
+            call sbox_compute;
+            e5 = a0;
+            a0 = e6;
+            call sbox_compute;
+            e6 = a0;
+            a0 = e7;
+            call sbox_compute;
+            e7 = a0;
+            a0 = e4;
+            e4 = xor8_(e5, e3);
+            e5 = e6;
+            e6 = e7;
+            e7 = a0;
+            e3 = e3 << 1;
+        }
+        if e2 == 4 {
+            # the other odd words get SubWord alone
+            a0 = e4;
+            call sbox_compute;
+            e4 = a0;
+            a0 = e5;
+            call sbox_compute;
+            e5 = a0;
+            a0 = e6;
+            call sbox_compute;
+            e6 = a0;
+            a0 = e7;
+            call sbox_compute;
+            e7 = a0;
+        }
+        # w[i] = w[i - 8] ^ temp
+        store8(work + WRK + e1, xor8_(e4, load8(work + WRK + e1 - 32)));
+        store8(work + WRK + e1 + 1, xor8_(e5, load8(work + WRK + e1 - 31)));
+        store8(work + WRK + e1 + 2, xor8_(e6, load8(work + WRK + e1 - 30)));
+        store8(work + WRK + e1 + 3, xor8_(e7, load8(work + WRK + e1 - 29)));
+        e1 = e1 + 4;
+        e2 = e2 + 1;
+        if e2 == 8 {
+            e2 = 0;
+        }
+    }
+    ret;
+}
+
+# ---- one block, encryption direction (FIPS 197 §5.1) ----------------------------------------------
+proc aes_subbytes {
+    e0 = 0;
+    while e0 < 16 {
+        a0 = load8(work + WBLOCK + e0);
+        call sbox_compute;
+        store8(work + WBLOCK + e0, a0);
+        e0 = e0 + 1;
+    }
+    ret;
+}
+
+proc shift_rows {
+    # s'[4c + r] = s[4((c + r) mod 4) + r]: each row of the state turns by its row number
+    store8(work + WTMP, load8(work + WBLOCK));
+    store8(work + WTMP + 1, load8(work + WBLOCK + 5));
+    store8(work + WTMP + 2, load8(work + WBLOCK + 10));
+    store8(work + WTMP + 3, load8(work + WBLOCK + 15));
+    store8(work + WTMP + 4, load8(work + WBLOCK + 4));
+    store8(work + WTMP + 5, load8(work + WBLOCK + 9));
+    store8(work + WTMP + 6, load8(work + WBLOCK + 14));
+    store8(work + WTMP + 7, load8(work + WBLOCK + 3));
+    store8(work + WTMP + 8, load8(work + WBLOCK + 8));
+    store8(work + WTMP + 9, load8(work + WBLOCK + 13));
+    store8(work + WTMP + 10, load8(work + WBLOCK + 2));
+    store8(work + WTMP + 11, load8(work + WBLOCK + 7));
+    store8(work + WTMP + 12, load8(work + WBLOCK + 12));
+    store8(work + WTMP + 13, load8(work + WBLOCK + 1));
+    store8(work + WTMP + 14, load8(work + WBLOCK + 6));
+    store8(work + WTMP + 15, load8(work + WBLOCK + 11));
+    e0 = 0;
+    while e0 < 16 {
+        store8(work + WBLOCK + e0, load8(work + WTMP + e0));
+        e0 = e0 + 1;
+    }
+    ret;
+}
+
+proc mix_columns {
+    # every column of the state multiplied by its matrix (FIPS 197 §5.1.3): the products by x
+    # are xtime, the products by x + 1 are xtime and the byte itself
+    e0 = 0;
+    while e0 < 16 {
+        e4 = load8(work + WBLOCK + e0);
+        e5 = load8(work + WBLOCK + e0 + 1);
+        e6 = load8(work + WBLOCK + e0 + 2);
+        e7 = load8(work + WBLOCK + e0 + 3);
+        store8(work + WTMP + e0, xor8_(xor8_(xor8_(xtime8_(e4), xor8_(xtime8_(e5), e5)), e6), e7));
+        store8(work + WTMP + e0 + 1, xor8_(xor8_(xor8_(e4, xtime8_(e5)), xor8_(xtime8_(e6), e6)), e7));
+        store8(work + WTMP + e0 + 2, xor8_(xor8_(xor8_(e4, e5), xtime8_(e6)), xor8_(xtime8_(e7), e7)));
+        store8(work + WTMP + e0 + 3, xor8_(xor8_(xor8_(xor8_(xtime8_(e4), e4), e5), e6), xtime8_(e7)));
+        e0 = e0 + 4;
+    }
+    e0 = 0;
+    while e0 < 16 {
+        store8(work + WBLOCK + e0, load8(work + WTMP + e0));
+        e0 = e0 + 1;
+    }
+    ret;
+}
+
+proc round_key {
+    # the round of e1 adds its key (the schedule is 16 bytes to a round)
+    e0 = 0;
+    while e0 < 16 {
+        store8(work + WBLOCK + e0, xor8_(load8(work + WBLOCK + e0), load8(work + WRK + (e1 << 4) + e0)));
+        e0 = e0 + 1;
+    }
+    ret;
+}
+
+proc aes256_encrypt {
+    # the block at work + WBLOCK: the first AddRoundKey, thirteen rounds of SubBytes,
+    # ShiftRows, MixColumns and AddRoundKey, and the last round without MixColumns
+    e1 = 0;
+    call round_key;
+    e1 = 1;
+    while e1 < 14 {
+        call aes_subbytes;
+        call shift_rows;
+        call mix_columns;
+        call round_key;
+        e1 = e1 + 1;
+    }
+    call aes_subbytes;
+    call shift_rows;
+    call round_key;
+    ret;
+}
+
+# ---- the GHASH multiply (NIST SP 800-38D §6.3) ----------------------------------------------------
+proc gf128_mul {
+    # g2 = g0 * g1 over GF(2^128) with the GCM polynomial x^128 + x^7 + x^2 + x + 1: a fixed
+    # 128 shift and mask steps, the same for every value, the top half of x first
+    g3 = bswap64_(load64(g0));
+    g4 = bswap64_(load64(g0 + 8));
+    g5 = bswap64_(load64(g1));
+    g6 = bswap64_(load64(g1 + 8));
+    g7 = 0;
+    g8 = 0;
+    g9 = 0x8000000000000000;
+    g10 = 0;
+    while g10 < 64 {
+        g11 = 0 - ((g3 & g9) == g9);
+        g7 = xor64_(g7, g5 & g11);
+        g8 = xor64_(g8, g6 & g11);
+        g12 = 0 - ((g6 & 1) == 1);
+        g6 = (g6 >> 1) | (g5 << 63);
+        g5 = g5 >> 1;
+        g5 = xor64_(g5, 0xE100000000000000 & g12);
+        g9 = g9 >> 1;
+        g10 = g10 + 1;
+    }
+    g9 = 0x8000000000000000;
+    g10 = 0;
+    while g10 < 64 {
+        g11 = 0 - ((g4 & g9) == g9);
+        g7 = xor64_(g7, g5 & g11);
+        g8 = xor64_(g8, g6 & g11);
+        g12 = 0 - ((g6 & 1) == 1);
+        g6 = (g6 >> 1) | (g5 << 63);
+        g5 = g5 >> 1;
+        g5 = xor64_(g5, 0xE100000000000000 & g12);
+        g9 = g9 >> 1;
+        g10 = g10 + 1;
+    }
+    store64(g2, bswap64_(g7));
+    store64(g2 + 8, bswap64_(g8));
+    ret;
+}
+
+proc ghash_update {
+    # g0 = the bytes, g1 = their count: zero-padded to a block, they ride the accumulator at
+    # work + WY under the hash subkey at work + WH (SP 800-38D §6.4)
+    store64(work + WUPD, g0);
+    store64(work + WUPD + 8, g1);
+    while load64(work + WUPD + 8) > 0 {
+        fill(work + WBOOK, 0, 16);
+        h0 = 16;
+        if h0 > load64(work + WUPD + 8) {
+            h0 = load64(work + WUPD + 8);
+        }
+        h1 = 0;
+        while h1 < h0 {
+            store8(work + WBOOK + h1, load8(load64(work + WUPD) + h1));
+            h1 = h1 + 1;
+        }
+        h1 = 0;
+        while h1 < 16 {
+            store8(work + WX + h1, xor8_(load8(work + WY + h1), load8(work + WBOOK + h1)));
+            h1 = h1 + 1;
+        }
+        g0 = work + WH;
+        g1 = work + WX;
+        g2 = work + WY;
+        call gf128_mul;
+        store64(work + WUPD, load64(work + WUPD) + h0);
+        store64(work + WUPD + 8, load64(work + WUPD + 8) - h0);
+    }
+    ret;
+}
+
+# ---- the AEAD construction (NIST SP 800-38D §7) ---------------------------------------------------
+proc gcm_head {
+    # the hash subkey and the counter block of J0 = nonce || 0x00000001 (§7.1)
+    k0 = key;
+    call aes256_expand;
+    fill(work + WBLOCK, 0, 16);
+    call aes256_encrypt;
+    store64(work + WH, load64(work + WBLOCK));
+    store64(work + WH + 8, load64(work + WBLOCK + 8));
+    h0 = 0;
+    while h0 < 12 {
+        store8(work + WCTR + h0, load8(nonce + h0));
+        h0 = h0 + 1;
+    }
+    fill(work + WCTR + 12, 0, 4);
+    store8(work + WCTR + 15, 1);
+    ret;
+}
+
+proc inc32 {
+    # the 32-bit big-endian counter at the tail of the block (§7.2)
+    h2 = bswap32_(load32(work + WCTR + 12));
+    h2 = (h2 + 1) & 0xFFFFFFFF;
+    store32(work + WCTR + 12, bswap32_(h2));
+    ret;
+}
+
+proc gctr_apply {
+    # s0 = the bytes, s1 = their count, s2 = where the xored bytes land (the same bytes work):
+    # every block is xored with E_k over the counter, which walks on by one
+    s3 = s1;
+    s4 = s0;
+    s5 = s2;
+    while s3 > 0 {
+        h0 = 0;
+        while h0 < 16 {
+            store8(work + WBLOCK + h0, load8(work + WCTR + h0));
+            h0 = h0 + 1;
+        }
+        call aes256_encrypt;
+        h0 = 16;
+        if h0 > s3 {
+            h0 = s3;
+        }
+        h1 = 0;
+        while h1 < h0 {
+            store8(s5 + h1, xor8_(load8(s4 + h1), load8(work + WBLOCK + h1)));
+            h1 = h1 + 1;
+        }
+        s4 = s4 + h0;
+        s5 = s5 + h0;
+        s3 = s3 - h0;
+        call inc32;
+    }
+    ret;
+}
+
+proc gcm_mac {
+    # the tag of these bytes: Y over the aad and the ciphertext (s1 = the ciphertext's length,
+    # s2 its bytes), the length block, and E_k(J0) over it -- it lands at work + WTAG
+    store64(work + WY, 0);
+    store64(work + WY + 8, 0);
+    g0 = aad;
+    g1 = aad_len;
+    call ghash_update;
+    g0 = s2;
+    g1 = s1;
+    call ghash_update;
+    store64(work + WLEN, bswap64_(aad_len << 3));
+    store64(work + WLEN + 8, bswap64_(s1 << 3));
+    h1 = 0;
+    while h1 < 16 {
+        store8(work + WX + h1, xor8_(load8(work + WY + h1), load8(work + WLEN + h1)));
+        h1 = h1 + 1;
+    }
+    g0 = work + WH;
+    g1 = work + WX;
+    g2 = work + WY;
+    call gf128_mul;
+    h0 = 0;
+    while h0 < 12 {
+        store8(work + WBLOCK + h0, load8(nonce + h0));
+        h0 = h0 + 1;
+    }
+    fill(work + WBLOCK + 12, 0, 4);
+    store8(work + WBLOCK + 15, 1);
+    call aes256_encrypt;
+    h0 = 0;
+    while h0 < 16 {
+        store8(work + WTAG + h0, xor8_(load8(work + WBLOCK + h0), load8(work + WY + h0)));
+        h0 = h0 + 1;
+    }
+    ret;
+}
+
+proc gcm_seal {
+    # out receives the ciphertext || the 16-byte tag of text, text_len (§7.1)
+    call gcm_head;
+    call inc32;
+    s0 = text;
+    s1 = text_len;
+    s2 = out;
+    call gctr_apply;
+    s1 = text_len;
+    s2 = out;
+    call gcm_mac;
+    h0 = 0;
+    while h0 < 16 {
+        store8(out + text_len + h0, load8(work + WTAG + h0));
+        h0 = h0 + 1;
+    }
+    ret;
+}
+
+proc gcm_open {
+    # out receives the plaintext of text, text_len (which is the ciphertext || the tag); a tag
+    # that is not the tag of these bytes refuses and nothing is written
+    if text_len < 16 {
+        refuse RXF_REFUSE_OUT_OF_RANGE;
+    }
+    call gcm_head;
+    s1 = text_len - 16;
+    s2 = text;
+    call gcm_mac;
+    h0 = 0;
+    h1 = 0;
+    while h1 < 16 {
+        h0 = h0 | xor8_(load8(work + WTAG + h1), load8(text + (text_len - 16) + h1));
+        h1 = h1 + 1;
+    }
+    if h0 != 0 {
+        refuse RXF_REFUSE_OUT_OF_RANGE;
+    }
+    call inc32;
+    s0 = text;
+    s1 = text_len - 16;
+    s2 = out;
+    call gctr_apply;
+    ret;
+}

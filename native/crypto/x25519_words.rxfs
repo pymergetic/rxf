@@ -1,0 +1,72 @@
+# words x25519 (v1): the numbers of the field elements of RFC 7748.
+#
+# Every element is five 64-bit limbs at a work offset: limb i holds bits 51i .. 51i + 50 of
+# the number little-endian, the same shape as the Rust form this replaces. The kernel's
+# products are shift-and-add (the engine has no `*`); p is 2^255 - 19 and the carries fold
+# with 2^255 ≡ 19 mod p. The u-coordinate's top bit is dropped on the way in and stays
+# clear on the way out, as RFC 7748 §5 says.
+#
+# The work region (a caller of a face hands in 1280 bytes; the layout is per-invocation):
+#
+#   WSK   0    40   the clamped scalar of the program
+#   WX1   40   40   x1 (the point)
+#   WX2   80   40   x2      \
+#   WZ2   120  40   z2       >  the two pairs of the Montgomery ladder
+#   WX3   160  40   x3       |
+#   WZ3   200  40   z3      /
+#   WA    240  40   A        \
+#   WAA   280  40   AA        |
+#   WB    320  40   B         |
+#   WBB   360  40   BB        |
+#   WE    400  40   E         >  the ladder's temps (the ref10 form)
+#   WC    440  40   C         |
+#   WD    480  40   D         |
+#   WDA   520  40   DA        |
+#   WCB   560  40   CB        |
+#   WT    600  40   DA ± CB  /
+#   WA24E 640  40   a24 · E
+#   WWR   680  40   the accumulator of fe_invert
+#   WB19  720  40   the second factor folded ×19 (fe_mul)
+#   WD0   760  16   \
+#   WD1   776  16    |
+#   WD2   792  16    >  the five product accumulators of fe_mul
+#   WD3   808  16    |
+#   WD4   824  16   /
+#   WZP   840  8    the z address fe_invert holds across its walk
+#   WEXP  848  32   the exponent p - 2 (little-endian bytes)
+#   WSTACK 880 256  the call stack
+
+const WSK = 0;
+const WX1 = 40;
+const WX2 = 80;
+const WZ2 = 120;
+const WX3 = 160;
+const WZ3 = 200;
+const WA = 240;
+const WAA = 280;
+const WB = 320;
+const WBB = 360;
+const WE = 400;
+const WC = 440;
+const WD = 480;
+const WDA = 520;
+const WCB = 560;
+const WT = 600;
+const WA24E = 640;
+const WWR = 680;
+const WB19 = 720;
+const WD0 = 760;
+const WD1 = 776;
+const WD2 = 792;
+const WD3 = 808;
+const WD4 = 824;
+const WZP = 840;
+const WEXP = 848;
+const WSTACK = 880;
+
+const M51 = 0x7FFFFFFFFFFFF;
+const TWO_P0 = 0xFFFFFFFFFFFDA;
+const TWO_P1 = 0xFFFFFFFFFFFFE;
+
+fn xor64_(a, b) = ((((a) | (b)) & 0xFFFFFFFFFFFFFFFF) - (((a) & (b)) & 0xFFFFFFFFFFFFFFFF));
+fn times19_(a) = (((((a) << 4) & 0xFFFFFFFFFFFFFFFF) + (((a) << 1) & 0xFFFFFFFFFFFFFFFF)) + (a));

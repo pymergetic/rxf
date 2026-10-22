@@ -1,0 +1,525 @@
+# kernel x25519 (v1): the field arithmetic of RFC 7748 and the Montgomery ladder.
+#
+# fprod is the product of the engine: shift-and-add over fifty-eight steps (the factors stay
+# under 2^52, the ×19 fold under 2^56), one factor walking left while the bits of the other walk down a mask. fe_mul is the
+# twenty-five products of the five limbs with the wrap-around factor folded ×19, fe_reduce
+# the carries onto the five result limbs. The ladder of x25519_run is the 255-step walk of
+# RFC 7748 §5 in the ref10 form: at each step the pairs (x2, z2) and (x3, z3) trade places
+# where the bit says so (cswap, the mask select), then A = x2 + z2, B = x2 - z2,
+# C = x3 + z3, D = x3 - z3 collect x3 = (DA + CB)², z3 = x1 · (DA - CB)², x2 = AA · BB and
+# z2 = E · (AA + 121665 · E) with E = AA - BB. Every step is the same program whatever the
+# bit is (constant time by construction), and the result is x2 · z2^(p-2).
+#
+# Registers: m0..m2 are the operands and result of the field words (m0 = a, m1 = b,
+# m2 = out, elements may overlap: the products read both fully before the result is
+# written); m3..m8 are their scratch; f0..f9 are the product scratch; i0..i4 are
+# fe_invert's walk; l0..l5 are the ladder's. Every proc keeps the stack clean and writes
+# its result where the caller said.
+
+proc fprod {
+    # the double word at f2 grows by f0 * f1: the factor walks left while the bits of the
+    # other walk down a mask, the accumand added wherever a bit is set. The walk covers
+    # fifty-eight bits: the factors stay under 2^52, and the ×19 fold of fe_mul under 2^56.
+    f3 = f1;
+    f4 = f0;
+    f5 = f0 >> 63;
+    f6 = 0;
+    while f6 < 58 {
+        f7 = 0 - (f3 & 1);
+        f8 = load64(f2);
+        f8 = f8 + (f4 & f7);
+        store64(f2, f8);
+        f9 = load64(f2 + 8);
+        f9 = f9 + (f5 & f7) + (f8 < (f4 & f7));
+        store64(f2 + 8, f9);
+        f5 = (f5 << 1) | (f4 >> 63);
+        f4 = f4 << 1;
+        f3 = f3 >> 1;
+        f6 = f6 + 1;
+    }
+    ret;
+}
+
+proc fe_carry {
+    # the carries walk limb to limb and the spill of the last ×19 back onto the first
+    # (2^255 ≡ 19 mod p), then one settling pass on the first two
+    m3 = load64(m0);
+    m4 = load64(m0 + 8);
+    m5 = load64(m0 + 16);
+    m6 = load64(m0 + 24);
+    m7 = load64(m0 + 32);
+    m8 = m3 >> 51;
+    m3 = m3 & M51;
+    m4 = m4 + m8;
+    m8 = m4 >> 51;
+    m4 = m4 & M51;
+    m5 = m5 + m8;
+    m8 = m5 >> 51;
+    m5 = m5 & M51;
+    m6 = m6 + m8;
+    m8 = m6 >> 51;
+    m6 = m6 & M51;
+    m7 = m7 + m8;
+    m8 = m7 >> 51;
+    m7 = m7 & M51;
+    m3 = m3 + times19_(m8);
+    m8 = m3 >> 51;
+    m3 = m3 & M51;
+    m4 = m4 + m8;
+    store64(m0, m3);
+    store64(m0 + 8, m4);
+    store64(m0 + 16, m5);
+    store64(m0 + 24, m6);
+    store64(m0 + 32, m7);
+    ret;
+}
+
+proc fe_reduce {
+    # the five two-word accumulators of fe_mul collapse into the five limbs at m0, the
+    # spill of the last ×19 onto the first (the Rust form's u128 reduction), one settling
+    # pass on the first two limbs
+    f0 = load64(work + WD0);
+    f1 = load64(work + WD0 + 8);
+    f2 = (f1 << 13) | (f0 >> 51);
+    f0 = f0 & M51;
+    store64(m0, f0);
+    f3 = load64(work + WD1);
+    f3 = f3 + f2;
+    f4 = load64(work + WD1 + 8);
+    f4 = f4 + (f3 < f2);
+    store64(work + WD1, f3);
+    store64(work + WD1 + 8, f4);
+    f2 = (f4 << 13) | (f3 >> 51);
+    f3 = f3 & M51;
+    store64(m0 + 8, f3);
+    f3 = load64(work + WD2);
+    f3 = f3 + f2;
+    f4 = load64(work + WD2 + 8);
+    f4 = f4 + (f3 < f2);
+    store64(work + WD2, f3);
+    store64(work + WD2 + 8, f4);
+    f2 = (f4 << 13) | (f3 >> 51);
+    f3 = f3 & M51;
+    store64(m0 + 16, f3);
+    f3 = load64(work + WD3);
+    f3 = f3 + f2;
+    f4 = load64(work + WD3 + 8);
+    f4 = f4 + (f3 < f2);
+    store64(work + WD3, f3);
+    store64(work + WD3 + 8, f4);
+    f2 = (f4 << 13) | (f3 >> 51);
+    f3 = f3 & M51;
+    store64(m0 + 24, f3);
+    f0 = load64(work + WD4);
+    f1 = load64(work + WD4 + 8);
+    f3 = f0 + f2;
+    f4 = f1 + (f3 < f2);
+    f2 = (f4 << 13) | (f3 >> 51);
+    f0 = f3 & M51;
+    store64(m0 + 32, f0);
+    f2 = times19_(f2);
+    f0 = load64(m0);
+    f0 = f0 + f2;
+    f2 = f0 >> 51;
+    f0 = f0 & M51;
+    store64(m0, f0);
+    f0 = load64(m0 + 8);
+    f0 = f0 + f2;
+    store64(m0 + 8, f0);
+    ret;
+}
+
+proc fe_add {
+    # the limbs add, then fe_carry's passes
+    m3 = load64(m0);
+    m3 = m3 + load64(m1);
+    store64(m2, m3);
+    m3 = load64(m0 + 8);
+    m3 = m3 + load64(m1 + 8);
+    store64(m2 + 8, m3);
+    m3 = load64(m0 + 16);
+    m3 = m3 + load64(m1 + 16);
+    store64(m2 + 16, m3);
+    m3 = load64(m0 + 24);
+    m3 = m3 + load64(m1 + 24);
+    store64(m2 + 24, m3);
+    m3 = load64(m0 + 32);
+    m3 = m3 + load64(m1 + 32);
+    store64(m2 + 32, m3);
+    m0 = m2;
+    call fe_carry;
+    ret;
+}
+
+proc fe_sub {
+    # p = 2^255 - 19: the limbs add 2p and subtract, then fe_carry's passes
+    m3 = load64(m0);
+    m3 = m3 + TWO_P0 - load64(m1);
+    store64(m2, m3);
+    m3 = load64(m0 + 8);
+    m3 = m3 + TWO_P1 - load64(m1 + 8);
+    store64(m2 + 8, m3);
+    m3 = load64(m0 + 16);
+    m3 = m3 + TWO_P1 - load64(m1 + 16);
+    store64(m2 + 16, m3);
+    m3 = load64(m0 + 24);
+    m3 = m3 + TWO_P1 - load64(m1 + 24);
+    store64(m2 + 24, m3);
+    m3 = load64(m0 + 32);
+    m3 = m3 + TWO_P1 - load64(m1 + 32);
+    store64(m2 + 32, m3);
+    m0 = m2;
+    call fe_carry;
+    ret;
+}
+
+proc fe_mul {
+    # the twenty-five products of the limbs into the five accumulators (the second factor
+    # folded ×19 for the wrap-around), then fe_reduce
+    f0 = load64(m1);
+    store64(work + WB19, times19_(f0));
+    f0 = load64(m1 + 8);
+    store64(work + WB19 + 8, times19_(f0));
+    f0 = load64(m1 + 16);
+    store64(work + WB19 + 16, times19_(f0));
+    f0 = load64(m1 + 24);
+    store64(work + WB19 + 24, times19_(f0));
+    f0 = load64(m1 + 32);
+    store64(work + WB19 + 32, times19_(f0));
+    fill(work + WD0, 0, 80);
+    m3 = 0;
+    while m3 < 5 {
+        m4 = 0;
+        while m4 < 5 {
+            m5 = m3 + m4;
+            if m5 < 5 {
+                f1 = load64(m1 + (m4 << 3));
+                f2 = work + WD0 + (m5 << 4);
+            }
+            if m5 >= 5 {
+                f1 = load64(work + WB19 + (m4 << 3));
+                f2 = work + WD0 + ((m5 - 5) << 4);
+            }
+            f0 = load64(m0 + (m3 << 3));
+            call fprod;
+            m4 = m4 + 1;
+        }
+        m3 = m3 + 1;
+    }
+    m0 = m2;
+    call fe_reduce;
+    ret;
+}
+
+proc fe_mul121665 {
+    # the constant a24 = 121665 of the ladder: five products instead of twenty-five
+    fill(work + WD0, 0, 80);
+    f1 = 121665;
+    f2 = work + WD0;
+    f0 = load64(m0);
+    call fprod;
+    f2 = work + WD1;
+    f0 = load64(m0 + 8);
+    call fprod;
+    f2 = work + WD2;
+    f0 = load64(m0 + 16);
+    call fprod;
+    f2 = work + WD3;
+    f0 = load64(m0 + 24);
+    call fprod;
+    f2 = work + WD4;
+    f0 = load64(m0 + 32);
+    call fprod;
+    m0 = m1;
+    call fe_reduce;
+    ret;
+}
+
+proc fe_frombytes {
+    # the 32 bytes little-endian as the five 51-bit limbs, the top bit dropped (RFC 7748 §5
+    # masks the u-coordinate's high bit on the way in)
+    f0 = load64(m0);
+    f1 = load64(m0 + 8);
+    f2 = load64(m0 + 16);
+    f3 = load64(m0 + 24);
+    f4 = f0 & M51;
+    store64(m1, f4);
+    f4 = ((f0 >> 51) | (f1 << 13)) & M51;
+    store64(m1 + 8, f4);
+    f4 = ((f1 >> 38) | (f2 << 26)) & M51;
+    store64(m1 + 16, f4);
+    f4 = ((f2 >> 25) | (f3 << 39)) & M51;
+    store64(m1 + 24, f4);
+    f4 = (f3 >> 12) & M51;
+    store64(m1 + 32, f4);
+    ret;
+}
+
+proc fe_tobytes {
+    # fe_carry, then the q of the "h >= p" test walked down the limbs (the Rust form's
+    # reduction: q = 1 exactly when h + 19 crosses 2^255), then the limbs packed at their
+    # bit offsets, the top bit left clear
+    call fe_carry;
+    f0 = load64(m0);
+    f1 = (f0 + 19) >> 51;
+    f0 = load64(m0 + 8);
+    f1 = (f0 + f1) >> 51;
+    f0 = load64(m0 + 16);
+    f1 = (f0 + f1) >> 51;
+    f0 = load64(m0 + 24);
+    f1 = (f0 + f1) >> 51;
+    f0 = load64(m0 + 32);
+    f1 = (f0 + f1) >> 51;
+    f2 = times19_(f1);
+    f0 = load64(m0);
+    f0 = f0 + f2;
+    f1 = f0 >> 51;
+    f0 = f0 & M51;
+    store64(m0, f0);
+    f0 = load64(m0 + 8);
+    f0 = f0 + f1;
+    f1 = f0 >> 51;
+    f0 = f0 & M51;
+    store64(m0 + 8, f0);
+    f0 = load64(m0 + 16);
+    f0 = f0 + f1;
+    f1 = f0 >> 51;
+    f0 = f0 & M51;
+    store64(m0 + 16, f0);
+    f0 = load64(m0 + 24);
+    f0 = f0 + f1;
+    f1 = f0 >> 51;
+    f0 = f0 & M51;
+    store64(m0 + 24, f0);
+    f0 = load64(m0 + 32);
+    f0 = f0 + f1;
+    f0 = f0 & M51;
+    store64(m0 + 32, f0);
+    f0 = load64(m0);
+    f1 = load64(m0 + 8);
+    f2 = load64(m0 + 16);
+    f3 = load64(m0 + 24);
+    f4 = load64(m0 + 32);
+    f5 = f0 | (f1 << 51);
+    store64(m1, f5);
+    f5 = (f1 >> 13) | (f2 << 38);
+    store64(m1 + 8, f5);
+    f5 = (f2 >> 26) | (f3 << 25);
+    store64(m1 + 16, f5);
+    f5 = (f3 >> 39) | (f4 << 12);
+    store64(m1 + 24, f5);
+    ret;
+}
+
+proc fe_invert {
+    # z^(p - 2) = z^(-1) mod p: the 256-bit walk of the exponent's bytes from the top, one
+    # square per bit and one product wherever a bit is set (the Rust form's table-free walk)
+    store64(work + WZP, m0);
+    i4 = m1;
+    fill(work + WEXP, 255, 32);
+    store8(work + WEXP, 235);
+    store8(work + WEXP + 31, 127);
+    fill(work + WWR, 0, 40);
+    store64(work + WWR, 1);
+    i0 = 31;
+    i1 = 128;
+    i2 = 0;
+    while i2 < 256 {
+        m0 = work + WWR;
+        m1 = work + WWR;
+        m2 = work + WWR;
+        call fe_mul;
+        i3 = load8(work + WEXP + i0) & i1;
+        i3 = 0 - ((i3 | (0 - i3)) >> 63);
+        if i3 != 0 {
+            m0 = work + WWR;
+            m1 = load64(work + WZP);
+            m2 = work + WWR;
+            call fe_mul;
+        }
+        i1 = i1 >> 1;
+        if i1 == 0 {
+            i1 = 128;
+            i0 = i0 - 1;
+        }
+        i2 = i2 + 1;
+    }
+    f1 = load64(work + WWR);
+    f2 = load64(work + WWR + 8);
+    f3 = load64(work + WWR + 16);
+    f4 = load64(work + WWR + 24);
+    f5 = load64(work + WWR + 32);
+    store64(i4, f1);
+    store64(i4 + 8, f2);
+    store64(i4 + 16, f3);
+    store64(i4 + 24, f4);
+    store64(i4 + 32, f5);
+    ret;
+}
+
+proc cswap {
+    # the limbs of the two elements trade places under the mask of l0 (the ladder's swap
+    # bit, 0 or 1) — the same steps whatever the bit is
+    f0 = 0 - l0;
+    f1 = 0;
+    while f1 < 40 {
+        f2 = load64(m0 + f1);
+        f3 = load64(m1 + f1);
+        f4 = xor64_(f2, f3);
+        f4 = f0 & f4;
+        f5 = xor64_(f2, f4);
+        f6 = xor64_(f3, f4);
+        store64(m0 + f1, f5);
+        store64(m1 + f1, f6);
+        f1 = f1 + 8;
+    }
+    ret;
+}
+
+proc x25519_finish {
+    # the ladder of the point in x1, then its u-coordinate to out: the all-zero secret of a
+    # low-order point refuses (RFC 7748 §6.1 — no other zero comes out of the ladder)
+    call x25519_run;
+    m0 = work + WX2;
+    m1 = out;
+    call fe_tobytes;
+    f0 = load64(out);
+    f1 = load64(out + 8);
+    f2 = load64(out + 16);
+    f3 = load64(out + 24);
+    f0 = f0 | f1 | f2 | f3;
+    if f0 == 0 {
+        refuse RXF_REFUSE_OUT_OF_RANGE;
+    }
+    ret;
+}
+
+proc x25519_run {
+    # x2 = 1, z2 = 0, x3 = x1, z3 = 1 — the two pairs the ladder walks
+    fill(work + WX2, 0, 40);
+    store64(work + WX2, 1);
+    fill(work + WZ2, 0, 40);
+    f0 = load64(work + WX1);
+    store64(work + WX3, f0);
+    f0 = load64(work + WX1 + 8);
+    store64(work + WX3 + 8, f0);
+    f0 = load64(work + WX1 + 16);
+    store64(work + WX3 + 16, f0);
+    f0 = load64(work + WX1 + 24);
+    store64(work + WX3 + 24, f0);
+    f0 = load64(work + WX1 + 32);
+    store64(work + WX3 + 32, f0);
+    fill(work + WZ3, 0, 40);
+    store64(work + WZ3, 1);
+
+    l0 = 0;
+    l2 = 31;
+    l3 = 64;
+    l1 = 0;
+    while l1 < 255 {
+        l4 = load8(work + WSK + l2) & l3;
+        l4 = (l4 | (0 - l4)) >> 63;
+        l0 = xor64_(l0, l4);
+        m0 = work + WX2;
+        m1 = work + WX3;
+        call cswap;
+        m0 = work + WZ2;
+        m1 = work + WZ3;
+        call cswap;
+        l0 = l4;
+
+        m0 = work + WX2;
+        m1 = work + WZ2;
+        m2 = work + WA;
+        call fe_add;
+        m0 = work + WA;
+        m1 = work + WA;
+        m2 = work + WAA;
+        call fe_mul;
+        m0 = work + WX2;
+        m1 = work + WZ2;
+        m2 = work + WB;
+        call fe_sub;
+        m0 = work + WB;
+        m1 = work + WB;
+        m2 = work + WBB;
+        call fe_mul;
+        m0 = work + WAA;
+        m1 = work + WBB;
+        m2 = work + WE;
+        call fe_sub;
+        m0 = work + WX3;
+        m1 = work + WZ3;
+        m2 = work + WC;
+        call fe_add;
+        m0 = work + WX3;
+        m1 = work + WZ3;
+        m2 = work + WD;
+        call fe_sub;
+        m0 = work + WD;
+        m1 = work + WA;
+        m2 = work + WDA;
+        call fe_mul;
+        m0 = work + WC;
+        m1 = work + WB;
+        m2 = work + WCB;
+        call fe_mul;
+        m0 = work + WDA;
+        m1 = work + WCB;
+        m2 = work + WT;
+        call fe_add;
+        m0 = work + WT;
+        m1 = work + WT;
+        m2 = work + WX3;
+        call fe_mul;
+        m0 = work + WDA;
+        m1 = work + WCB;
+        m2 = work + WT;
+        call fe_sub;
+        m0 = work + WT;
+        m1 = work + WT;
+        m2 = work + WT;
+        call fe_mul;
+        m0 = work + WX1;
+        m1 = work + WT;
+        m2 = work + WZ3;
+        call fe_mul;
+        m0 = work + WAA;
+        m1 = work + WBB;
+        m2 = work + WX2;
+        call fe_mul;
+        m0 = work + WE;
+        m1 = work + WA24E;
+        call fe_mul121665;
+        m0 = work + WAA;
+        m1 = work + WA24E;
+        m2 = work + WT;
+        call fe_add;
+        m0 = work + WE;
+        m1 = work + WT;
+        m2 = work + WZ2;
+        call fe_mul;
+
+        l3 = l3 >> 1;
+        if l3 == 0 {
+            l3 = 128;
+            l2 = l2 - 1;
+        }
+        l1 = l1 + 1;
+    }
+    m0 = work + WX2;
+    m1 = work + WX3;
+    call cswap;
+    m0 = work + WZ2;
+    m1 = work + WZ3;
+    call cswap;
+
+    m0 = work + WZ2;
+    m1 = work + WT;
+    call fe_invert;
+    m0 = work + WX2;
+    m1 = work + WT;
+    m2 = work + WX2;
+    call fe_mul;
+    ret;
+}

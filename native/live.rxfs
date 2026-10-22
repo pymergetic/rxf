@@ -3240,6 +3240,7 @@ macro m_apply_replay() {
     var ar_parent;
     var ar_old;
     var ar_to;
+    var ar_nref;
     var ar_k;
     var ar_s;
     var ar_t;
@@ -3442,33 +3443,46 @@ macro m_apply_replay() {
                             jb_reason = 7;
                             ar_ok = 0;
                         } else {
-                            ar_to = rw_r;
-                            ar_k = 0;
-                            while (ar_k < load32(ar_d + ar_opos + 36)) {
-                                store64(ar_to + 24 * ar_k, 0xFFFFFFFFFFFFFFFF);
-                                store64(ar_to + 24 * ar_k + 8, 0xFFFFFFFFFFFFFFFF);
-                                store16(ar_to + 24 * ar_k + 16, load16(ar_rlist + 16 * ar_k + 8));
-                                store16(ar_to + 24 * ar_k + 18, load16(ar_rlist + 16 * ar_k + 10));
-                                store32(ar_to + 24 * ar_k + 20, load32(ar_rlist + 16 * ar_k + 12));
-                                if (load32(ar_rlist + 16 * ar_k) != 0xFFFFFFFF) {
-                                    store32(ar_pend + 20 * ar_npend, ar_h);
-                                    store32(ar_pend + 20 * ar_npend + 4, 2);
-                                    store32(ar_pend + 20 * ar_npend + 8, ar_k);
-                                    store32(ar_pend + 20 * ar_npend + 12,
-                                            load32(ar_rlist + 16 * ar_k));
-                                    store32(ar_pend + 20 * ar_npend + 16, ar_i);
-                                    ar_npend = ar_npend + 1;
+                            # The rows the doc names must fit the cell's own ref
+                            # area: s_refs_w journals and returns only
+                            # 24 * load32(ce_r + 44) bytes, and a row count past
+                            # that writes ref fields over whatever follows the
+                            # cell (the frame). A doc that claims more refs than
+                            # the cell was made or resized with is refused.
+                            callsub s_cell(ar_h);
+                            ar_nref = load32(ce_r + 44);
+                            if (load32(ar_d + ar_opos + 36) > ar_nref) {
+                                jb_reason = 7;
+                                ar_ok = 0;
+                            } else {
+                                ar_to = rw_r;
+                                ar_k = 0;
+                                while (ar_k < load32(ar_d + ar_opos + 36)) {
+                                    store64(ar_to + 24 * ar_k, 0xFFFFFFFFFFFFFFFF);
+                                    store64(ar_to + 24 * ar_k + 8, 0xFFFFFFFFFFFFFFFF);
+                                    store16(ar_to + 24 * ar_k + 16, load16(ar_rlist + 16 * ar_k + 8));
+                                    store16(ar_to + 24 * ar_k + 18, load16(ar_rlist + 16 * ar_k + 10));
+                                    store32(ar_to + 24 * ar_k + 20, load32(ar_rlist + 16 * ar_k + 12));
+                                    if (load32(ar_rlist + 16 * ar_k) != 0xFFFFFFFF) {
+                                        store32(ar_pend + 20 * ar_npend, ar_h);
+                                        store32(ar_pend + 20 * ar_npend + 4, 2);
+                                        store32(ar_pend + 20 * ar_npend + 8, ar_k);
+                                        store32(ar_pend + 20 * ar_npend + 12,
+                                                load32(ar_rlist + 16 * ar_k));
+                                        store32(ar_pend + 20 * ar_npend + 16, ar_i);
+                                        ar_npend = ar_npend + 1;
+                                    }
+                                    if (load32(ar_rlist + 16 * ar_k + 4) != 0xFFFFFFFF) {
+                                        store32(ar_pend + 20 * ar_npend, ar_h);
+                                        store32(ar_pend + 20 * ar_npend + 4, 3);
+                                        store32(ar_pend + 20 * ar_npend + 8, ar_k);
+                                        store32(ar_pend + 20 * ar_npend + 12,
+                                                load32(ar_rlist + 16 * ar_k + 4));
+                                        store32(ar_pend + 20 * ar_npend + 16, ar_i);
+                                        ar_npend = ar_npend + 1;
+                                    }
+                                    ar_k = ar_k + 1;
                                 }
-                                if (load32(ar_rlist + 16 * ar_k + 4) != 0xFFFFFFFF) {
-                                    store32(ar_pend + 20 * ar_npend, ar_h);
-                                    store32(ar_pend + 20 * ar_npend + 4, 3);
-                                    store32(ar_pend + 20 * ar_npend + 8, ar_k);
-                                    store32(ar_pend + 20 * ar_npend + 12,
-                                            load32(ar_rlist + 16 * ar_k + 4));
-                                    store32(ar_pend + 20 * ar_npend + 16, ar_i);
-                                    ar_npend = ar_npend + 1;
-                                }
-                                ar_k = ar_k + 1;
                             }
                         }
                     }
@@ -4446,6 +4460,11 @@ fn live_pump(context, area) {
     var tyT[48], tyV[48], flF[48], flH[48];
     var rframes[432], roffsets[512], rext_off[2048], rext_end[2048];
     var jemit_base, jemit_cap, scratch_base;
+
+    # The journal state is established per request by m_begin; it starts empty here whatever the
+    # frame carried in. The frame of a run is zero in tests/host/runner.c, but a dirty frame must
+    # never look like a journal that is already open (a refusal would roll back over garbage).
+    aj = 0;
 
     # native/live.cpp:101
     at = area;

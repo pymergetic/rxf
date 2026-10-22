@@ -1,0 +1,58 @@
+# The numbers of the AES-256-GCM kernel (NIST SP 800-38D, FIPS 197): the layout of the work
+# region and the arithmetic of the bytes. This is what a program includes before its entry; the
+# procs are aes_gcm_kernel.rxfs, included after it (a program comes before its procs).
+#
+# The work region its caller gives it (at least 704 bytes):
+#
+#   WRK     240   the 15 round keys of the schedule (16 bytes to a round)
+#   WBLOCK  16    the block being encrypted
+#   WTMP    16    the scratch of shift_rows and mix_columns
+#   WY      16    the GHASH accumulator
+#   WH      16    the hash subkey H = E(0)
+#   WX      16    the x of the GF(2^128) multiply
+#   WV      16    the y of the GF(2^128) multiply
+#   WZ      16    the z of the GF(2^128) multiply
+#   WCTR    16    the counter block
+#   WLEN    16    the length block of the AEAD mac
+#   WTAG    16    the tag a verification computes
+#   WUPD    32    the piece ghash_update is on (its bytes and their count)
+#   WBOOK   16    the block being filled (16 bytes of it are read)
+#   WSTACK  256   the stack of the ways back (`sp` of the entry; the call depth is 4)
+#
+# The faces of the card ride the `op` word of the program (aes_gcm.rxfs): the block cipher
+# the FIPS 197 vectors pin on its own, and the AEAD construction of SP 800-38D §7.
+#
+# The S-box is COMPUTED (aes_gcm_kernel.rxfs: the inverse in GF(2^8) and the affine map of
+# FIPS 197 §5.1.1), never looked up: there is no table, no index that depends on a secret,
+# and the same steps for every byte -- the words are the table-free face of the card.
+
+const WRK = 0;
+const WBLOCK = 240;
+const WTMP = 256;
+const WY = 272;
+const WH = 288;
+const WX = 304;
+const WV = 320;
+const WZ = 336;
+const WCTR = 352;
+const WLEN = 368;
+const WTAG = 384;
+const WUPD = 400;
+const WBOOK = 432;
+const WSTACK = 448;
+
+const FACE_ENCBLOCK = 1;
+const FACE_SEAL = 2;
+const FACE_OPEN = 3;
+
+# ---- the arithmetic of the words (the language has no `^` operator) -------------------------------
+fn xor64_(a, b) = ((((a) | (b)) & 0xFFFFFFFFFFFFFFFF) - (((a) & (b)) & 0xFFFFFFFFFFFFFFFF));
+fn xor8_(a, b) = (((((a) | (b)) & 0xFF) - (((a) & (b)) & 0xFF)) & 0xFF);
+
+# ---- the arithmetic of the Rijndael bytes (FIPS 197 §4.2) ----------------------------------------
+fn xtime8_(a) = xor8_(((((a) & 0xFF) << 1) & 0xFF), (0x1B & (0 - (((a) & 0xFF) >> 7))));
+fn rotl8_(x, n) = (((((x) & 0xFF) << (n)) | (((x) & 0xFF) >> (8 - (n)))) & 0xFF);
+
+# ---- the bytes of a word reversed: GHASH reads its blocks big-endian --------------------------------
+fn bswap32_(x) = ((((x) >> 24) & 0xFF) | ((((x) >> 16) & 0xFF) << 8) | ((((x) >> 8) & 0xFF) << 16) | (((x) & 0xFF) << 24));
+fn bswap64_(x) = ((((x) >> 56) & 0xFF) | ((((x) >> 48) & 0xFF) << 8) | ((((x) >> 40) & 0xFF) << 16) | ((((x) >> 32) & 0xFF) << 24) | ((((x) >> 24) & 0xFF) << 32) | ((((x) >> 16) & 0xFF) << 40) | ((((x) >> 8) & 0xFF) << 48) | (((x) & 0xFF) << 56));

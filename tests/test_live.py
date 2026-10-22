@@ -435,10 +435,12 @@ def test_a_full_undo_log_refuses_and_restores(starter: bytes):
         result.set_state(h, 9)
     compiled = physical.compile(base, result)
     assert compiled.sets > 3000
-    tiny = HostImage(starter, log=64 * 1024)
+    # the stage holds the whole delta whatever the starter grows to; the log is what this test shrinks
+    stage = 2 * len(compiled.data)
+    tiny = HostImage(starter, log=64 * 1024, stage=stage)
     refused(tiny, compiled.data, 7)
     # the same delta applies where the log is large enough, and gives what the host gives
-    roomy = HostImage(starter, log=8 * 1024 * 1024)
+    roomy = HostImage(starter, log=8 * 1024 * 1024, stage=stage)
     assert roomy.client.apply(compiled.data) == result.digest()
 
 

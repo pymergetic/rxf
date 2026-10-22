@@ -18,7 +18,7 @@ from pymergetic.rxftk.core import live, tree
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import link, physical
 from pymergetic.rxftk.live.client import Client
-from pymergetic.rxftk.live.harness import HostImage, table_slots
+from pymergetic.rxftk.live.harness import HostImage, fit, table_slots
 
 from . import live_serve
 from .snippets import STARTER
@@ -32,6 +32,12 @@ SIZES = {
     "emit": 8 * MiB,
     "ring": 1 << 16,
 }
+
+
+def sized(raw: bytes) -> dict:
+    """The area sizes with arena and emit holding this image (fit: what the linker gives it).
+    The starter grows; these are floors, never a ceiling the image cannot fit in."""
+    return {**SIZES, "arena": fit(raw), "emit": fit(raw)}
 
 DELTA = """<?xml version="1.0" encoding="UTF-8"?>
 <delta xmlns:rxf="urn:pymergetic:rxf">
@@ -56,25 +62,26 @@ def context():
 @pytest.fixture
 def shm(image: Image, context):
     raw = image.to_bytes()
+    sizes = sized(raw)
     size = live.Area.required_size(
-        SIZES["arena"],
-        SIZES["log"],
-        SIZES["stage"],
-        SIZES["work"],
-        SIZES["emit"],
-        SIZES["ring"],
+        sizes["arena"],
+        sizes["log"],
+        sizes["stage"],
+        sizes["work"],
+        sizes["emit"],
+        sizes["ring"],
     )
     segment = multiprocessing.shared_memory.SharedMemory(create=True, size=size)
     assert segment.buf is not None
     area = live.Area.shared(
         segment.buf,
         raw,
-        SIZES["arena"],
-        SIZES["log"],
-        SIZES["stage"],
-        SIZES["work"],
-        SIZES["emit"],
-        SIZES["ring"],
+        sizes["arena"],
+        sizes["log"],
+        sizes["stage"],
+        sizes["work"],
+        sizes["emit"],
+        sizes["ring"],
         table_slots(raw),
     )
     stop, ready = context.Event(), context.Event()
@@ -134,9 +141,11 @@ def serial(image: Image):
         slave
     )  # before anything is written: no echo of the answers back to the server
     stop, ready = threading.Event(), threading.Event()
+    raw = image.to_bytes()
+    sizes = sized(raw)
     server = threading.Thread(
         target=live_serve.serve_descriptor,
-        args=(master, image.to_bytes(), stop, ready, SIZES["arena"], SIZES["emit"]),
+        args=(master, raw, stop, ready, sizes["arena"], sizes["emit"]),
     )
     server.start()
     assert ready.wait(60)

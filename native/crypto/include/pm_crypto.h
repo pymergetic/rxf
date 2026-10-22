@@ -1,7 +1,12 @@
-/* pm_crypto.h — the cap.crypto card's one C ABI. impl = rs (native/crypto).
+/* pm_crypto.h — the cap.crypto card's one C ABI. impl = words (native/crypto): the .rxfs
+ * programs are the ONE defining source of every primitive, and this header is the card's
+ * only face over them. The fill is native/crypto/pm_crypto.c, which runs those same words
+ * on the interpreter of native/graph.c and hands them to the in-image compiler
+ * (native/compile.c, docs/18) so calls run as native code; no other seat may grow a second
+ * implementation to skip them.
  *
- * This header is the card's ONLY face: one card, one defining lang (RS), one
- * set of test vectors (docs/25 §11). Python reaches the card through the
+ * This header is the card's ONLY face: one card, one defining lang (the words of
+ * native/crypto), one set of test vectors (docs/25 §11). Python reaches the card through the
  * ctypes fill in src/pymergetic/rxftk/net/crypto.py; TLS and WireGuard lanes
  * code against exactly these names and signatures. Frozen — do not rename.
  *
@@ -35,12 +40,12 @@
  * (RFC 7748 §6 — an input point of small order; OR the bytes to check without
  * leaking). pm_crypto_x25519_public is X25519(scalar, 9) and never refuses.
  *
- * Timing: the primitives aim at constant time — see the notes in
- * native/crypto/src/{hkdf,x25519,...}.rs for exactly what is done (the X25519 ladder is
- * mask-swapped and table-free, GHASH runs fixed iterations with masked
- * reduction, tag compares XOR all bytes). One documented caveat: AES uses the
- * standard S-box table, whose index is a secret byte, so AES-256-GCM is not
- * claimed constant-time against cache timing.
+ * Timing: the primitives aim at constant time — see the notes in the kernels of
+ * native/crypto (x25519_kernel.rxfs and its fellows) for exactly what is done (the X25519
+ * ladder is mask-swapped and table-free, GHASH runs fixed iterations with masked
+ * reduction, tag compares XOR all bytes). The AES words COMPUTE their S-box (the GF(2^8)
+ * inverse and the affine map, FIPS 197 §5.1.1) and walk the multiply under a mask, so no
+ * step of the words indexes a table with a secret byte.
  */
 
 #ifndef PM_CRYPTO_H

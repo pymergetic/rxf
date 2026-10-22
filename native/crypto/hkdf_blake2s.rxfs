@@ -1,0 +1,58 @@
+# HKDF over HMAC-BLAKE2s (RFC 5869's construction over the other hash; no RFC names this
+# instantiation, so the vectors are pinned from the standard library's hmac over blake2s
+# exactly as hmac_blake2s.rxfs's): the same two faces as hkdf.rxfs, extract and expand, over
+# hmac_blake2s_kernel.rxfs and the one derivation of hkdf_kernel.rxfs. The module's
+# pm_crypto_hkdf_extract and pm_crypto_hkdf_expand take a hash id and mean this when it says
+# BLAKE2s (id 1).
+#
+# The faces are the ones of hkdf.rxfs; the work region is at least 1280 bytes (work).
+
+include "hmac_blake2s_words.rxfs";
+
+const FACE_EXTRACT = 1;
+const FACE_EXPAND = 2;
+
+const WZERO = 992;
+const WPRK = 1024;
+const WTPREV = 1056;
+const WTCUR = 1088;
+const WCOUNT = 1120;
+
+program hkdf(op, salt, salt_len, ikm, ikm_len, prk, info, info_len, out, out_len, work) {
+    var sp;
+    var k0, k1, k2, k3, k4;
+    var c0, c1, c2;
+    var v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15;
+    var u0, u1, u2, u3;
+    var f0, f1, f2;
+    var m0, m1, m2, m3, m4, m5;
+    var n0, n1, n2, n3, n4, n5, n6;
+
+    sp = work + WSTACK;
+
+    if op == FACE_EXTRACT {
+        m0 = salt;
+        m1 = salt_len;
+        m2 = ikm;
+        m3 = ikm_len;
+        m4 = out;
+        call hkdf_extract;
+        return 0;
+    }
+    if op == FACE_EXPAND {
+        if out_len > 8160 {
+            refuse RXF_REFUSE_UNSUPPORTED;
+        }
+        m0 = prk;
+        m1 = info;
+        m2 = info_len;
+        m3 = out;
+        m4 = out_len;
+        call hkdf_expand;
+        return 0;
+    }
+    refuse RXF_REFUSE_UNSUPPORTED;
+}
+
+include "hmac_blake2s_kernel.rxfs";
+include "hkdf_kernel.rxfs";

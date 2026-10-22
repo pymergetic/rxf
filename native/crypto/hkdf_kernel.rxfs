@@ -1,0 +1,85 @@
+# The HKDF of RFC 5869, section 2: the derivation itself, the two faces extract and expand,
+# over whatever flavor of the HMAC interface the program that includes this file binds
+# (hmac_kernel.rxfs for HMAC-SHA-256 or hmac_blake2s_kernel.rxfs for HMAC-BLAKE2s; the names
+# hmac_key, hmac_begin, hmac_update and hmac_end are the interface). This is the one copy of
+# the derivation -- the programs that include it are the flavors of the hash, exactly as
+# aead_seal.rxfs and aead_open.rxfs are the one copy over the two flavors of the cipher.
+#
+# The frame contract adds to the HMAC's:
+#
+#   n0 .. n6              the loop of expand and the scratch of the faces
+#
+# The procs, matching the two entries of the C face (pm_crypto.h):
+#
+#   hkdf_extract  PRK = HMAC(salt, IKM); m0 = salt, m1 = salt_len, m2 = ikm, m3 = ikm_len,
+#                 m4 = out, where the 32-byte PRK lands
+#   hkdf_expand   the first out_len bytes of T(1) || T(2) || ...; m0 = prk (32 bytes),
+#                 m1 = info, m2 = info_len, m3 = out, m4 = out_len
+
+proc hkdf_extract {
+    # a zero-length salt is HashLen zeroes of key (RFC 5869, 2.2)
+    n3 = m0;
+    n4 = m1;
+    if n4 == 0 {
+        fill(work + WZERO, 0, 32);
+        n3 = work + WZERO;
+        n4 = 32;
+    }
+    # the message registers ride out hmac_key (its xor loop scratches m2), so the IKM
+    # waits in n5/n6 until the key is set
+    n5 = m2;
+    n6 = m3;
+    m0 = n3;
+    m1 = n4;
+    call hmac_key;
+    call hmac_begin;
+    m2 = n5;
+    m3 = n6;
+    call hmac_update;
+    call hmac_end;
+    ret;
+}
+
+proc hkdf_expand {
+    # T(i) = HMAC(PRK, T(i-1) || info || i), one byte of counter i at the end of each
+    # message; the PRK is copied in because the HMAC key is set once (RFC 5869, 2.3)
+    copy(work + WPRK, m0, 32);
+    n5 = m1;
+    n6 = m2;
+    n3 = m3;
+    n4 = m4;
+    n0 = 0;
+    n1 = 1;
+    while n0 < n4 {
+        store8(work + WCOUNT, n1);
+        m0 = work + WPRK;
+        m1 = 32;
+        call hmac_key;
+        call hmac_begin;
+        if n1 > 1 {
+            m2 = work + WTPREV;
+            m3 = 32;
+            call hmac_update;
+        }
+        if n6 > 0 {
+            m2 = n5;
+            m3 = n6;
+            call hmac_update;
+        }
+        m2 = work + WCOUNT;
+        m3 = 1;
+        call hmac_update;
+        m4 = work + WTCUR;
+        call hmac_end;
+        # the bytes of T(i) join the output; T(i) is the T(i-1) of the next round
+        n2 = 32;
+        if n2 > n4 - n0 {
+            n2 = n4 - n0;
+        }
+        copy(n3 + n0, work + WTCUR, n2);
+        n0 = n0 + n2;
+        copy(work + WTPREV, work + WTCUR, 32);
+        n1 = n1 + 1;
+    }
+    ret;
+}

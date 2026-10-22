@@ -1,0 +1,67 @@
+# program x25519 (v1): the Diffie-Hellman half of RFC 7748 §5.
+#
+# arguments(op, scalar, point, out, work):
+#
+#   op      1 = FACE_SECRET (the ladder of a point), 2 = FACE_PUBLIC (the base point 9)
+#   scalar  the private scalar, 32 bytes (clamped per §5)
+#   point   the peer's u-coordinate, 32 bytes (ignored on FACE_PUBLIC)
+#   out     the 32-byte shared secret / public key
+#   work    1280 bytes
+#
+# This is the defining source of the card's X25519. The words are the program every machine
+# runs (native/graph.h) -- the interpreter, and the in-image compiler of docs/18. The kernel
+# is x25519_words.rxfs (the numbers of the five 51-bit limbs) and x25519_kernel.rxfs (the
+# field words and the Montgomery ladder). The Rust tree of src/ is retired: the suite of
+# native/crypto/ is written here and its vectors pass through these words (test_crypto_rxfs.py).
+#
+# Returns 0 on success; RXF_REFUSE_OUT_OF_RANGE when the shared secret is all zero (a
+# low-order point, RFC 7748 §6.1: no other zero comes out of the ladder).
+
+const FACE_SECRET = 1;
+const FACE_PUBLIC = 2;
+
+include "x25519_words.rxfs";
+
+program x25519(op, scalar, point, out, work) {
+    var sp;
+    var m0, m1, m2, m3, m4, m5, m6, m7, m8;
+    var f0, f1, f2, f3, f4, f5, f6, f7, f8, f9;
+    var l0, l1, l2, l3, l4;
+    var i0, i1, i2, i3, i4;
+
+    sp = work + WSTACK;
+
+    # the clamp of RFC 7748 §5 on a private copy of the scalar: the low three bits clear,
+    # the top clear, the next to top set
+    fill(work + WSK, 0, 40);
+    f0 = 0;
+    while f0 < 32 {
+        store8(work + WSK + f0, load8(scalar + f0));
+        f0 = f0 + 1;
+    }
+    f0 = load8(work + WSK);
+    f0 = f0 & 248;
+    store8(work + WSK, f0);
+    f0 = load8(work + WSK + 31);
+    f0 = (f0 & 127) | 64;
+    store8(work + WSK + 31, f0);
+
+    if op == FACE_SECRET {
+        # the peer's u-coordinate as the ladder's x1 (its top bit dropped in the words)
+        m0 = point;
+        m1 = work + WX1;
+        call fe_frombytes;
+        call x25519_finish;
+        return 0;
+    }
+    if op == FACE_PUBLIC {
+        # the base point 9 of RFC 7748 §6.1
+        fill(work + WX1, 0, 40);
+        store64(work + WX1, 9);
+        call x25519_finish;
+        return 0;
+    }
+    refuse RXF_REFUSE_UNSUPPORTED;
+}
+
+include "x25519_kernel.rxfs";
