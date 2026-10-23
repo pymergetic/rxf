@@ -3,6 +3,7 @@
 import json
 import shutil
 import xml.etree.ElementTree as ET
+from collections import defaultdict
 from pathlib import Path
 
 import pytest
@@ -70,6 +71,37 @@ def test_every_native_function_has_code_for_bios_unix_uefi_and_wasm():
                 if f"_{name}_" in target:
                     machines[name] += 1
     assert machines == {"bios": 321, "linux": 642, "uefi": 642, "wasm": 321}
+
+
+def test_the_seats_of_a_function_share_one_blob_per_machine():
+    """The dedup of the starter: six seats, three blobs, one per machine."""
+    image = tree.load(STARTER)
+    seats = {
+        "x86_64_linux": "x86_64",
+        "x86_64_bios": "x86_64",
+        "x86_64_uefi": "x86_64",
+        "aarch64_linux": "aarch64",
+        "aarch64_uefi": "aarch64",
+        "wasm32": "wasm32",
+    }
+    shared: dict[tuple[int, str], int] = {}
+    per_function: dict[int, set[int]] = defaultdict(set)
+    for handle in range(image.handle_count):
+        if not image.live(handle) or image.type_name(handle) != "Code":
+            continue
+        values = dict(image.fields(handle))
+        body = image.resolve(values.get("body", ""))
+        if body is None or image.type_name(body) != "CodeBlob":
+            continue  # a program or bytecode code keeps its bytes inline
+        machine = seats[image.path(handle).rsplit(".", 1)[-1]]
+        parent = image.get(handle)["parent"]
+        if (parent, machine) in shared:
+            assert shared[parent, machine] == body, image.path(handle)
+        shared[parent, machine] = body
+        per_function[parent].add(body)
+    assert per_function, "the starter has no native code"
+    assert all(len(bodies) == 3 for bodies in per_function.values())
+    assert len(shared) == 3 * len(per_function)
 
 
 def test_a_missing_code_is_found_and_so_is_every_caller(copy):

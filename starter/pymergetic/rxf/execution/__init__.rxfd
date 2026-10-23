@@ -47,6 +47,7 @@
     <Type name="CfgBlock" form="Form.Execution" align="1" />
     <Type name="CfgOp" form="Form.Execution" align="1" />
     <Type name="Code" form="Form.Opaque" size="64" align="1" flags="TypeFlags.Variable" node_kind="NodeKind.Code">
+      <Field name="body" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="96" />
       <Field name="byte_count" value_type="uint64_t" offset="48" />
       <Field name="effects" value_type="@kinds.Effects" offset="28" />
       <Field name="entry_offset" value_type="uint64_t" offset="40" />
@@ -58,6 +59,10 @@
       <Field name="semantic_version" value_type="uint32_t" offset="32" />
       <Field name="signature" flags="FieldFlags.Ref" value_type="uint64_t" offset="16" />
       <Field name="source" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="88" />
+    </Type>
+    <Type name="CodeBlob" form="Form.Opaque" size="40" align="1" flags="TypeFlags.Variable">
+      <Field name="byte_count" value_type="uint64_t" />
+      <Field name="content_digest" value_type="uint8_t" offset="8" count="32" />
     </Type>
     <Type name="CompilerProvenance" form="Form.Struct" size="40" align="8">
       <Field name="compiler_major" value_type="uint32_t" />

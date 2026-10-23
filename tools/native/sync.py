@@ -34,6 +34,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+import blob_sync
 import compose
 import graph_header
 import graph_sync
@@ -347,6 +348,7 @@ def sync(starter: Path, check: bool = False) -> tuple[int, bool]:
         write_provenance(work / "pymergetic" / "rxf" / "targets.rxfd")
         sync_bytecode(work)
         source_sync.write_sources(work, paths)
+        blob_sync.write_blobs(work)
         image = tree.load(work)
         canonical = Path(directory) / "canonical"
         tree.write(image, canonical)

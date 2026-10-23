@@ -17,6 +17,7 @@ name (``Function``, ``Code``, ``ABISignature``, ``RuntimeTarget``, ...).
 
 from __future__ import annotations
 
+import hashlib
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
@@ -35,6 +36,15 @@ ABI_OF_ARCHITECTURE = {"Wasm32": "Wasm", "X8664": "Sysv", "Aarch64": "Aapcs64"}
 def word(text: str | None) -> str:
     """The last segment of a written path: `...FunctionImplementation.Native` is `Native`."""
     return (text or "").rsplit(".", 1)[-1]
+
+
+def digest_of(data: str) -> str:
+    """The content digest of a hex payload: the sha256 of the bytes it writes."""
+    try:
+        body = bytes.fromhex(data)
+    except ValueError:
+        return ""
+    return hashlib.sha256(body).hexdigest()
 
 
 @dataclass
@@ -73,6 +83,20 @@ class Binary:
     def problem(self, handle: int | str, message: str) -> None:
         path = handle if isinstance(handle, str) else self.path(handle)
         self.issues.append((path, message))
+
+    def code_data(self, code: int, values: dict[str, str]) -> str | None:
+        """The bytes of a Code: the payload of the CodeBlob its ``body`` names."""
+        text = values.get("body", "")
+        body = self.image.resolve(text) if text else None
+        if body is None or self.image.type_name(body) != "CodeBlob":
+            return None
+        blob = self.of(body)
+        data = blob.get("data", "")
+        if len(data) != 2 * int(blob.get("byte_count", "0")):
+            self.problem(code, "byte_count is not the length of the data")
+        if blob.get("content_digest") != digest_of(data):
+            self.problem(code, "the blob is not what its digest says")
+        return data
 
     def role_target(self, handle: int, role: str) -> int | None:
         for target, via, _, _, _ in self.image.get(handle)["refs"]:
@@ -130,8 +154,10 @@ class Binary:
                     code,
                     f"the format is {word(cv.get('format'))}, {word(target)} wants {wanted}",
                 )
-            data = cv.get("data", "")
-            if len(data) != 2 * int(cv.get("byte_count", "0")) or not data:
+            data = self.code_data(code, cv)
+            if data is None:
+                self.problem(code, "it says no blob for its bytes")
+            elif len(data) != 2 * int(cv.get("byte_count", "0")) or not data:
                 self.problem(code, "byte_count is not the length of the data")
             if cv.get("semantic_digest") != values.get("semantic_digest"):
                 self.problem(code, "the semantic digest is not the function's")

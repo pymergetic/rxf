@@ -145,8 +145,10 @@ def code_of(image: Image) -> Code:
             name = image.path(child).rsplit(".", 1)[-1]
             for machine, wanted in MACHINES.items():
                 if name == wanted:
+                    body = image.resolve(dict(composer.fields(child)).get("body", ""))
+                    assert body is not None and image.type_name(body) == "CodeBlob"
                     found[machine] = bytes.fromhex(
-                        composer.fields(child).get("data", "")
+                        composer.fields(body).get("data", "")
                     )
         assert set(found) == set(MACHINES), (image.path(function), set(found))
         return found

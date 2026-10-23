@@ -23,7 +23,7 @@ every link, never edited.
 An object is found by an id that no delta holds a handle of: the ``object_id``
 of a ``SemanticObject``, else the first 8 bytes of the SHA-256 of the path. The
 value of an object is the variable part of its payload when its type is
-variable (a Code is its bytes, a semantic object its data), else all of it.
+variable (a CodeBlob is the bytes of its codes, a semantic object its data), else all of it.
 """
 
 from __future__ import annotations
@@ -390,13 +390,17 @@ def _code(image: Image, machine: str, cells: list[int]) -> dict[int, int]:
         info = image.get(handle)
         payload = info["payload"]
         (entry,) = struct.unpack_from("<Q", payload, CODE_ENTRY_OFFSET)
-        found[info["parent"]] = (
-            cells[handle] + CELL_BYTES + len(payload) - _data_bytes(payload) + entry
-        )
+        # The bytes live in the CodeBlob the code's body names: the entry is an
+        # offset into that blob's value, not the (now empty) code payload.
+        body = image.resolve(dict(image.fields(handle)).get("body", ""))
+        if body is None or image.type_name(body) != "CodeBlob":
+            raise LinkError(f"{image.path(handle)} says no blob for its bytes")
+        blob = image.get(body)
+        blob_at = cells[body] + CELL_BYTES + _blob_prefix(image, blob["type"])
+        found[info["parent"]] = blob_at + entry
     return found
 
 
-def _data_bytes(payload: bytes) -> int:
-    """The bytes of the code after the fixed part of a Code payload."""
-    (byte_count,) = struct.unpack_from("<Q", payload, 48)
-    return byte_count
+def _blob_prefix(image: Image, type_handle: int) -> int:
+    """Where the bytes of a CodeBlob start in its payload: after the fixed part."""
+    return image.layout(type_handle)["prefix"]
