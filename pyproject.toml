@@ -9,7 +9,7 @@ description = "RXF: an object image with a C++ core, deltas in XML, one file per
 readme = "README.md"
 requires-python = ">=3.12"
 license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "THIRD-PARTY-NOTICES.md"]
 authors = [
   { name = "Rouven Raudzus", email = "raudzus@pymergetic.com" }
 ]
@@ -48,7 +48,7 @@ packages = ["src/pymergetic"]
 exclude = ["**/*.c", "**/*.cpp", "**/*.h", "**/*.hpp"]
 
 [tool.scikit-build.sdist]
-include = ["CMakeLists.txt", "src/**", "third_party/**", "starter/**", "README.md", "LICENSE"]
+include = ["CMakeLists.txt", "src/**", "third_party/**", "starter/**", "README.md", "LICENSE", "THIRD-PARTY-NOTICES.md"]
 
 [tool.scikit-build.metadata.version]
 provider = "scikit_build_core.metadata.setuptools_scm"

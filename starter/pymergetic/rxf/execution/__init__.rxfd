@@ -57,6 +57,7 @@
       <Field name="semantic_digest" value_type="uint8_t" offset="56" count="32" />
       <Field name="semantic_version" value_type="uint32_t" offset="32" />
       <Field name="signature" flags="FieldFlags.Ref" value_type="uint64_t" offset="16" />
+      <Field name="source" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="88" />
     </Type>
     <Type name="CompilerProvenance" form="Form.Struct" size="40" align="8">
       <Field name="compiler_major" value_type="uint32_t" />
@@ -137,6 +138,12 @@
       <Field name="result_count" value_type="uint64_t" offset="16" />
       <Field name="results" flags="FieldFlags.Children" value_type="pymergetic.rxf.execution.Result" />
       <Field name="return_type" flags="FieldFlags.Ref" value_type="uint64_t" />
+    </Type>
+    <Type name="Source" form="Form.Opaque" size="48" align="1" flags="TypeFlags.Variable">
+      <Field name="arch" value_type="@kinds.SourceArch" offset="4" />
+      <Field name="byte_count" value_type="uint64_t" offset="8" />
+      <Field name="lang" value_type="@kinds.SourceLang" />
+      <Field name="semantic_digest" value_type="uint8_t" offset="16" count="32" />
     </Type>
     <Type name="Target" form="Form.Struct" size="24" align="4">
       <Field name="abi" value_type="uint32_t" offset="8" />
