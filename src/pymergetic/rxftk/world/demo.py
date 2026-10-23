@@ -17,10 +17,11 @@ running arena carries, so the scene shows every face of the schema:
   leaving a dead cell full of 0xA5: rubble mounds and void tiles.
 
 Everything is deterministic: the same delta and the same traces always build the same
-image, so ``static/scene/demo-scene.json`` is a byte-exact golden (see tests/test_world3d.py).
-Regenerate it with::
+image, so the checked-in demo world is the raw ``.rxfb`` the browser reads (``static/scene/scene.bin``
+via ``static/scene/rxf-reader.js``) — the binary is the one artifact, never a JSON export.
+``tests/test_world3d.py`` pins the export as a content digest. Refresh the checked-in image::
 
-    python -m pymergetic.rxftk.world.demo > src/pymergetic/rxftk/world/static/scene/demo-scene.json
+    python -m pymergetic.rxftk.world.demo > src/pymergetic/rxftk/world/static/scene/scene.bin
 """
 
 from __future__ import annotations
@@ -36,7 +37,6 @@ from pymergetic.rxftk.world.export import (
     POISON_RUN,
     RUN_PAYLOAD_REGIONS,
     fnv1a,
-    scene_json,
 )
 
 DELTA_FILE = WORLD_DIR / "demo_world.rxfd"
@@ -89,7 +89,8 @@ def demo_inspector() -> Inspector:
 
 
 def main() -> None:
-    sys.stdout.write(scene_json(demo_inspector()))
+    """The demo world as raw ``.rxfb`` bytes on stdout — the checked-in ``scene.bin``."""
+    sys.stdout.buffer.write(demo_inspector().image.to_bytes())
 
 
 if __name__ == "__main__":

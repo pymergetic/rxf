@@ -92,6 +92,7 @@ Read in order:
 23. [Editing: one mutation is one delta](27-EDITING.md)
 24. [Unified seat design: the image, the face, the fill, and the shell](28-UNIFIED-SEAT-DESIGN.md)
 25. [The seed compiler: an image that is `.rxfs` only](29-THE-SEED-COMPILER.md)
+26. [One arena, one object model](32-ONE-ARENA-OBJECT-MODEL.md)
 
 These documents specify RXF independently of any runtime provider. The optional Metal binding
 is described separately in [`integrations/metal.md`](integrations/metal.md).

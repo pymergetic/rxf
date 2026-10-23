@@ -10,7 +10,7 @@
  * LEFT and +Z toward screen DOWN (verified against the camera), so the map's x axis is mirrored
  * to match — the minimap must lay out exactly like the world looks from above.
  *
- * window.RXFWorldHud = { metrics, counts, status, sheet, lod, minimap, error }
+ * window.RXFWorldHud = { metrics, counts, status, sheet, lod, minimap, loading, ready, error }
  */
 (function (global) {
   "use strict";
@@ -235,6 +235,47 @@
     return "0x" + Number(byteOffset).toString(16).toUpperCase();
   }
 
+  /* ---- the loading face: the world on its way -------------------------------------------------
+   * The host computes the scene layers on demand (world/__init__.py: buildings, cables, ducts,
+   * streets — one slice per request); the page loads them one after another and the build
+   * stands the city in slices. This face is in the page from the first paint, so the user
+   * always sees where the world is — the layer, the count, the clock — until the first frame. */
+  var STAGE_WORDS = {
+    /* the session's parts (the page's own load) */
+    cells: "standing the buildings",
+    voids: "the poison pits",
+    blocks: "the city blocks",
+    streets: "the streets",
+    frame: "the ring road and the numbers",
+    edges: "routing the cables",
+    bundles: "packing the ducts",
+    counts: "the counts",
+    /* the host's compute of the layer being waited on (scene.json/progress) */
+    districts: "laying out the districts",
+    poison: "scanning for poison",
+    routing: "routing the cables",
+    packages: "packing the ducts",
+    merging: "packing the ducts",
+    finishing: "finishing the document",
+    /* the build, stage by stage (rxf-world.js) */
+    "the scene document": "receiving the scene document",
+    "building the world": "building the world",
+    "the tile raster": "the tile raster",
+    "the buildings": "standing the buildings",
+    "the poison pits": "the poison pits",
+    "the cables": "routing the cables",
+    "the ring road": "the ring road",
+    "the city blocks": "the city blocks",
+    "the labels": "the labels",
+    "the levels": "the levels"
+  };
+  var loadStart = 0;
+
+  function clock() {
+    var seconds = Math.max(0, Math.round((Date.now() - loadStart) / 1000));
+    return Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0");
+  }
+
   var Hud = {
     metrics: function (metrics) {
       each("metric", function (node, name) {
@@ -408,8 +449,36 @@
         map.onJump(at.x, at.z);
       });
     },
+    loading: function (event) {
+      var overlay = global.document.querySelector("[data-loading]");
+      if (!overlay || overlay.classList.contains("gone")) return;
+      if (!loadStart) loadStart = Date.now();
+      slot("[data-loading-stage]", STAGE_WORDS[event.stage] || event.stage || "loading the world");
+      slot("[data-loading-clock]", clock());
+      var done = event.done || 0;
+      var total = event.total || 0;
+      var bar = global.document.querySelector("[data-loading-bar]");
+      if (bar) {
+        /* a known total: a real bar. A long export phase without one: the slow sweep. */
+        bar.style.width = total > 0 ? Math.min(100, Math.round((done / total) * 100)) + "%" : "";
+        bar.classList.toggle("pacing", !(total > 0));
+      }
+      slot(
+        "[data-loading-count]",
+        total > 0 ? done.toLocaleString() + " of " + total.toLocaleString() : ""
+      );
+    },
+    ready: function () {
+      var overlay = global.document.querySelector("[data-loading]");
+      if (overlay) overlay.classList.add("gone");
+    },
     error: function (error) {
       slot("[data-selection]", "scene failed: " + error.message);
+      var overlay = global.document.querySelector("[data-loading]");
+      if (overlay && !overlay.classList.contains("gone")) {
+        slot("[data-loading-stage]", "failed: " + error.message);
+        overlay.classList.add("failed");
+      }
     }
   };
 

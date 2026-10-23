@@ -6,7 +6,8 @@ every program: the simulator of ``rxf_sim`` as the dev oracle, the interpreter o
 ``native/compile.c`` (docs/18) whose code must compute the same answers. The vectors are
 their own: FIPS 180-4 and RFC 6234 for SHA-256, RFC 4231 for HMAC-SHA-256, RFC 5869 for
 HKDF, RFC 7693 for BLAKE2s (the keyed cases pinned from hashlib.blake2s as the reference),
-RFC 8439 for ChaCha20-Poly1305 (the A.3 reduction edge cases among its vectors),
+RFC 8439 for ChaCha20-Poly1305 (the A.3 reduction edge cases among its vectors), FIPS 197 and
+the NIST CAVP GCMVS for AES-256-GCM (the FAIL records among its decrypt vectors),
 and sweeps of lengths around every block and padding boundary held to hashlib and hmac as
 the reference implementations.
 """
@@ -32,9 +33,13 @@ ROOT = Path(__file__).parents[1]
 CRYPTO = ROOT / "native" / "crypto"
 SHA256 = rxfc.compile_file(CRYPTO / "sha256.rxfs")
 HMAC_SHA256 = rxfc.compile_file(CRYPTO / "hmac_sha256.rxfs")
+HMAC_BLAKE2S = rxfc.compile_file(CRYPTO / "hmac_blake2s.rxfs")
 HKDF = rxfc.compile_file(CRYPTO / "hkdf.rxfs")
+HKDF_BLAKE2S = rxfc.compile_file(CRYPTO / "hkdf_blake2s.rxfs")
 BLAKE2S = rxfc.compile_file(CRYPTO / "blake2s.rxfs")
 CHACHA20POLY1305 = rxfc.compile_file(CRYPTO / "chacha20poly1305.rxfs")
+AES_GCM = rxfc.compile_file(CRYPTO / "aes_gcm.rxfs")
+X25519 = rxfc.compile_file(CRYPTO / "x25519.rxfs")
 
 MSG = rxf_world.DATA
 OUT = MSG + 0x400
@@ -136,6 +141,7 @@ HKDF_VECTORS = [
         b"\x0b" * 22,
         bytes(range(0xF0, 0xFA)),
         42,
+        "077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5",
         (
             "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf"
             "34007208d5b887185865"
@@ -146,6 +152,7 @@ HKDF_VECTORS = [
         bytes(range(0x50)),
         bytes(range(0xB0, 0x100)),
         82,
+        "06a6b88c5853361a06104c9ceb35b45cef760014904671014a193f40c15fc244",
         (
             "b11e398dc80327a1c8e7f78c596a49344f012eda2d4efad8a050cc4c19afa97c"
             "59045a99cac7827271cb41c65e590e09da3275600c2f09b8367793a9aca3db71"
@@ -157,6 +164,7 @@ HKDF_VECTORS = [
         b"\x0b" * 22,
         b"",
         42,
+        "19ef24a32c717b167f33a91d6f648bdf96596776afdb6377ac434c1c293ccb04",
         (
             "8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d"
             "9d201395faa4b61a96c8"
@@ -171,14 +179,37 @@ HKDF_SWEEP = [
     (pattern(70), pattern(70), pattern(70), 100),
 ]
 
+# HKDF-BLAKE2s (RFC 5869's construction over HMAC-BLAKE2s-256) has no published vectors;
+# this triple is pinned from the standard library's own hmac over blake2s and is the same
+# one tests/test_crypto_card.py pins for the module.
+HKDF_BLAKE2S_VECTORS = [
+    (
+        b"cap.crypto hkdf-blake2s pin: salt",
+        b"cap.crypto hkdf-blake2s pin: ikm",
+        b"cap.crypto hkdf-blake2s pin: info",
+        42,
+        "6c6fe5e799e3addd8506a1d8d29209c9d3067a6bbf24059ddb6877acb109023e",
+        (
+            "076d127611325d03ea8c849fd471bb6e1ab73b435da3aef2909fc842c7544a29"
+            "261f5b33e51978ba14cc"
+        ),
+    ),
+]
 
-def hkdf_reference(salt: bytes, ikm: bytes, info: bytes, length: int) -> bytes:
+
+def hkdf_extract_reference(salt: bytes, ikm: bytes, which=hashlib.sha256) -> bytes:
     key = salt if salt else bytes(32)
-    prk = hmac_module.new(key, ikm, hashlib.sha256).digest()
+    return hmac_module.new(key, ikm, which).digest()
+
+
+def hkdf_reference(
+    salt: bytes, ikm: bytes, info: bytes, length: int, which=hashlib.sha256
+) -> bytes:
+    prk = hkdf_extract_reference(salt, ikm, which)
     out, piece, counter = b"", b"", 1
     while len(out) < length:
         piece = hmac_module.new(
-            prk, piece + info + bytes([counter]), hashlib.sha256
+            prk, piece + info + bytes([counter]), which
         ).digest()
         out += piece
         counter += 1
@@ -637,40 +668,119 @@ for key_len in HMAC_KEY_LENS:
             )
         )
 
-for salt, ikm, info, length, okm in HKDF_VECTORS:
+# ---- HMAC-BLAKE2s: the RFC 2104 construction over BLAKE2s-256 -----------------------------------
+#
+# No RFC names this instantiation. The cases are the RFC 4231 pairs (they are
+# construction-agnostic) pinned from the standard library's own hmac over blake2s, plus
+# sweeps held to it; the digest is always the 32 bytes of BLAKE2s-256.
+
+HMAC_BLAKE2S_VECTORS = [
+    (bytes.fromhex("0b" * 20), b"Hi There", "65a8b7c5cc9136d424e82c37e2707e74e913c0655b99c75f40edf387453a3260"),
+    (b"Jefe", b"what do ya want for nothing?", "90b6281e2f3038c9056af0b4a7e763cae6fe5d9eb4386a0ec95237890c104ff0"),
+    (bytes.fromhex("aa" * 20), bytes.fromhex("dd" * 50), "fcc4f59529502e34c3d8da3ffdab82966a2cb637ff5e9bd701135c2e9469e790"),
+    (bytes.fromhex("01" * 25), bytes.fromhex("cd" * 50), "c20ac59ab44f9a398ed455d8b2a3a037e025b2448a84f62e677c15b458ac47bb"),
+    (bytes.fromhex("aa" * 131), b"Test Using Larger Than Block-Size Key - Hash Key First", "d23d79394f53d536a096e6514447eeaabb05ded01be32c1937da6a8f7103bc4e"),
+]
+HMAC_BLAKE2S_KEY_LENS = [0, 1, 20, 64, 131]
+HMAC_BLAKE2S_MSG_LENS = [0, 55, 100]
+
+for key, message, tag in HMAC_BLAKE2S_VECTORS:
     CASES.append(
         (
-            f"hkdf({len(salt)},{len(ikm)},{len(info)},{length})",
-            HKDF,
-            arguments(
-                MSG, len(salt), MSG + 0x80, len(ikm), MSG + 0x100, len(info), OUT, length, WORK
-            ),
+            f"hmac-b2s({len(key)},{len(message)})",
+            HMAC_BLAKE2S,
+            arguments(MSG, len(key), MSG + 0x120, len(message), OUT, WORK),
             (
-                (MSG, salt),
-                (MSG + 0x80, ikm),
-                (MSG + 0x100, info),
+                (MSG, key),
+                (MSG + 0x120, message),
                 (WORK, bytes(WORK_BYTES)),
             ),
-            length,
-            bytes.fromhex(okm),
+            32,
+            bytes.fromhex(tag),
         )
     )
-for salt, ikm, info, length in HKDF_SWEEP:
-    CASES.append(
-        (
-            f"hkdf({len(salt)},{len(ikm)},{len(info)},{length})",
-            HKDF,
-            arguments(
-                MSG, len(salt), MSG + 0x80, len(ikm), MSG + 0x100, len(info), OUT, length, WORK
-            ),
+for key_len in HMAC_BLAKE2S_KEY_LENS:
+    for message_len in HMAC_BLAKE2S_MSG_LENS:
+        key, message = pattern(key_len), pattern(message_len)
+        CASES.append(
             (
-                (MSG, salt),
-                (MSG + 0x80, ikm),
-                (MSG + 0x100, info),
-                (WORK, bytes(WORK_BYTES)),
-            ),
+                f"hmac-b2s({key_len},{message_len})",
+                HMAC_BLAKE2S,
+                arguments(MSG, key_len, MSG + 0x120, message_len, OUT, WORK),
+                (
+                    (MSG, key),
+                    (MSG + 0x120, message),
+                    (WORK, bytes(WORK_BYTES)),
+                ),
+                32,
+                hmac_module.new(key, message, hashlib.blake2s).digest(),
+            )
+        )
+
+# The two faces of HKDF are separate runs of the program: extract pins the PRK of the
+# vector, expand takes that PRK as its key and pins the OKM. The flavors are the two
+# programs over the same words: hkdf.rxfs (HMAC-SHA-256) and hkdf_blake2s.rxfs.
+def hkdf_extract_case(name, program, salt, ikm, prk):
+    return (
+        f"hkdf-extract({name})",
+        program,
+        arguments(1, MSG, len(salt), MSG + 0x80, len(ikm), 0, 0, 0, OUT, 32, WORK),
+        (
+            (MSG, salt),
+            (MSG + 0x80, ikm),
+            (WORK, bytes(WORK_BYTES)),
+        ),
+        32,
+        prk,
+    )
+
+
+def hkdf_expand_case(name, program, prk, info, length, okm):
+    return (
+        f"hkdf-expand({name})",
+        program,
+        arguments(2, 0, 0, 0, 0, MSG, MSG + 0x120, len(info), OUT, length, WORK),
+        (
+            (MSG, prk),
+            (MSG + 0x120, info),
+            (WORK, bytes(WORK_BYTES)),
+        ),
+        length,
+        okm,
+    )
+
+
+for salt, ikm, info, length, prk, okm in HKDF_VECTORS:
+    prk, okm = bytes.fromhex(prk), bytes.fromhex(okm)
+    name = f"{len(salt)},{len(ikm)},{len(info)},{length}"
+    CASES.append(hkdf_extract_case(name, HKDF, salt, ikm, prk))
+    CASES.append(hkdf_expand_case(name, HKDF, prk, info, length, okm))
+for salt, ikm, info, length in HKDF_SWEEP:
+    name = f"{len(salt)},{len(ikm)},{len(info)},{length}"
+    prk = hkdf_extract_reference(salt, ikm)
+    CASES.append(hkdf_extract_case(name, HKDF, salt, ikm, prk))
+    CASES.append(
+        hkdf_expand_case(
+            name, HKDF, prk, info, length, hkdf_reference(salt, ikm, info, length)
+        )
+    )
+for salt, ikm, info, length, prk, okm in HKDF_BLAKE2S_VECTORS:
+    prk, okm = bytes.fromhex(prk), bytes.fromhex(okm)
+    name = f"b2s,{length}"
+    CASES.append(hkdf_extract_case(name, HKDF_BLAKE2S, salt, ikm, prk))
+    CASES.append(hkdf_expand_case(name, HKDF_BLAKE2S, prk, info, length, okm))
+for salt, ikm, info, length in HKDF_SWEEP:
+    name = f"b2s,{len(salt)},{len(ikm)},{len(info)},{length}"
+    prk = hkdf_extract_reference(salt, ikm, hashlib.blake2s)
+    CASES.append(hkdf_extract_case(name, HKDF_BLAKE2S, salt, ikm, prk))
+    CASES.append(
+        hkdf_expand_case(
+            name,
+            HKDF_BLAKE2S,
+            prk,
+            info,
             length,
-            hkdf_reference(salt, ikm, info, length),
+            hkdf_reference(salt, ikm, info, length, hashlib.blake2s),
         )
     )
 
@@ -881,7 +991,234 @@ CASES.append(
     )
 )
 
+# ---- AES-256-GCM: the vectors of FIPS 197 and the NIST CAVP GCMVS -------------------------------
+
+GCM_ENCBLOCK, GCM_SEAL, GCM_OPEN = 1, 2, 3
+
+# FIPS 197, appendix C.3, AES-256: the block cipher on its own
+FIPS197_KEY = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+FIPS197_BLOCK = "00112233445566778899aabbccddeeff"
+FIPS197_ANSWER = "8ea2b7ca516745bfeafc49904b496089"
+
+# NIST CAVP AES-GCM Validation System (GCMVS), gcmEncryptExtIV256.rsp and gcmDecrypt256.rsp
+# ([Keylen=256][IVlen=96][Taglen=128] sections): the .rsp files ship as megabyte binaries, so
+# these records are quoted byte-for-byte from the pins of native/crypto/tests/vectors.rs (the
+# verbatim mirror in google/quiche's aes_256_gcm_encrypter_test.cc, CAVP 2017-09-27)
+GCM_EMPTY_KEY = "b52c505a37d78eda5dd34f20c22540ea1b58963cf8e5bf8ffa85f9f2492505b4"
+GCM_EMPTY_NONCE = "516c33929df5a3284ff463d7"
+GCM_EMPTY_TAG = "bdc1ac884d332457a1d2664f168c76f0"  # [PTlen=0][AADlen=0] Count 0
+GCM_PT_KEY = "31bdadd96698c204aa9ce1448ea94ae1fb4a9a0b3c9d773b51bb1822666b8f22"
+GCM_PT_NONCE = "0d18e06c7c725ac9e362e1ce"
+GCM_PT_TEXT = "2db5168e932556f8089a0622981d017d"
+GCM_PT_CT = "fa4362189661d163fcd6a56d8bf0405a"
+GCM_PT_TAG = "d636ac1bbedd5cc3ee727dc2ab4a9489"  # [PTlen=128][AADlen=0] Count 0
+GCM_AAD_KEY = "54e352ea1d84bfe64a1011096111fbe7668ad2203d902a01458c3bbd85bfce14"
+GCM_AAD_NONCE = "df7c3bca00396d0c018495d9"
+GCM_AAD_AAD = "7e968d71b50c1f11fd001f3fef49d045"
+GCM_AAD_CT = "426e0efc693b7be1f3018db7ddbb7e4d"
+GCM_AAD_TAG = "ee8257795be6a1164d7e1d2d6cac77a7"  # [PTlen=128][AADlen=128] Count 0
+GCM_AAD_TEXT = "85fc3dfad9b5a8d3258e4fc44571bd3b"
+GCM_FAIL_KEY = "9a0343f850a6427120f764789ffec6d237447b898fbf51d2182f065d3861497d"
+GCM_FAIL_NONCE = "3deef6f453dd70d92143adcd"
+GCM_FAIL_AAD = "dbb8226a624520863db6897017b2a4f8"
+GCM_FAIL_SEALED = "e93165935ac18e3a2845d15fe31a9286f5fc50d18766bc3d9e16dd136d45816b"  # Count 2, FAIL
+
+
+def gcm_case(
+    name: str,
+    op: int,
+    key: bytes,
+    nonce: bytes,
+    aad: bytes = b"",
+    text: bytes = b"",
+    out_len: int = 0,
+    expected: bytes = b"",
+):
+    return (
+        name,
+        AES_GCM,
+        arguments(
+            op, MSG, MSG + 0x40, MSG + 0x80, len(aad), MSG + 0x120, len(text), OUT, WORK
+        ),
+        (
+            (MSG, key),
+            (MSG + 0x40, nonce),
+            (MSG + 0x80, aad),
+            (MSG + 0x120, text),
+            (WORK, bytes(WORK_BYTES)),
+        ),
+        out_len,
+        expected,
+    )
+
+
+CASES.append(
+    gcm_case(
+        "fips197 C.3 encblock",
+        GCM_ENCBLOCK, bytes.fromhex(FIPS197_KEY), bytes(12),
+        text=bytes.fromhex(FIPS197_BLOCK),
+        out_len=16, expected=bytes.fromhex(FIPS197_ANSWER),
+    )
+)
+CASES.append(
+    gcm_case(
+        "gcmvs empty seal",
+        GCM_SEAL, bytes.fromhex(GCM_EMPTY_KEY), bytes.fromhex(GCM_EMPTY_NONCE),
+        out_len=16, expected=bytes.fromhex(GCM_EMPTY_TAG),
+    )
+)
+CASES.append(
+    gcm_case(
+        "gcmvs pt128 seal",
+        GCM_SEAL, bytes.fromhex(GCM_PT_KEY), bytes.fromhex(GCM_PT_NONCE),
+        text=bytes.fromhex(GCM_PT_TEXT),
+        out_len=32, expected=bytes.fromhex(GCM_PT_CT) + bytes.fromhex(GCM_PT_TAG),
+    )
+)
+CASES.append(
+    gcm_case(
+        "gcmvs pt128 open",
+        GCM_OPEN, bytes.fromhex(GCM_PT_KEY), bytes.fromhex(GCM_PT_NONCE),
+        text=bytes.fromhex(GCM_PT_CT) + bytes.fromhex(GCM_PT_TAG),
+        out_len=16, expected=bytes.fromhex(GCM_PT_TEXT),
+    )
+)
+CASES.append(
+    gcm_case(
+        "gcmvs aad open",
+        GCM_OPEN, bytes.fromhex(GCM_AAD_KEY), bytes.fromhex(GCM_AAD_NONCE),
+        aad=bytes.fromhex(GCM_AAD_AAD),
+        text=bytes.fromhex(GCM_AAD_CT) + bytes.fromhex(GCM_AAD_TAG),
+        out_len=16, expected=bytes.fromhex(GCM_AAD_TEXT),
+    )
+)
+CASES.append(
+    gcm_case(
+        "gcmvs aad seal",
+        GCM_SEAL, bytes.fromhex(GCM_AAD_KEY), bytes.fromhex(GCM_AAD_NONCE),
+        aad=bytes.fromhex(GCM_AAD_AAD), text=bytes.fromhex(GCM_AAD_TEXT),
+        out_len=32, expected=bytes.fromhex(GCM_AAD_CT) + bytes.fromhex(GCM_AAD_TAG),
+    )
+)
+
+
+def x25519_case(
+    name: str,
+    op: int,
+    scalar: bytes,
+    point: bytes,
+    expected: bytes,
+):
+    return (
+        name,
+        X25519,
+        arguments(op, MSG, MSG + 0x80, OUT, WORK),
+        (
+            (MSG, scalar),
+            (MSG + 0x80, point),
+            (WORK, bytes(WORK_BYTES)),
+        ),
+        32,
+        expected,
+    )
+
+
+# ---- X25519: the vectors of RFC 7748 §5.2 and the §6.1 exchange ------------------------------
+#
+# The ladder is the heaviest word of the tree (255 iterations of twelve field words), so the
+# matrix carries the two faces of the §6.1 exchange (every seat and every interpreter proves
+# them) and the rest of the vectors pin the words on the compiled path below.
+
+CASES.append(
+    x25519_case(
+        "x25519 rfc 6.1 alice public",
+        2,
+        bytes.fromhex(
+            "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a"
+        ),
+        bytes(32),
+        bytes.fromhex(
+            "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a"
+        ),
+    )
+)
+CASES.append(
+    x25519_case(
+        "x25519 rfc 6.1 alice shared",
+        1,
+        bytes.fromhex(
+            "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a"
+        ),
+        bytes.fromhex(
+            "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f"
+        ),
+        bytes.fromhex(
+            "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742"
+        ),
+    )
+)
+
+X25519_VECTORS = [
+    (
+        "x25519 rfc 5.2 #1",
+        1,
+        bytes.fromhex(
+            "a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4"
+        ),
+        bytes.fromhex(
+            "e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c"
+        ),
+        bytes.fromhex(
+            "c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552"
+        ),
+    ),
+    (
+        "x25519 rfc 5.2 #2",
+        1,
+        bytes.fromhex(
+            "4b66e9d4d1b4673c5ad22691957d6af5c11b6421e0ea01d42ca4169e7918ba0d"
+        ),
+        bytes.fromhex(
+            "e5210f12786811d3f4b7959d0538ae2c31dbe7106fc03c3efc4cd549c715a493"
+        ),
+        bytes.fromhex(
+            "95cbde9476e8907d7aade45cb4b873f88b595a68799fa152e6f8f7647aac7957"
+        ),
+    ),
+    (
+        "x25519 rfc 6.1 bob public",
+        2,
+        bytes.fromhex(
+            "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb"
+        ),
+        bytes(32),
+        bytes.fromhex(
+            "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f"
+        ),
+    ),
+    (
+        "x25519 rfc 6.1 bob shared",
+        1,
+        bytes.fromhex(
+            "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb"
+        ),
+        bytes.fromhex(
+            "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a"
+        ),
+        bytes.fromhex(
+            "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742"
+        ),
+    ),
+]
+
+
 # ---- what runs them -----------------------------------------------------------------------------
+
+# The ladder of x25519 walks 255 iterations of twelve field words: one run is ~130 million
+# steps, an order of magnitude over the default budget of the simulator. Its cases carry the
+# budget they need.
+STEP_BUDGET = {X25519: 2_000_000_000}
+
 
 def answer_of_sim(
     program: bytes,
@@ -892,7 +1229,9 @@ def answer_of_sim(
     memory = rxf_sim.Memory()
     for address, data in writes:
         memory.write(address, data)
-    status, value = rxf_sim.run(program, args, memory)
+    status, value = rxf_sim.run(
+        program, args, memory, limit=STEP_BUDGET.get(program, 50_000_000)
+    )
     assert (status, value) == (0, 0)
     return memory.read(OUT, out_len)
 
@@ -950,6 +1289,47 @@ def test_the_compiler_of_the_image_makes_code_of_it_too(machine, code):
             assert got == expected, (machine, name)
     finally:
         session.close()
+
+
+@pytest.mark.parametrize(
+    ("name", "op", "scalar", "point", "expected"),
+    X25519_VECTORS,
+    ids=[v[0] for v in X25519_VECTORS],
+)
+def test_the_rest_of_the_x25519_vectors(name, op, scalar, point, expected, code):
+    """The §5.2 pair and bob's half of §6.1: more vectors of the same words, compiled."""
+    session = rxf_world.session_of("x86_64", code)
+    try:
+        got = answer_of_session(
+            session,
+            X25519,
+            arguments(op, MSG, MSG + 0x80, OUT, WORK),
+            ((MSG, scalar), (MSG + 0x80, point), (WORK, bytes(WORK_BYTES))),
+            32,
+            execute=True,
+        )
+        assert got == expected, name
+    finally:
+        session.close()
+
+
+def test_x25519_refuses_the_low_order_point(code):
+    """RFC 7748 §6.1: the all-zero output of a low-order point is not a secret."""
+    session = rxf_world.session_of("x86_64", code)
+    try:
+        session.install(
+            X25519,
+            arguments(1, MSG, MSG + 0x80, OUT, WORK),
+        )
+        session.write(MSG, bytes(32))
+        session.write(MSG + 0x80, bytes(32))
+        session.write(WORK, bytes(WORK_BYTES))
+        compiled, size, at = session.compile()
+        assert compiled == 0, at
+        result = session.execute(size)
+        assert result.status == 6  # RXF_REFUSE_OUT_OF_RANGE
+    finally:
+        session.close()
 def test_the_aead_open_refuses_a_tampered_tag():
     """A.5 with one bit of the tag flipped: the words refuse instead of opening."""
     key, nonce, aad = bytes.fromhex(A5_KEY), bytes.fromhex(A5_NONCE), bytes.fromhex(A5_AAD)
@@ -986,6 +1366,79 @@ def test_the_aead_open_refuses_the_tampered_tag_on_every_machine(machine, code):
             arguments(
                 FACE_OPEN, MSG, MSG + 0x40, 0, MSG + 0x80, len(aad),
                 MSG + 0x120, len(tampered), OUT, WORK,
+            ),
+        )
+        for address, data in (
+            (MSG, key),
+            (MSG + 0x40, nonce),
+            (MSG + 0x80, aad),
+            (MSG + 0x120, tampered),
+            (WORK, bytes(WORK_BYTES)),
+        ):
+            session.write(address, data)
+        result = session.run()
+        assert result.status == 6
+    finally:
+        session.close()
+
+
+def test_the_gcm_open_refuses_the_cavp_fail_record():
+    """gcmDecrypt256 Count 2 is a FAIL entry: the words refuse it instead of opening."""
+    key, nonce = bytes.fromhex(GCM_FAIL_KEY), bytes.fromhex(GCM_FAIL_NONCE)
+    aad, sealed = bytes.fromhex(GCM_FAIL_AAD), bytes.fromhex(GCM_FAIL_SEALED)
+    args = arguments(
+        GCM_OPEN, MSG, MSG + 0x40, MSG + 0x80, len(aad), MSG + 0x120, len(sealed), OUT, WORK
+    )
+    memory = rxf_sim.Memory()
+    for address, data in (
+        (MSG, key),
+        (MSG + 0x40, nonce),
+        (MSG + 0x80, aad),
+        (MSG + 0x120, sealed),
+        (WORK, bytes(WORK_BYTES)),
+    ):
+        memory.write(address, data)
+    status, value = rxf_sim.run(AES_GCM, args, memory)
+    assert (status, value) == (6, 0)
+
+
+def test_the_gcm_open_refuses_a_flipped_tag_bit():
+    """the verifying record with one bit of its tag flipped: the words refuse that too."""
+    key, nonce = bytes.fromhex(GCM_AAD_KEY), bytes.fromhex(GCM_AAD_NONCE)
+    aad = bytes.fromhex(GCM_AAD_AAD)
+    tag = bytearray.fromhex(GCM_AAD_TAG)
+    tag[0] ^= 1
+    tampered = bytes.fromhex(GCM_AAD_CT) + bytes(tag)
+    args = arguments(
+        GCM_OPEN, MSG, MSG + 0x40, MSG + 0x80, len(aad), MSG + 0x120, len(tampered), OUT, WORK
+    )
+    memory = rxf_sim.Memory()
+    for address, data in (
+        (MSG, key),
+        (MSG + 0x40, nonce),
+        (MSG + 0x80, aad),
+        (MSG + 0x120, tampered),
+        (WORK, bytes(WORK_BYTES)),
+    ):
+        memory.write(address, data)
+    status, value = rxf_sim.run(AES_GCM, args, memory)
+    assert (status, value) == (6, 0)
+
+
+@pytest.mark.parametrize("machine", MACHINES)
+def test_the_gcm_open_refuses_on_every_machine(machine, code):
+    key, nonce = bytes.fromhex(GCM_AAD_KEY), bytes.fromhex(GCM_AAD_NONCE)
+    aad = bytes.fromhex(GCM_AAD_AAD)
+    tag = bytearray.fromhex(GCM_AAD_TAG)
+    tag[0] ^= 1
+    tampered = bytes.fromhex(GCM_AAD_CT) + bytes(tag)
+    session = rxf_world.session_of(machine, code)
+    try:
+        session.install(
+            AES_GCM,
+            arguments(
+                GCM_OPEN, MSG, MSG + 0x40, MSG + 0x80, len(aad), MSG + 0x120,
+                len(tampered), OUT, WORK,
             ),
         )
         for address, data in (

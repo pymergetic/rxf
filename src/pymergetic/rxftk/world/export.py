@@ -36,14 +36,15 @@ Region (a district — a ground plot over one band of the arena)::
       "band":  "header" | "index" | "cells",
       "start": 16384, "end": 20480,    # byte range [start, end) of the arena
       "plot":  {"x": 42.0, "z": 0.0, "w": 12.0, "d": 18.0},  # world units, x/z = min corner
-      "tiles": {"cols": 5, "rows": 4, "step_x": 3.0, "step_z": 3.4},  # the tile raster of the plot
+      "tiles": {"cols": 7, "rows": 10, "step_x": 2.2, "step_z": 2.2},  # the tile raster: one
+                                       # tile size everywhere, empty districts included
       "cell_count": 12,                # cells whose offset starts in this district
       "empty": false                   # cell_count == 0 (an empty region stays a plot)
     }
 
 ``tiles`` is the placement raster: the floor of the district is tiled on it and every building
-stands on one of its tiles (``cell.tile``). An empty district still gets a raster, so its floor
-tiles like every other.
+stands on one of its tiles (``cell.tile``). One tile size everywhere — every step is
+``GRID_STEP``, centered in the plot — so an empty district's floor tiles exactly like any other.
 
 Block (a city block — the massing of one tile-raster bin)::
 
@@ -259,6 +260,18 @@ checksum verdicts of the S1 words. The counters a run of the machine keeps outsi
 (``state_refused``, claim spins, the step rate, the carrier count) are runtime evidence the
 exporter cannot read from an image — those slots stay null, honestly empty.
 
+Layers (how the page is served)
+===============================
+
+The document is one schema, but it is **not** handed to the page as one blob. ``Layers`` computes
+it layer by layer, on demand and once each — buildings, cables, ducts, streets — and the world
+session (``world/__init__.py``) serves those layers as paged slices (``?part=cells&offset=…``,
+or one district with ``?region=…``): the page loads the layer it wants next, one slice per
+request, and says so ("buildings · 4,000 of 17,924"). A real image's packing of the ducts takes
+minutes; the buildings, streets and cables stand long before that, and the ducts load last or
+not at all. ``export_world`` is the one-shot face of the same layers (compute all, assemble) —
+one implementation, one truth.
+
 Determinism
 ===========
 
@@ -279,7 +292,7 @@ import enum
 import json
 import math
 import struct
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from itertools import pairwise
 from typing import Any
 
@@ -297,20 +310,20 @@ VOID_TILE = 512  # a poison run longer than this becomes several void tiles
 # The layout of the world, all in world units. The arena is a strip of bytes: one district per
 # DISTRICT_SPAN bytes at BYTE_SCALE units per byte, laid out as city blocks (DISTRICT_COLS per
 # row, rows flowing along Z). Buildings sit on a deterministic tile raster inside their district
-# (offset order, row major). The grid tightens around content: a district whose bytes carry no
-# cell is laid out as a gutter (GUTTER_WIDTH x GUTTER_DEPTH) and an all-gutter row shrinks, so
-# the city blocks of used memory read as one connected city while the empty stretches of the
-# arena compress between them. Byte order and district membership are law; only the layout
-# scale flexes — nothing in the document invents facts the image does not carry.
+# (offset order, row major). One grid law, no exceptions („jede Zelle gleiche Grundgröße"):
+# every district plots on the SAME rule — its byte span at BYTE_SCALE, never a gutter because
+# its bytes happen to carry no cell — every floor tile is exactly GRID_STEP, and every building
+# stands on the same base of FP_RATIO tiles. An empty district is the same plate as a built one,
+# just unbuilt; the gaps between plates never depend on what the arena carries. Byte order and
+# district membership are law; only the layout scale flexes — nothing in the document invents
+# facts the image does not carry.
 DISTRICT_SPAN = 4096
 BYTE_SCALE = 4.5 / 1024.0
-DISTRICT_DEPTH = 26.0
+DISTRICT_DEPTH = 26.0  # every district's plate is this deep, built or not
 DISTRICT_GAP = 12.0  # the breath between the city blocks: blocks must read as separate plots
 DISTRICT_COLS = 4  # districts per row of the city-block layout
-GUTTER_WIDTH = 5.0  # an empty district: a gutter between the city blocks of used memory
-GUTTER_DEPTH = 9.0
-GRID_STEP = 3.9
-GRID_MARGIN = 2.4
+GRID_STEP = 2.2  # the ONE tile size: a standard plate (18 x 26) holds 7 x 10 = 70 buildings
+GRID_MARGIN = 1.1  # the raster's breath inside the plot: half a tile, every plate alike
 RING_MARGIN = 4.0  # the ring road keeps a wide breath around the plots' bounds
 RING_WIDTH = 5.6  # the arterial's road width (the ready-ring is one queue, one wide road)
 STREET_WIDTH = 3.2  # nominal avenue width; the actual width fits its gap
@@ -319,7 +332,7 @@ LANE_MIN = 0.8  # a gap narrower than this is a lot line, not a street
 CLEARANCE = 1.6  # road half-width: a building's keep-out grows this far beyond its footprint
 JUNCTION_SNAP = 0.25  # streets are wide: near-miss ends still meet on the routing graph
 RING_BEVEL = 2.0  # the ring's corners are cut this clean, and its detour corridors keep the room
-FP_RATIO = 0.5  # a building's footprint never exceeds this fraction of its tile step
+FP_RATIO = 0.5  # a building's footprint IS this fraction of its tile step: every cell, one base
 BLOCK_BIN = 2  # tiles per city-block bin edge (block > building > floors)
 
 # Cell anatomy (model.html, figure 1): the 64-byte header word for word, then the payload padded
@@ -422,16 +435,15 @@ def _district_cols(count: int) -> int:
     return max(DISTRICT_COLS, math.ceil(math.sqrt(count * span_z / span_x)))
 
 
-def _districts(header: Mapping[str, Any], occupied: Iterable[int]) -> list[dict[str, Any]]:
+def _districts(header: Mapping[str, Any]) -> list[dict[str, Any]]:
     """The bands of the arena (the same three the memory map labels), the cells band split into
     districts of at most DISTRICT_SPAN bytes. A cell belongs to the district its offset starts in.
     The districts are laid out as city blocks: a square plan of _district_cols columns, rows
-    flowing along Z, so the arena reads as one connected world instead of a strip. A district
-    whose bytes carry no cell from `occupied` is a gutter between the blocks (and an all-gutter
-    row shrinks): the grid tightens around content instead of stretching empty arena across the
-    map."""
+    flowing along Z, so the arena reads as one connected world instead of a strip. Every district
+    plots on the same rule — its byte span at BYTE_SCALE and DISTRICT_DEPTH deep — whether its
+    bytes carry cells or not: an empty district is the same plate as a built one („jede Zelle
+    gleiche Grundgröße"), and the gaps between plates never depend on what the arena carries."""
     body = int(header["body_size"])
-    offsets = sorted(occupied)
     chunks: list[tuple[str, str, int, int]] = [
         ("header", "header", 0, int(header["header_size"])),
         ("index", "index", int(header["index_off"]), int(header["cells_off"])),
@@ -444,24 +456,14 @@ def _districts(header: Mapping[str, Any], occupied: Iterable[int]) -> list[dict[
         at = end
         index += 1
 
-    def holds(start: int, end: int) -> bool:
-        at = bisect.bisect_left(offsets, start)
-        return at < len(offsets) and offsets[at] < end
-
     cols = _district_cols(len(chunks))
     out: list[dict[str, Any]] = []
     z = 0.0
     for row_start in range(0, len(chunks), cols):
         row = chunks[row_start : row_start + cols]
-        depths = [
-            DISTRICT_DEPTH if holds(start, end) else GUTTER_DEPTH for _, _, start, end in row
-        ]
         x = 0.0
-        for i, ((band, name, start, end), depth) in enumerate(
-            zip(row, depths, strict=True), start=row_start
-        ):
-            here = holds(start, end)
-            width = max(6.0, (end - start) * BYTE_SCALE) if here else GUTTER_WIDTH
+        for i, (band, name, start, end) in enumerate(row, start=row_start):
+            width = max(6.0, (end - start) * BYTE_SCALE)
             out.append(
                 {
                     "id": f"r{i}",
@@ -469,13 +471,18 @@ def _districts(header: Mapping[str, Any], occupied: Iterable[int]) -> list[dict[
                     "band": band,
                     "start": start,
                     "end": end,
-                    "plot": {"x": _round(x), "z": _round(z), "w": _round(width), "d": _round(depth)},
+                    "plot": {
+                        "x": _round(x),
+                        "z": _round(z),
+                        "w": _round(width),
+                        "d": _round(DISTRICT_DEPTH),
+                    },
                     "cell_count": 0,
                     "empty": True,
                 }
             )
             x += width + DISTRICT_GAP
-        z += max(depths) + DISTRICT_GAP
+        z += DISTRICT_DEPTH + DISTRICT_GAP
     return out
 
 
@@ -512,19 +519,21 @@ def _mass(payload_size: int) -> float:
 
 
 def _bulk(family: str, payload_size: int) -> tuple[float, float]:
-    """Footprint and height of a building: run cells are tall control towers, data cells are
-    blocks that grow with their payload, rubble stays low. Height is the mass signal: the world
-    reads bulk at any zoom, the footprint stays inside one floor tile."""
+    """Footprint and height of a building: every cell stands on the SAME base — one FP_RATIO
+    tile of the placement grid („jede Zelle gleiche Grundgröße") — and the height is the mass
+    signal: run cells are tall control towers, data cells are blocks that grow with their
+    payload, rubble stays low. The world reads bulk at any zoom through the silhouette."""
     mass = _mass(payload_size)
+    base = _round(FP_RATIO * GRID_STEP)
     if family == "tower":
-        return _round(1.9 + 0.35 * mass), _round(8.0 + 5.0 * mass)
+        return base, _round(8.0 + 5.0 * mass)
     if family == "monument":
-        return _round(1.8 + 0.5 * mass), _round(4.0 + 3.0 * mass)
+        return base, _round(4.0 + 3.0 * mass)
     if family == "utility":
-        return 1.3, 1.6
+        return base, 1.6
     if family == "rubble":
-        return _round(1.5 + 0.5 * mass), _round(0.4 + 0.3 * mass)
-    return _round(1.3 + 0.9 * mass), _round(1.8 + 5.0 * mass)
+        return base, _round(0.4 + 0.3 * mass)
+    return base, _round(1.8 + 5.0 * mass)
 
 
 # ---- run words: the S1 state word and checksum of a real run-cell payload -------------------------
@@ -649,9 +658,13 @@ def _zip_offsets(
 
 def _tiles(count: int, width: float, depth: float) -> tuple[dict[str, Any], list[tuple[float, float, int, int]]]:
     """The placement raster of a district and the tile of each of `count` buildings on it
-    (offset order, row major, deterministic and centered). The raster comes from the plot itself
-    (tiles of at most GRID_STEP), so an empty district's floor tiles like every other; when the
-    buildings do not fit, the raster grows by whole rows/columns."""
+    (offset order, row major, deterministic and centered). One grid law for every district:
+    every floor tile is exactly GRID_STEP and the raster is centered in the plot — an empty
+    district's floor plates are the same base as any other's („jede Zelle gleiche Grundgröße"),
+    and the steps never flex per district. A cells district holds at most
+    DISTRICT_SPAN // 64 = 64 buildings and the standard plate affords 7 x 10 = 70 tiles; only
+    a band narrower than a full district can outgrow its raster — then it grows by whole
+    rows/columns, and the tile size still never changes."""
     cols = max(1, int((width - 2 * GRID_MARGIN) // GRID_STEP))
     rows = max(1, int((depth - 2 * GRID_MARGIN) // GRID_STEP))
     while cols * rows < count:
@@ -659,17 +672,15 @@ def _tiles(count: int, width: float, depth: float) -> tuple[dict[str, Any], list
             cols += 1
         else:
             rows += 1
-    step_x = min(GRID_STEP, max(1.1, (width - 2 * GRID_MARGIN) / cols))
-    step_z = min(GRID_STEP, max(1.1, (depth - 2 * GRID_MARGIN) / rows))
     raster = {
         "cols": cols,
         "rows": rows,
-        "step_x": _round(step_x),
-        "step_z": _round(step_z),
+        "step_x": _round(GRID_STEP),
+        "step_z": _round(GRID_STEP),
     }
     if count <= 0:
         return raster, []
-    span_x, span_z = step_x * cols, step_z * rows
+    span_x, span_z = GRID_STEP * cols, GRID_STEP * rows
     used_cols = min(cols, count)
     used_rows = math.ceil(count / used_cols)
     start_col = (cols - used_cols) // 2
@@ -679,8 +690,8 @@ def _tiles(count: int, width: float, depth: float) -> tuple[dict[str, Any], list
         col, row = start_col + i % used_cols, start_row + i // used_cols
         plots.append(
             (
-                _round((width - span_x) / 2 + (col + 0.5) * step_x),
-                _round((depth - span_z) / 2 + (row + 0.5) * step_z),
+                _round((width - span_x) / 2 + (col + 0.5) * GRID_STEP),
+                _round((depth - span_z) / 2 + (row + 0.5) * GRID_STEP),
                 col,
                 row,
             )
@@ -1158,8 +1169,8 @@ def _chamfer_closed(
         previous, point, following = pts[index - 1], pts[index], pts[(index + 1) % count]
         ux, uz = point[0] - previous[0], point[1] - previous[1]
         vx, vz = following[0] - point[0], following[1] - point[1]
-        u_length = math.hypot(ux, uz) or 1.0
-        v_length = math.hypot(vx, vz) or 1.0
+        u_length = math.sqrt(ux * ux + uz * uz) or 1.0
+        v_length = math.sqrt(vx * vx + vz * vz) or 1.0
         if (ux * vx + uz * vz) / (u_length * v_length) > math.cos(math.radians(12)):
             continue  # a straight run: the point is the line, not a bend
         r = min(radius, 0.45 * u_length, 0.45 * v_length)
@@ -1354,12 +1365,65 @@ def _chamfer(points: Sequence[tuple[float, float]], radius: float) -> list[tuple
         previous, point, following = points[i - 1], points[i], points[i + 1]
         ux, uz = point[0] - previous[0], point[1] - previous[1]
         vx, vz = following[0] - point[0], following[1] - point[1]
-        u_length = math.hypot(ux, uz) or 1.0
-        v_length = math.hypot(vx, vz) or 1.0
+        u_length = math.sqrt(ux * ux + uz * uz) or 1.0
+        v_length = math.sqrt(vx * vx + vz * vz) or 1.0
         r = min(radius, u_length / 2, v_length / 2)
         out.append((point[0] - (ux / u_length) * r, point[1] - (uz / u_length) * r))
         out.append((point[0] + (vx / v_length) * r, point[1] + (vz / v_length) * r))
     out.append(points[-1])
+    return out
+
+
+PIN_MARGIN = 1.1  # the pad's breath: how far off the building wall the plug sits
+MICRO_LEG = 0.9  # below this a leg is router wobble, not a run: the tidy folds it away
+
+
+def _ortho(points: Sequence[tuple[float, float]]) -> list[tuple[float, float]]:
+    """A cable on the map runs the orthogonal street grid (a 45° corner bevel is cut after). Any
+    leg that drifts off-axis — a pin that missed the rail net, a run that slid — is bent onto the
+    grid, dominant axis first, never left as a slant across the blocks."""
+    out: list[tuple[float, float]] = [points[0]]
+    for i in range(1, len(points)):
+        a = out[-1]
+        b = points[i]
+        dx = b[0] - a[0]
+        dz = b[1] - a[1]
+        if abs(dx) > 1e-6 and abs(dz) > 1e-6:
+            out.append((b[0], a[1]) if abs(dx) >= abs(dz) else (a[0], b[1]))
+        out.append(b)
+    return out
+
+
+def _tidy(points: Sequence[tuple[float, float]]) -> list[tuple[float, float]]:
+    """The run the way a PCB router draws it: collinear legs merged and micro-jogs (the
+    router's footprint wobble) folded away, so the chamfer cuts real corners and the trace
+    reads as straight legs and 45° bends — never a scribble."""
+    out: list[tuple[float, float]] = []
+    for point in points:
+        if not out or abs(point[0] - out[-1][0]) + abs(point[1] - out[-1][1]) > 1e-9:
+            out.append((point[0], point[1]))
+    changed = True
+    while changed and len(out) > 2:
+        changed = False
+        merged = [out[0]]
+        for index in range(1, len(out) - 1):
+            previous, point, following = merged[-1], out[index], out[index + 1]
+            ux, uz = point[0] - previous[0], point[1] - previous[1]
+            vx, vz = following[0] - point[0], following[1] - point[1]
+            u_length = math.sqrt(ux * ux + uz * uz)
+            v_length = math.sqrt(vx * vx + vz * vz)
+            if u_length < 1e-9:
+                continue  # a duplicate point
+            cross = abs(ux * vz - uz * vx)
+            if cross <= 1e-9 * max(1.0, u_length * v_length) and ux * vx + uz * vz > 0:
+                continue  # collinear: the run passes straight through
+            if min(u_length, v_length) < MICRO_LEG:
+                continue  # a jog smaller than its own legs: fold it into the run
+            merged.append(point)
+        merged.append(out[-1])
+        if len(merged) != len(out):
+            changed = True
+        out = merged
     return out
 
 
@@ -1387,15 +1451,6 @@ def _rails(
         lo, hi = (z_lo, z_hi) if axis == "z" else (x_lo, x_hi)
         clipped.append((axis, at, max(low, lo), min(high, hi)))
     return [rail for rail in clipped if rail[2] < rail[3]]
-
-
-def _on_rail(
-    rail: tuple[str, float, float, float], x: float, z: float, tolerance: float = 1e-6
-) -> bool:
-    axis, at, low, high = rail
-    if axis == "x":
-        return abs(z - at) < tolerance and low - tolerance <= x <= high + tolerance
-    return abs(x - at) < tolerance and low - tolerance <= z <= high + tolerance
 
 
 def _project_rail(
@@ -1483,53 +1538,12 @@ def _near_rails(
     return out
 
 
-def _rail_junction_pairs(
-    rails: Sequence[tuple[str, float, float, float]]
-) -> list[tuple[int, int]]:
-    """Every rail pair that can share a junction, found through buckets instead of every pair
-    of the network: collinear rails within ``JUNCTION_SNAP`` of each other, and crossing / T
-    pairs whose meeting point lies on both spans. The pairs come back in (i, j) order, so the
-    junction nodes number exactly as the scan of every pair numbered them."""
-    snap = JUNCTION_SNAP
-    pairs: set[tuple[int, int]] = set()
-    same: dict[str, list[tuple[float, int]]] = {"x": [], "z": []}
-    cross: dict[str, list[tuple[int, float, float, float]]] = {"x": [], "z": []}
-    for i, (axis, at, low, high) in enumerate(rails):
-        same[axis].append((at, i))
-        cross[axis].append((i, at, low, high))
-    # collinear: only rails within snap of each other can meet end to end
-    step = max(2.0 * snap, 1e-9)
-    for axis in ("x", "z"):
-        entries = sorted(same[axis])
-        bins: dict[int, list[int]] = {}
-        for at, i in entries:
-            bins.setdefault(math.floor(at / step), []).append(i)
-        for at, i in entries:
-            home = math.floor(at / step)
-            for cell in (home - 1, home, home + 1):
-                for j in bins.get(cell, ()):
-                    if j > i and abs(rails[j][1] - at) <= snap:
-                        pairs.add((i, j))
-    # crossing and T: the meeting point is (a rail's at) on the other's span, both ways
-    width = max(8.0, 4.0 * snap)
-    index: dict[int, list[int]] = {}
-    for j, at, low, high in cross["z"]:
-        for cell in range(math.floor((low - snap) / width), math.floor((high + snap) / width) + 1):
-            index.setdefault(cell, []).append(j)
-    for i, at, low, high in cross["x"]:
-        for cell in range(math.floor((low - snap) / width), math.floor((high + snap) / width) + 1):
-            for j in index.get(cell, ()):
-                _, bat, blow, bhigh = rails[j]
-                if low - snap <= bat <= high + snap and blow - snap <= at <= bhigh + snap:
-                    pairs.add((i, j) if i < j else (j, i))
-    return sorted(pairs)
-
-
 def _routes(
     cells: Sequence[Mapping[str, Any]],
     edges: list[dict[str, Any]],
     streets: Sequence[Mapping[str, Any]],
     ring_path: Sequence[Mapping[str, float]],
+    report: Report | None = None,
 ) -> dict[str, list[tuple[float, float]]]:
     """Give every cable its route: out of the source's lot, the street network across the city,
     into the target's lot — along the two rails of the endpoints and the crossings between them
@@ -1539,68 +1553,52 @@ def _routes(
     by_id = {str(cell["id"]): cell for cell in cells}
     rails = _rails(streets, ring_path)
 
-    # the crossing table: which rails meet and where. A cable then routes rail to rail — along
-    # its own street, turning at crossings at most twice, into the target's street. The node
-    # graph this replaces answered the same question with a shortest-path search per cable;
-    # the crossings were what that search was really looking for.
-    meet: dict[tuple[int, int], tuple[float, float]] = {}
-    crossings_of: dict[int, set[int]] = {}
-    for i, j in _rail_junction_pairs(rails):
-        a, b = rails[i], rails[j]
-        crossings_of.setdefault(i, set()).add(j)
-        crossings_of.setdefault(j, set()).add(i)
-        if a[0] == b[0]:
-            # collinear streets meet end to end: a branch continues its lane out of the district
-            if abs(a[1] - b[1]) > JUNCTION_SNAP:
-                continue
-            for first, second in ((a, b), (b, a)):
-                for at in (first[2], first[3]):
-                    if second[2] - JUNCTION_SNAP <= at <= second[3] + JUNCTION_SNAP:
-                        corner = (at, first[1]) if first[0] == "x" else (first[1], at)
-                        meet.setdefault((i, j), corner)
-            continue
-        # crossing and T junctions both node: where a rail's end lies on another rail's span,
-        # the corner is shared or the graph fragments into islands and nothing routes
-        x, z = (b[1], a[1]) if a[0] == "x" else (a[1], b[1])
-        if _on_rail(a, x, z, JUNCTION_SNAP) and _on_rail(b, x, z, JUNCTION_SNAP):
-            meet.setdefault((i, j), (x, z))
-        for first, second in ((a, b), (b, a)):
-            for at in (first[2], first[3]):
-                corner = (at, first[1]) if first[0] == "x" else (first[1], at)
-                if _on_rail(second, corner[0], corner[1], JUNCTION_SNAP):
-                    meet.setdefault((i, j), corner)
+    # a cable's run is the Manhattan path on the street grid (``street_route`` below): each end
+    # snaps to its nearest rail and the turn is a crossing of two streets — so every leg of a
+    # route lies on a street centerline, never across a block. The crossing graph that used to
+    # drive a per-cable shortest-path search is gone; the grid is what that search looked for.
+    x_streets = sorted({rail[1] for rail in rails if rail[0] == "x"})
+    z_streets = sorted({rail[1] for rail in rails if rail[0] == "z"})
+
+    def nearest_street(streets: Sequence[float], toward: float) -> float | None:
+        """The street line closest to ``toward`` (ties: the lower line) — the rail the
+        last-resort run turns on, so its long leg is a real street and not a block cut."""
+        if not streets:
+            return None
+        return min(streets, key=lambda at: (abs(at - toward), at))
 
     grid = _rail_grid(rails)
     plugs: dict[str, tuple[float, float, int]] = {
-        str(cell["id"]): _project_rail(rails, float(cell["plot"]["x"]), float(cell["plot"]["z"]), grid)
+        str(cell["id"]): _project_rail(
+            rails, float(cell["plot"]["x"]), float(cell["plot"]["z"]), grid
+        )
         for cell in cells
     }
 
-    def hop_path(
-        s_rail: int, s: tuple[float, float], t_rail: int, t: tuple[float, float]
-    ) -> list[tuple[float, float]] | None:
-        """The street path between two plugs: the run on their own rails and the crossings
-        between, at most two turns. None: the rails do not meet in two turns and the caller
-        falls back to the direct run."""
-        if s_rail < 0 or t_rail < 0:
-            return None
-        if s_rail == t_rail:
-            return [s, t]
-        direct = meet.get((s_rail, t_rail)) or meet.get((t_rail, s_rail))
-        if direct is not None:
-            return [s, direct, t]
-        best: tuple[float, tuple[float, float], tuple[float, float]] | None = None
-        firsts, seconds = crossings_of.get(s_rail), crossings_of.get(t_rail)
-        shared = firsts & seconds if firsts and seconds else ()
-        for m in sorted(shared):
-            first = meet.get((s_rail, m)) or meet.get((m, s_rail))
-            second = meet.get((m, t_rail)) or meet.get((t_rail, m))
-            if first is None or second is None:
-                continue
-            length = math.dist(s, first) + math.dist(first, second) + math.dist(second, t)
-            if best is None or length < best[0] - 1e-12:
-                best = (length, first, second)
-        return None if best is None else [s, best[1], best[2], t]
+    def street_route(
+        source: tuple[float, float, int], target: tuple[float, float, int]
+    ) -> list[tuple[float, float]]:
+        """The corners of the Manhattan run on the street network between two plugs, each of
+        which already sits on its nearest rail (so the pad leg out of a lot is short and
+        perpendicular). Every leg lies on a street centerline: a turn at a crossing the two
+        rails share, or on a parallel street between them — never across a block."""
+        sx, sz, s_rail = source
+        tx, tz, t_rail = target
+        s_axis = rails[s_rail][0] if 0 <= s_rail < len(rails) else None
+        t_axis = rails[t_rail][0] if 0 <= t_rail < len(rails) else None
+        if s_axis == "x" and t_axis == "z":
+            return [(tx, sz)]  # the crossing of the horizontal street sz and the vertical street tx
+        if s_axis == "z" and t_axis == "x":
+            return [(sx, tz)]  # the crossing of the vertical street sx and the horizontal street tz
+        # x_streets are the z-coordinates of the horizontal (x-running) streets; z_streets the
+        # x-coordinates of the vertical (z-running) ones — a turn runs on the perpendicular kind.
+        if s_axis == "x" and t_axis == "x":  # both horizontal: turn down a vertical street
+            xm = nearest_street(z_streets, (sx + tx) / 2)
+            return [] if xm is None else [(xm, sz), (xm, tz)]
+        if s_axis == "z" and t_axis == "z":  # both vertical: turn along a horizontal street
+            zm = nearest_street(x_streets, (sz + tz) / 2)
+            return [] if zm is None else [(sx, zm), (tx, zm)]
+        return []
 
     def grave(source: Mapping[str, Any], handle: int) -> tuple[float, float]:
         mixed = (int(handle) * 2654435761) % 4294967296
@@ -1610,33 +1608,55 @@ def _routes(
             float(source["plot"]["z"]) + math.sin(angle) * GRAVE_REACH,
         )
 
-    routed: dict[tuple[str, str], list[tuple[float, float]] | None] = {}
+    def pin(cell: Mapping[str, Any], toward: tuple[float, float]) -> tuple[float, float]:
+        """Where the cable plugs into its building: the pad sits at the VOLUME's edge in the
+        direction the run leaves, never at the plot center — a trace never climbs a wall or
+        crosses its own building to get out of the lot."""
+        center_x = float(cell["plot"]["x"])
+        center_z = float(cell["plot"]["z"])
+        dx, dz = toward[0] - center_x, toward[1] - center_z
+        reach = math.sqrt(dx * dx + dz * dz)
+        if reach < 1e-9:
+            return (center_x, center_z)
+        radius = float(cell.get("footprint") or 0) / 2 + PIN_MARGIN
+        radius = min(radius, reach * 0.45)  # a tiny lot: the pad never jumps past its plug
+        return (center_x + dx / reach * radius, center_z + dz / reach * radius)
+
+    routed: dict[tuple[str, str], list[tuple[float, float]]] = {}
     straights: dict[str, list[tuple[float, float]]] = {}
-    for edge in edges:
+    for seen, edge in enumerate(edges, start=1):
+        if seen % 32 == 0 or seen == len(edges):
+            _say(report, "routing", seen, len(edges))
         source = by_id.get(str(edge["from"]))
         if source is None:
             edge["route"] = []
             straights[str(edge["id"])] = []
             continue
-        start = (float(source["plot"]["x"]), float(source["plot"]["z"]))
         target = by_id.get(str(edge["to"])) if edge["to"] else None
         if target is not None:
-            finish = (float(target["plot"]["x"]), float(target["plot"]["z"]))
             key = (str(source["id"]), str(target["id"]))
             if key not in routed:
-                s, t = plugs[key[0]], plugs[key[1]]
-                routed[key] = hop_path(s[2], (s[0], s[1]), t[2], (t[0], t[1]))
-            rail_path = routed[key]
-            path = [start] + (rail_path or []) + [finish]
+                routed[key] = street_route(plugs[key[0]], plugs[key[1]])
+            mid = routed[key]
+            sp = plugs[str(source["id"])]
+            tp = plugs[str(target["id"])]
+            start = pin(source, (sp[0], sp[1]))
+            finish = pin(target, (tp[0], tp[1]))
+            path = [start, (sp[0], sp[1])] + list(mid) + [(tp[0], tp[1]), finish]
         else:
-            path = [start, grave(source, int(edge["to_handle"]))]
-        if len(path) < 3:  # no rail network (a bare ground image): the direct Manhattan run
-            middle = round((start[0] + path[-1][0]) / 2 / GRID_STEP) * GRID_STEP
-            path = [start, (middle, start[1]), (middle, path[-1][1]), path[-1]]
+            grave_point = grave(source, int(edge["to_handle"]))
+            start = pin(source, grave_point)
+            path = [start, grave_point]
+        if len(path) < 3:  # no street lines (a bare ground image): the direct Manhattan run
+            x0, z0 = start
+            x1, z1 = path[-1]
+            middle = round((x0 + x1) / 2 / GRID_STEP) * GRID_STEP
+            path = [start, (middle, z0), (middle, z1), path[-1]]
         straight = [path[0]]
         for point in path[1:]:
             if abs(point[0] - straight[-1][0]) + abs(point[1] - straight[-1][1]) > 1e-9:
                 straight.append(point)
+        straight = _ortho(_tidy(straight))
         straights[str(edge["id"])] = straight
         edge["route"] = [
             {"x": _round(x), "z": _round(z)} for x, z in _chamfer(straight, 0.8)
@@ -1677,6 +1697,7 @@ def _bundles(
     straights: Mapping[str, list[tuple[float, float]]],
     streets: Sequence[Mapping[str, Any]],
     ring_path: Sequence[Mapping[str, float]],
+    report: Report | None = None,
 ) -> list[dict[str, Any]]:
     """The cable packages: where cables share a street stretch, that stretch carries them as ONE
     duct — thicker the more it carries, marked by what it carries — and every member cable only
@@ -1685,11 +1706,14 @@ def _bundles(
     on one street rail, split where the traffic splits, is the duct's run."""
     by_id = {str(cell["id"]): cell for cell in cells}
     by_edge = {str(edge["id"]): edge for edge in edges}
+    order = {str(edge["id"]): index for index, edge in enumerate(edges)}
     rails = _rails(streets, ring_path)
 
     # where every cable runs on which street: (edge id, low, high) per rail
     spans: dict[int, list[tuple[str, float, float]]] = {}
-    for edge in edges:
+    for seen, edge in enumerate(edges, start=1):
+        if seen % 32 == 0 or seen == len(edges):
+            _say(report, "packages", seen, len(edges))
         points = straights.get(str(edge["id"]), [])
         for first, second in pairwise(points):
             rail = _leg_rail(rails, first, second)
@@ -1706,7 +1730,10 @@ def _bundles(
     bundles: list[dict[str, Any]] = []
     # rail -> [(low, high, bundle id or None)]: which part of which street is a duct
     cover: dict[int, list[tuple[float, float, str | None]]] = {}
-    for rail in sorted(spans):
+    merged_rails = sorted(spans)
+    for seen, rail in enumerate(merged_rails, start=1):
+        if seen % 4 == 0 or seen == len(merged_rails):
+            _say(report, "merging", seen, len(merged_rails))
         axis, at = rails[rail][0], rails[rail][1]
         merged: list[list[float]] = []
         for _, low, high in sorted(spans[rail], key=lambda span: (span[1], span[2])):
@@ -1720,7 +1747,8 @@ def _bundles(
                     edge_id
                     for edge_id, span_low, span_high in spans[rail]
                     if min(high, span_high) - max(low, span_low) > 1e-6
-                }
+                },
+                key=lambda edge_id: order[edge_id],
             )
             if len(members) < BUNDLE_MIN:
                 cover.setdefault(rail, []).append((low, high, None))
@@ -1804,15 +1832,28 @@ def _bundles(
 # ---- the document ------------------------------------------------------------------------------------
 
 
-def export_world(inspector: Inspector) -> dict[str, Any]:
-    """The scene input of one image, deterministic: the same image always yields the same document."""
+# The loading face's seam (world/__init__.py serves it at /world/scene.json/progress): one call
+# per coarse step, (stage, done, total). The report is observational only — the document never
+# depends on it, so determinism stays the law.
+Report = Callable[[str, int, int], None]
+
+
+def _say(report: Report | None, stage: str, done: int, total: int) -> None:
+    if report is not None:
+        report(stage, done, total)
+
+
+def _base_pass(inspector: Inspector, report: Report | None) -> dict[str, Any]:
+    """The cheap ground of every layer: the districts and their tile rasters, the stream's
+    buckets, the poison runs, and where every cell stands (the placement raster)."""
     image = inspector.image
     header = inspector.header()
     stream = inspector.cells()
     body = int(header["body_size"])
     raw = image.to_bytes()
 
-    regions = _districts(header, (int(cell["offset"]) for cell in stream))
+    _say(report, "districts", 0, 1)
+    regions = _districts(header)
     by_handle: dict[int, dict[str, Any]] = {
         int(cell["handle"]): cell for cell in stream if cell["handle"] is not None
     }
@@ -1825,6 +1866,7 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
         region["empty"] = False
         in_region.setdefault(str(region["id"]), []).append(cell)
 
+    _say(report, "poison", 0, 1)
     poison_runs = _poison_runs(raw, body)
     poisoned_at = _poison_hosts(stream, poison_runs)
 
@@ -1845,10 +1887,35 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
                 col,
                 row,
             )
+    return {
+        "image": image,
+        "header": header,
+        "body": body,
+        "stream": stream,
+        "regions": regions,
+        "by_handle": by_handle,
+        "poison_runs": poison_runs,
+        "poisoned_at": poisoned_at,
+        "placements": placements,
+    }
+
+
+def _buildings_pass(
+    base: Mapping[str, Any], report: Report | None
+) -> tuple[list[dict[str, Any]], dict[int, str], list[dict[str, Any]]]:
+    """The buildings (one per cell) and the poison pits. The pits mark their host cell poisoned,
+    so the two always travel together: a slice of buildings is the truth, pits and all."""
+    image = base["image"]
+    regions = base["regions"]
+    stream = base["stream"]
+    placements = base["placements"]
+    poisoned_at = base["poisoned_at"]
 
     cells: list[dict[str, Any]] = []
     cell_id: dict[int, str] = {}
-    for cell in stream:
+    for seen, cell in enumerate(stream, start=1):
+        if seen % 256 == 0 or seen == len(stream):
+            _say(report, "cells", seen, len(stream))
         offset, size = int(cell["offset"]), int(cell["size"])
         handle = cell["handle"]
         kind = int(cell["kind"])
@@ -1879,10 +1946,6 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
         x, z, col, row = placements[offset]
         footprint, height = _bulk(family, payload_size)
         region = _region_of(regions, offset)
-        raster = region["tiles"]
-        footprint = min(
-            footprint, _round(FP_RATIO * min(float(raster["step_x"]), float(raster["step_z"])))
-        )
         poisoned = offset in poisoned_at
         cells.append(
             {
@@ -1918,7 +1981,7 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
     cell_by_offset = {int(cell["offset"]): cell for cell in cells}
 
     voids: list[dict[str, Any]] = []
-    for start, length in poison_runs:
+    for start, length in base["poison_runs"]:
         host = cell_by_offset.get(start)
         if host is None:
             host = next(
@@ -1960,8 +2023,16 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
                     "footprint": _round(min(10.0, max(1.2, chunk / 96.0))),
                 }
             )
+    return cells, cell_id, voids
 
-    edges = _edges(image, by_handle)
+
+def _cables_pass(
+    base: Mapping[str, Any], cell_id: Mapping[int, str], report: Report | None
+) -> list[dict[str, Any]]:
+    """The cables as the image's refs really are — raw, unrouted (the routes are the
+    ``routing`` layer, computed when the page asks for them)."""
+    _say(report, "edges", 0, 1)
+    edges = _edges(base["image"], base["by_handle"])
     for edge in edges:
         source = cell_id.get(int(edge["from"]))
         edge["from_handle"] = edge.pop("from")
@@ -1970,7 +2041,14 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
         edge["to"] = (
             cell_id.get(int(edge["to_handle"])) if edge["fresh"] else None
         )
+    return edges
 
+
+def _city_pass(
+    base: Mapping[str, Any], cells: Sequence[Mapping[str, Any]], report: Report | None
+) -> dict[str, Any]:
+    """The frame of the city: the ring road, the street network, and what rides the ring."""
+    regions = base["regions"]
     towers = [cell for cell in cells if cell["family"] == "tower"]
     span_x = max(
         (float(region["plot"]["x"]) + float(region["plot"]["w"]) for region in regions),
@@ -1993,10 +2071,9 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
             + RING_MARGIN
         ),
     )
+    _say(report, "streets", 0, 1)
     ring_path = _ring_path(regions, cells, ring_rect)
     streets = _network(regions, cells, ring_rect)
-    straights = _routes(cells, edges, streets, ring_path)
-    bundles = _bundles(cells, edges, straights, streets, ring_path)
     # docs/23 §4.5: a tram is one run cell sitting in a ring slot (READY/RUNNING) and a PARKED run
     # is off the road. The units are the ring's occupied slots — the run state words the image
     # really carries — never one per tower and never a run the image does not place in a slot.
@@ -2021,48 +2098,10 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
         checksum_status = f"{len(verdicts) - bad} ok" + (f" · {bad} bad" if bad else "")
     else:
         checksum_status = None
-
-    counts = {
-        "cells": len(cells),
-        "live": len(by_handle),
-        "towers": len(towers),
-        "monuments": sum(1 for cell in cells if cell["family"] == "monument"),
-        "blocks": sum(1 for cell in cells if cell["family"] == "block"),
-        "utilities": sum(1 for cell in cells if cell["family"] == "utility"),
-        "rubble": sum(1 for cell in cells if cell["family"] == "rubble"),
-        "voids": len(voids),
-        "edges": len(edges),
-        "stale_edges": sum(1 for edge in edges if not edge["fresh"]),
-        "bundles": len(bundles),
-    }
     return {
-        "schema": SCHEMA,
-        "arena": {
-            "version": int(header["version"]),
-            "body_size": body,
-            "cells_off": int(header["cells_off"]),
-            "frontier": int(header["frontier"]),
-            "handle_count": int(header["handle_count"]),
-            "index_chunks": int(header["index_chunks"]),
-            "names_size": int(header["names_size"]),
-        },
-        "grid": {
-            "step": _round(GRID_STEP),
-            "margin": _round(GRID_MARGIN),
-            "district_span": DISTRICT_SPAN,
-            "district_depth": _round(DISTRICT_DEPTH),
-            "district_gap": _round(DISTRICT_GAP),
-            "district_cols": _district_cols(len(regions)),
-            "byte_scale": _round(BYTE_SCALE),
-            "street_width": _round(STREET_WIDTH),
-        },
-        "regions": regions,
-        "cells": cells,
-        "blocks": _blocks(cells, regions),
-        "voids": voids,
-        "edges": edges,
-        "bundles": bundles,
+        "towers": towers,
         "streets": streets,
+        "ring_path": ring_path,
         "ring": {
             "center": center,
             "radius": _round(0.5 * math.hypot(span_x, span_z) + RING_MARGIN),
@@ -2072,7 +2111,6 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
             "path": ring_path,
         },
         "trams": trams,
-        "carriers": [],
         "metrics": {
             "runs": len(towers),
             "carriers": None,
@@ -2082,8 +2120,193 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
             "refusals": None,
             "checksum_status": checksum_status,
         },
-        "counts": counts,
     }
+
+
+class Layers:
+    """The scene of one image, layer by layer: computed on demand, once each, reportable.
+
+    This is the interactive session between the page and the host (world/__init__.py): the
+    page asks for the layer it wants next — buildings, cables, ducts, streets — as paged
+    slices (``offset``/``limit``, or one district with ``region=``) and the host computes just
+    that layer, once, and keeps it (a reload or a second view pays nothing until the image
+    changes). ``export_world`` is the one-shot face of the same computation: compute every
+    layer, assemble the document — one implementation, one truth (the golden ``scene_json``
+    pins the assembled document)."""
+
+    def __init__(
+        self, inspector: Inspector, report: Report | None = None, packing: bool = True
+    ) -> None:
+        self.inspector = inspector
+        self.report = report
+        self._packing = packing
+        self._base: dict[str, Any] | None = None
+        self._buildings: tuple[list[dict[str, Any]], dict[int, str], list[dict[str, Any]]] | None = None
+        self._cables: list[dict[str, Any]] | None = None
+        self._city: dict[str, Any] | None = None
+        self._straights: dict[str, list[tuple[float, float]]] | None = None
+        self._bundles: list[dict[str, Any]] | None = None
+
+    def base(self) -> dict[str, Any]:
+        if self._base is None:
+            self._base = _base_pass(self.inspector, self.report)
+        return self._base
+
+    def cells(self) -> list[dict[str, Any]]:
+        return self.buildings()[0]
+
+    def voids(self) -> list[dict[str, Any]]:
+        return self.buildings()[2]
+
+    def buildings(self):
+        if self._buildings is None:
+            self._buildings = _buildings_pass(self.base(), self.report)
+        return self._buildings
+
+    def blocks(self) -> list[dict[str, Any]]:
+        return _blocks(self.cells(), self.base()["regions"])
+
+    def edges(self) -> list[dict[str, Any]]:
+        """The cables: raw until ``routed()``, routed (with their ``route``) after."""
+        if self._cables is None:
+            self._cables = _cables_pass(self.base(), self.buildings()[1], self.report)
+        return self._cables
+
+    def city(self) -> dict[str, Any]:
+        if self._city is None:
+            self._city = _city_pass(self.base(), self.cells(), self.report)
+        return self._city
+
+    def streets(self) -> list[dict[str, Any]]:
+        return self.city()["streets"]
+
+    def frame(self) -> dict[str, Any]:
+        city = self.city()
+        return {
+            "ring": city["ring"],
+            "trams": city["trams"],
+            "carriers": [],
+            "metrics": city["metrics"],
+        }
+
+    def routed(self) -> list[dict[str, Any]]:
+        """The cables with their ``route`` over the streets — the drawn cable, fast (the
+        routing is a walk of the street crossings, seconds even for a real image)."""
+        self.edges()
+        self.city()
+        if self._straights is None:
+            self._straights = _routes(
+                self.cells(),
+                self.edges(),
+                self.streets(),
+                self.city()["ring_path"],
+                self.report,
+            )
+        return self.edges()
+
+    def bundles(self) -> list[dict[str, Any]]:
+        """The ducts: where the cables share a street stretch. The packing is the slow pass
+        of a big image (minutes), which is exactly why it is its own layer — the page loads
+        it last, or not at all, and the cables and buildings stand without it. With
+        ``packing`` off (the client half, what rxf-reader.js computes in the browser) the
+        pass never runs: no ducts, and every cable's stubs stay empty — the page draws the
+        cable's own ``route`` and nothing shares."""
+        if self._packing is False:
+            for edge in self.routed():
+                edge["stubs"] = []
+            return []
+        if self._bundles is None:
+            self.routed()
+            self._bundles = _bundles(
+                self.cells(),
+                self.edges(),
+                self._straights or {},
+                self.streets(),
+                self.city()["ring_path"],
+                self.report,
+            )
+        return self._bundles
+
+    def counts(self) -> dict[str, Any]:
+        cells = self.cells()
+        voids = self.voids()
+        edges = self.routed()
+        bundles = self.bundles()
+        return {
+            "cells": len(cells),
+            "live": len(self.base()["by_handle"]),
+            "towers": sum(1 for cell in cells if cell["family"] == "tower"),
+            "monuments": sum(1 for cell in cells if cell["family"] == "monument"),
+            "blocks": sum(1 for cell in cells if cell["family"] == "block"),
+            "utilities": sum(1 for cell in cells if cell["family"] == "utility"),
+            "rubble": sum(1 for cell in cells if cell["family"] == "rubble"),
+            "voids": len(voids),
+            "edges": len(edges),
+            "stale_edges": sum(1 for edge in edges if not edge["fresh"]),
+            "bundles": len(bundles),
+        }
+
+    def manifest(self) -> dict[str, Any]:
+        """The header of the document — schema, arena, grid, districts — cheap (the base pass
+        only) and the ground every later part hangs on. The session serves this first."""
+        base = self.base()
+        header = base["header"]
+        return {
+            "schema": SCHEMA,
+            "arena": {
+                "version": int(header["version"]),
+                "body_size": int(base["body"]),
+                "cells_off": int(header["cells_off"]),
+                "frontier": int(header["frontier"]),
+                "handle_count": int(header["handle_count"]),
+                "index_chunks": int(header["index_chunks"]),
+                "names_size": int(header["names_size"]),
+            },
+            "grid": {
+                "step": _round(GRID_STEP),
+                "margin": _round(GRID_MARGIN),
+                "district_span": DISTRICT_SPAN,
+                "district_depth": _round(DISTRICT_DEPTH),
+                "district_gap": _round(DISTRICT_GAP),
+                "district_cols": _district_cols(len(base["regions"])),
+                "byte_scale": _round(BYTE_SCALE),
+                "street_width": _round(STREET_WIDTH),
+            },
+            "regions": base["regions"],
+        }
+
+    def document(self) -> dict[str, Any]:
+        """Every layer, assembled: the scene input schema (its own docstring above)."""
+        base = self.base()
+        cells = self.cells()
+        city = self.city()
+        document = {
+            **self.manifest(),
+            "cells": cells,
+            "blocks": self.blocks(),
+            "voids": self.voids(),
+            "edges": self.routed(),
+            "bundles": self.bundles(),
+            "streets": city["streets"],
+            "ring": city["ring"],
+            "trams": city["trams"],
+            "carriers": [],
+            "metrics": city["metrics"],
+            "counts": self.counts(),
+        }
+        _say(self.report, "finishing", 0, 1)
+        return document
+
+
+def export_world(
+    inspector: Inspector, report: Report | None = None, packing: bool = True
+) -> dict[str, Any]:
+    """The scene input of one image, deterministic: the same image always yields the same document.
+
+    ``packing=False`` is the client half: what rxf-reader.js computes in the browser from
+    raw bytes — the same document without the slow duct packing (empty ``bundles``, empty
+    ``stubs``). test_reader_js pins the two languages to the same output on this face."""
+    return Layers(inspector, report, packing).document()
 
 
 def scene_json(inspector: Inspector) -> str:

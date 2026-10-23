@@ -11,8 +11,11 @@ the sources of truth for the bytes are the Seed sources of `native/**/*.rxfs`
   derived from the shape of the function (the C operands the seed spells) and
   the semantic ABI of the x86_64 set (same arguments, same meaning, the wasm32
   way of passing).
+* ``sources.rxfd``: the build history -- one ``Source`` object per file of
+  ``native/`` with its text and the digest of the text, named on every function
+  its code was built from (docs/31 §3).
 
-Both are rewritten on every run, so a changed source shows up here.
+All of it is rewritten on every run, so a changed source shows up here.
 
     python tools/native/sync.py [--check] [STARTER]
 
@@ -37,6 +40,7 @@ import graph_sync
 import live_sync
 import native_build
 import seed_build
+import source_sync
 
 from pymergetic.rxftk.core import tree
 
@@ -326,12 +330,13 @@ def sync(starter: Path, check: bool = False) -> tuple[int, bool]:
         work = Path(directory) / "starter"
         shutil.copytree(starter, work)
         live_sync.write_live(work)
+        paths = leaf_paths(work, set(bytes_of["x86_64"]))
         graph_sync.write_interpreter(
             work,
             bytes_of,
             {
                 key: path
-                for key, path in leaf_paths(work, set(bytes_of["x86_64"])).items()
+                for key, path in paths.items()
                 if key in graph_header.leaves()
             },
         )
@@ -341,6 +346,7 @@ def sync(starter: Path, check: bool = False) -> tuple[int, bool]:
             total += sync_file(path, parts, bytes_of)
         write_provenance(work / "pymergetic" / "rxf" / "targets.rxfd")
         sync_bytecode(work)
+        source_sync.write_sources(work, paths)
         image = tree.load(work)
         canonical = Path(directory) / "canonical"
         tree.write(image, canonical)

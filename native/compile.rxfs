@@ -1,0 +1,3436 @@
+# native/compile.rxfs: the in-image compiler of native/compile.c, in the Seed `fn` dialect.
+#
+# The port is line-by-line from native/compile.c: every helper is a macro (it expands
+# inline; the state a helper shares with its callers -- the status, the object address --
+# is named at the use site), and the driver is `compile_program` itself.
+#
+#     fn compile_program(c, request)
+#
+# is rxf_compile_program(c, request), the leaf RXF_LEAF_COMPILE_PROGRAM=31, shape `!pp`.
+# Every exit is `refuse N` (the u32 status the C returns, no store through out): the
+# request is filled through its own struct words -- out_size at +48, at at +56 -- exactly
+# as the C writes them, and the memory effects and refusal codes are identical, including
+# the edge cases (the work table checked last before use, `at` left 0 on an early
+# RXF_REFUSE_OUT_OF_MEMORY, the word the scan stopped at).
+#
+# The state mirrors rxf_cc (compile.c:65): the program code/count, the writer (buf, cap,
+# size, write, failed), the frame/alloc, the pass tables index/offset as one region each,
+# instructions/current/nest, and at/area/safe. The three machine backends are three sets
+# of macros -- m_be_*_x (x86_64, compile.c:260), m_be_*_a (aarch64, compile.c:677),
+# m_be_*_w (wasm32, compile.c:985) -- and the m_be_* dispatchers pick by host(), which
+# folds at compile time to one seat. Where the C has a quirk (the order of two checks, a
+# width capped at 8, unsigned wraps), the quirk is kept: the C is the spec, and
+# tests/graph_world.py's compiled() is the oracle.
+#
+# The translation table is docs/114-native-port.md §11.
+
+# ---- the writer: put/put32/put64/patch32 (compile.c:86) ------------------------------------------
+
+# put(): the byte is written only in the second pass (write), where there is room.
+macro m_put(pb) {
+  if (o_write != 0) {
+    if (o_size < o_cap) {
+      store8(o_buf + o_size, (pb) & 255);
+    }
+    else {
+      o_failed = 1;
+    }
+  }
+  o_size = o_size + 1;
+}
+
+# put32()/put64(): the value is taken ONCE, before the first byte moves `o_size`. A macro
+# argument is spliced in textually: an expression over `o_size` passed straight into the four
+# puts is re-evaluated as `o_size` grows (a jump distance of 0 came out 0xffffff00 that way --
+# each byte was the borrow of the next put). compile.c evaluates the argument once.
+macro m_put32(pv) {
+  o_word = (pv);
+  m_put(o_word);
+  m_put(o_word >> 8);
+  m_put(o_word >> 16);
+  m_put(o_word >> 24);
+}
+
+macro m_put64(pv) {
+  o_pair = (pv);
+  m_put32((o_pair) & 4294967295);
+  m_put32((o_pair) >> 32);
+}
+
+# patch32(): a word written into what was written before (a branch distance).
+macro m_patch32(pat, pv) {
+  if (o_write != 0) {
+    if ((pat) + 4 <= o_cap) {
+      store8(o_buf + (pat), (pv) & 255);
+      store8(o_buf + (pat) + 1, ((pv) >> 8) & 255);
+      store8(o_buf + (pat) + 2, ((pv) >> 16) & 255);
+      store8(o_buf + (pat) + 3, ((pv) >> 24) & 255);
+    }
+  }
+}
+
+# pick(): compile.c:114 -- the size of the next piece of a copy: whole words where both
+# ends are aligned. pk_size is 8, 4, 2 or 1.
+macro m_pick(pl, pa, pb) {
+  pk_size = 1;
+  if ((pl) >= 2) {
+    if ((((pa) | (pb)) & 1) == 0) {
+      pk_size = 2;
+      if ((pl) >= 4) {
+        if ((((pa) | (pb)) & 3) == 0) {
+          pk_size = 4;
+          if ((pl) >= 8) {
+            if ((((pa) | (pb)) & 7) == 0) {
+              pk_size = 8;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+# ---- x86_64 (compile.c:260) ----------------------------------------------------------------------
+
+# x_rex(): compile.c:273 -- the REX byte only when it says something.
+macro m_x_rex(pw, preg, prm) {
+  xr_rex = 64 | ((pw) << 3) | (((preg) >> 3) << 2) | ((prm) >> 3);
+  if (xr_rex != 64) {
+    m_put(xr_rex);
+  }
+}
+
+# x_mem(): compile.c:280 -- [base + disp32]; the bases used are never rsp or r12.
+macro m_x_mem(preg, pbase, pdisp) {
+  m_put(128 | (((preg) & 7) << 3) | ((pbase) & 7));
+  m_put32(pdisp);
+}
+
+macro m_x_load(psize, preg, pbase, pdisp) {
+  if ((psize) == 8) {
+    m_x_rex(1, preg, pbase);
+    m_put(139);
+  }
+  else {
+    if ((psize) == 4) {
+      m_x_rex(0, preg, pbase);
+      m_put(139);
+    }
+    else {
+      m_x_rex(1, preg, pbase);
+      m_put(15);
+      if ((psize) == 2) {
+        m_put(183);
+      }
+      else {
+        m_put(182);
+      }
+    }
+  }
+  m_x_mem(preg, pbase, pdisp);
+}
+
+macro m_x_store(psize, preg, pbase, pdisp) {
+  if ((psize) == 2) {
+    m_put(102);
+  }
+  if ((psize) == 8) {
+    m_x_rex(1, preg, pbase);
+  }
+  else {
+    m_x_rex(0, preg, pbase);
+  }
+  if ((psize) == 1) {
+    m_put(136);
+  }
+  else {
+    m_put(137);
+  }
+  m_x_mem(preg, pbase, pdisp);
+}
+
+macro m_x_imm(preg, pv) {
+  if (((pv) >> 32) != 0) {
+    m_x_rex(1, 0, preg);
+    m_put(184 + ((preg) & 7));
+    m_put64(pv);
+  }
+  else {
+    m_x_rex(0, 0, preg);
+    m_put(184 + ((preg) & 7));
+    m_put32(pv);
+  }
+}
+
+macro m_x_lea(preg, pbase, pdisp) {
+  m_x_rex(1, preg, pbase);
+  m_put(141);
+  m_x_mem(preg, pbase, pdisp);
+}
+
+macro m_x_mov(pdst, psrc) {
+  m_x_rex(1, psrc, pdst);
+  m_put(137);
+  m_put(192 | (((psrc) & 7) << 3) | ((pdst) & 7));
+}
+
+macro m_x_copy(pdb, pdst, psb, psrc, pcount) {
+  xc_done = 0;
+  while (xc_done < (pcount)) {
+    m_pick((pcount) - xc_done, (pdst) + xc_done, (psrc) + xc_done);
+    xc_size = pk_size;
+    m_x_load(xc_size, 0, psb, (psrc) + xc_done);
+    m_x_store(xc_size, 0, pdb, (pdst) + xc_done);
+    xc_done = xc_done + xc_size;
+  }
+}
+
+macro m_x_zero(pbase, pdisp, pcount) {
+  if ((pcount) != 0) {
+    m_put(49);
+    m_put(192);
+    xz_done = 0;
+    while (xz_done < (pcount)) {
+      xz_left = (pcount) - xz_done;
+      xz_size = 8;
+      if (xz_left < 8) {
+        xz_size = 4;
+        if (xz_left < 4) {
+          xz_size = 2;
+          if (xz_left < 2) {
+            xz_size = 1;
+          }
+        }
+      }
+      m_x_store(xz_size, 0, pbase, (pdisp) + xz_done);
+      xz_done = xz_done + xz_size;
+    }
+  }
+}
+
+macro m_x_epilogue() {
+  m_put(72);
+  m_put(129);
+  m_put(196);
+  m_put32(cc_alloc);
+  m_put(65);
+  m_put(95);
+  m_put(91);
+  m_put(93);
+  m_put(195);
+}
+
+# x_value(): compile.c:385 -- the value of an operand in a register (load()/pointer() of
+# graph.c). `pop` is the address of the operand's three words.
+macro m_x_value(preg, pop, pobject, pwide) {
+  xv_kind = load64(pop);
+  if (xv_kind == 1) {
+    m_x_imm(preg, load64((pop) + 8));
+  }
+  else {
+    if (xv_kind == 2) {
+      m_x_imm(preg, pobject);
+    }
+    else {
+      if ((pwide != 0) & (load64((pop) + 16) > 8)) {
+        m_x_lea(preg, 5, load64((pop) + 8));
+      }
+      else {
+        xv_size = 8;
+        if (load64((pop) + 16) < 8) {
+          xv_size = load64((pop) + 16);
+        }
+        m_x_load(xv_size, preg, 5, load64((pop) + 8));
+      }
+    }
+  }
+}
+
+# be_begin(): compile.c:407 -- the prologue: the interpreter's frame and more.
+macro m_be_begin_x(pwords) {
+  cc_alloc = 1424;
+  m_put(85);
+  m_put(83);
+  m_put(65);
+  m_put(87);
+  m_put(72);
+  m_put(129);
+  m_put(236);
+  m_put32(cc_alloc);
+  m_put(72);
+  m_put(137);
+  m_put(229);
+  m_x_mov(3, 7);
+  m_x_mov(15, 1);
+  m_put(72);
+  m_put(129);
+  m_put(250);
+  m_put32(pwords);
+  m_put(15);
+  m_put(132);
+  bbx_at = o_size;
+  m_put32(0);
+  m_x_imm(0, 6);
+  m_x_epilogue();
+  m_patch32(bbx_at, o_size - (bbx_at + 4));
+  m_x_zero(5, 0, cc_frame);
+}
+
+macro m_be_param_x(pslot, pwidth, pused) {
+  m_x_copy(5, pslot, 6, pused, pwidth);
+}
+
+macro m_be_move_x(pslot, pwidth, psrc, pobject, phave) {
+  m_x_zero(5, pslot, pwidth);
+  bmx_kind = load64(psrc);
+  if (bmx_kind == 0) {
+    m_x_copy(5, pslot, 5, load64((psrc) + 8), phave);
+  }
+  else {
+    if (bmx_kind == 2) {
+      m_x_imm(1, pobject);
+      m_x_copy(5, pslot, 1, 0, phave);
+    }
+    else {
+      bmx_done = 0;
+      while (bmx_done < (phave)) {
+        m_pick((phave) - bmx_done, (pslot) + bmx_done, 0);
+        bmx_size = pk_size;
+        bmx_piece = load64((psrc) + 8) >> (8 * bmx_done);
+        if (bmx_size == 8) {
+          m_x_imm(0, bmx_piece);
+        }
+        else {
+          m_x_imm(0, bmx_piece & ((1 << (8 * bmx_size)) - 1));
+        }
+        m_x_store(bmx_size, 0, 5, (pslot) + bmx_done);
+        bmx_done = bmx_done + bmx_size;
+      }
+    }
+  }
+}
+
+macro m_x_argument_register(pi) {
+  xar_r = 7;
+  if ((pi) == 1) {
+    xar_r = 6;
+  }
+  if ((pi) == 2) {
+    xar_r = 2;
+  }
+  if ((pi) == 3) {
+    xar_r = 1;
+  }
+  if ((pi) == 4) {
+    xar_r = 8;
+  }
+  if ((pi) == 5) {
+    xar_r = 9;
+  }
+}
+
+# x_argument(): compile.c:458 -- one argument of a call in a register: the context, the
+# output, the staged arguments of a program call, or an operand.
+macro m_x_argument(preg, pwhich, ptype, pout_slot) {
+  xaw_w = (pwhich);
+  if (xaw_w == 6) {
+    m_x_mov(preg, 3);
+  }
+  else {
+    if (xaw_w == 7) {
+      m_x_lea(preg, 5, pout_slot);
+    }
+    else {
+      if (xaw_w == 8) {
+        m_x_lea(preg, 5, 1024);
+      }
+      else {
+        xaw_op = bc_operands + 24 * xaw_w;
+        if (((ptype) == 98) & (load64(xaw_op) == 1)) {
+          m_x_imm(preg, load64(xaw_op + 8) & 255);
+        }
+        else {
+          m_x_value(preg, xaw_op, load64(bc_objects + 8 * xaw_w), 1);
+        }
+      }
+    }
+  }
+}
+
+macro m_x_push_slot(pdisp) {
+  m_put(255);
+  m_put(181);
+  m_put32(pdisp);
+}
+
+macro m_x_push_object(pdisp) {
+  m_put(255);
+  if ((pdisp) != 0) {
+    m_put(112);
+    m_put(pdisp);
+  }
+  else {
+    m_put(48);
+  }
+}
+
+# x_push_handle(): compile.c:484 -- a handle goes by value on the stack: the three words,
+# the last first, so that the first is the lowest.
+macro m_x_push_handle(pop, pobject) {
+  if (load64(pop) == 2) {
+    m_x_imm(0, pobject);
+  }
+  xhw_word = 3;
+  while (xhw_word > 0) {
+    if (load64(pop) == 2) {
+      m_x_push_object(8 * (xhw_word - 1));
+    }
+    else {
+      m_x_push_slot(load64((pop) + 8) + 8 * (xhw_word - 1));
+    }
+    xhw_word = xhw_word - 1;
+  }
+}
+
+# be_call(): compile.c:497 (x86_64) -- the handles are pushed first (the last first), the
+# register arguments are loaded, the arguments beyond the six registers are pushed (the
+# last first), and the callee is called through rax.
+macro m_be_call_x() {
+  bcx_handles = 0;
+  bcx_i = 0;
+  while (bcx_i < pl_n) {
+    if (load32(m_type + 4 * bcx_i) == 104) {
+      bcx_handles = bcx_handles + 1;
+    }
+    bcx_i = bcx_i + 1;
+  }
+  if ((bcx_handles & 1) != 0) {
+    m_put(72);
+    m_put(131);
+    m_put(236);
+    m_put(8);
+  }
+  bcx_i = pl_n;
+  while (bcx_i > 0) {
+    if (load32(m_type + 4 * (bcx_i - 1)) == 104) {
+      m_x_push_handle(bc_operands + 24 * load32(m_arg + 4 * (bcx_i - 1)),
+                      load64(bc_objects + 8 * load32(m_arg + 4 * (bcx_i - 1))));
+    }
+    bcx_i = bcx_i - 1;
+  }
+  bcx_registers = 0;
+  bcx_i = 0;
+  while (bcx_i < pl_n) {
+    if (load32(m_type + 4 * bcx_i) != 104) {
+      if (bcx_registers < 6) {
+        m_x_argument_register(bcx_registers);
+        bcx_registers = bcx_registers + 1;
+        m_x_argument(xar_r, load32(m_arg + 4 * bcx_i), load32(m_type + 4 * bcx_i), bc_out_slot);
+      }
+    }
+    bcx_i = bcx_i + 1;
+  }
+  bcx_i = pl_n;
+  while (bcx_i > 6 + bcx_handles) {
+    m_x_argument(0, load32(m_arg + 4 * (bcx_i - 1)), load32(m_type + 4 * (bcx_i - 1)),
+                 bc_out_slot);
+    m_put(80);
+    bcx_i = bcx_i - 1;
+  }
+  if (bc_has_out != 0) {
+    m_x_zero(5, bc_out_slot, bc_out_width);
+  }
+  m_x_imm(0, bc_function);
+  m_put(255);
+  m_put(208);
+  bcx_left = 3 * bcx_handles + (bcx_handles & 1);
+  if (pl_n > 6 + bcx_handles) {
+    bcx_left = bcx_left + (pl_n - 6 - bcx_handles);
+  }
+  if (bcx_left != 0) {
+    m_put(72);
+    m_put(131);
+    m_put(196);
+    m_put(8 * bcx_left);
+  }
+  if (bc_status == 0xFFFFFFFFFFFFFFFE) {
+    m_put(72);
+    m_put(133);
+    m_put(192);
+    m_put(15);
+    m_put(132);
+    bcx_at = o_size;
+    m_put32(0);
+    m_x_epilogue();
+    m_patch32(bcx_at, o_size - (bcx_at + 4));
+  }
+  else {
+    if (bc_status != 0xFFFFFFFFFFFFFFFF) {
+      m_x_store(4, 0, 5, bc_status);
+    }
+  }
+}
+
+macro m_be_return_x(psrc, pobject, pwidth) {
+  if ((pwidth) > 8) {
+    if (load64(psrc) == 2) {
+      m_x_imm(1, pobject);
+      m_x_copy(15, 0, 1, 0, pwidth);
+    }
+    else {
+      m_x_copy(15, 0, 5, load64((psrc) + 8), pwidth);
+    }
+  }
+  else {
+    m_x_value(0, psrc, pobject, 0);
+    m_x_store(8, 0, 15, 0);
+  }
+  m_put(49);
+  m_put(192);
+  m_x_epilogue();
+}
+
+macro m_be_refuse_x(psrc, pobject) {
+  m_x_value(0, psrc, pobject, 0);
+  m_x_epilogue();
+}
+
+# be_safe_point(): compile.c:572 -- the leaf is called on the context and the area, and
+# what it answers other than OK is the status of the program.
+macro m_be_safe_point_x() {
+  m_x_mov(7, 3);
+  m_x_imm(6, cc_area);
+  m_x_imm(0, cc_safe);
+  m_put(255);
+  m_put(208);
+  m_put(133);
+  m_put(192);
+  m_put(15);
+  m_put(132);
+  bspx_at = o_size;
+  m_put32(0);
+  m_x_epilogue();
+  m_patch32(bspx_at, o_size - (bspx_at + 4));
+}
+
+macro m_be_zero_x(pslot, pwidth) {
+  m_x_zero(5, pslot, pwidth);
+}
+
+macro m_be_slot_copy_x(pdst, psrc, pwidth) {
+  m_x_copy(5, pdst, 5, psrc, pwidth);
+}
+
+# be_less(): compile.c:593 -- dst (one byte) = a < b, unsigned.
+macro m_be_less_x(pdst, pa, paobj, pb, pbobj) {
+  m_x_value(0, pa, paobj, 0);
+  m_x_value(1, pb, pbobj, 0);
+  m_put(72);
+  m_put(57);
+  m_put(200);
+  m_put(15);
+  m_put(146);
+  m_put(192);
+  m_x_store(1, 0, 5, pdst);
+}
+
+# be_increment(): compile.c:604 -- dst (width 1, 2, 4 or 8 bytes) = src + 1.
+macro m_be_increment_x(pdst, pwidth, psrc, pobject) {
+  m_x_value(0, psrc, pobject, 0);
+  m_put(72);
+  m_put(131);
+  m_put(192);
+  m_put(1);
+  bisx_size = 8;
+  if ((pwidth) < 8) {
+    bisx_size = pwidth;
+  }
+  m_x_store(bisx_size, 0, 5, pdst);
+}
+
+macro m_be_value_x(pop, pobject) {
+  m_x_value(10, pop, pobject, 0);
+}
+
+# be_if_zero(): compile.c:619 -- the code up to the matching end runs only when the value
+# is zero (on_zero) or not. The place to patch is the distance of the skip.
+macro m_be_if_zero_x(pon_zero) {
+  m_put(77);
+  m_put(133);
+  m_put(210);
+  m_put(15);
+  if ((pon_zero) != 0) {
+    m_put(133);
+  }
+  else {
+    m_put(132);
+  }
+  if_at = o_size;
+  m_put32(0);
+}
+
+# be_if_tag(): compile.c:630 -- ... only when the value is the tag.
+macro m_be_if_tag_x(ptag) {
+  m_x_imm(11, ptag);
+  m_put(77);
+  m_put(57);
+  m_put(218);
+  m_put(15);
+  m_put(133);
+  if_at = o_size;
+  m_put32(0);
+}
+
+macro m_be_if_else_x(pat) {
+  m_patch32(pat, o_size - ((pat) + 4));
+}
+
+macro m_be_if_end_x(pat) {
+  m_patch32(pat, o_size - ((pat) + 4));
+}
+
+macro m_be_if_else_end_x() {
+  cc_nest = cc_nest;
+}
+
+# be_jump(): compile.c:657 -- jmp to the start of instruction `target`.
+macro m_be_jump_x(ptarget) {
+  m_put(233);
+  m_put32(load32(cc_offset + 4 * (ptarget)) - (o_size + 4));
+}
+
+macro m_be_tail_x() {
+  m_x_imm(0, 6);
+  m_x_epilogue();
+}
+
+# ---- aarch64 (compile.c:677) ---------------------------------------------------------------------
+
+macro m_a_imm(preg, pv) {
+  m_put32(0xD2800000 | (((pv) & 65535) << 5) | (preg));
+  aii_shift = 1;
+  while (aii_shift < 4) {
+    aii_piece = ((pv) >> (16 * aii_shift)) & 65535;
+    if (aii_piece != 0) {
+      m_put32(0xF2800000 | (aii_shift << 21) | (aii_piece << 5) | (preg));
+    }
+    aii_shift = aii_shift + 1;
+  }
+}
+
+macro m_a_load(psize, preg, pbase, pdisp) {
+  aal_op = 0x39400000;
+  if ((psize) == 8) {
+    aal_op = 0xF9400000;
+  }
+  if ((psize) == 4) {
+    aal_op = 0xB9400000;
+  }
+  if ((psize) == 2) {
+    aal_op = 0x79400000;
+  }
+  m_put32(aal_op | (((pdisp) / (psize)) << 10) | ((pbase) << 5) | (preg));
+}
+
+macro m_a_store(psize, preg, pbase, pdisp) {
+  aas_op = 0x39000000;
+  if ((psize) == 8) {
+    aas_op = 0xF9000000;
+  }
+  if ((psize) == 4) {
+    aas_op = 0xB9000000;
+  }
+  if ((psize) == 2) {
+    aas_op = 0x79000000;
+  }
+  m_put32(aas_op | (((pdisp) / (psize)) << 10) | ((pbase) << 5) | (preg));
+}
+
+macro m_a_mov(pdst, psrc) {
+  m_put32(0xAA0003E0 | ((psrc) << 16) | (pdst));
+}
+
+macro m_a_add(pdst, pbase, pimm) {
+  m_put32(0x91000000 | ((pimm) << 10) | ((pbase) << 5) | (pdst));
+}
+
+macro m_a_copy(pdb, pdst, psb, psrc, pcount) {
+  ac_done = 0;
+  while (ac_done < (pcount)) {
+    m_pick((pcount) - ac_done, (pdst) + ac_done, (psrc) + ac_done);
+    ac_size = pk_size;
+    m_a_load(ac_size, 9, psb, (psrc) + ac_done);
+    m_a_store(ac_size, 9, pdb, (pdst) + ac_done);
+    ac_done = ac_done + ac_size;
+  }
+}
+
+macro m_a_zero(pbase, pdisp, pcount) {
+  az_done = 0;
+  while (az_done < (pcount)) {
+    m_pick((pcount) - az_done, (pdisp) + az_done, 0);
+    az_size = pk_size;
+    m_a_store(az_size, 31, pbase, (pdisp) + az_done);
+    az_done = az_done + az_size;
+  }
+}
+
+macro m_a_epilogue() {
+  m_put32(0x910003FF | (cc_alloc << 10));
+  m_put32(0xF94013F5);
+  m_put32(0xA94153F3);
+  m_put32(0xA8C37BFD);
+  m_put32(0xD65F03C0);
+}
+
+# a_value(): compile.c:778 -- x20 is the frame.
+macro m_a_value(preg, pop, pobject, pwide) {
+  av_kind = load64(pop);
+  if (av_kind == 1) {
+    m_a_imm(preg, load64((pop) + 8));
+  }
+  else {
+    if (av_kind == 2) {
+      m_a_imm(preg, pobject);
+    }
+    else {
+      if ((pwide != 0) & (load64((pop) + 16) > 8)) {
+        m_a_add(preg, 20, load64((pop) + 8));
+      }
+      else {
+        av_size = 8;
+        if (load64((pop) + 16) < 8) {
+          av_size = load64((pop) + 16);
+        }
+        m_a_load(av_size, preg, 20, load64((pop) + 8));
+      }
+    }
+  }
+}
+
+macro m_be_begin_a(pwords) {
+  cc_alloc = 1424;
+  m_put32(0xA9BD7BFD);
+  m_put32(0xA90153F3);
+  m_put32(0xF90013F5);
+  m_put32(0xD10003FF | (cc_alloc << 10));
+  m_a_add(20, 31, 0);
+  m_a_mov(19, 0);
+  m_a_mov(21, 3);
+  m_put32(0xF100001F | ((pwords) << 10) | (2 << 5));
+  baa_at = o_size;
+  m_put32(0x54000000);
+  m_put32(0x528000C0);
+  m_a_epilogue();
+  if (baa_at + 4 <= o_cap) {
+    m_patch32(baa_at, 0x54000000 | (((o_size - baa_at) / 4) << 5));
+  }
+  m_a_zero(20, 0, cc_frame);
+}
+
+macro m_be_param_a(pslot, pwidth, pused) {
+  m_a_copy(20, pslot, 1, pused, pwidth);
+}
+
+macro m_be_move_a(pslot, pwidth, psrc, pobject, phave) {
+  m_a_zero(20, pslot, pwidth);
+  bma_kind = load64(psrc);
+  if (bma_kind == 0) {
+    m_a_copy(20, pslot, 20, load64((psrc) + 8), phave);
+  }
+  else {
+    if (bma_kind == 2) {
+      m_a_imm(10, pobject);
+      m_a_copy(20, pslot, 10, 0, phave);
+    }
+    else {
+      bma_done = 0;
+      while (bma_done < (phave)) {
+        m_pick((phave) - bma_done, (pslot) + bma_done, 0);
+        bma_size = pk_size;
+        bma_piece = load64((psrc) + 8) >> (8 * bma_done);
+        if (bma_size == 8) {
+          m_a_imm(9, bma_piece);
+        }
+        else {
+          m_a_imm(9, bma_piece & ((1 << (8 * bma_size)) - 1));
+        }
+        m_a_store(bma_size, 9, 20, (pslot) + bma_done);
+        bma_done = bma_done + bma_size;
+      }
+    }
+  }
+}
+
+# a_handle(): compile.c:819 -- a handle goes by address of a copy that the callee may
+# change: the copy is in the frame.
+macro m_a_handle(preg, pwhich, pordinal) {
+  aah_op = bc_operands + 24 * (pwhich);
+  aah_copy = 1280 + 24 * (pordinal);
+  if (load64(aah_op) == 2) {
+    m_a_imm(10, load64(bc_objects + 8 * (pwhich)));
+    m_a_copy(20, aah_copy, 10, 0, 24);
+  }
+  else {
+    m_a_copy(20, aah_copy, 20, load64(aah_op + 8), 24);
+  }
+  m_a_add(preg, 20, aah_copy);
+}
+
+macro m_a_argument(preg, pwhich, ptype, pout_slot) {
+  aaw_w = (pwhich);
+  if (aaw_w == 6) {
+    m_a_mov(preg, 19);
+  }
+  else {
+    if (aaw_w == 7) {
+      m_a_add(preg, 20, pout_slot);
+    }
+    else {
+      if (aaw_w == 8) {
+        m_a_add(preg, 20, 1024);
+      }
+      else {
+        aaw_op = bc_operands + 24 * aaw_w;
+        if (((ptype) == 98) & (load64(aaw_op) == 1)) {
+          m_a_imm(preg, load64(aaw_op + 8) & 255);
+        }
+        else {
+          m_a_value(preg, aaw_op, load64(bc_objects + 8 * aaw_w), 1);
+        }
+      }
+    }
+  }
+}
+
+# be_call(): compile.c:843 (aarch64) -- each handle is copied to the frame and its address
+# is passed; every argument goes in its register x0..x7.
+macro m_be_call_a() {
+  bca_handles = 0;
+  bca_i = 0;
+  while (bca_i < pl_n) {
+    if (load32(m_type + 4 * bca_i) == 104) {
+      m_a_handle(bca_i, load32(m_arg + 4 * bca_i), bca_handles);
+      bca_handles = bca_handles + 1;
+    }
+    else {
+      m_a_argument(bca_i, load32(m_arg + 4 * bca_i), load32(m_type + 4 * bca_i), bc_out_slot);
+    }
+    bca_i = bca_i + 1;
+  }
+  if (bc_has_out != 0) {
+    m_a_zero(20, bc_out_slot, bc_out_width);
+  }
+  m_a_imm(16, bc_function);
+  m_put32(0xD63F0000 | (16 << 5));
+  if (bc_status == 0xFFFFFFFFFFFFFFFE) {
+    bcaa_at = o_size;
+    m_put32(0xB4000000);
+    m_a_epilogue();
+    if (bcaa_at + 4 <= o_cap) {
+      m_patch32(bcaa_at, 0xB4000000 | (((o_size - bcaa_at) / 4) << 5));
+    }
+  }
+  else {
+    if (bc_status != 0xFFFFFFFFFFFFFFFF) {
+      m_a_store(4, 0, 20, bc_status);
+    }
+  }
+}
+
+macro m_be_return_a(psrc, pobject, pwidth) {
+  if ((pwidth) > 8) {
+    if (load64(psrc) == 2) {
+      m_a_imm(10, pobject);
+      m_a_copy(21, 0, 10, 0, pwidth);
+    }
+    else {
+      m_a_copy(21, 0, 20, load64((psrc) + 8), pwidth);
+    }
+  }
+  else {
+    m_a_value(9, psrc, pobject, 0);
+    m_a_store(8, 9, 21, 0);
+  }
+  m_put32(0x2A1F03E0);
+  m_a_epilogue();
+}
+
+macro m_be_refuse_a(psrc, pobject) {
+  m_a_value(0, psrc, pobject, 0);
+  m_a_epilogue();
+}
+
+macro m_be_safe_point_a() {
+  m_a_mov(0, 19);
+  m_a_imm(1, cc_area);
+  m_a_imm(16, cc_safe);
+  m_put32(0xD63F0000 | (16 << 5));
+  bspaa_at = o_size;
+  m_put32(0x34000000);
+  m_a_epilogue();
+  if (o_write != 0) {
+    if (bspaa_at + 4 <= o_cap) {
+      m_patch32(bspaa_at, 0x34000000 | (((o_size - bspaa_at) / 4) << 5));
+    }
+  }
+}
+
+macro m_be_zero_a(pslot, pwidth) {
+  m_a_zero(20, pslot, pwidth);
+}
+
+macro m_be_slot_copy_a(pdst, psrc, pwidth) {
+  m_a_copy(20, pdst, 20, psrc, pwidth);
+}
+
+macro m_be_less_a(pdst, pa, paobj, pb, pbobj) {
+  m_a_value(9, pa, paobj, 0);
+  m_a_value(10, pb, pbobj, 0);
+  m_put32(0xEB0A013F);
+  m_put32(0x1A9F27E9);
+  m_a_store(1, 9, 20, pdst);
+}
+
+macro m_be_increment_a(pdst, pwidth, psrc, pobject) {
+  m_a_value(9, psrc, pobject, 0);
+  m_a_add(9, 9, 1);
+  bisa_size = 8;
+  if ((pwidth) < 8) {
+    bisa_size = pwidth;
+  }
+  m_a_store(bisa_size, 9, 20, pdst);
+}
+
+macro m_be_value_a(pop, pobject) {
+  m_a_value(11, pop, pobject, 0);
+}
+
+macro m_be_if_zero_a(pon_zero) {
+  if_at = o_size;
+  if ((pon_zero) != 0) {
+    m_put32(0xB5000000 | 11);
+  }
+  else {
+    m_put32(0xB4000000 | 11);
+  }
+}
+
+macro m_be_if_tag_a(ptag) {
+  m_a_imm(10, ptag);
+  m_put32(0xEB0A017F);
+  if_at = o_size;
+  m_put32(0x54000001);
+}
+
+# be_if_else()/be_if_end(): compile.c:959 -- the skip is patched into the instruction that
+# is there (the branch itself is kept).
+macro m_be_if_else_a(pat) {
+  if (o_write != 0) {
+    if ((pat) + 4 <= o_cap) {
+      afx_skip = (o_size - (pat)) / 4;
+      afx_word = 0;
+      afx_word = afx_word | load8(o_buf + (pat));
+      afx_word = afx_word | (load8(o_buf + (pat) + 1) << 8);
+      afx_word = afx_word | (load8(o_buf + (pat) + 2) << 16);
+      afx_word = afx_word | (load8(o_buf + (pat) + 3) << 24);
+      m_patch32(pat, afx_word | (afx_skip << 5));
+    }
+  }
+}
+
+macro m_be_if_end_a(pat) {
+  if (o_write != 0) {
+    if ((pat) + 4 <= o_cap) {
+      afxe_skip = (o_size - (pat)) / 4;
+      afxe_word = 0;
+      afxe_word = afxe_word | load8(o_buf + (pat));
+      afxe_word = afxe_word | (load8(o_buf + (pat) + 1) << 8);
+      afxe_word = afxe_word | (load8(o_buf + (pat) + 2) << 16);
+      afxe_word = afxe_word | (load8(o_buf + (pat) + 3) << 24);
+      m_patch32(pat, afxe_word | (afxe_skip << 5));
+    }
+  }
+}
+
+macro m_be_if_else_end_a() {
+  cc_nest = cc_nest;
+}
+
+macro m_be_jump_a(ptarget) {
+  bjw_words = (load32(cc_offset + 4 * (ptarget)) - o_size) / 4;
+  m_put32(0x14000000 | (bjw_words & 0x03FFFFFF));
+}
+
+macro m_be_tail_a() {
+  m_put32(0x528000C0);
+  m_a_epilogue();
+}
+
+# ---- wasm32 (compile.c:985) ----------------------------------------------------------------------
+
+macro m_w_uleb(pv) {
+  wu_value = (pv);
+  wu_more = 1;
+  while (wu_more != 0) {
+    wu_byte = wu_value & 127;
+    wu_value = wu_value >> 7;
+    if (wu_value != 0) {
+      m_put(wu_byte | 128);
+    }
+    else {
+      m_put(wu_byte);
+      wu_more = 0;
+    }
+  }
+}
+
+# w_sleb(): compile.c:1006 -- the shift of the C is arithmetic (the value is rxf_i64);
+# here it is the logical shift of u64 with the sign bits put back.
+macro m_w_sleb(pv) {
+  ws_value = (pv);
+  ws_more = 1;
+  while (ws_more != 0) {
+    ws_byte = ws_value & 127;
+    ws_sign = ws_value & 0x8000000000000000;
+    ws_value = ws_value >> 7;
+    if (ws_sign != 0) {
+      ws_value = ws_value | 0xFE00000000000000;
+    }
+    if ((ws_value == 0) & ((ws_byte & 64) == 0)) {
+      m_put(ws_byte);
+      ws_more = 0;
+    }
+    else {
+      if ((ws_value == 0xFFFFFFFFFFFFFFFF) & ((ws_byte & 64) != 0)) {
+        m_put(ws_byte);
+        ws_more = 0;
+      }
+      else {
+        m_put(ws_byte | 128);
+      }
+    }
+  }
+}
+
+macro m_w_get(plocal) {
+  m_put(32);
+  m_w_uleb(plocal);
+}
+
+macro m_w_i32(pv) {
+  m_put(65);
+  m_w_sleb_sext(pv);
+}
+
+# w_i32(): compile.c:1017 -- the value is first the i32 it is taken from (the low 32 bits,
+# sign-extended as the C casts it through (int)).
+macro m_w_sleb_sext(pv) {
+  wss_value = (pv) & 4294967295;
+  if (wss_value >= 2147483648) {
+    wss_value = wss_value | 0xFFFFFFFF00000000;
+  }
+  m_w_sleb(wss_value);
+}
+
+macro m_w_i64(pv) {
+  m_put(66);
+  m_w_sleb(pv);
+}
+
+macro m_w_mem(popcode, poffset) {
+  m_put(popcode);
+  m_put(0);
+  m_w_uleb(poffset);
+}
+
+# w_base(): compile.c:1038 -- the base is a local, or W_ABSOLUTE=255 for an absolute
+# address (the instruction then carries it as its offset).
+macro m_w_base(pbase) {
+  if ((pbase) == 255) {
+    m_w_i32(0);
+  }
+  else {
+    m_w_get(pbase);
+  }
+}
+
+macro m_w_load(psize, pwide, pbase, pdisp) {
+  m_w_base(pbase);
+  if ((pwide) != 0) {
+    wl_op = 49;
+    if ((psize) == 8) {
+      wl_op = 41;
+    }
+    if ((psize) == 4) {
+      wl_op = 53;
+    }
+    if ((psize) == 2) {
+      wl_op = 51;
+    }
+    m_w_mem(wl_op, pdisp);
+  }
+  else {
+    wl_op = 45;
+    if ((psize) == 4) {
+      wl_op = 40;
+    }
+    if ((psize) == 2) {
+      wl_op = 47;
+    }
+    m_w_mem(wl_op, pdisp);
+  }
+}
+
+macro m_w_store_size(psize) {
+  ws2_op = 58;
+  if ((psize) == 8) {
+    ws2_op = 55;
+  }
+  if ((psize) == 4) {
+    ws2_op = 54;
+  }
+  if ((psize) == 2) {
+    ws2_op = 59;
+  }
+}
+
+macro m_w_copy(pdb, pdst, psb, psrc, pcount) {
+  wcp_done = 0;
+  while (wcp_done < (pcount)) {
+    wcp_left = (pcount) - wcp_done;
+    wcp_size = 8;
+    if (wcp_left < 8) {
+      wcp_size = 4;
+      if (wcp_left < 4) {
+        wcp_size = 2;
+        if (wcp_left < 2) {
+          wcp_size = 1;
+        }
+      }
+    }
+    m_w_base(pdb);
+    m_w_load(wcp_size, wcp_size == 8, psb, (psrc) + wcp_done);
+    m_w_store_size(wcp_size);
+    m_w_mem(ws2_op, (pdst) + wcp_done);
+    wcp_done = wcp_done + wcp_size;
+  }
+}
+
+macro m_w_zero(pbase, pdisp, pcount) {
+  wz_done = 0;
+  while (wz_done < (pcount)) {
+    wz_left = (pcount) - wz_done;
+    wz_size = 8;
+    if (wz_left < 8) {
+      wz_size = 4;
+      if (wz_left < 4) {
+        wz_size = 2;
+        if (wz_left < 2) {
+          wz_size = 1;
+        }
+      }
+    }
+    m_w_base(pbase);
+    if (wz_size == 8) {
+      m_w_i64(0);
+    }
+    else {
+      m_w_i32(0);
+    }
+    m_w_store_size(wz_size);
+    m_w_mem(ws2_op, (pdisp) + wz_done);
+    wz_done = wz_done + wz_size;
+  }
+}
+
+# w_leave(): compile.c:1097 -- restores the stack pointer; the stack of values is not
+# touched.
+macro m_w_leave() {
+  m_w_get(4);
+  m_w_i32(cc_alloc);
+  m_put(106);
+  m_put(36);
+  m_put(0);
+}
+
+macro m_w_value(pop, pobject, pwide) {
+  wv_kind = load64(pop);
+  if (wv_kind == 1) {
+    m_w_i64(load64((pop) + 8));
+  }
+  else {
+    if (wv_kind == 2) {
+      m_w_i64(pobject);
+    }
+    else {
+      if ((pwide != 0) & (load64((pop) + 16) > 8)) {
+        m_w_get(4);
+        m_w_i32(load64((pop) + 8));
+        m_put(106);
+        m_put(173);
+      }
+      else {
+        wv_size = 8;
+        if (load64((pop) + 16) < 8) {
+          wv_size = load64((pop) + 16);
+        }
+        m_w_load(wv_size, 1, 4, load64((pop) + 8));
+      }
+    }
+  }
+}
+
+macro m_be_begin_w(pwords) {
+  cc_alloc = 1424;
+  m_put(2);
+  m_put(3);
+  m_put(127);
+  m_put(1);
+  m_put(126);
+  m_put(35);
+  m_put(0);
+  m_w_i32(cc_alloc);
+  m_put(107);
+  m_put(34);
+  m_w_uleb(4);
+  m_put(36);
+  m_put(0);
+  m_w_get(2);
+  m_w_i64(pwords);
+  m_put(82);
+  m_put(4);
+  m_put(64);
+  m_w_i32(6);
+  m_w_leave();
+  m_put(15);
+  m_put(11);
+  m_w_zero(4, 0, cc_frame);
+}
+
+macro m_be_param_w(pslot, pwidth, pused) {
+  m_w_copy(4, pslot, 1, pused, pwidth);
+}
+
+macro m_be_move_w(pslot, pwidth, psrc, pobject, phave) {
+  m_w_zero(4, pslot, pwidth);
+  bmw_kind = load64(psrc);
+  if (bmw_kind == 0) {
+    m_w_copy(4, pslot, 4, load64((psrc) + 8), phave);
+  }
+  else {
+    if (bmw_kind == 2) {
+      m_w_copy(4, pslot, 255, pobject, phave);
+    }
+    else {
+      bmw_done = 0;
+      while (bmw_done < (phave)) {
+        bmw_left = (phave) - bmw_done;
+        bmw_size = 8;
+        if (bmw_left < 8) {
+          bmw_size = 4;
+          if (bmw_left < 4) {
+            bmw_size = 2;
+            if (bmw_left < 2) {
+              bmw_size = 1;
+            }
+          }
+        }
+        bmw_piece = load64((psrc) + 8) >> (8 * bmw_done);
+        m_w_get(4);
+        if (bmw_size == 8) {
+          m_w_i64(bmw_piece);
+        }
+        else {
+          m_w_i32(bmw_piece & ((1 << (8 * bmw_size)) - 1));
+        }
+        m_w_store_size(bmw_size);
+        m_w_mem(ws2_op, (pslot) + bmw_done);
+        bmw_done = bmw_done + bmw_size;
+      }
+    }
+  }
+}
+
+# be_call(): compile.c:1168 (wasm32) -- a handle goes by address of a copy: the copies come
+# first, in the frame; the call is a call_indirect whose type is the leaf's (its id less
+# one: the module lists the types of the leaves first).
+macro m_be_call_w() {
+  bcw_ordinal = 0;
+  bcw_i = 0;
+  while (bcw_i < pl_n) {
+    if (load32(m_type + 4 * bcw_i) == 104) {
+      bcw_op = bc_operands + 24 * load32(m_arg + 4 * bcw_i);
+      bcw_copy = 1280 + 24 * bcw_ordinal;
+      bcw_ordinal = bcw_ordinal + 1;
+      if (load64(bcw_op) == 2) {
+        m_w_copy(4, bcw_copy, 255, load64(bc_objects + 8 * load32(m_arg + 4 * bcw_i)), 24);
+      }
+      else {
+        m_w_copy(4, bcw_copy, 4, load64(bcw_op + 8), 24);
+      }
+    }
+    bcw_i = bcw_i + 1;
+  }
+  bcw_ordinal = 0;
+  bcw_i = 0;
+  while (bcw_i < pl_n) {
+    bcw_which = load32(m_arg + 4 * bcw_i);
+    bcw_kind = load32(m_type + 4 * bcw_i);
+    if (bcw_kind == 104) {
+      m_w_get(4);
+      m_w_i32(1280 + 24 * bcw_ordinal);
+      bcw_ordinal = bcw_ordinal + 1;
+      m_put(106);
+    }
+    else {
+      if (bcw_which == 6) {
+        m_w_get(0);
+      }
+      else {
+        if (bcw_which == 7) {
+          m_w_get(4);
+          m_w_i32(bc_out_slot);
+          m_put(106);
+        }
+        else {
+          if (bcw_which == 8) {
+            m_w_get(4);
+            m_w_i32(1024);
+            m_put(106);
+            m_put(173);
+          }
+          else {
+            bcw_op = bc_operands + 24 * bcw_which;
+            if ((bcw_kind == 98) & (load64(bcw_op) == 1)) {
+              m_w_i32(load64(bcw_op + 8) & 255);
+            }
+            else {
+              m_w_value(bcw_op, load64(bc_objects + 8 * bcw_which), 1);
+              if (bcw_kind != 113) {
+                m_put(167);
+              }
+            }
+          }
+        }
+      }
+    }
+    bcw_i = bcw_i + 1;
+  }
+  if (bc_has_out != 0) {
+    m_w_zero(4, bc_out_slot, bc_out_width);
+  }
+  m_w_i32(bc_function);
+  m_put(17);
+  m_w_uleb(bc_leaf - 1);
+  m_put(0);
+  if (bc_status == 0xFFFFFFFFFFFFFFFE) {
+    m_put(33);
+    m_w_uleb(5);
+    m_w_get(5);
+    m_put(4);
+    m_put(64);
+    m_w_get(5);
+    m_w_leave();
+    m_put(15);
+    m_put(11);
+  }
+  else {
+    if (bc_status != 0xFFFFFFFFFFFFFFFF) {
+      m_put(33);
+      m_w_uleb(5);
+      m_w_get(4);
+      m_w_get(5);
+      m_w_mem(54, bc_status);
+    }
+    else {
+      m_put(26);
+    }
+  }
+}
+
+macro m_be_return_w(psrc, pobject, pwidth) {
+  if ((pwidth) > 8) {
+    if (load64(psrc) == 2) {
+      m_w_copy(3, 0, 255, pobject, pwidth);
+    }
+    else {
+      m_w_copy(3, 0, 4, load64((psrc) + 8), pwidth);
+    }
+  }
+  else {
+    m_w_get(3);
+    m_w_value(psrc, pobject, 0);
+    m_w_mem(55, 0);
+  }
+  m_w_i32(0);
+  m_w_leave();
+  m_put(15);
+}
+
+macro m_be_refuse_w(psrc, pobject) {
+  m_w_value(psrc, pobject, 0);
+  m_put(167);
+  m_w_leave();
+  m_put(15);
+}
+
+macro m_be_safe_point_w() {
+  m_w_get(0);
+  m_w_i32(cc_area);
+  m_w_i32(cc_safe);
+  m_put(17);
+  m_w_uleb(37);
+  m_put(0);
+  m_put(33);
+  m_w_uleb(5);
+  m_w_get(5);
+  m_put(4);
+  m_put(64);
+  m_w_get(5);
+  m_w_leave();
+  m_put(15);
+  m_put(11);
+}
+
+macro m_be_zero_w(pslot, pwidth) {
+  m_w_zero(4, pslot, pwidth);
+}
+
+macro m_be_slot_copy_w(pdst, psrc, pwidth) {
+  m_w_copy(4, pdst, 4, psrc, pwidth);
+}
+
+macro m_be_less_w(pdst, pa, paobj, pb, pbobj) {
+  m_w_get(4);
+  m_w_value(pa, paobj, 0);
+  m_w_value(pb, pbobj, 0);
+  m_put(84);
+  m_w_mem(58, pdst);
+}
+
+macro m_be_increment_w(pdst, pwidth, psrc, pobject) {
+  m_w_get(4);
+  m_w_value(psrc, pobject, 0);
+  m_w_i64(1);
+  m_put(124);
+  if ((pwidth) >= 8) {
+    m_w_mem(55, pdst);
+  }
+  else {
+    m_put(167);
+    biww_op = 58;
+    if ((pwidth) == 4) {
+      biww_op = 54;
+    }
+    if ((pwidth) == 2) {
+      biww_op = 59;
+    }
+    m_w_mem(biww_op, pdst);
+  }
+}
+
+macro m_be_value_w(pop, pobject) {
+  m_w_value(pop, pobject, 0);
+  m_put(33);
+  m_w_uleb(7);
+}
+
+macro m_be_if_zero_w(pon_zero) {
+  m_w_get(7);
+  m_put(80);
+  if ((pon_zero) == 0) {
+    m_put(69);
+  }
+  m_put(4);
+  m_put(64);
+  cc_nest = cc_nest + 1;
+  if_at = 0;
+}
+
+macro m_be_if_tag_w(ptag) {
+  m_w_get(7);
+  m_w_i64(ptag);
+  m_put(81);
+  m_put(4);
+  m_put(64);
+  cc_nest = cc_nest + 1;
+  if_at = 0;
+}
+
+macro m_be_if_else_w(pat) {
+  m_put(5);
+}
+
+macro m_be_if_end_w(pat) {
+  m_put(11);
+  cc_nest = cc_nest - 1;
+}
+
+macro m_be_if_else_end_w() {
+  m_put(11);
+  cc_nest = cc_nest - 1;
+}
+
+# be_dispatch(): compile.c:1369 -- a loop around one block for each instruction; br_table
+# on the next instruction goes to the end of its block, which is where its code is.
+macro m_be_dispatch_w() {
+  m_put(3);
+  m_put(64);
+  bdi = 0;
+  while (bdi < cc_instructions) {
+    m_put(2);
+    m_put(64);
+    bdi = bdi + 1;
+  }
+  m_w_get(6);
+  m_put(14);
+  m_w_uleb(cc_instructions);
+  bdi = 0;
+  while (bdi < cc_instructions) {
+    m_w_uleb(bdi);
+    bdi = bdi + 1;
+  }
+  m_w_uleb(cc_instructions - 1);
+}
+
+macro m_be_enter_w() {
+  m_put(11);
+}
+
+# be_jump(): compile.c:1391 -- the next instruction is `target`: back to the loop.
+macro m_be_jump_w(ptarget) {
+  m_w_i32(ptarget);
+  m_put(33);
+  m_w_uleb(6);
+  m_put(12);
+  m_w_uleb(cc_instructions - 1 - cc_current + cc_nest);
+}
+
+macro m_be_tail_w() {
+  m_put(11);
+  m_w_i32(6);
+  m_w_leave();
+  m_put(15);
+  m_put(11);
+}
+
+# ---- the one dispatcher: host() folds to one seat -------------------------------------------------
+
+macro m_be_begin(pwords) {
+  if (host() == 0) {
+    m_be_begin_x(pwords);
+  }
+  else {
+    if (host() == 1) {
+      m_be_begin_a(pwords);
+    }
+    else {
+      m_be_begin_w(pwords);
+    }
+  }
+}
+
+macro m_be_param(pslot, pwidth, pused) {
+  if (host() == 0) {
+    m_be_param_x(pslot, pwidth, pused);
+  }
+  else {
+    if (host() == 1) {
+      m_be_param_a(pslot, pwidth, pused);
+    }
+    else {
+      m_be_param_w(pslot, pwidth, pused);
+    }
+  }
+}
+
+macro m_be_move(pslot, pwidth, psrc, pobject, phave) {
+  if (host() == 0) {
+    m_be_move_x(pslot, pwidth, psrc, pobject, phave);
+  }
+  else {
+    if (host() == 1) {
+      m_be_move_a(pslot, pwidth, psrc, pobject, phave);
+    }
+    else {
+      m_be_move_w(pslot, pwidth, psrc, pobject, phave);
+    }
+  }
+}
+
+# m_be_call(): the arguments are the plan's (m_arg/m_type, pl_n words); the wasm32 backend
+# carries the leaf as well (the type of its call_indirect).
+macro m_be_call(pfunction, pleaf, poperands, pobjects, phas_out, pout_slot, pout_width,
+                pstatus) {
+  bc_function = (pfunction);
+  bc_leaf = (pleaf);
+  bc_operands = (poperands);
+  bc_objects = (pobjects);
+  bc_has_out = (phas_out);
+  bc_out_slot = (pout_slot);
+  bc_out_width = (pout_width);
+  bc_status = (pstatus);
+  if (host() == 0) {
+    m_be_call_x();
+  }
+  else {
+    if (host() == 1) {
+      m_be_call_a();
+    }
+    else {
+      m_be_call_w();
+    }
+  }
+}
+
+macro m_be_return(psrc, pobject, pwidth) {
+  if (host() == 0) {
+    m_be_return_x(psrc, pobject, pwidth);
+  }
+  else {
+    if (host() == 1) {
+      m_be_return_a(psrc, pobject, pwidth);
+    }
+    else {
+      m_be_return_w(psrc, pobject, pwidth);
+    }
+  }
+}
+
+macro m_be_refuse(psrc, pobject) {
+  if (host() == 0) {
+    m_be_refuse_x(psrc, pobject);
+  }
+  else {
+    if (host() == 1) {
+      m_be_refuse_a(psrc, pobject);
+    }
+    else {
+      m_be_refuse_w(psrc, pobject);
+    }
+  }
+}
+
+macro m_be_safe_point() {
+  if (host() == 0) {
+    m_be_safe_point_x();
+  }
+  else {
+    if (host() == 1) {
+      m_be_safe_point_a();
+    }
+    else {
+      m_be_safe_point_w();
+    }
+  }
+}
+
+macro m_be_zero(pslot, pwidth) {
+  if (host() == 0) {
+    m_be_zero_x(pslot, pwidth);
+  }
+  else {
+    if (host() == 1) {
+      m_be_zero_a(pslot, pwidth);
+    }
+    else {
+      m_be_zero_w(pslot, pwidth);
+    }
+  }
+}
+
+macro m_be_slot_copy(pdst, psrc, pwidth) {
+  if (host() == 0) {
+    m_be_slot_copy_x(pdst, psrc, pwidth);
+  }
+  else {
+    if (host() == 1) {
+      m_be_slot_copy_a(pdst, psrc, pwidth);
+    }
+    else {
+      m_be_slot_copy_w(pdst, psrc, pwidth);
+    }
+  }
+}
+
+macro m_be_less(pdst, pa, paobj, pb, pbobj) {
+  if (host() == 0) {
+    m_be_less_x(pdst, pa, paobj, pb, pbobj);
+  }
+  else {
+    if (host() == 1) {
+      m_be_less_a(pdst, pa, paobj, pb, pbobj);
+    }
+    else {
+      m_be_less_w(pdst, pa, paobj, pb, pbobj);
+    }
+  }
+}
+
+macro m_be_increment(pdst, pwidth, psrc, pobject) {
+  if (host() == 0) {
+    m_be_increment_x(pdst, pwidth, psrc, pobject);
+  }
+  else {
+    if (host() == 1) {
+      m_be_increment_a(pdst, pwidth, psrc, pobject);
+    }
+    else {
+      m_be_increment_w(pdst, pwidth, psrc, pobject);
+    }
+  }
+}
+
+macro m_be_value(pop, pobject) {
+  if (host() == 0) {
+    m_be_value_x(pop, pobject);
+  }
+  else {
+    if (host() == 1) {
+      m_be_value_a(pop, pobject);
+    }
+    else {
+      m_be_value_w(pop, pobject);
+    }
+  }
+}
+
+macro m_be_if_zero(pon_zero) {
+  if (host() == 0) {
+    m_be_if_zero_x(pon_zero);
+  }
+  else {
+    if (host() == 1) {
+      m_be_if_zero_a(pon_zero);
+    }
+    else {
+      m_be_if_zero_w(pon_zero);
+    }
+  }
+}
+
+macro m_be_if_tag(ptag) {
+  if (host() == 0) {
+    m_be_if_tag_x(ptag);
+  }
+  else {
+    if (host() == 1) {
+      m_be_if_tag_a(ptag);
+    }
+    else {
+      m_be_if_tag_w(ptag);
+    }
+  }
+}
+
+macro m_be_if_else(pat) {
+  if (host() == 0) {
+    m_be_if_else_x(pat);
+  }
+  else {
+    if (host() == 1) {
+      m_be_if_else_a(pat);
+    }
+    else {
+      m_be_if_else_w(pat);
+    }
+  }
+}
+
+macro m_be_if_end(pat) {
+  if (host() == 0) {
+    m_be_if_end_x(pat);
+  }
+  else {
+    if (host() == 1) {
+      m_be_if_end_a(pat);
+    }
+    else {
+      m_be_if_end_w(pat);
+    }
+  }
+}
+
+macro m_be_if_else_end() {
+  if (host() == 0) {
+    m_be_if_else_end_x();
+  }
+  else {
+    if (host() == 1) {
+      m_be_if_else_end_a();
+    }
+    else {
+      m_be_if_else_end_w();
+    }
+  }
+}
+
+macro m_be_dispatch() {
+  if (host() == 2) {
+    m_be_dispatch_w();
+  }
+}
+
+macro m_be_enter() {
+  if (host() == 2) {
+    m_be_enter_w();
+  }
+}
+
+macro m_be_jump(ptarget) {
+  if (host() == 0) {
+    m_be_jump_x(ptarget);
+  }
+  else {
+    if (host() == 1) {
+      m_be_jump_a(ptarget);
+    }
+    else {
+      m_be_jump_w(ptarget);
+    }
+  }
+}
+
+macro m_be_tail() {
+  if (host() == 0) {
+    m_be_tail_x();
+  }
+  else {
+    if (host() == 1) {
+      m_be_tail_a();
+    }
+    else {
+      m_be_tail_w();
+    }
+  }
+}
+
+# ---- the front end: what the interpreter checks, once, here (compile.c:1405) ---------------------
+
+# have(): compile.c:1407 -- at <= count && words <= count - at.
+macro m_have(pat, pn) {
+  ok = 0;
+  if ((pat) <= cc_count) {
+    if ((pn) <= cc_count - (pat)) {
+      ok = 1;
+    }
+  }
+}
+
+# in_frame(): compile.c:1412 -- width <= frame && offset <= frame - width.
+macro m_in_frame(po, pw) {
+  ok = 0;
+  if ((pw) <= cc_frame) {
+    if ((po) <= cc_frame - (pw)) {
+      ok = 1;
+    }
+  }
+}
+
+# find_leaf(): compile.c:1417 -- the address of a leaf of the function table of the
+# context (rxf_native_slot: id, generation, address).
+macro m_find_leaf(pleaf) {
+  fl_id = (pleaf);
+  fl_addr = 0;
+  fl_i = 0;
+  fl_count = load64(c + 16);
+  fl_table = load64(c + 24);
+  while (fl_i < fl_count) {
+    if (fl_addr == 0) {
+      if (load64(fl_table + fl_i * 24) == fl_id) {
+        fl_addr = load64(fl_table + fl_i * 24 + 16);
+      }
+    }
+    fl_i = fl_i + 1;
+  }
+}
+
+# channel_area(): compile.c:1426 -- the area of the first Channel in the capability table
+# of the context, or 0.
+macro m_channel_area() {
+  ca_area = 0;
+  ca_i = 0;
+  ca_count = load64(c + 48);
+  ca_table = load64(c + 56);
+  while (ca_i < ca_count) {
+    if (ca_area == 0) {
+      if (load64(ca_table + ca_i * 24) == 1) {
+        ca_area = load64(ca_table + ca_i * 24 + 16);
+      }
+    }
+    ca_i = ca_i + 1;
+  }
+}
+
+# entry(): stdlib_runtime.h:86 -- the halving search of the sorted table of the context.
+macro m_entry(pident) {
+  ent = 0;
+  ent_lo = 0;
+  ent_hi = load64(c + 32);
+  ent_id = (pident);
+  while (ent_lo < ent_hi) {
+    ent_mi = ent_lo + ((ent_hi - ent_lo) / 2);
+    if (load64(load64(c + 40) + ent_mi * 80) < ent_id) {
+      ent_lo = ent_mi + 1;
+    }
+    else {
+      ent_hi = ent_mi;
+    }
+  }
+  if (ent_lo < load64(c + 32)) {
+    ent = load64(c + 40) + ent_lo * 80;
+    if (load64(ent) != ent_id) {
+      ent = 0;
+    }
+  }
+}
+
+# check(): compile.c:1436 -- locate() of graph.c: the operand has `need` bytes; the address
+# of an object. ck_st is the refusal, ck_obj the object's payload.
+macro m_check(pop, pneed) {
+  ck_st = 0;
+  ck_obj = 0;
+  ck_kind = load64(pop);
+  if (ck_kind == 0) {
+    m_in_frame(load64((pop) + 8), pneed);
+    if (ok == 0) {
+      ck_st = 6;
+    }
+  }
+  else {
+    if (ck_kind == 1) {
+      if ((pneed) > 8) {
+        ck_st = 6;
+      }
+    }
+    else {
+      if (ck_kind == 2) {
+        m_entry(load64((pop) + 8));
+        ck_found = ent;
+        if (ck_found == 0) {
+          ck_st = 13;
+        }
+        else {
+          if ((pneed) > load64(ck_found + 32)) {
+            ck_st = 6;
+          }
+          else {
+            ck_obj = load64(ck_found + 24);
+          }
+        }
+      }
+      else {
+        ck_st = 6;
+      }
+    }
+  }
+}
+
+# value_check(): compile.c:1455 -- load() and pointer() of graph.c: an operand that becomes
+# a value. A slot is read whole when its width is one a machine reads (1, 2, 4, 8), by
+# address when it is wider (`wide`).
+macro m_value_check(pop, pwide) {
+  vc_st = 0;
+  vc_obj = 0;
+  vc_kind = load64(pop);
+  if (vc_kind == 1) {
+    if (load64((pop) + 16) > 8) {
+      vc_st = 6;
+    }
+  }
+  else {
+    if (vc_kind == 2) {
+      m_check(pop, 0);
+      vc_st = ck_st;
+      vc_obj = ck_obj;
+    }
+    else {
+      if (vc_kind != 0) {
+        vc_st = 6;
+      }
+      else {
+        if ((pwide != 0) & (load64((pop) + 16) > 8)) {
+          m_check(pop, load64((pop) + 16));
+          vc_st = ck_st;
+          vc_obj = ck_obj;
+        }
+        else {
+          vc_need = load64((pop) + 16);
+          if (vc_need >= 8) {
+            vc_need = 8;
+          }
+          m_check(pop, vc_need);
+          vc_st = ck_st;
+          vc_obj = ck_obj;
+          if (vc_st == 0) {
+            vc_size = load64((pop) + 16);
+            if (vc_size >= 8) {
+              vc_size = 8;
+            }
+            if ((vc_size != 1) & (vc_size != 2) & (vc_size != 4) & (vc_size != 8)) {
+              vc_st = 16;
+            }
+            else {
+              if ((load64((pop) + 8) & (vc_size - 1)) != 0) {
+                vc_st = 16;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+# terminal(): compile.c:1474 -- RETURN and REFUSE at `at`, written where the code is now.
+macro m_terminal(pat) {
+  t_w = cc_code + 8 * (pat);
+  t_obj = 0;
+  t_st = 0;
+  if (load64(t_w) == 11) {
+    t_width = load64(t_w + 32);
+    if (t_width > 8) {
+      m_check(t_w + 8, t_width);
+      t_st = ck_st;
+      t_obj = ck_obj;
+    }
+    else {
+      m_value_check(t_w + 8, 0);
+      t_st = vc_st;
+      t_obj = vc_obj;
+    }
+    if (t_st == 0) {
+      m_be_return(t_w + 8, t_obj, t_width);
+      t_st = 0;
+    }
+  }
+  else {
+    m_value_check(t_w + 8, 0);
+    t_st = vc_st;
+    t_obj = vc_obj;
+    if (t_st == 0) {
+      m_be_refuse(t_w + 8, t_obj);
+      t_st = 0;
+    }
+  }
+}
+
+# ---- plan(): the arguments of a call (compile.c:142) ---------------------------------------------
+
+# plan(): compile.c:144 -- the arguments of a call, in the order of the C function of the
+# leaf: an operand of the call, the context (6), the output (7), or the staged arguments
+# of a program call (8). The letters are those of the shapes of graph.c; the shapes are
+# those of graph.h:238. m_arg/m_type hold the words, pl_n how many.
+macro m_plan(pshape) {
+  pl_n = 0;
+  if ((pshape) == 1) {
+    store32(m_arg, 0);
+    store32(m_type, 113);
+    store32(m_arg + 4, 7);
+    store32(m_type + 4, 111);
+    pl_n = 2;
+  }
+  if ((pshape) == 2) {
+    store32(m_arg, 0);
+    store32(m_type, 113);
+    store32(m_arg + 4, 1);
+    store32(m_type + 4, 113);
+    store32(m_arg + 8, 7);
+    store32(m_type + 8, 111);
+    pl_n = 3;
+  }
+  if ((pshape) == 5) {
+    store32(m_arg, 6);
+    store32(m_type, 99);
+    store32(m_arg + 4, 0);
+    store32(m_type + 4, 113);
+    store32(m_arg + 8, 1);
+    store32(m_type + 8, 113);
+    store32(m_arg + 12, 2);
+    store32(m_type + 12, 113);
+    store32(m_arg + 16, 3);
+    store32(m_type + 16, 113);
+    store32(m_arg + 20, 4);
+    store32(m_type + 20, 113);
+    store32(m_arg + 24, 5);
+    store32(m_type + 24, 112);
+    store32(m_arg + 28, 7);
+    store32(m_type + 28, 111);
+    pl_n = 8;
+  }
+  if ((pshape) == 6) {
+    store32(m_arg, 6);
+    store32(m_type, 99);
+    store32(m_arg + 4, 0);
+    store32(m_type + 4, 112);
+    pl_n = 2;
+  }
+  if ((pshape) == 13) {
+    store32(m_arg, 0);
+    store32(m_type, 119);
+    store32(m_arg + 4, 1);
+    store32(m_type + 4, 119);
+    store32(m_arg + 8, 7);
+    store32(m_type + 8, 111);
+    pl_n = 3;
+  }
+  if ((pshape) == 17) {
+    store32(m_arg, 0);
+    store32(m_type, 113);
+    store32(m_arg + 4, 1);
+    store32(m_type + 4, 119);
+    store32(m_arg + 8, 7);
+    store32(m_type + 8, 111);
+    pl_n = 3;
+  }
+  if ((pshape) == 14) {
+    store32(m_arg, 0);
+    store32(m_type, 112);
+    store32(m_arg + 4, 1);
+    store32(m_type + 4, 113);
+    store32(m_arg + 8, 2);
+    store32(m_type + 8, 112);
+    store32(m_arg + 12, 3);
+    store32(m_type + 12, 113);
+    store32(m_arg + 16, 4);
+    store32(m_type + 16, 113);
+    pl_n = 5;
+  }
+  if ((pshape) == 15) {
+    store32(m_arg, 0);
+    store32(m_type, 112);
+    store32(m_arg + 4, 1);
+    store32(m_type + 4, 113);
+    store32(m_arg + 8, 2);
+    store32(m_type + 8, 112);
+    store32(m_arg + 12, 3);
+    store32(m_type + 12, 113);
+    store32(m_arg + 16, 4);
+    store32(m_type + 16, 113);
+    store32(m_arg + 20, 7);
+    store32(m_type + 20, 111);
+    pl_n = 6;
+  }
+  if ((pshape) == 16) {
+    store32(m_arg, 0);
+    store32(m_type, 112);
+    store32(m_arg + 4, 1);
+    store32(m_type + 4, 113);
+    store32(m_arg + 8, 2);
+    store32(m_type + 8, 98);
+    store32(m_arg + 12, 3);
+    store32(m_type + 12, 113);
+    pl_n = 4;
+  }
+  if ((pshape) == 3) {
+    store32(m_arg, 6);
+    store32(m_type, 99);
+    store32(m_arg + 4, 0);
+    store32(m_type + 4, 104);
+    store32(m_arg + 8, 1);
+    store32(m_type + 8, 112);
+    store32(m_arg + 12, 2);
+    store32(m_type + 12, 113);
+    store32(m_arg + 16, 3);
+    store32(m_type + 16, 113);
+    store32(m_arg + 20, 7);
+    store32(m_type + 20, 111);
+    pl_n = 6;
+  }
+  if ((pshape) == 4) {
+    store32(m_arg, 6);
+    store32(m_type, 99);
+    store32(m_arg + 4, 0);
+    store32(m_type + 4, 104);
+    store32(m_arg + 8, 1);
+    store32(m_type + 8, 113);
+    store32(m_arg + 12, 7);
+    store32(m_type + 12, 111);
+    pl_n = 4;
+  }
+  if ((pshape) == 7) {
+    store32(m_arg, 6);
+    store32(m_type, 99);
+    store32(m_arg + 4, 0);
+    store32(m_type + 4, 104);
+    store32(m_arg + 8, 1);
+    store32(m_type + 8, 113);
+    pl_n = 3;
+  }
+  if ((pshape) == 8) {
+    store32(m_arg, 6);
+    store32(m_type, 99);
+    store32(m_arg + 4, 0);
+    store32(m_type + 4, 104);
+    pl_n = 2;
+  }
+  if ((pshape) == 9) {
+    store32(m_arg, 6);
+    store32(m_type, 99);
+    store32(m_arg + 4, 0);
+    store32(m_type + 4, 104);
+    store32(m_arg + 8, 1);
+    store32(m_type + 8, 112);
+    store32(m_arg + 12, 2);
+    store32(m_type + 12, 113);
+    store32(m_arg + 16, 3);
+    store32(m_type + 16, 113);
+    pl_n = 5;
+  }
+  if ((pshape) == 10) {
+    store32(m_arg, 6);
+    store32(m_type, 99);
+    store32(m_arg + 4, 0);
+    store32(m_type + 4, 104);
+    store32(m_arg + 8, 1);
+    store32(m_type + 8, 112);
+    store32(m_arg + 12, 2);
+    store32(m_type + 12, 113);
+    store32(m_arg + 16, 3);
+    store32(m_type + 16, 113);
+    store32(m_arg + 20, 4);
+    store32(m_type + 20, 113);
+    pl_n = 6;
+  }
+  if ((pshape) == 11) {
+    store32(m_arg, 6);
+    store32(m_type, 99);
+    store32(m_arg + 4, 0);
+    store32(m_type + 4, 104);
+    store32(m_arg + 8, 1);
+    store32(m_type + 8, 112);
+    store32(m_arg + 12, 2);
+    store32(m_type + 12, 119);
+    pl_n = 4;
+  }
+  if ((pshape) == 12) {
+    store32(m_arg, 6);
+    store32(m_type, 99);
+    store32(m_arg + 4, 0);
+    store32(m_type + 4, 104);
+    store32(m_arg + 8, 1);
+    store32(m_type + 8, 113);
+    store32(m_arg + 12, 2);
+    store32(m_type + 12, 104);
+    store32(m_arg + 16, 3);
+    store32(m_type + 16, 113);
+    store32(m_arg + 20, 4);
+    store32(m_type + 20, 112);
+    store32(m_arg + 24, 7);
+    store32(m_type + 24, 111);
+    pl_n = 7;
+  }
+}
+
+# ---- shape_of()/shape_layout(): graph.h:257, graph.h:332 ----------------------------------------
+
+macro m_shape_of(pid) {
+  so_id = (pid);
+  so_shape = 0;
+  if (so_id == 3) { so_shape = 1; }
+  if (so_id == 1) { so_shape = 2; }
+  if (so_id == 2) { so_shape = 2; }
+  if (so_id == 4) { so_shape = 2; }
+  if (so_id == 32) { so_shape = 2; }
+  if (so_id == 33) { so_shape = 2; }
+  if (so_id == 34) { so_shape = 2; }
+  if (so_id == 37) { so_shape = 2; }
+  if (so_id == 39) { so_shape = 2; }
+  if (so_id == 40) { so_shape = 2; }
+  if (so_id == 41) { so_shape = 2; }
+  if (so_id == 42) { so_shape = 2; }
+  if (so_id == 43) { so_shape = 2; }
+  if (so_id == 44) { so_shape = 2; }
+  if (so_id == 45) { so_shape = 2; }
+  if (so_id == 35) { so_shape = 17; }
+  if (so_id == 36) { so_shape = 17; }
+  if (so_id == 5) { so_shape = 3; }
+  if (so_id == 6) { so_shape = 3; }
+  if (so_id == 16) { so_shape = 3; }
+  if (so_id == 7) { so_shape = 4; }
+  if (so_id == 8) { so_shape = 4; }
+  if (so_id == 9) { so_shape = 5; }
+  if (so_id == 10) { so_shape = 6; }
+  if (so_id == 11) { so_shape = 6; }
+  if (so_id == 21) { so_shape = 6; }
+  if (so_id == 29) { so_shape = 6; }
+  if (so_id == 30) { so_shape = 6; }
+  if (so_id == 38) { so_shape = 6; }
+  if (so_id == 12) { so_shape = 7; }
+  if (so_id == 13) { so_shape = 7; }
+  if (so_id == 14) { so_shape = 8; }
+  if (so_id == 15) { so_shape = 8; }
+  if (so_id == 18) { so_shape = 9; }
+  if (so_id == 17) { so_shape = 10; }
+  if (so_id == 19) { so_shape = 11; }
+  if (so_id == 20) { so_shape = 12; }
+  if (so_id == 22) { so_shape = 13; }
+  if (so_id == 23) { so_shape = 13; }
+  if (so_id == 24) { so_shape = 13; }
+  if (so_id == 25) { so_shape = 13; }
+  if (so_id == 46) { so_shape = 13; }
+  if (so_id == 47) { so_shape = 13; }
+  if (so_id == 48) { so_shape = 13; }
+  if (so_id == 26) { so_shape = 14; }
+  if (so_id == 27) { so_shape = 15; }
+  if (so_id == 28) { so_shape = 16; }
+}
+
+# shape_layout(): graph.h:332 -- the operands of a shape, which of them are handles (bit
+# n), and whether it has an out. compile_call uses only how many operands it has.
+macro m_shape_layout() {
+  sl_n = 0;
+  sl_handles = 0;
+  sl_has_out = 1;
+  if (so_shape == 1) { sl_n = 1; }
+  if (so_shape == 2) { sl_n = 2; }
+  if (so_shape == 3) { sl_n = 4; sl_handles = 1; }
+  if (so_shape == 4) { sl_n = 2; sl_handles = 1; }
+  if (so_shape == 5) { sl_n = 6; }
+  if (so_shape == 6) { sl_n = 1; sl_has_out = 0; }
+  if (so_shape == 7) { sl_n = 2; sl_handles = 1; sl_has_out = 0; }
+  if (so_shape == 8) { sl_n = 1; sl_handles = 1; sl_has_out = 0; }
+  if (so_shape == 9) { sl_n = 4; sl_handles = 1; sl_has_out = 0; }
+  if (so_shape == 10) { sl_n = 5; sl_handles = 1; sl_has_out = 0; }
+  if (so_shape == 11) { sl_n = 3; sl_handles = 1; sl_has_out = 0; }
+  if (so_shape == 12) { sl_n = 5; sl_handles = 5; }
+  if (so_shape == 13) { sl_n = 2; }
+  if (so_shape == 14) { sl_n = 5; sl_has_out = 0; }
+  if (so_shape == 15) { sl_n = 5; }
+  if (so_shape == 16) { sl_n = 4; sl_has_out = 0; }
+  if (so_shape == 17) { sl_n = 2; }
+}
+
+# ---- compile_program_call(): compile.c:1498 ------------------------------------------------------
+
+# compile_program_call(): a call of a program (word 1 is RXF_GRAPH_CALL): the callee runs
+# in a run of its own -- the interpreter entry is leaf RXF_LEAF_GRAPH_RUN=49 -- with its
+# handle and its arguments staged at RXF_STAGE_AT the way a run binds them. The compile
+# resolves the callee where it stands: one published anew between this and the run refuses
+# STALE_GENERATION -- the seam of a call that names its callee by the generation it has
+# here.
+macro m_compile_program_call(pat) {
+  cpc_at = (pat);
+  cpc_w = cc_code + 8 * cpc_at;
+  cpc_st = 0;
+  cpc_count = load64(cpc_w + 16);
+  cpc_out_slot = load64(cpc_w + 24);
+  cpc_out_width = load64(cpc_w + 32);
+  cpc_status = load64(cpc_w + 40);
+  cpc_name = cpc_w + 48;
+  cpc_operands = cpc_name + 24;
+  if ((load64(cpc_name) != 2) | (load64(cpc_name + 16) != 0)) {
+    cpc_st = 6;
+  }
+  if (cpc_st == 0) {
+    m_entry(load64(cpc_name + 8));
+    cpc_found = ent;
+    if (cpc_found == 0) {
+      cpc_st = 13;
+    }
+    else {
+      if (load64(cpc_found + 48) != 1) {
+        cpc_st = 13;
+      }
+    }
+  }
+  if (cpc_st == 0) {
+    if ((load64(cpc_found + 24) & 7) != 0) {
+      cpc_st = 6;
+    }
+  }
+  if (cpc_st == 0) {
+    cpc_callee = load64(cpc_found + 24);
+    cpc_cwords = load64(cpc_found + 32) / 8;
+    if (cpc_cwords < 5) {
+      cpc_st = 14;
+    }
+    else {
+      if (load64(cpc_callee) != 0x31475852) {
+        cpc_st = 14;
+      }
+    }
+  }
+  if (cpc_st == 0) {
+    cpc_params = load64(cpc_callee + 16);
+    cpc_words = load64(cpc_callee + 24);
+    if ((cpc_params != cpc_count) | (cpc_params > cpc_cwords) | (5 + cpc_params * 2 > cpc_cwords)) {
+      cpc_st = 6;
+    }
+  }
+  if (cpc_st == 0) {
+    if (cpc_out_slot != 0xFFFFFFFFFFFFFFFF) {
+      if (cpc_out_width != 8) {
+        cpc_st = 16;
+      }
+      else {
+        m_in_frame(cpc_out_slot, cpc_out_width);
+        if (ok == 0) {
+          cpc_st = 16;
+        }
+      }
+    }
+  }
+  if (cpc_st == 0) {
+    if (cpc_status != 0xFFFFFFFFFFFFFFFF) {
+      m_in_frame(cpc_status, 4);
+      if ((ok == 0) | ((cpc_status & 3) != 0)) {
+        if ((cpc_status & 3) != 0) {
+          cpc_st = 16;
+        }
+        else {
+          cpc_st = 6;
+        }
+      }
+    }
+  }
+  if (cpc_st == 0) {
+    cpc_i = 0;
+    while (cpc_i + 5 <= cpc_cwords) {
+      if (cpc_st == 0) {
+        if (load64(cpc_callee + 8 * cpc_i) == 11) {
+          if (load64(cpc_callee + 8 * (cpc_i + 4)) > 8) {
+            cpc_st = 16;
+          }
+        }
+      }
+      cpc_i = cpc_i + 1;
+    }
+  }
+  if (cpc_st == 0) {
+    m_find_leaf(49);
+    cpc_function = fl_addr;
+    if (cpc_function == 0) {
+      cpc_st = 13;
+    }
+  }
+  if (cpc_st == 0) {
+    cpc_used = 0;
+    cpc_i = 0;
+    while (cpc_i < cpc_params) {
+      if (cpc_st == 0) {
+        cpc_width = load64(cpc_callee + 8 * (5 + 2 * cpc_i + 1));
+        cpc_op = cpc_operands + 24 * cpc_i;
+        cpc_present = load64(cpc_op + 16);
+        if (cpc_width < cpc_present) {
+          cpc_present = cpc_width;
+        }
+        m_check(cpc_op, cpc_present);
+        cpc_obj = ck_obj;
+        cpc_st = ck_st;
+        if (cpc_st == 0) {
+          if (cpc_width > 256 - 24 - cpc_used) {
+            cpc_st = 16;
+          }
+          else {
+            m_be_move(1024 + cpc_used, cpc_width, cpc_op, cpc_obj, cpc_present);
+            cpc_used = cpc_used + ((cpc_width + 7) & 0xFFFFFFFFFFFFFFF8);
+          }
+        }
+      }
+      cpc_i = cpc_i + 1;
+    }
+  }
+  if (cpc_st == 0) {
+    cpc_word = 0;
+    while (cpc_word < 3) {
+      store64(cpc_handle, 1);
+      if (cpc_word == 0) {
+        store64(cpc_handle + 8, load64(cpc_name + 8));
+      }
+      else {
+        if (cpc_word == 1) {
+          store64(cpc_handle + 8, load64(cpc_found + 8));
+        }
+        else {
+          store64(cpc_handle + 8, 0);
+        }
+      }
+      store64(cpc_handle + 16, 8);
+      m_be_move(1024 + cpc_used + 8 * cpc_word, 8, cpc_handle, 0, 8);
+      cpc_word = cpc_word + 1;
+    }
+  }
+  if (cpc_st == 0) {
+    store64(cpc_call, 0);
+    store64(cpc_call + 8, 1024 + cpc_used);
+    store64(cpc_call + 16, 24);
+    store64(cpc_call + 24, 0);
+    store64(cpc_call + 32, 0);
+    store64(cpc_call + 40, 0);
+    store64(cpc_call + 48, 1);
+    store64(cpc_call + 56, cpc_words);
+    store64(cpc_call + 64, 8);
+    store64(cpc_objects, 0);
+    store64(cpc_objects + 8, 0);
+    store64(cpc_objects + 16, 0);
+    store32(m_arg, 6);
+    store32(m_type, 99);
+    store32(m_arg + 4, 0);
+    store32(m_type + 4, 104);
+    store32(m_arg + 8, 8);
+    store32(m_type + 8, 113);
+    store32(m_arg + 12, 2);
+    store32(m_type + 12, 113);
+    store32(m_arg + 16, 7);
+    store32(m_type + 16, 111);
+    pl_n = 5;
+    cpc_answer = cpc_out_slot;
+    cpc_zeroes = 1;
+    if (cpc_out_slot == 0xFFFFFFFFFFFFFFFF) {
+      cpc_answer = 1304;
+      cpc_zeroes = 0;
+    }
+    cpc_uncaught = cpc_status;
+    if (cpc_status == 0xFFFFFFFFFFFFFFFF) {
+      cpc_uncaught = 0xFFFFFFFFFFFFFFFE;
+    }
+    m_be_call(cpc_function, 49, cpc_call, cpc_objects, cpc_zeroes, cpc_answer, 8, cpc_uncaught);
+  }
+}
+
+# ---- compile_call(): compile.c:1584 --------------------------------------------------------------
+
+# compile_call(): the CALL of a leaf of the function table, or of a program.
+macro m_compile_call(pat) {
+  ccl_at = (pat);
+  ccl_w = cc_code + 8 * ccl_at;
+  ccl_operands = ccl_w + 48;
+  ccl_st = 0;
+  if (load64(ccl_w + 8) == 0) {
+    m_compile_program_call(ccl_at);
+    ccl_st = cpc_st;
+  }
+  else {
+    ccl_leaf = load64(ccl_w + 8);
+    ccl_count = load64(ccl_w + 16);
+    ccl_out_slot = load64(ccl_w + 24);
+    ccl_out_width = load64(ccl_w + 32);
+    m_shape_of(ccl_leaf);
+    ccl_shape = so_shape;
+    m_plan(ccl_shape);
+    ccl_n = pl_n;
+    if (ccl_n == 0) {
+      ccl_st = 16;
+    }
+    if (ccl_st == 0) {
+      ccl_has_out = 0;
+      ccl_i = 0;
+      while (ccl_i < ccl_n) {
+        if (load32(m_arg + 4 * ccl_i) == 7) {
+          ccl_has_out = 1;
+        }
+        ccl_i = ccl_i + 1;
+      }
+    }
+    if (ccl_st == 0) {
+      m_shape_layout();
+      if (sl_n != ccl_count) {
+        ccl_st = 6;
+      }
+    }
+    if (ccl_st == 0) {
+      m_find_leaf(ccl_leaf);
+      ccl_function = fl_addr;
+      if (ccl_function == 0) {
+        ccl_st = 13;
+      }
+    }
+    if (ccl_st == 0) {
+      ccl_i = 0;
+      while (ccl_i < ccl_n) {
+        if (ccl_st == 0) {
+          ccl_which = load32(m_arg + 4 * ccl_i);
+          if (ccl_which < 6) {
+            ccl_op = ccl_operands + 24 * ccl_which;
+            store64(ccl_objects + 8 * ccl_which, 0);
+            if (load32(m_type + 4 * ccl_i) == 104) {
+              m_check(ccl_op, 24);
+              ccl_obj = ck_obj;
+              ccl_st = ck_st;
+            }
+            else {
+              m_value_check(ccl_op, 1);
+              ccl_obj = vc_obj;
+              ccl_st = vc_st;
+            }
+            if (ccl_st == 0) {
+              if (load32(m_type + 4 * ccl_i) == 98) {
+                if ((load64(ccl_op) != 1) & ((load64(ccl_op) != 0) | (load64(ccl_op + 16) != 1))) {
+                  ccl_st = 16;
+                }
+              }
+            }
+            if (ccl_st == 0) {
+              store64(ccl_objects + 8 * ccl_which, ccl_obj);
+            }
+          }
+        }
+        ccl_i = ccl_i + 1;
+      }
+    }
+    if (ccl_st == 0) {
+      if (ccl_has_out != 0) {
+        if (ccl_out_slot == 0xFFFFFFFFFFFFFFFF) {
+          ccl_st = 6;
+        }
+        else {
+          m_in_frame(ccl_out_slot, ccl_out_width);
+          if (ok == 0) {
+            ccl_st = 6;
+          }
+        }
+      }
+      else {
+        if (ccl_out_slot != 0xFFFFFFFFFFFFFFFF) {
+          ccl_st = 6;
+        }
+      }
+    }
+    if (ccl_st == 0) {
+      if (load64(ccl_w + 40) != 0xFFFFFFFFFFFFFFFF) {
+        m_in_frame(load64(ccl_w + 40), 4);
+        if ((ok == 0) | ((load64(ccl_w + 40) & 3) != 0)) {
+          if ((load64(ccl_w + 40) & 3) != 0) {
+            ccl_st = 16;
+          }
+          else {
+            ccl_st = 6;
+          }
+        }
+      }
+    }
+    if (ccl_st == 0) {
+      m_be_call(ccl_function, ccl_leaf, ccl_operands, ccl_objects, ccl_has_out, ccl_out_slot,
+                ccl_out_width, load64(ccl_w + 40));
+    }
+  }
+}
+
+# ---- edge_size()/instruction_size(): compile.c:1637, compile.c:1655 -------------------------------
+
+# edge_size(): the words of an edge: its header, and five for each copy.
+macro m_edge_size(pat) {
+  es_st = 0;
+  es_words = 0;
+  m_have(pat, 2);
+  if (ok == 0) {
+    es_st = 6;
+  }
+  if (es_st == 0) {
+    es_count = load64(cc_code + 8 * ((pat) + 1));
+    if (es_count > 256) {
+      es_st = 6;
+    }
+    else {
+      m_have((pat) + 2, es_count * 5);
+      if (ok == 0) {
+        es_st = 6;
+      }
+    }
+  }
+  if (es_st == 0) {
+    es_words = 2 + es_count * 5;
+  }
+}
+
+# instruction_size(): the words of the instruction at `pc`, and that all of it is in the
+# program.
+macro m_instruction_size(ppc) {
+  is_w = cc_code + 8 * (ppc);
+  is_st = 0;
+  is_words = 0;
+  is_op = load64(is_w);
+  if (is_op == 1) {
+    is_named = 0;
+    if (load64(is_w + 8) == 0) {
+      is_named = 3;
+    }
+    m_have(ppc, 6);
+    if (ok == 0) {
+      is_st = 6;
+    }
+    else {
+      is_count = load64(is_w + 16);
+      if (is_count > 6) {
+        is_st = 6;
+      }
+      else {
+        m_have(ppc, 6 + is_named + is_count * 3);
+        if (ok == 0) {
+          is_st = 6;
+        }
+        else {
+          is_words = 6 + is_named + is_count * 3;
+        }
+      }
+    }
+  }
+  else {
+    if ((is_op == 2) | (is_op == 7)) {
+      is_words = 6;
+      m_have(ppc, 6);
+      if (ok == 0) {
+        is_st = 6;
+      }
+    }
+    else {
+      if (is_op == 3) {
+        m_have(ppc, 8);
+        if (ok == 0) {
+          is_st = 6;
+        }
+        else {
+          is_count = load64(is_w + 56);
+          if (is_count > cc_count) {
+            is_st = 6;
+          }
+          else {
+            m_have(ppc, 8 + is_count * 2);
+            if (ok == 0) {
+              is_st = 6;
+            }
+            else {
+              is_words = 8 + is_count * 2;
+            }
+          }
+        }
+      }
+      else {
+        if ((is_op == 4) | (is_op == 6)) {
+          is_words = 8;
+          m_have(ppc, 8);
+          if (ok == 0) {
+            is_st = 6;
+          }
+        }
+        else {
+          if (is_op == 5) {
+            is_words = 10;
+            m_have(ppc, 10);
+            if (ok == 0) {
+              is_st = 6;
+            }
+          }
+          else {
+            if (is_op == 8) {
+              m_edge_size((ppc) + 1);
+              is_st = es_st;
+              is_first = es_words;
+              if (is_st == 0) {
+                is_words = 1 + is_first;
+              }
+            }
+            else {
+              if (is_op == 9) {
+                m_have(ppc, 5);
+                if (ok == 0) {
+                  is_st = 6;
+                }
+                else {
+                  m_edge_size((ppc) + 5);
+                  is_st = es_st;
+                  is_first = es_words;
+                  if (is_st == 0) {
+                    m_edge_size((ppc) + 5 + is_first);
+                    is_st = es_st;
+                    is_second = es_words;
+                    if (is_st == 0) {
+                      is_words = 5 + is_first + is_second;
+                    }
+                  }
+                }
+              }
+              else {
+                if (is_op == 10) {
+                  m_have(ppc, 5);
+                  if (ok == 0) {
+                    is_st = 6;
+                  }
+                  else {
+                    is_count = load64(is_w + 32);
+                    if (is_count > cc_count) {
+                      is_st = 6;
+                    }
+                    else {
+                      m_have(ppc, 5 + is_count);
+                      if (ok == 0) {
+                        is_st = 6;
+                      }
+                      else {
+                        is_at = (ppc) + 5 + is_count;
+                        is_i = 0;
+                        while (is_i <= is_count) {
+                          if (is_st == 0) {
+                            m_edge_size(is_at);
+                            is_st = es_st;
+                            is_first = es_words;
+                            if (is_st == 0) {
+                              is_at = is_at + is_first;
+                            }
+                          }
+                          is_i = is_i + 1;
+                        }
+                        if (is_st == 0) {
+                          is_words = is_at - (ppc);
+                        }
+                      }
+                    }
+                  }
+                }
+                else {
+                  if (is_op == 11) {
+                    is_words = 5;
+                    m_have(ppc, 5);
+                    if (ok == 0) {
+                      is_st = 6;
+                    }
+                  }
+                  else {
+                    if (is_op == 12) {
+                      is_words = 4;
+                      m_have(ppc, 4);
+                      if (ok == 0) {
+                        is_st = 6;
+                      }
+                    }
+                    else {
+                      is_st = 6;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+# ---- compile_edge(): compile.c:1725 ---------------------------------------------------------------
+
+# compile_edge(): take(): the copies of an edge staged and then written, and the jump to
+# its target. `last` is the edge after which the next instruction follows: no jump to it
+# is needed.
+macro m_compile_edge(pat, plast) {
+  ce_at = (pat);
+  m_edge_size(ce_at);
+  ce_st = es_st;
+  ce_words = es_words;
+  if (ce_st == 0) {
+    ce_count = load64(cc_code + 8 * (ce_at + 1));
+    ce_used = 0;
+    ce_copy = ce_at + 2;
+    ce_i = 0;
+    while (ce_i < ce_count) {
+      if (ce_st == 0) {
+        ce_width = load64(cc_code + 8 * (ce_copy + 4));
+        ce_present = load64(cc_code + 8 * (ce_copy + 2));
+        if (ce_width < ce_present) {
+          ce_present = ce_width;
+        }
+        m_check(cc_code + 8 * ce_copy, ce_present);
+        ce_obj = ck_obj;
+        ce_st = ck_st;
+        if (ce_st == 0) {
+          if (ce_width > 256 - ce_used) {
+            ce_st = 6;
+          }
+          else {
+            m_be_move(1024 + ce_used, ce_width, cc_code + 8 * ce_copy, ce_obj, ce_present);
+            ce_used = ce_used + ce_width;
+          }
+        }
+      }
+      ce_copy = ce_copy + 5;
+      ce_i = ce_i + 1;
+    }
+  }
+  if (ce_st == 0) {
+    ce_used = 0;
+    ce_copy = ce_at + 2;
+    ce_i = 0;
+    while (ce_i < ce_count) {
+      if (ce_st == 0) {
+        ce_dst = load64(cc_code + 8 * (ce_copy + 3));
+        ce_width = load64(cc_code + 8 * (ce_copy + 4));
+        m_in_frame(ce_dst, ce_width);
+        if (ok == 0) {
+          ce_st = 6;
+        }
+        else {
+          m_be_slot_copy(ce_dst, 1024 + ce_used, ce_width);
+          ce_used = ce_used + ce_width;
+        }
+      }
+      ce_copy = ce_copy + 5;
+      ce_i = ce_i + 1;
+    }
+  }
+  if (ce_st == 0) {
+    ce_target = load64(cc_code + 8 * ce_at);
+    ce_next = 0xFFFFFFFF;
+    if (ce_target < cc_count) {
+      ce_next = load32(cc_index + 4 * ce_target) & 0xFFFFFFFF;
+    }
+    if (ce_next == 0xFFFFFFFF) {
+      ce_st = 16;
+    }
+    else {
+      ce_take = 1;
+      if ((plast != 0) & (ce_next == cc_current + 1)) {
+        ce_take = 0;
+      }
+      if (ce_take != 0) {
+        if ((ce_next <= cc_current) & (cc_area != 0) & (cc_safe != 0)) {
+          m_be_safe_point();
+        }
+        m_be_jump(ce_next);
+      }
+    }
+  }
+}
+
+# ---- compile_instruction(): compile.c:1762 --------------------------------------------------------
+
+# compile_instruction(): the instruction at `pc`, written where the code is now.
+macro m_compile_instruction(ppc, psize) {
+  ci_pc = (ppc);
+  ci_w = cc_code + 8 * ci_pc;
+  ci_st = 0;
+  ci_object = 0;
+  ci_other = 0;
+  ci_op = load64(ci_w);
+  if (ci_op == 1) {
+    m_compile_call(ci_pc);
+    ci_st = ccl_st;
+  }
+  else {
+    if (ci_op == 2) {
+      ci_have = load64(ci_w + 40);
+      if (load64(ci_w + 16) < ci_have) {
+        ci_have = load64(ci_w + 16);
+      }
+      m_in_frame(load64(ci_w + 8), load64(ci_w + 16));
+      if (ok == 0) {
+        ci_st = 6;
+      }
+      else {
+        m_check(ci_w + 24, ci_have);
+        ci_object = ck_obj;
+        ci_st = ck_st;
+        if (ci_st == 0) {
+          m_be_move(load64(ci_w + 8), load64(ci_w + 16), ci_w + 24, ci_object, ci_have);
+        }
+      }
+    }
+    else {
+      if (ci_op == 3) {
+        ci_have = load64(ci_w + 40);
+        if (load64(ci_w + 16) < ci_have) {
+          ci_have = load64(ci_w + 16);
+        }
+        m_in_frame(load64(ci_w + 8), load64(ci_w + 16));
+        if (ok != 0) {
+          m_in_frame(load64(ci_w + 8) + load64(ci_w + 48), 4);
+        }
+        if (ok == 0) {
+          ci_st = 6;
+        }
+        else {
+          m_check(ci_w + 24, ci_have);
+          ci_object = ck_obj;
+          ci_st = ck_st;
+          if (ci_st == 0) {
+            m_be_move(load64(ci_w + 8), load64(ci_w + 16), ci_w + 24, ci_object, ci_have);
+            if (load64(ci_w + 56) != 0) {
+              store64(op_field, 0);
+              store64(op_field + 8, load64(ci_w + 8) + load64(ci_w + 48));
+              store64(op_field + 16, 4);
+              m_value_check(op_field, 0);
+              ci_other = vc_obj;
+              ci_st = vc_st;
+              if (ci_st == 0) {
+                m_be_value(op_field, 0);
+                ci_i = load64(ci_w + 56);
+                while (ci_i > 0) {
+                  ci_from = load64(ci_w + 8 * (8 + 2 * (ci_i - 1)));
+                  ci_to = load64(ci_w + 8 * (9 + 2 * (ci_i - 1)));
+                  if ((ci_from >> 32) == 0) {
+                    m_be_if_tag(ci_from & 0xFFFFFFFF);
+                    ci_patch = if_at;
+                    store64(op_literal, 1);
+                    store64(op_literal + 8, ci_to & 0xFFFFFFFF);
+                    store64(op_literal + 16, 4);
+                    m_be_move(load64(ci_w + 8) + load64(ci_w + 48), 4, op_literal, 0, 4);
+                    m_be_if_end(ci_patch);
+                  }
+                  ci_i = ci_i - 1;
+                }
+              }
+            }
+          }
+        }
+      }
+      else {
+        if (ci_op == 4) {
+          m_in_frame(load64(ci_w + 8), load64(ci_w + 16));
+          if ((ok == 0) | (load64(ci_w + 56) > load64(ci_w + 16))) {
+            ci_st = 6;
+          }
+          else {
+            if ((load64(ci_w + 48) >> 32) != 0) {
+              ci_st = 6;
+            }
+            else {
+              m_check(ci_w + 24, load64(ci_w + 48) + load64(ci_w + 56));
+              ci_object = ck_obj;
+              ci_st = ck_st;
+              if (ci_st == 0) {
+                store64(op_part, load64(ci_w + 24));
+                store64(op_part + 16, load64(ci_w + 56));
+                if (load64(ci_w + 24) == 0) {
+                  store64(op_part + 8, load64(ci_w + 32) + load64(ci_w + 48));
+                }
+                else {
+                  if (load64(ci_w + 24) == 2) {
+                    store64(op_part + 8, load64(ci_w + 32));
+                    ci_object = ci_object + load64(ci_w + 48);
+                  }
+                  else {
+                    if (load64(ci_w + 48) < 8) {
+                      store64(op_part + 8, load64(ci_w + 32) >> (8 * load64(ci_w + 48)));
+                    }
+                    else {
+                      store64(op_part + 8, 0);
+                    }
+                  }
+                }
+                m_be_move(load64(ci_w + 8), load64(ci_w + 16), op_part, ci_object,
+                          load64(ci_w + 56));
+              }
+            }
+          }
+        }
+        else {
+          if (ci_op == 5) {
+            m_in_frame(load64(ci_w + 8), load64(ci_w + 16));
+            if (ok == 0) {
+              ci_st = 6;
+            }
+            else {
+              m_in_frame(load64(ci_w + 8) + load64(ci_w + 24), 4);
+              if (ok == 0) {
+                ci_st = 6;
+              }
+              else {
+                if (load64(ci_w + 72) > load64(ci_w + 16)) {
+                  ci_st = 6;
+                }
+                else {
+                  if (load64(ci_w + 64) > load64(ci_w + 16) - load64(ci_w + 72)) {
+                    ci_st = 6;
+                  }
+                  else {
+                    ci_bytes = load64(ci_w + 72);
+                    if (load64(ci_w + 56) < ci_bytes) {
+                      ci_bytes = load64(ci_w + 56);
+                    }
+                    m_check(ci_w + 40, ci_bytes);
+                    ci_object = ck_obj;
+                    ci_st = ck_st;
+                    if (ci_st == 0) {
+                      m_be_zero(load64(ci_w + 8), load64(ci_w + 16));
+                      store64(op_tag, 1);
+                      store64(op_tag + 8, load64(ci_w + 32) & 0xFFFFFFFF);
+                      store64(op_tag + 16, 4);
+                      m_be_move(load64(ci_w + 8) + load64(ci_w + 24), 4, op_tag, 0, 4);
+                      m_be_move(load64(ci_w + 8) + load64(ci_w + 64), ci_bytes, ci_w + 40,
+                                ci_object, ci_bytes);
+                    }
+                  }
+                }
+              }
+            }
+          }
+          else {
+            if (ci_op == 6) {
+              m_in_frame(load64(ci_w + 8), 1);
+              if (ok == 0) {
+                ci_st = 6;
+              }
+              else {
+                m_value_check(ci_w + 16, 0);
+                ci_object = vc_obj;
+                ci_st = vc_st;
+                if (ci_st == 0) {
+                  m_value_check(ci_w + 40, 0);
+                  ci_other = vc_obj;
+                  ci_st = vc_st;
+                }
+                if (ci_st == 0) {
+                  m_be_less(load64(ci_w + 8), ci_w + 16, ci_object, ci_w + 40, ci_other);
+                }
+              }
+            }
+            else {
+              if (ci_op == 7) {
+                m_in_frame(load64(ci_w + 8), load64(ci_w + 16));
+                if (ok == 0) {
+                  ci_st = 6;
+                }
+                else {
+                  m_value_check(ci_w + 24, 0);
+                  ci_object = vc_obj;
+                  ci_st = vc_st;
+                  if (ci_st == 0) {
+                    if (load64(ci_w + 16) != 0) {
+                      ci_width = load64(ci_w + 16);
+                      ci_mask = ci_width;
+                      if (ci_width >= 8) {
+                        ci_mask = 8;
+                      }
+                      if (((ci_width != 1) & (ci_width != 2) & (ci_width != 4) & (ci_width < 8))
+                          | ((load64(ci_w + 8) & (ci_mask - 1)) != 0)) {
+                        ci_st = 16;
+                      }
+                      else {
+                        m_be_increment(load64(ci_w + 8), ci_width, ci_w + 24, ci_object);
+                      }
+                    }
+                  }
+                }
+              }
+              else {
+                if (ci_op == 8) {
+                  m_compile_edge(ci_pc + 1, 1);
+                  ci_st = ce_st;
+                }
+                else {
+                  if (ci_op == 9) {
+                    ci_first = ci_pc + 5;
+                    m_value_check(ci_w + 8, 0);
+                    ci_object = vc_obj;
+                    ci_st = vc_st;
+                    if (ci_st == 0) {
+                      m_edge_size(ci_first);
+                      ci_st = es_st;
+                      ci_words = es_words;
+                    }
+                    if (ci_st == 0) {
+                      m_be_value(ci_w + 8, ci_object);
+                      m_be_if_zero(load64(ci_w + 32) == 0);
+                      ci_patch = if_at;
+                      m_compile_edge(ci_first, 0);
+                      ci_st = ce_st;
+                      if (ci_st == 0) {
+                        m_be_if_else(ci_patch);
+                        m_compile_edge(ci_first + ci_words, 1);
+                        ci_st = ce_st;
+                        m_be_if_else_end();
+                      }
+                    }
+                  }
+                  else {
+                    if (ci_op == 10) {
+                      m_value_check(ci_w + 8, 0);
+                      ci_object = vc_obj;
+                      ci_st = vc_st;
+                      if (ci_st == 0) {
+                        m_be_value(ci_w + 8, ci_object);
+                        ci_at = ci_pc + 5 + load64(ci_w + 32);
+                        ci_i = 0;
+                        while (ci_i < load64(ci_w + 32)) {
+                          if (ci_st == 0) {
+                            m_be_if_tag(load64(ci_w + 8 * (5 + ci_i)));
+                            ci_patch = if_at;
+                            m_compile_edge(ci_at, 0);
+                            ci_st = ce_st;
+                            if (ci_st == 0) {
+                              m_be_if_end(ci_patch);
+                              m_edge_size(ci_at);
+                              ci_st = es_st;
+                              ci_words = es_words;
+                              if (ci_st == 0) {
+                                ci_at = ci_at + ci_words;
+                              }
+                            }
+                          }
+                          ci_i = ci_i + 1;
+                        }
+                        if (ci_st == 0) {
+                          m_compile_edge(ci_at, 1);
+                          ci_st = ce_st;
+                        }
+                      }
+                    }
+                    else {
+                      if ((ci_op == 11) | (ci_op == 12)) {
+                        m_terminal(ci_pc);
+                        ci_st = t_st;
+                      }
+                      else {
+                        ci_st = 16;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+# ---- compile_pass(): compile.c:1922 ---------------------------------------------------------------
+
+# compile_pass(): one pass over the whole program: the prologue, the parameters, every
+# instruction.
+macro m_compile_pass(pwords, pparams) {
+  cp_st = 0;
+  o_size = 0;
+  cc_nest = 0;
+  o_failed = 0;
+  m_be_begin(pwords);
+  cp_used = 0;
+  cp_i = 0;
+  while (cp_i < (pparams)) {
+    if (cp_st == 0) {
+      cp_slot = load64(cc_code + 8 * (5 + 2 * cp_i));
+      cp_width = load64(cc_code + 8 * (5 + 2 * cp_i + 1));
+      m_in_frame(cp_slot, cp_width);
+      if ((ok == 0) | (cp_width > (pwords) * 8 - cp_used)) {
+        cc_at = 0;
+        cp_st = 6;
+      }
+      else {
+        m_be_param(cp_slot, cp_width, cp_used);
+        cp_used = cp_used + ((cp_width + 7) & 0xFFFFFFFFFFFFFFF8);
+      }
+    }
+    cp_i = cp_i + 1;
+  }
+  if (cp_st == 0) {
+    m_be_dispatch();
+    cp_pc = load64(cc_code + 32);
+    cp_i = 0;
+    while (cp_i < cc_instructions) {
+      if (cp_st == 0) {
+        cc_current = cp_i;
+        store32(cc_offset + 4 * cp_i, o_size & 0xFFFFFFFF);
+        m_instruction_size(cp_pc);
+        cp_size = is_words;
+        m_be_enter();
+        m_compile_instruction(cp_pc, cp_size);
+        cp_st = ci_st;
+        if (cp_st != 0) {
+          cc_at = cp_pc;
+        }
+        else {
+          cp_pc = cp_pc + cp_size;
+        }
+      }
+      cp_i = cp_i + 1;
+    }
+  }
+  if (cp_st == 0) {
+    m_be_tail();
+  }
+}
+
+# ---- compile_program(): compile.c:1957 ------------------------------------------------------------
+
+fn compile_program(c, request) {
+  var ok, pk_size;
+  var o_buf, o_cap, o_size, o_write, o_failed, o_word, o_pair;
+  var cc_code, cc_count, cc_frame, cc_alloc, cc_instructions, cc_current, cc_nest, cc_at;
+  var cc_index, cc_offset;
+  var cc_area, cc_safe;
+  var xr_rex, xc_done, xc_size, xz_done, xz_left, xz_size, xv_kind, xv_size;
+  var bbx_at, bmx_kind, bmx_done, bmx_size, bmx_piece, xar_r, xaw_w, xaw_op, xhw_word;
+  var bcx_handles, bcx_i, bcx_registers, bcx_left, bcx_at, bisx_size, bspx_at;
+  var aii_shift, aii_piece, aal_op, aas_op, ac_done, ac_size, az_done, az_size;
+  var av_kind, av_size, baa_at, bma_kind, bma_done, bma_size, bma_piece;
+  var aah_op, aah_copy, aaw_w, aaw_op, bca_handles, bca_i, bcaa_at, bisa_size, bspaa_at;
+  var afx_skip, afx_word, afxe_skip, afxe_word, bjw_words;
+  var wu_value, wu_more, wu_byte, ws_value, ws_more, ws_byte, ws_sign, wss_value;
+  var wl_op, ws2_op, wcp_done, wcp_left, wcp_size, wz_done, wz_left, wz_size;
+  var wv_kind, wv_size, bmw_kind, bmw_done, bmw_left, bmw_size, bmw_piece;
+  var bcw_ordinal, bcw_i, bcw_which, bcw_kind, bcw_op, bcw_copy, biww_op, bdi;
+  var bc_function, bc_leaf, bc_operands, bc_objects, bc_has_out, bc_out_slot, bc_out_width;
+  var bc_status;
+  var fl_id, fl_addr, fl_i, fl_count, fl_table;
+  var ca_area, ca_i, ca_count, ca_table;
+  var ent, ent_lo, ent_hi, ent_mi, ent_id;
+  var ck_st, ck_obj, ck_kind, ck_found;
+  var vc_st, vc_obj, vc_kind, vc_need, vc_size;
+  var t_w, t_obj, t_st, t_width;
+  var pl_n;
+  var so_id, so_shape, sl_n, sl_handles, sl_has_out;
+  var cpc_at, cpc_w, cpc_st, cpc_count, cpc_out_slot, cpc_out_width, cpc_status, cpc_name;
+  var cpc_operands, cpc_found, cpc_callee, cpc_cwords, cpc_params, cpc_words;
+  var cpc_i, cpc_used, cpc_width, cpc_op, cpc_present, cpc_obj, cpc_word;
+  var cpc_answer, cpc_zeroes, cpc_uncaught, cpc_function;
+  var ccl_at, ccl_w, ccl_st, ccl_leaf, ccl_count, ccl_out_slot, ccl_out_width, ccl_shape;
+  var ccl_n, ccl_has_out, ccl_i, ccl_function, ccl_which, ccl_op, ccl_obj, ccl_operands;
+  var es_st, es_words, es_count;
+  var is_st, is_words, is_w, is_op, is_named, is_count, is_first, is_second, is_at, is_i;
+  var ce_at, ce_st, ce_words, ce_count, ce_used, ce_copy, ce_i, ce_width, ce_present;
+  var ce_obj, ce_dst, ce_target, ce_next, ce_take;
+  var ci_pc, ci_w, ci_st, ci_object, ci_other, ci_op, ci_have, ci_i, ci_from, ci_to;
+  var ci_patch, ci_bytes, ci_width, ci_mask, ci_first, ci_words, ci_at;
+  var cp_st, cp_used, cp_i, cp_slot, cp_width, cp_pc, cp_size;
+  var if_at;
+  var fn_st, fn_parameters, fn_words, fn_entry, fn_i, fn_pc, fn_size, fn_scan;
+  var m_arg[32], m_type[32], m_objects[48];
+  var cpc_call[72], cpc_handle[24], cpc_objects[24], ccl_objects[48];
+  var op_field[24], op_literal[24], op_part[24], op_tag[24];
+
+  # valid(): stdlib_runtime.h:99, and a place to write (compile.c:1959).
+  fn_st = 13;
+  if (c != 0) {
+    if (load64(c) == 2) {
+      if (load64(c + 8) >= 144) {
+        if (request != 0) {
+          if (load64(request) != 0) {
+            if (load64(request + 16) != 0) {
+              fn_st = 0;
+            }
+          }
+        }
+      }
+    }
+  }
+  if (fn_st != 0) {
+    refuse fn_st;
+  }
+
+  cc_code = load64(request);
+  cc_count = load64(request + 8) / 8;
+  o_buf = load64(request + 16);
+  o_cap = load64(request + 24);
+  o_size = 0;
+  o_failed = 0;
+  o_write = 0;
+  cc_at = 0;
+  cc_instructions = 0;
+  cc_current = 0;
+  cc_nest = 0;
+  m_channel_area();
+  cc_area = ca_area;
+  cc_safe = 0;
+  if (cc_area != 0) {
+    m_find_leaf(38);
+    cc_safe = fl_addr;
+  }
+  store64(request + 48, 0);
+  store64(request + 56, 0);
+
+  # the magic, the frame, the words of the program (compile.c:1978).
+  m_have(0, 5);
+  if (ok == 0) {
+    refuse 14;
+  }
+  if (load64(cc_code) != 0x31475852) {
+    refuse 14;
+  }
+  cc_frame = load64(cc_code + 8);
+  fn_parameters = load64(cc_code + 16);
+  fn_words = load64(cc_code + 24);
+  fn_entry = load64(cc_code + 32);
+  if (cc_frame > 1024) {
+    refuse 6;
+  }
+  if ((cc_frame & 7) != 0) {
+    refuse 6;
+  }
+  if (fn_parameters > cc_count) {
+    refuse 6;
+  }
+  m_have(5, fn_parameters * 2);
+  if (ok == 0) {
+    refuse 6;
+  }
+  if (fn_words > 1024) {
+    refuse 6;
+  }
+
+  # the tables of the passes (compile.c:1991).
+  if (load64(request + 32) == 0) {
+    store64(request + 56, cc_count * 8);
+    refuse 9;
+  }
+  if ((load64(request + 32) & 3) != 0) {
+    store64(request + 56, cc_count * 8);
+    refuse 9;
+  }
+  if (load64(request + 40) / 8 < cc_count) {
+    store64(request + 56, cc_count * 8);
+    refuse 9;
+  }
+  cc_index = load64(request + 32);
+  cc_offset = cc_index + 4 * cc_count;
+  fn_i = 0;
+  while (fn_i < cc_count) {
+    store32(cc_index + 4 * fn_i, 0xFFFFFFFF);
+    store32(cc_offset + 4 * fn_i, 0);
+    fn_i = fn_i + 1;
+  }
+
+  # where each instruction starts (compile.c:2002).
+  fn_pc = fn_entry;
+  fn_st = 0;
+  fn_scan = 1;
+  while (fn_scan != 0) {
+    if (fn_pc < cc_count) {
+      if (fn_st == 0) {
+        m_instruction_size(fn_pc);
+        fn_st = is_st;
+        if (fn_st == 0) {
+          store32(cc_index + 4 * fn_pc, cc_instructions & 0xFFFFFFFF);
+          cc_instructions = cc_instructions + 1;
+          fn_pc = fn_pc + is_words;
+        }
+        else {
+          fn_scan = 0;
+        }
+      }
+      else {
+        fn_scan = 0;
+      }
+    }
+    else {
+      fn_scan = 0;
+    }
+  }
+  if ((fn_st == 0) & (cc_instructions == 0)) {
+    fn_st = 6;
+  }
+  if (fn_st != 0) {
+    store64(request + 56, fn_pc);
+    refuse fn_st;
+  }
+
+  # the two passes (compile.c:2015).
+  m_compile_pass(fn_words, fn_parameters);
+  fn_st = cp_st;
+  if (fn_st == 0) {
+    store64(request + 48, o_size);
+    if (o_size > o_cap) {
+      refuse 9;
+    }
+    o_write = 1;
+    m_compile_pass(fn_words, fn_parameters);
+    fn_st = cp_st;
+    if ((fn_st == 0) & (o_failed != 0)) {
+      refuse 9;
+    }
+  }
+  store64(request + 48, o_size);
+  store64(request + 56, cc_at);
+  refuse fn_st;
+}

@@ -4,7 +4,7 @@ The bench boots the world on a chosen scene, settles at the three standard zoom
 levels, and reports the frame times an interactive session actually pays. It
 prints its own ground truth with every run:
 
-  * which scene (demo golden or the real starter export) and how many megabytes
+  * which scene (the demo world or the real starter export) and how many megabytes
     the page fetched (a probe must never mistake the demo for the real city);
   * which raster drew the frames (a GPU stack by preference, SwiftShader if that
     is all the machine has) — a frame number without its raster is a rumor;
@@ -32,6 +32,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 from .capture_shots import WORLD_DIR, _launch_raster, scene_document
 
@@ -45,23 +46,23 @@ VIEWS = (
 
 
 class _SceneSwap(http.server.SimpleHTTPRequestHandler):
-    """Serve the bench's scene file at the URL the page fetches (demo-scene.json)."""
+    """Serve the bench's scene file at the URL the page fetches (``scene.bin``, the raw ``.rxfb``)."""
 
     def __init__(self, *args, scene: Path, **kwargs):
         self._scene = scene
         super().__init__(*args, **kwargs)
 
     def send_head(self):
-        if self.path.split("?")[0].endswith("/demo-scene.json"):
-            self.path = "/__bench-scene.json"
+        if self.path.split("?")[0].endswith("/scene.bin"):
+            self.path = "/__bench-scene.bin"
         return super().send_head()
 
     def translate_path(self, path: str) -> str:
-        if path.endswith("/__bench-scene.json"):
+        if path.endswith("/__bench-scene.bin"):
             return str(self._scene)
         return super().translate_path(path)
 
-    def log_message(self, *args) -> None:
+    def log_message(self, format: str, *args: Any) -> None:
         pass
 
 
@@ -92,10 +93,10 @@ def _frame_samples(page, count: int) -> list[float]:
 
 
 def bench(scene: str, frames: int) -> None:
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import sync_playwright  # pyright: ignore
 
     raw, _doc = scene_document(scene)
-    with tempfile.NamedTemporaryFile(suffix="-world-scene.json") as handle:
+    with tempfile.NamedTemporaryFile(suffix="-world-scene.bin") as handle:
         handle.write(raw)
         handle.flush()
         server, port = _serve(Path(handle.name))

@@ -1,20 +1,23 @@
-"""Build the cap.crypto Rust card (``native/crypto``) and report its library.
+"""Build the cap.crypto card (``native/crypto``) and report its library.
 
-The card is ``impl = rs``: one Cargo crate, no external crates, offline
-buildable. This helper is the one build path — the host binding
-(``src/pymergetic/rxftk/net/crypto.py``) and the tests both come here, so the
-build and its cache live in exactly one place.
+The card is the words of ``native/crypto/*.rxfs`` -- the ONE defining source of every
+primitive (docs/25 §11) -- run by the C fill ``native/crypto/pm_crypto.c`` over the
+interpreter of ``native/graph.c`` and the in-image compiler of ``native/compile.c``
+(docs/18). This helper is the one build path: it compiles the words out of the ``.rxfs``
+sources into the generated ``build/crypto_words.c`` (bytes), then compiles and links the
+runtime and the fill into the shared library of the card. The host binding
+(``src/pymergetic/rxftk/net/crypto.py``) and the tests both come here, so the build and its
+cache live in exactly one place.
 
     python tools/native/crypto_build.py            # build if stale, print the library path
-    python tools/native/crypto_build.py --force    # always run cargo
+    python tools/native/crypto_build.py --force    # always run the C compiler
     python tools/native/crypto_build.py --json     # print {"library": ..., "cached": ...}
     python tools/native/crypto_build.py --check    # exit 0 when nothing is stale (print nothing)
 
-The build is cached by mtime: ``cargo build --release`` runs only when a
-``native/crypto`` source (``*.rs``, ``Cargo.toml``, ``Cargo.lock``) is newer
-than the built library. With cargo's default target directory the library is
-``native/crypto/target/release/libpm_crypto.so``; when ``CARGO_TARGET_DIR`` is
-set, cargo puts it under that directory and this helper follows it.
+The build is cached by mtime: the C compiler runs only when a source (``*.rxfs``, the C of
+the runtime and the fill, or the words compiler ``tools/native/rxfc.py``) is newer than the
+built library. The library is ``native/crypto/build/libpm_crypto.so`` (or the shared
+library name of the platform).
 """
 
 from __future__ import annotations
@@ -22,82 +25,176 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
+import struct
 import subprocess
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-CRATE = ROOT / "native" / "crypto"
+CARD = ROOT / "native" / "crypto"
+BUILD = CARD / "build"
+NATIVE = ROOT / "native"
 LIB_NAME = {
     "linux": "libpm_crypto.so",
     "darwin": "libpm_crypto.dylib",
 }.get(sys.platform, "libpm_crypto.dll")
 
+# The programs of the card the ABI names, and where their words live.
+PROGRAMS = [
+    "sha256",
+    "blake2s",
+    "chacha20poly1305",
+    "aes_gcm",
+    "hkdf",
+    "hkdf_blake2s",
+    "x25519",
+]
+
+# The C of the card: the runtime the words run on and the fill of the ABI.
+C_SOURCES = [
+    NATIVE / "graph.c",
+    NATIVE / "basics.c",
+    NATIVE / "stdlib_memory.c",
+    NATIVE / "stdlib_runtime.c",
+    NATIVE / "safe.c",
+    NATIVE / "compile.c",
+    CARD / "pm_crypto.c",
+]
+
 
 class BuildError(RuntimeError):
-    """cargo is missing, or the crate did not build."""
+    """The C compiler is missing, or the card did not build."""
 
 
-def sources(crate: Path = CRATE) -> list[Path]:
+def _compiler() -> str:
+    """The host C compiler: the clang the native sources are pinned to, else the system one."""
+    return "clang-18" if shutil.which("clang-18") else "cc"
+
+
+def words_sources(card: Path = CARD) -> list[Path]:
+    """The ``.rxfs`` sources: what the words of the card are made of."""
+    return sorted(card.glob("*.rxfs"))
+
+
+def sources(card: Path = CARD) -> list[Path]:
     """Every file whose mtime decides whether the build is stale."""
-    found = [crate / "Cargo.toml"]
-    lock = crate / "Cargo.lock"
-    if lock.is_file():
-        found.append(lock)
-    found.extend(sorted(crate.rglob("*.rs")))
-    return found
+    here = Path(__file__).resolve()
+    found = [here, ROOT / "tools" / "native" / "rxfc.py", card / "words.h"]
+    found.extend(C_SOURCES)
+    found.extend(sorted((NATIVE).glob("*.h")))
+    found.extend(words_sources(card))
+    return [path for path in found if path.is_file()]
 
 
-def target_dir(crate: Path = CRATE) -> Path:
-    """cargo's target directory for the crate (honors ``CARGO_TARGET_DIR``)."""
-    override = os.environ.get("CARGO_TARGET_DIR")
-    return Path(override) if override else crate / "target"
+def library_path(card: Path = CARD) -> Path:
+    """Where the built card lands."""
+    return card / "build" / LIB_NAME
 
 
-def library_path(crate: Path = CRATE) -> Path:
-    """Where the release build of the card lands."""
-    return target_dir(crate) / "release" / LIB_NAME
+def words_path(card: Path = CARD) -> Path:
+    """The generated words: the bytes of every program, as one C file."""
+    return card / "build" / "crypto_words.c"
 
 
-def is_stale(crate: Path = CRATE) -> bool:
+def is_stale(card: Path = CARD) -> bool:
     """True when the library is missing or older than any source."""
-    library = library_path(crate)
+    library = library_path(card)
     if not library.is_file():
         return True
     built = library.stat().st_mtime_ns
-    return any(path.stat().st_mtime_ns > built for path in sources(crate))
+    return any(path.stat().st_mtime_ns > built for path in sources(card))
 
 
-def build(*, force: bool = False, cargo: str = "cargo", crate: Path = CRATE) -> Path:
-    """``cargo build --release`` in ``native/crypto``, cached by source mtime.
+def make_words(card: Path = CARD) -> Path:
+    """Compile the ``.rxfs`` programs into the generated C of their words.
 
-    Returns the built library's path. Runs cargo only when ``is_stale()`` says
-    so (or when ``force``), keeping test runs fast.
+    The generated file is bytes and nothing else (the programs stay where their language
+    lives); it is rewritten when any program changed.
     """
-    library = library_path(crate)
-    if not force and not is_stale(crate):
-        return library
-    command = [cargo, "build", "--release"]
+    sys.path.insert(0, str(HERE))
     try:
-        ran = subprocess.run(
-            command, cwd=crate, capture_output=True, text=True, check=False
-        )
+        import rxfc
+    finally:
+        sys.path.pop(0)
+    out = words_path(card)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "/* The words of the .rxfs sources of native/crypto, generated by",
+        " * tools/native/crypto_build.py. Do not edit: the programs are the .rxfs sources,",
+        " * this file is their bytes. */",
+        '#include "../words.h"',
+        "",
+    ]
+    for name in PROGRAMS:
+        program = rxfc.compile_file(card / f"{name}.rxfs")
+        if len(program) % 8 != 0 or len(program) < 40:
+            raise BuildError(f"{name}.rxfs compiled to {len(program)} bytes, not words")
+        magic, _frame, _params, _words, _pc = struct.unpack_from("<5Q", program)
+        if magic != 0x31475852:
+            raise BuildError(f"{name}.rxfs compiled to a foreign magic {magic:#x}")
+        lines.append(f"static const rxf_u64 words_{name}[] = {{")
+        values = struct.unpack(f"<{len(program) // 8}Q", program)
+        for i in range(0, len(values), 4):
+            chunk = ", ".join(f"0x{value:016x}ULL" for value in values[i : i + 4])
+            lines.append(f"    {chunk},")
+        lines.append("};")
+        lines.append("")
+    lines.append("const pm_words pm_words_table[] = {")
+    for name in PROGRAMS:
+        lines.append(f'    {{"{name}", words_{name}, sizeof(words_{name})}},')
+    lines.append("    {0, 0, 0},")
+    lines.append("};")
+    lines.append("")
+    made = out.with_suffix(f".{os.getpid()}.c")
+    made.write_text("\n".join(lines))
+    os.replace(made, out)  # a build of another process is replaced whole, never half
+    return out
+
+
+def build(*, force: bool = False, compiler: str | None = None, card: Path = CARD) -> Path:
+    """Compile the card into its shared library, cached by source mtime.
+
+    Returns the built library's path. Runs the C compiler only when ``is_stale()`` says so
+    (or when ``force``), keeping test runs fast.
+    """
+    library = library_path(card)
+    if not force and not is_stale(card):
+        return library
+    cc = compiler or _compiler()
+    if not shutil.which(cc):
+        raise BuildError(f"{cc!r} not found on PATH; the card is the C fill of its words")
+    words = make_words(card)
+    library.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        cc,
+        "-std=c11",
+        "-O2",
+        "-fPIC",
+        "-shared",
+        "-Wno-unknown-pragmas",
+        *[str(path) for path in C_SOURCES],
+        str(words),
+        "-o",
+        str(library),
+    ]
+    try:
+        ran = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=False)
     except FileNotFoundError as error:
-        raise BuildError(f"{cargo!r} not found on PATH; the card is impl = rs") from error
+        raise BuildError(f"{cc!r} not found on PATH") from error
     if ran.returncode != 0:
         raise BuildError(
-            f"{' '.join(command)} failed in {crate} (exit {ran.returncode}):\n"
-            f"{ran.stderr.strip() or ran.stdout.strip()}"
+            f"{cc} failed (exit {ran.returncode}):\n{ran.stderr.strip() or ran.stdout.strip()}"
         )
     if not library.is_file():
-        raise BuildError(f"cargo reported success but {library} does not exist")
+        raise BuildError(f"{cc} reported success but {library} does not exist")
     return library
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
-    parser.add_argument("--force", action="store_true", help="always run cargo")
+    parser.add_argument("--force", action="store_true", help="always run the C compiler")
     parser.add_argument("--json", action="store_true", help="print a JSON result")
     parser.add_argument(
         "--check", action="store_true", help="exit 1 when the build is stale"
@@ -107,7 +204,6 @@ def main(argv: list[str] | None = None) -> int:
     stale = is_stale()
     if args.check:
         return 1 if stale else 0
-
     library = build(force=args.force)
     if args.json:
         cached = not stale and not args.force

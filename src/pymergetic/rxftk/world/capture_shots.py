@@ -14,17 +14,19 @@ not the package venv.
 
     python -m pymergetic.rxftk.world.capture_shots [--out DIR] [--colors N] [--scene demo|starter]
 
-``--scene`` is what the capture runs against. ``demo`` (the default) is the checked-in demo
-golden — the world the README pins. ``starter`` is the REAL starter image (``starter/``),
-exported live through the package in the same run: the capture path against real data, which
-needs the package importable in the capture interpreter and falls back to the demo scene with a
-note where it is not. The README shots stay on the demo scene: their captions name it.
+``--scene`` is what the capture runs against. ``demo`` (the default) is the deterministic demo
+world — the world the README pins. ``starter`` is the REAL starter image (``starter/``), the
+capture path against real data. Both build the scene live in this run — the raw ``.rxfb`` the
+page's reader lays out, never a checked-in scene dump — so the capture interpreter needs the
+package importable. The README shots stay on the demo scene: their captions name it.
 
 Shots (the pins of the README, plus the text proof at the extreme angles):
 
     world-overview.png       pose "fly-ne"    the hero city view (diagonal ring, readable labels)
-    world-tactical.png       pose "tactical"  top-down on a selected run tower, HUD fields filled
-    world-proof-topdown.png  raw view         pitch 90 straight down: name labels + checksums
+    world-tactical.png       pose "tactical"  top-down on a selected run tower: the linked
+                                             wiring colored by degree, HUD fields filled
+    world-proof-topdown.png  raw view         pitch 90 straight down: name labels + checksums,
+                                             the degree wiring flat over the streets
     world-proof-inspect.png  raw view         steep inspect (pitch 68): name labels + checksums
     world-ring.png           raw view         the ring road's corner: clean chamfers, no spikes
     world-streets.png        raw view         the street paint: flat markings between the blocks
@@ -48,7 +50,6 @@ from typing import Any
 
 WORLD_DIR = Path(__file__).resolve().parent
 PKG_ROOT = WORLD_DIR.parents[3]  # packages/rxf
-GOLDEN = WORLD_DIR / "static" / "scene" / "demo-scene.json"
 STARTER = PKG_ROOT / "starter"
 DEFAULT_OUT = PKG_ROOT / "docs" / "images"
 
@@ -142,22 +143,23 @@ def steady_shot(page: Any, frames: int = 24) -> bytes:
 
 
 def scene_document(kind: str) -> tuple[bytes, dict[str, Any]]:
-    """The scene bytes the page boots on and the document the poses read: ``demo`` is the
-    checked-in golden, ``starter`` is the REAL starter image exported live in this run (the
-    capture path against real data). Where the capture interpreter cannot import the package,
-    the starter capture is not feasible here: the capture says so and runs the demo scene."""
+    """The raw ``.rxfb`` bytes the page boots on (served at ``scene.bin``, read in the browser by
+    ``rxf-reader.js``) and the export the camera poses read. Both are built live from the image in
+    this run — ``starter`` is the REAL starter tree, ``demo`` the deterministic demo world. The
+    binary is the artifact the reader lays out, never a checked-in scene dump, so a capture host
+    builds a scene with the compiled core (there is no pre-built file to fall back to)."""
+    from pymergetic.rxftk.server.inspector import Inspector
+    from pymergetic.rxftk.world.demo import demo_image
+    from pymergetic.rxftk.world.export import export_world
+
     if kind == "starter":
-        try:
-            from pymergetic.rxftk.core import tree
-            from pymergetic.rxftk.server.inspector import Inspector
-            from pymergetic.rxftk.world.export import scene_json
-        except ImportError as error:  # the capture host's Python carries no compiled core
-            print(f"the starter capture is not feasible here ({error}); capturing the demo scene")
-        else:
-            raw = scene_json(Inspector(tree.load(STARTER))).encode()
-            return raw, json.loads(raw)
-    raw = GOLDEN.read_bytes()
-    return raw, json.loads(raw)
+        from pymergetic.rxftk.core import tree
+
+        image = tree.load(STARTER)
+    else:
+        image = demo_image()
+    inspector = Inspector(image)
+    return inspector.image.to_bytes(), export_world(inspector)
 
 
 GPU_ARGS = [
@@ -250,15 +252,15 @@ def capture(out_dir: Path, colors: int, scene: str = "demo") -> list[Path]:
             # the dark scheme so the chrome and the datasheet pane read as they are designed
             page = browser.new_page(viewport={"width": 1440, "height": 900}, color_scheme="dark")
             # the page boots on the capture's scene: the same page and the same config, served
-            # the document this run was asked for (demo golden or the real starter export)
+            # the raw .rxfb this run was asked for (the demo world or the real starter export)
             page.route(
-                "**/demo-scene.json*",
+                "**/scene.bin*",
                 lambda route: route.fulfill(
-                    status=200, content_type="application/json", body=raw
+                    status=200, content_type="application/octet-stream", body=raw
                 ),
             )
             page.goto(f"http://127.0.0.1:{port}/static/scene/index.html")
-            # the boot wait scales with the scene it boots on: the demo golden is one page,
+            # the boot wait scales with the scene it boots on: the demo world is one page,
             # a real image's export is megabytes of buildings and cables to lay out first
             page.wait_for_function(
                 "window.RXFWorld && window.RXFWorld.api",
@@ -313,7 +315,7 @@ def main() -> None:
         "--scene",
         choices=("demo", "starter"),
         default="demo",
-        help="the scene to capture: the demo golden or the real starter image",
+        help="the scene to capture: the demo world or the real starter image",
     )
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)

@@ -423,6 +423,21 @@ def fn_of(key: str, machine: str) -> str:
 # native/live.rxfs); a key is one of these or a row of SOURCES.
 PROGRAMS = ("graph_run", "compile_program", "live_pump")
 
+# The `.rxfs` file each program source lives in; with the row's source this is the
+# build history the Source objects of the image carry (docs/31 §3).
+PROGRAM_SOURCE = {
+    "graph_run": "native/graph.rxfs",
+    "compile_program": "native/compile.rxfs",
+    "live_pump": "native/live.rxfs",
+}
+
+
+def source_of(key: str) -> str:
+    """The `.rxfs` file a key is compiled from: the row's source, or a program's."""
+    if key in SOURCES:
+        return SOURCES[key][0]
+    return PROGRAM_SOURCE[key]
+
 
 def is_seed(key: str) -> bool:
     """True if this key is a snippet the seed compiles (every key is)."""

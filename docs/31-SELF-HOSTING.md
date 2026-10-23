@@ -55,13 +55,16 @@ even that into the image; booting does not need it.
 ```
 Code   (today):   format=Bytecode|Machine, semantic_digest, rxf:data     ← bytes
 Source (new):     lang=rxfs|asm|c, arch=x86_64|aarch64|wasm32|any,       ← text
-                  text, semantic_digest, builds→Code (Ref)
+                  text, semantic_digest, builds→Code
 ```
 
 Truth = the chain the provenance test already proves, only as objects:
 `Source ──(build)──▶ Code ──(graph_run)──▶ effect`. The test
 `test_every_starter_snippet_is_what_the_sources_compile_to` is the existing
-form of this rule; source objects make it visible inside the image.
+form of this rule; source objects make it visible inside the image. The build
+edge is stored on the built code (its `source` reference: a field is the
+reference, the other direction is computed — the codes a source builds are the
+code objects that name it).
 
 ## 4. Glue per arch (the only place with asm/C)
 

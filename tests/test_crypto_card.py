@@ -1,14 +1,15 @@
 """The Python gate for the cap.crypto card: one set of vectors, twice proven.
 
 Every published vector is run through the ctypes binding, so this suite proves
-that the C ABI and the single Rust implementation (``native/crypto``) agree
-with the published sources — the Python layer marshals only. The vectors are
-the same ones pinned in ``native/crypto/tests/vectors.rs``; where a source has
-no published vector (HKDF-BLAKE2s) the triple is pinned once by the
+that the C ABI and the one implementation (the words of ``native/crypto``,
+run by the C fill) agree with the published sources — the Python layer
+marshals only. The vectors are the same ones pinned in
+``tests/test_crypto_rxfs.py`` (the words suite); where a source has no
+published vector (HKDF-BLAKE2s) the triple is pinned once by the
 implementation and labeled as such.
 
-Needs ``cargo`` (the card is ``impl = rs``); without it the suite skips with
-the reason below.
+Needs a C compiler (the card is ``impl = words`` with a C fill); without one
+the suite skips with the reason below.
 """
 
 from __future__ import annotations
@@ -29,8 +30,8 @@ import crypto_build
 from pymergetic.rxftk.net import crypto
 
 pytestmark = pytest.mark.skipif(
-    shutil.which("cargo") is None,
-    reason="cargo is not installed; cap.crypto is impl = rs and cannot be built",
+    shutil.which("clang-18") is None and shutil.which("cc") is None,
+    reason="no C compiler; cap.crypto is impl = words with a C fill and cannot be built",
 )
 
 
@@ -49,7 +50,7 @@ def card() -> Iterator[crypto.Crypto]:
 
 
 def test_build_and_load_helpers(card: crypto.Crypto) -> None:
-    """build() runs the one cargo helper and load() opens the library."""
+    """build() runs the one build helper and load() opens the library."""
     built = crypto.build()
     assert built.is_file()
     assert built.name == crypto_build.LIB_NAME
@@ -449,7 +450,7 @@ def test_hkdf_sha256_rfc5869(card: crypto.Crypto) -> None:
 def test_hkdf_blake2s_pinned_triple(card: crypto.Crypto) -> None:
     # HKDF-BLAKE2s (HMAC-BLAKE2s-256 over RFC 5869) has no published vectors;
     # this triple was generated once by the implementation and pinned — the
-    # same provenance as native/crypto/tests/vectors.rs.
+    # same one tests/test_crypto_rxfs.py pins for the words.
     _hkdf_case(
         card,
         crypto.HASH_BLAKE2S,

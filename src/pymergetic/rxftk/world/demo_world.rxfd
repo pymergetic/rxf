@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- The demo world of the 3D world renderer: a real-shaped image (real types, real cells,
-     real references) that the exporter turns into static/scene/demo-scene.json.
+     real references) that the exporter turns into the world (the raw static/scene/scene.bin).
      demo.py adds the runtime traces a snapshot carries (a stale handle, the 0xA5 poison of
      compaction) on top of this delta. -->
 <delta xmlns:rxf="urn:pymergetic:rxf">

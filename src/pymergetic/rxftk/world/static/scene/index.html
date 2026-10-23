@@ -7,7 +7,7 @@
     <!-- The static demo entry: the same page templates/world.html builds, pointed at the
          checked-in demo world. Same slots, same scripts, same boot (rxf-world.js reads
          #rxf-world-config and wires RXFWorldHud itself). -->
-    <link rel="stylesheet" href="rxf-world.css?v=20261015c" />
+    <link rel="stylesheet" href="rxf-world.css?v=20261018c" />
     <script>
       /* failures before (or while) the scene boots still land somewhere: the HUD error slot */
       window.__rxErrors = [];
@@ -24,6 +24,19 @@
   <body>
     <div id="rxf-world">
       <canvas id="rxf-world-canvas" tabindex="0" aria-label="RXF world 3D view. 1-6 camera poses, O ortho, WASD camera-relative move, drag pan, right-drag orbit, wheel zoom, click select with datasheet pane (ESC closes), minimap click jumps."></canvas>
+
+      <!-- the loading face: the world on its way (rxf-world-hud.js drives it). The static seat
+           is fast, but the face is the same on every seat — the scene never leaves the user
+           staring at a blank background (docs/21: one face, fills may differ). -->
+      <div class="world-loading" data-loading role="status" aria-live="polite">
+        <div class="loading-word">RXF WORLD</div>
+        <div class="loading-stage" data-loading-stage>loading the world</div>
+        <div class="loading-bar"><i data-loading-bar></i></div>
+        <div class="loading-meta">
+          <span data-loading-count>—</span>
+          <span data-loading-clock>0:00</span>
+        </div>
+      </div>
 
       <header class="hud-top">
         <span class="title">RXF WORLD</span>
@@ -72,14 +85,27 @@
         <span class="slot"><b>claim</b><i data-cell-field="claim">—</i></span>
         <span class="slot"><b>checksum</b><i data-cell-field="checksum">—</i></span>
         <span class="slot"><b>cables</b><i data-cell-field="edges">—</i></span>
+        <span class="slot"
+          ><b>branch</b
+          ><input
+            class="branch-levels"
+            type="range"
+            min="1"
+            max="3"
+            step="1"
+            value="3"
+            data-branch-levels
+            aria-label="branch levels, 1 to 3"
+          /><i data-branch-levels-value>3</i></span
+        >
       </footer>
     </div>
 
     <script type="application/json" id="rxf-world-config">
-      {"sceneUrl": "demo-scene.json?v=20261015d", "fallbackUrl": "demo-scene.json?v=20261015d", "pose": "overview"}
+      {"binUrl": "scene.bin?v=20261018g", "readerUrl": "rxf-reader.js?v=20261018g", "workerUrl": "rxf-reader-worker.js?v=20261018g", "pose": "overview"}
     </script>
     <script src="../vendor/babylon/babylon.js?v=20261015b"></script>
-    <script src="rxf-world-hud.js?v=20261015c"></script>
-    <script src="rxf-world.js?v=20261015d"></script>
+    <script src="rxf-world-hud.js?v=20261018g"></script>
+    <script src="rxf-world.js?v=20261018g"></script>
   </body>
 </html>

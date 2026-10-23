@@ -5,10 +5,10 @@
  * exporter wrote and invents nothing: districts (memory regions) are tiled ground plots, cells
  * are block-stack buildings whose floors are the cell anatomy (the 64-byte header word for word,
  * the payload regions of S1, the reference rows), dead/poisoned memory is rubble and void tiles,
- * handle references are ground traces routed on the tile grid (stale handles = red ghost traces
- * to graves), cables that share a street stretch ride it as one package (a duct — thicker the
- * more it carries, its members drawing only their own last mile), and the ready-ring is a ring
- * road with tram units on it. No Math.random: the scene
+ * handle references are ground traces flat over the streets (stale handles = red ghost traces
+ * to graves), and the ready-ring is a ring road with tram units on it. The wiring stays hidden
+ * until a building is clicked: then its linked objects and their tracks light up by degree
+ * (1st–3rd, one color each). No Math.random: the scene
  * is a deterministic function of the JSON and the animation clock.
  *
  * One scene, one camera rig: orthographic top-down (classic RTS) <-> perspective fly view with a
@@ -67,11 +67,11 @@
 
   /* ---- the look: one palette for buildings and block-view floors ---------------------------- */
   var FAMILY_COLORS = {
-    tower: "#6d9fd6",
-    monument: "#c2a163",
-    block: "#6b7783",
-    utility: "#4c5a66",
-    rubble: "#5c2f2c" /* dead cells read as dead: red-brown, not neutral */
+    tower: "#00d5ff",
+    monument: "#ffca2e",
+    block: "#8a4fff",
+    utility: "#19e0c4",
+    rubble: "#ff2d55" /* dead cells read as dead: neon crimson, not neutral */
   };
   var ROLE_COLORS = {
     type: "#55677a",
@@ -94,19 +94,20 @@
     pad: "#2e3740"
   };
   var FORWARD_HOT = "#e0663c";
-  var CABLE_FRESH = "#37e0c4";
-  var CABLE_STALE = "#ff5040";
+  var CABLE_FRESH = "#00f0ff";
+  var CABLE_STALE = "#ff2d55";
 
-  /* ---- the depth dimension: cables fly on module-depth sheets ----------------------------
-   * One property drives the height of every trace: the module depth of its deepest endpoint
-   * (root 0, a 1, a.b 2, ...). The flat wiring becomes a stack of sheets — intra-level
-   * wiring shares a sheet, cross-level wiring climbs between them — which is what untangles
-   * a dense reference mesh into readable layers. */
-  var FLIGHT_BASE = 3.6; /* the ground sheet: cables between shallow modules */
-  var FLIGHT_STEP = 2.6; /* one module level of altitude per level of depth */
-  var FLIGHT_MAX = 9; /* deeper endpoints clamp on the top sheet */
-  var PAD_LIFT = 0.72; /* where a trace leaves its pad: pad top + half the trace thickness */
-  var RAMP = 4.0; /* the climb happens over the first and last stretch of the run */
+  /* ---- the branch dimension: flat traces over the streets, shown per click ---------------
+   * The wiring is FLAT paint on the streets (a circuit board, not a cable car) and stays hidden
+   * until a building is clicked. Then its BRANCH lights up by level: the object's own plugs in
+   * the first color, from the far ends what THOSE reference in the second, from those the
+   * third — and no further (the slider chooses 1..3). So one look answers "what is this
+   * object's circuit, and where does it lead" — not "what is the city". */
+  var TRACE_DEGREES = 3;
+  var DEGREE_COLORS = ["#00f0ff", "#ff2d95", "#b24bff"]; /* 1st, 2nd, 3rd degree: synthwave neon */
+  var traceDegrees = TRACE_DEGREES; /* the slider: how deep the branch is followed (1..3) */
+  var TRACE_Y = 0.25; /* the trace body: flat on the street paint, never a floating sheet */
+  var PAD_LIFT = 0.3; /* the pad at an endpoint: a flat plate under the trace's end */
   /* the ready-ring is the map's landmark: its paint must read at a glance against the ground
    * AND against the muted local streets (those stay dark). All of it is flat paint on the
    * ground — the round-5 law stands: no curb lips, no side walls, no street shadows. */
@@ -354,8 +355,18 @@
   };
 
   /* ---- building the scene from the document ------------------------------------------------ */
-  function buildWorld(scene, doc, glow) {
+  function breathe() {
+    /* one yielded frame between build stages: the loading face repaints while the city stands
+     * (the build runs in slices so a big world never freezes the page in the dark) */
+    return new Promise(function (resolve) {
+      if (global.requestAnimationFrame) global.requestAnimationFrame(resolve);
+      else global.setTimeout(resolve, 0);
+    });
+  }
+
+  async function buildWorld(scene, doc, glow, said) {
     var BABYLON = global.BABYLON;
+    var say = said || function () {};
     var built = {
       groups: {},
       cellsById: {},
@@ -382,11 +393,11 @@
       }
       return material;
     }
-    function flatPaint(name, hex, alpha) {
+    function flatPaint(name, hex, alpha, scale) {
       /* street paint: unlit, flat, semi-transparent — markings painted on the ground, never
-       * volumes with lit faces, side walls or their own shadows */
+       * volumes with lit faces, side walls or their own shadows (scale dims the one paint) */
       var material = new BABYLON.StandardMaterial(name, scene);
-      var shade = BABYLON.Color3.FromHexString(hex);
+      var shade = BABYLON.Color3.FromHexString(hex).scale(scale === undefined ? 1 : scale);
       material.diffuseColor = shade;
       material.emissiveColor = shade;
       material.specularColor = new BABYLON.Color3(0, 0, 0);
@@ -538,6 +549,8 @@
     plinth.scaling = new BABYLON.Vector3(built.bounds.w + 8, 0.12, built.bounds.d + 8);
 
     /* ---- districts: tiled floor plots (the placement raster of the exporter) --------------- */
+    say("the tile raster", 0, 0);
+    await breathe();
     var tileMeshes = {};
     var tileMatrices = { header: [], index: [], cells: [] };
     var tileColors = { header: [], index: [], cells: [] };
@@ -573,12 +586,16 @@
       /* the district's own tint: one band family, one district — the floor reads as districts */
       var district = tintOf(bandName, region.start + plot.x * 16 + plot.z);
       var lit = region.empty ? 0.55 : 1;
-      /* every tile of the district's raster: a floor plate with street-dark gaps */
-      var inset = 0.55;
+      /* every tile of the district's raster: a floor plate with street-dark gaps. The raster
+       * is centered in the plot exactly as the exporter places it (export.py ``_tiles``): the
+       * plates and the buildings share one grid, never offset from each other. */
+      var originX = plot.x + (plot.w - raster.step_x * raster.cols) / 2;
+      var originZ = plot.z + (plot.d - raster.step_z * raster.rows) / 2;
+      var inset = 0.35;
       for (var row = 0; row < raster.rows; row++) {
         for (var col = 0; col < raster.cols; col++) {
-          var tileX = plot.x + (col + 0.5) * raster.step_x;
-          var tileZ = plot.z + (row + 0.5) * raster.step_z;
+          var tileX = originX + (col + 0.5) * raster.step_x;
+          var tileZ = originZ + (row + 0.5) * raster.step_z;
           tileMatrices[bandName].push(
             placed(tileX, 0.165, tileZ, raster.step_x - inset, 0.05, raster.step_z - inset)
           );
@@ -615,6 +632,8 @@
     rimMesh.thinInstanceSetBuffer("color", rimColors, 4, true);
 
     /* ---- buildings: one block stack per cell, floors = the cell anatomy -------------------- */
+    say("the buildings", 0, doc.cells.length);
+    await breathe();
     var roleMeshes = {};
     var roleMatrices = {};
     var roleColors = {};
@@ -648,7 +667,13 @@
 
     var volumeMatrices = []; /* the L1 buildings: one volume in the family's paint */
     var volumeColors = [];
+    var standing = 0;
     for (var cell of doc.cells) {
+      if (standing % 512 === 0) {
+        say("the buildings", standing, doc.cells.length);
+        await breathe();
+      }
+      standing += 1;
       built.cellsById[cell.id] = cell;
       built.cellList.push(cell);
       volumeMatrices.push(
@@ -692,6 +717,7 @@
     volumeMesh.alwaysSelectAsActiveMesh = true;
     volumeMesh.thinInstanceSetBuffer("matrix", matrixBuffer(volumeMatrices), 16, true);
     volumeMesh.thinInstanceSetBuffer("color", volumeColors, 4, true);
+    built.volume = volumeMesh; /* the L1 envelope applyRig drops at L2/L3 for the anatomy floors */
 
     /* caps: the silhouettes that tell the families apart (tower beacons, monument crowns) */
     var beaconMesh = BABYLON.MeshBuilder.CreateBox("beacons", { size: 1 }, scene);
@@ -722,6 +748,8 @@
     crownMesh.thinInstanceSetBuffer("matrix", matrixBuffer(crownMatrices), 16, true);
 
     /* ---- void tiles: poison pits, clearly red ------------------------------------------------ */
+    say("the poison pits", 0, doc.voids.length);
+    await breathe();
     var voidMaterial = pbr("void", "#4a1416", 0.1, 0.98);
     voidMaterial.emissiveColor = new BABYLON.Color3(0.62, 0.08, 0.07);
     var voidMesh = BABYLON.MeshBuilder.CreateBox("voids", { size: 1 }, scene);
@@ -738,6 +766,8 @@
     voidMesh.thinInstanceSetBuffer("matrix", matrixBuffer(voidMatrices), 16, true);
 
     /* ---- cables: ground traces on the tile grid (circuit board, not cable car) ------------ */
+    say("the cables", 0, doc.edges.length);
+    await breathe();
     function snap(value) {
       return Math.round(value / gridStep) * gridStep;
     }
@@ -774,91 +804,45 @@
       return chamfer(points, 0.8);
     }
 
-    /* the wiring runs in three tiers — the skeleton (both endpoints named), the backbone
-     * (one endpoint named) and the data wiring — one detail limit per LOD level, so the
-     * wide views stay alive and the close views carry everything. */
-    var tiers = [];
-    for (var tierIndex = 0; tierIndex < 3; tierIndex++) {
-      tiers.push({ base: [], fresh: [], stale: [], pads: [], padColors: [] });
-    }
-    function traceSegments(points, thickness, width, core, fresh, tier) {
-      /* one stretched box per leg, oriented along the leg's 3D slope: the trace flies */
+    /* one stretched box per leg, flat on the ground: the trace is paint on the street */
+    function traceSegments(points, thickness, width, bucket) {
       for (var i = 0; i < points.length - 1; i++) {
         var a = points[i];
         var b = points[i + 1];
         var dx = b.x - a.x;
-        var dy = b.y - a.y;
         var dz = b.z - a.z;
-        var length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        var length = Math.sqrt(dx * dx + dz * dz);
         if (length < 0.01) continue;
-        var yaw = Math.atan2(dx, dz);
-        var pitch = Math.atan2(dy, Math.hypot(dx, dz));
-        var rotation = BABYLON.Quaternion.RotationAxis(BABYLON.Axis.Y, yaw).multiply(
-          BABYLON.Quaternion.RotationAxis(BABYLON.Axis.X, -pitch)
+        bucket.push(
+          BABYLON.Matrix.Compose(
+            new BABYLON.Vector3(width, thickness, length),
+            BABYLON.Quaternion.RotationAxis(BABYLON.Axis.Y, Math.atan2(dx, dz)),
+            new BABYLON.Vector3((a.x + b.x) / 2, TRACE_Y + thickness / 2, (a.z + b.z) / 2)
+          )
         );
-        var matrix = BABYLON.Matrix.Compose(
-          new BABYLON.Vector3(width, thickness, length),
-          rotation,
-          new BABYLON.Vector3((a.x + b.x) / 2, (a.y + b.y) / 2 + thickness / 2, (a.z + b.z) / 2)
-        );
-        var bucket = core ? (fresh ? tier.fresh : tier.stale) : tier.base;
-        bucket.push(matrix);
       }
     }
-    function climb(points, cruise, depart, arrive) {
-      /* the polyline gains altitudes: pad level where the run touches a pad (``depart`` at its
-       * source end, ``arrive`` at its target end), cruise elsewhere — a stub climbs into the
-       * package that carries its middle, a carried run never dips to the ground */
-      depart = depart !== false;
-      arrive = arrive !== false;
-      var spans = [];
-      var total = 0;
-      for (var i = 0; i < points.length - 1; i++) {
-        var span = Math.hypot(points[i + 1].x - points[i].x, points[i + 1].z - points[i].z);
-        spans.push(span);
-        total += span;
-      }
-      var ramp = Math.min(RAMP, total / 2);
-      var walked = 0;
-      var out = [];
-      for (var i = 0; i < points.length; i++) {
-        var away;
-        if (depart && arrive) away = Math.min(walked, total - walked);
-        else if (depart) away = walked;
-        else if (arrive) away = total - walked;
-        else away = ramp;
-        var t = ramp > 0 ? Math.min(1, away / ramp) : 1;
-        out.push({ x: points[i].x, z: points[i].z, y: PAD_LIFT + (cruise - PAD_LIFT) * t });
-        walked += spans[i] || 0;
-      }
-      return out;
+    function padAt(x, z, bucket) {
+      /* every trace plugs into something: a flat pad at each endpoint, never a naked line */
+      bucket.push(placed(x, PAD_LIFT, z, 0.72, 0.06, 0.72));
     }
-    function flightSheet(depth) {
-      return FLIGHT_BASE + Math.min(FLIGHT_MAX, depth) * FLIGHT_STEP;
-    }
-    function flightAltitude(from, to) {
-      /* the sheet rule: a cable flies at the module depth of its deepest endpoint */
-      var depth = Math.max(from ? from.depth || 0 : 0, to ? to.depth || 0 : 0);
-      return flightSheet(depth);
-    }
-
+    /* every cable's full run over the streets — the exporter's ``route``: out of the source's
+     * lot, the lanes and avenues across the city, into the target's lot, never across a
+     * building volume (the local Manhattan run is the fallback for scenes without routes) —
+     * and the graves of the stale handles: the ground facts, before any selection. */
     var graveMatrices = [];
-    function padAt(x, z, fresh, tier) {
-      /* every trace plugs into something: a pad at each endpoint, never a naked line */
-      tier.pads.push(placed(x, 0.40, z, 1.6, 0.34, 1.6));
-      var padTint = color(fresh ? CABLE_FRESH : CABLE_STALE, 0.6);
-      tier.padColors.push(padTint.r, padTint.g, padTint.b, 1);
-    }
-    var edgesById = {};
-    var edgeTier = {};
+    var runsById = {};
+    var adjacency = {};
+    var wiring = 0;
     for (var edge of doc.edges) {
+      if (wiring % 512 === 0) {
+        say("the cables", wiring, doc.edges.length);
+        await breathe();
+      }
+      wiring += 1;
       var source = built.cellsById[edge.from];
       if (!source) continue;
       var target = edge.to ? built.cellsById[edge.to] : null;
-      edgesById[edge.id] = edge;
-      /* the exporter routes every cable along the street network (``route``): out of the source's
-       * lot, the lanes and avenues across the city, into the target's lot — never across a
-       * building volume. The local Manhattan run is the fallback for scenes without routes. */
       var edgeRoute = edge.route && edge.route.length >= 2 ? edge.route : null;
       var start = edgeRoute
         ? { x: edgeRoute[0].x, z: edgeRoute[0].z }
@@ -879,93 +863,121 @@
       if (!target) {
         graveMatrices.push(placed(end.x, 0.34, end.z, 0.8, 0.6, 0.8));
       }
-      var namedA = source.family === "tower" || source.family === "monument";
-      var namedB = target !== null && (target.family === "tower" || target.family === "monument");
-      var tierIndex = namedA && namedB ? 0 : namedA || namedB ? 1 : 2;
-      edgeTier[edge.id] = tierIndex;
-      var tier = tiers[tierIndex];
-      padAt(start.x, start.z, edge.fresh, tier);
-      padAt(end.x, end.z, edge.fresh, tier);
-      /* what the packages carry the cable does not draw again: its ``stubs`` are its own runs —
-       * the last mile out of its buildings and any street stretch no package carries for it */
-      var runs = edge.stubs && edge.stubs.length ? edge.stubs : [edgeRoute || route(start, end)];
-      var stagger = (edge.index === null ? 0 : edge.index % 3) * 0.14; /* same-sheet crossings */
-      var cruise = flightAltitude(source, target) + stagger;
-      for (var r = 0; r < runs.length; r++) {
-        var depart = r === 0; /* the first run leaves the source's pad */
-        var arrive = r === runs.length - 1; /* the last run dives into the target's pad */
-        traceSegments(climb(runs[r], cruise, depart, arrive), 0.14, 0.75, false, edge.fresh, tier);
-        traceSegments(
-          climb(runs[r], cruise + 0.18, depart, arrive),
-          0.10,
-          0.24,
-          true,
-          edge.fresh,
-          tier
-        );
+      runsById[edge.id] = edgeRoute || route(start, end);
+      (adjacency[edge.from] = adjacency[edge.from] || []).push(edge);
+      if (target) {
+        (adjacency[edge.to] = adjacency[edge.to] || []).push(edge);
       }
     }
-    /* the packages: one duct per shared street stretch. The base box thickens with what it
-     * carries and one core stripe per member paints what that member is (fresh cable or
-     * ghost red) — the members' own runs stop at the duct and restart on its far side. */
-    for (var bundle of doc.bundles || []) {
-      if (!bundle.route || bundle.route.length < 2) continue;
-      var tierIndex = 2;
-      for (var member of bundle.edges) {
-        if (edgeTier[member] !== undefined) tierIndex = Math.min(tierIndex, edgeTier[member]);
+
+    /* the click's branch (Verzweigung): its own plugs in the 1st color (the cables this object
+     * holds and the ones held into it), and from the far ends the fan-out — what THOSE
+     * reference (2nd), and what those (3rd) — never deeper than TRACE_DEGREES. The 1st level
+     * answers "what is this building's circuit", the next ones "and where does it lead"; the
+     * undirected flood (every hub's thousands of users, and their users) is not one object's
+     * circuit. Nearest links first and a budget per level: a hub fans out bounded, on a map
+     * the wires stay a local, legible cluster. */
+    var BRANCH_FIRST = 64;
+    var BRANCH_PER_PARENT = 16;
+    var BRANCH_PER_LEVEL = 192;
+    function branch(cell) {
+      var level = {};
+      var cables = [];
+      level[cell.id] = 0;
+      function far(edge, id) {
+        return edge.from === id ? edge.to : edge.from;
       }
-      var tier = tiers[tierIndex];
-      var sideways = bundle.route[0].x === bundle.route[1].x ? "x" : "z"; /* across the duct */
-      var cruise = flightSheet(bundle.level);
-      var carried = Math.max(1, bundle.count || bundle.edges.length);
-      var body = bundle.route.map(function (point) {
-        return { x: point.x, z: point.z };
+      var first = [];
+      for (var edge of adjacency[cell.id] || []) {
+        var otherId = far(edge, cell.id);
+        var other = otherId ? built.cellsById[otherId] : null;
+        if (otherId === cell.id) {
+          cables.push({ edge: edge, rank: 1 }); /* a self-reference draws its own loop */
+          continue;
+        }
+        if (!otherId) {
+          cables.push({ edge: edge, rank: 1 }); /* the grave of the click's own stale handle */
+          continue;
+        }
+        if (other) first.push({ edge: edge, other: other });
+      }
+      first.sort(function (a, b) {
+        var da = Math.hypot(a.other.plot.x - cell.plot.x, a.other.plot.z - cell.plot.z);
+        var db = Math.hypot(b.other.plot.x - cell.plot.x, b.other.plot.z - cell.plot.z);
+        return da - db || (a.other.id < b.other.id ? -1 : a.other.id > b.other.id ? 1 : 0);
       });
-      traceSegments(climb(body, cruise, false, false), 0.14, 0.75 + 0.45 * carried, false, true, tier);
-      var step = 0.42;
-      for (var s = 0; s < bundle.edges.length; s++) {
-        var offset = (s - (bundle.edges.length - 1) / 2) * step;
-        var stripe = body.map(function (point) {
-          return {
-            x: point.x + (sideways === "x" ? offset : 0),
-            z: point.z + (sideways === "z" ? offset : 0)
-          };
-        });
-        var member = edgesById[bundle.edges[s]];
-        traceSegments(
-          climb(stripe, cruise + 0.18, false, false),
-          0.10,
-          0.24,
-          true,
-          member ? member.fresh : true,
-          tier
-        );
+      for (var plug of first.slice(0, BRANCH_FIRST)) {
+        if (level[plug.other.id] !== undefined) {
+          cables.push({ edge: plug.edge, rank: level[plug.other.id] || 1 });
+          continue;
+        }
+        level[plug.other.id] = 1;
+        cables.push({ edge: plug.edge, rank: 1 });
       }
+      var frontier = Object.keys(level).filter(function (id) {
+        return level[id] === 1;
+      });
+      for (var depth = 2; depth <= traceDegrees; depth++) {
+        var grown = [];
+        for (var id of frontier) {
+          var parent = built.cellsById[id];
+          var children = [];
+          for (var edge of adjacency[id] || []) {
+            /* outward only: what this link references — walking back in is how one hub
+             * swallowed the whole map */
+            if (edge.from !== id || !edge.to) continue;
+            var other = built.cellsById[edge.to];
+            if (!other || level[other.id] !== undefined) continue;
+            children.push({ edge: edge, other: other });
+          }
+          children.sort(function (a, b) {
+            var da = Math.hypot(a.other.plot.x - parent.plot.x, a.other.plot.z - parent.plot.z);
+            var db = Math.hypot(b.other.plot.x - parent.plot.x, b.other.plot.z - parent.plot.z);
+            return da - db || (a.other.id < b.other.id ? -1 : a.other.id > b.other.id ? 1 : 0);
+          });
+          for (var child of children.slice(0, BRANCH_PER_PARENT)) {
+            if (grown.length >= BRANCH_PER_LEVEL) break;
+            level[child.other.id] = depth;
+            cables.push({ edge: child.edge, rank: depth });
+            grown.push(child.other.id);
+          }
+        }
+        frontier = grown;
+      }
+      return { level: level, cables: cables };
     }
-    /* one material per voice, one mesh set per tier: every sheet draws the same paint */
-    var traceBaseMaterial = pbr("traces-base-material", "#1a2a33", 0.3, 0.7);
-    traceBaseMaterial.emissiveColor = new BABYLON.Color3(0.04, 0.09, 0.11);
-    var traceFreshMaterial = roleMaterial("traces-fresh-material", CABLE_FRESH, 0.85);
-    var traceStaleMaterial = roleMaterial("traces-stale-material", CABLE_STALE, 0.85);
-    var tracePadMaterial = roleMaterial("trace-pads-material", "#ffffff", 0.5);
-    function tierMesh(name, t, material, matrices, colors) {
-      var mesh = BABYLON.MeshBuilder.CreateBox(name + "-" + t, { size: 1 }, scene);
-      mesh.material = material;
+    /* one mesh per degree voice (the flat trace body, its bright core stripe, the flat mark
+     * under every linked building) plus the ghost-red voice of the stale handles: filled on
+     * select, emptied on deselect — the wiring is the selection's own, never scenery */
+    function voiceMesh(name, hex, scale) {
+      var mesh = BABYLON.MeshBuilder.CreateBox(name, { size: 1 }, scene);
+      /* circuit paint: flat, unlit, its OWN color (never a lit white slab) — the scale is the
+       * voice's brightness: dim carrier, bright core stripe, mid mark */
+      mesh.material = flatPaint(name + "-material", hex, 1, scale);
       mesh.isPickable = false;
       mesh.alwaysSelectAsActiveMesh = true;
-      mesh.thinInstanceSetBuffer("matrix", matrixBuffer(matrices), 16, true);
-      if (colors) mesh.thinInstanceSetBuffer("color", colors, 4, true);
+      mesh.thinInstanceSetBuffer("matrix", matrixBuffer([]), 16, false);
+      mesh.setEnabled(false);
       return mesh;
     }
-    var tierMeshes = [];
-    for (var t = 0; t < tiers.length; t++) {
-      tierMeshes.push({
-        base: tierMesh("traces-base", t, traceBaseMaterial, tiers[t].base),
-        fresh: tierMesh("traces-fresh", t, traceFreshMaterial, tiers[t].fresh),
-        stale: tierMesh("traces-stale", t, traceStaleMaterial, tiers[t].stale),
-        pads: tierMesh("trace-pads", t, tracePadMaterial, tiers[t].pads, tiers[t].padColors)
+    var traceVoices = [];
+    for (var degreeIndex = 0; degreeIndex < TRACE_DEGREES; degreeIndex++) {
+      traceVoices.push({
+        base: voiceMesh("trace-base-" + degreeIndex, DEGREE_COLORS[degreeIndex], 0.16),
+        core: voiceMesh("trace-core-" + degreeIndex, DEGREE_COLORS[degreeIndex], 0.9),
+        mark: voiceMesh("trace-mark-" + degreeIndex, DEGREE_COLORS[degreeIndex], 0.45)
       });
     }
+    var staleBase = voiceMesh("trace-base-stale", CABLE_STALE, 0.16);
+    var staleCore = voiceMesh("trace-core-stale", CABLE_STALE, 0.9);
+    for (var glowVoice of traceVoices) {
+      glow.addIncludedOnlyMesh(glowVoice.base); /* the flat track body glows too, so the run reads
+       * against the dark street even where the bright core stripe is thin */
+      glow.addIncludedOnlyMesh(glowVoice.core);
+      glow.addIncludedOnlyMesh(glowVoice.mark);
+    }
+    glow.addIncludedOnlyMesh(staleBase);
+    glow.addIncludedOnlyMesh(staleCore);
 
     var graveMesh = BABYLON.MeshBuilder.CreateBox("graves", { size: 1 }, scene);
     graveMesh.material = pbr("grave", "#2a1512", 0.1, 0.9);
@@ -974,63 +986,61 @@
     graveMesh.alwaysSelectAsActiveMesh = true;
     graveMesh.thinInstanceSetBuffer("matrix", matrixBuffer(graveMatrices), 16, true);
 
-    for (var glowTier of tierMeshes) {
-      glow.addIncludedOnlyMesh(glowTier.fresh);
-      glow.addIncludedOnlyMesh(glowTier.stale);
-    }
     glow.addIncludedOnlyMesh(beaconMesh);
     glow.addIncludedOnlyMesh(graveMesh);
 
-    /* the selection's own wires: pick a building and its cables light up on their sheets —
-     * the interactive untangler on top of the stacked sheets (built.wire, called on select) */
-    var wireBaseMaterial = roleMaterial("selection-wire-material", "#c8a24a", 0.7);
-    var wireCoreMaterial = roleMaterial("selection-wire-core-material", "#ffd27a", 0.9);
-    var wireBase = BABYLON.MeshBuilder.CreateBox("selection-wire-base", { size: 1 }, scene);
-    wireBase.material = wireBaseMaterial;
-    wireBase.isPickable = false;
-    wireBase.alwaysSelectAsActiveMesh = true;
-    wireBase.thinInstanceSetBuffer("matrix", matrixBuffer([]), 16, false);
-    var wireCore = BABYLON.MeshBuilder.CreateBox("selection-wire-core", { size: 1 }, scene);
-    wireCore.material = wireCoreMaterial;
-    wireCore.isPickable = false;
-    wireCore.alwaysSelectAsActiveMesh = true;
-    wireCore.thinInstanceSetBuffer("matrix", matrixBuffer([]), 16, false);
-    wireBase.setEnabled(false);
-    wireCore.setEnabled(false);
-    glow.addIncludedOnlyMesh(wireCore);
     built.wire = function (cell) {
-      var base = [];
-      var core = [];
+      /* the click's branch as flat tracks over the streets, colored by level: the object's own
+       * plugs in the 1st color, from the far ends what those reference in the 2nd, from those
+       * the 3rd — and no further. Nothing selected, nothing drawn. */
+      var voices = [];
+      for (var d = 0; d < TRACE_DEGREES; d++) voices.push({ base: [], core: [], mark: [] });
+      var ghost = { base: [], core: [] };
       if (cell) {
-        for (var edge of doc.edges) {
-          if (edge.from !== cell.id && edge.to !== cell.id) continue;
-          var from = built.cellsById[edge.from];
-          if (!from) continue;
-          var to = edge.to ? built.cellsById[edge.to] : null;
-          var points =
-            edge.route && edge.route.length >= 2
-              ? edge.route
-              : route(
-                  { x: from.plot.x, z: from.plot.z },
-                  to ? { x: to.plot.x, z: to.plot.z } : { x: from.plot.x + 3.4, z: from.plot.z + 3.4 }
-                );
-          var stagger = (edge.index === null ? 0 : edge.index % 3) * 0.14;
-          var cruise = flightAltitude(from, to) + stagger;
-          traceSegments(climb(points, cruise), 0.22, 1.0, false, true, {
-            base: base, fresh: [], stale: []
-          });
-          traceSegments(climb(points, cruise + 0.24), 0.12, 0.34, true, true, {
-            base: [], fresh: core, stale: []
-          });
+        var walked = branch(cell);
+        var level = walked.level;
+        for (var id in level) {
+          if (level[id] === 0 || level[id] > traceDegrees) continue; /* the clicked one wears the selection, not a mark */
+          var linked = built.cellsById[id];
+          var markVoice = voices[level[id] - 1];
+          markVoice.mark.push(
+            placed(linked.plot.x, 0.3, linked.plot.z, linked.footprint + 0.55, 0.04, linked.footprint + 0.55)
+          );
+        }
+        for (var cable of walked.cables) {
+          /* the branch's own cables only: its plugs and the fan-out they lead to — colored by
+           * the level they open (1st, 2nd, 3rd), the stale ones as red ghosts */
+          var edge = cable.edge;
+          var rank = cable.rank;
+          if (edge.fresh && rank > traceDegrees) continue;
+          /* the run is the cable's own full route over the streets: what a package carries
+           * for it in bulk it draws itself here — this look is ONE object's wiring */
+          var points = runsById[edge.id] || [];
+          if (points.length < 2) continue;
+          var voice = edge.fresh ? voices[rank - 1] : ghost;
+          traceSegments(points, 0.075, 0.44, voice.base);
+          traceSegments(points, 0.045, 0.13, voice.core);
+          padAt(points[0].x, points[0].z, voice.base);
+          padAt(points[points.length - 1].x, points[points.length - 1].z, voice.base);
         }
       }
-      wireBase.thinInstanceSetBuffer("matrix", matrixBuffer(base), 16, false);
-      wireCore.thinInstanceSetBuffer("matrix", matrixBuffer(core), 16, false);
-      wireBase.setEnabled(base.length > 0);
-      wireCore.setEnabled(core.length > 0);
+      for (var d = 0; d < TRACE_DEGREES; d++) {
+        var fills = voices[d];
+        var meshes = traceVoices[d];
+        for (var part of ["base", "core", "mark"]) {
+          meshes[part].thinInstanceSetBuffer("matrix", matrixBuffer(fills[part]), 16, false);
+          meshes[part].setEnabled(fills[part].length > 0);
+        }
+      }
+      staleBase.thinInstanceSetBuffer("matrix", matrixBuffer(ghost.base), 16, false);
+      staleCore.thinInstanceSetBuffer("matrix", matrixBuffer(ghost.core), 16, false);
+      staleBase.setEnabled(ghost.base.length > 0);
+      staleCore.setEnabled(ghost.core.length > 0);
     };
 
     /* ---- the ready-ring: the ring road of the document, with lanes and tram units --------- */
+    say("the ring road", 0, 0);
+    await breathe();
     var ringRoad = null;
     var ringMarkings = []; /* the bright edge lines: flat paint along both band boundaries */
     var dashMesh = null;
@@ -1151,6 +1161,8 @@
     }
 
     /* ---- streets: the grid that connects every district to the ring road ------------------ */
+    say("the streets", 0, 0);
+    await breathe();
     /* flat paint only: hairline plates on the ground plane, dark and semi-transparent, with
      * muted blue-grey markings — the city reads buildings first, streets second */
     var streetRoadMatrices = [];
@@ -1178,18 +1190,24 @@
       }
     }
     var streetRoad = BABYLON.MeshBuilder.CreateBox("streets", { size: 1 }, scene);
-    streetRoad.material = flatPaint("street-asphalt", "#141c25", 0.62);
+    streetRoad.material = flatPaint("street-asphalt", "#1b2836", 0.7);
     streetRoad.isPickable = false;
     streetRoad.alwaysSelectAsActiveMesh = true;
     streetRoad.thinInstanceSetBuffer("matrix", matrixBuffer(streetRoadMatrices), 16, true);
 
     var streetDash = BABYLON.MeshBuilder.CreateBox("street-lanes", { size: 1 }, scene);
-    streetDash.material = flatPaint("street-dash-material", "#33505c", 0.85);
+    streetDash.material = flatPaint("street-dash-material", "#63c6d8", 1);
     streetDash.isPickable = false;
     streetDash.alwaysSelectAsActiveMesh = true;
     streetDash.thinInstanceSetBuffer("matrix", matrixBuffer(streetDashMatrices), 16, true);
+    /* the street grid glows so it reads against the bright building volumes — the synthwave ground
+     * is painted with neon lanes, not hidden asphalt (and the traces that run it stay visible) */
+    glow.addIncludedOnlyMesh(streetRoad);
+    glow.addIncludedOnlyMesh(streetDash);
 
     /* ---- city blocks: the massing the wide views read (block > building > floors) -------- */
+    say("the city blocks", 0, 0);
+    await breathe();
     var blockMatrices = [];
     var blockColors = [];
     var massMatrices = [];
@@ -1293,6 +1311,8 @@
     }
 
     /* ---- L2 details: name labels and the towers' checksum displays ------------------------ */
+    say("the labels", 0, 0);
+    await breathe();
     var labelMeshes = [];
     function label(text, position, width, height, accent, priority) {
       if (labelMeshes.length > 140) return null;
@@ -1430,6 +1450,8 @@
     }
 
     /* ---- groups for the LOD levels -------------------------------------------------------- */
+    say("the levels", 0, 0);
+    await breathe();
     function group(name) {
       var node = new BABYLON.TransformNode(name, scene);
       built.groups[name] = node;
@@ -1438,9 +1460,6 @@
     var districts = group("districts");
     var buildings = group("buildings");
     var massing = group("massing");
-    var cables = group("cables");
-    var cablesMore = group("cablesMore");
-    var cablesAll = group("cablesAll");
     var streets = group("streets");
     var labels = group("labels");
     var details = group("details");
@@ -1462,12 +1481,8 @@
     graveMesh.parent = buildings;
     if (tramMesh) tramMesh.parent = districts;
     if (dashMesh) dashMesh.parent = districts;
-    var cableGroups = [cables, cablesMore, cablesAll];
-    for (var t = 0; t < tierMeshes.length; t++) {
-      for (var tierKind of ["base", "fresh", "stale", "pads"]) {
-        tierMeshes[t][tierKind].parent = cableGroups[t];
-      }
-    }
+    /* the degree traces stay ungrouped: they are the selection's own, visible at every LOD
+     * exactly while a building is selected (built.wire), never scenery the LOD hides */
     /* label() hands back null past its budget: guard the parenting, never crash the build */
     for (var plane of signPlanes) if (plane) plane.parent = labels;
     for (var plane of districtPlanes) if (plane) plane.parent = labels;
@@ -1590,7 +1605,7 @@
       return Promise.resolve(new BABYLON.Engine(canvas, true, { stencil: true }, true));
     }
 
-    return makeEngine().then(function (engine) {
+    return makeEngine().then(async function (engine) {
       var scene = new BABYLON.Scene(engine);
       scene.clearColor = new BABYLON.Color4(0.03, 0.04, 0.055, 1);
       scene.imageProcessingConfiguration.contrast = 1.12;
@@ -1613,7 +1628,7 @@
       shadows.blurKernel = 24;
       shadows.setDarkness(0.5); /* real side shading and base shadows: the city must have depth */
 
-      var world = buildWorld(scene, doc, glow);
+      var world = await buildWorld(scene, doc, glow, options.progress);
       /* the pick grid: the cursor's cell without walking every building per pointer move */
       var pickGrid = new Map();
       var PICK_BUCKET = 6;
@@ -1658,7 +1673,7 @@
 
       function select(cell) {
         selected = cell;
-        world.wire(cell); /* the cell's own cables light up on their sheets */
+        world.wire(cell); /* the linked objects and tracks light up, colored by degree */
         if (!cell) {
           world.selection.setEnabled(false);
         } else {
@@ -1805,6 +1820,11 @@
         setMotion: function (on) {
           motion = on !== false;
         },
+        setTraceDegrees: function (degrees) {
+          /* the branch slider: how deep the fan-out is followed — 1..3 levels, no more */
+          traceDegrees = Math.max(1, Math.min(TRACE_DEGREES, Math.round(degrees) || 1));
+          world.wire(selected);
+        },
         seams: {
           flow: {
             setValueProvider: function () {},
@@ -1838,6 +1858,18 @@
       if (closeButton) {
         closeButton.addEventListener("click", function () {
           select(null);
+        });
+      }
+
+      /* the branch slider: how deep the click's fan-out is followed (1..3 levels, each its
+       * own color) — set here, honored by the wire the next time it redraws */
+      var branchSlider = global.document.querySelector("[data-branch-levels]");
+      var branchReadout = global.document.querySelector("[data-branch-levels-value]");
+      if (branchSlider) {
+        branchSlider.addEventListener("input", function () {
+          var levels = Math.max(1, Math.min(3, Math.round(Number(branchSlider.value)) || 3));
+          api.setTraceDegrees(levels);
+          if (branchReadout) branchReadout.textContent = String(levels);
         });
       }
 
@@ -1966,13 +1998,14 @@
         }
         var level = rig.lod();
         world.groups.buildings.setEnabled(level !== LOD_LEVELS[0]);
+        /* the L1 massing volume and the L2 anatomy floors share the same footprint walls (exactly
+         * coplanar), so showing both at once z-fights into moiré bands at close zoom. L1 wears the
+         * volume, L2/L3 wear the floors that replace it — never both together. The rest of the
+         * buildings group (beacons, crowns, graves) still reads at every level. */
+        world.volume.setEnabled(level === LOD_LEVELS[1]);
         world.groups.massing.setEnabled(level === LOD_LEVELS[0]);
-        /* the cable detail limit (the depth dimension carries the rest): the skeleton — both
-         * ends named — from L1, the backbone — one end named — from L2, every cable at L3.
-         * The flight sheets make each tier readable; the limit keeps the wide views alive. */
-        world.groups.cables.setEnabled(level !== LOD_LEVELS[0]);
-        world.groups.cablesMore.setEnabled(level === LOD_LEVELS[2] || level === LOD_LEVELS[3]);
-        world.groups.cablesAll.setEnabled(level === LOD_LEVELS[3]);
+        /* the wiring is not LOD scenery: the degree traces show at every level, and only
+         * while a building is selected (built.wire empties them on deselect) */
         world.groups.streets.setEnabled(level !== LOD_LEVELS[0]);
         /* name signage is the city's identity: it reads at every level and every pitch/yaw
          * (the billboard keeps it upright), so the L0 massing overview carries the names too —
@@ -2066,19 +2099,276 @@
     });
   }
 
-  /* ---- boot: config -> scene JSON -> create ------------------------------------------------- */
-  function loadScene(config) {
-    function fail() {
-      return fetch(config.fallbackUrl).then(function (response) {
-        if (!response.ok) throw new Error("no scene at " + config.sceneUrl + " or " + config.fallbackUrl);
-        return response.json();
+  /* ---- boot: config -> the raw image (or the scene session) -> create -------------------------- */
+
+  function sceneQuery(url, query) {
+    return url + (url.indexOf("?") < 0 ? "?" : "&") + query;
+  }
+
+  function fetchJson(url) {
+    return fetch(url).then(function (response) {
+      if (!response.ok) throw new Error("no scene at " + url);
+      return response.json();
+    });
+  }
+
+  function fetchBinary(url, report) {
+    /* the image itself: the raw .rxfb bytes (world/__init__.py: /world/scene.bin), read with
+     * the progress the loading face shows — byte counts while they land, not a bar in the dark */
+    return fetch(url).then(function (response) {
+      if (!response.ok) throw new Error("no image at " + url);
+      var total = Number(response.headers.get("content-length") || 0);
+      if (!response.body || !response.body.getReader) {
+        return response.arrayBuffer().then(function (buffer) {
+          report("the arena", buffer.byteLength, buffer.byteLength);
+          return new Uint8Array(buffer);
+        });
+      }
+      var reader = response.body.getReader();
+      var chunks = [];
+      var got = 0;
+      return (function pump() {
+        return reader.read().then(function (step) {
+          if (step.done) {
+            var bytes = new Uint8Array(got);
+            var at = 0;
+            for (var chunk of chunks) {
+              bytes.set(chunk, at);
+              at += chunk.length;
+            }
+            report("the arena", got, got);
+            return bytes;
+          }
+          chunks.push(step.value);
+          got += step.value.length;
+          report("the arena", got, total || got);
+          return pump();
+        });
+      })();
+    });
+  }
+
+  function nextFrame() {
+    return new Promise(function (resolve) {
+      if (global.requestAnimationFrame) {
+        global.requestAnimationFrame(function () {
+          resolve();
+        });
+      } else {
+        global.setTimeout(resolve, 0);
+      }
+    });
+  }
+
+  function resolved(url) {
+    /* a dynamic import resolves its specifier against the CALLING script (rxf-world.js lives
+     * under static/scene/), not the page — pin the reader URLs to the document base so
+     * "static/scene/rxf-reader.js" means one thing however the page is served */
+    return global.document ? new URL(url, global.document.baseURI).href : url;
+  }
+
+  function readWorldHere(bytes, config) {
+    /* the read on this thread: the face says "reading" first, then the read runs in one go */
+    return import(resolved(config.readerUrl)).then(function (reader) {
+      return nextFrame().then(function () {
+        return reader.readWorld(bytes);
+      });
+    });
+  }
+
+  function readWorldIn(bytes, config) {
+    /* the read in its own thread when the browser has module workers (rxf-reader-worker.js):
+     * the loading face keeps breathing and the clock keeps ticking while the arena is laid
+     * out. No worker (or one that will not start): the same read on this thread — one face,
+     * two fills. The bytes are copied to the worker so the fallback still has them. */
+    if (!config.workerUrl || !global.Worker) return readWorldHere(bytes, config);
+    return new Promise(function (resolve) {
+      var worker;
+      try {
+        worker = new Worker(resolved(config.workerUrl), { type: "module" });
+      } catch (error) {
+        resolve(readWorldHere(bytes, config));
+        return;
+      }
+      var fallback = function () {
+        worker.terminate();
+        resolve(readWorldHere(bytes, config));
+      };
+      worker.onerror = fallback;
+      worker.onmessage = function (event) {
+        worker.terminate();
+        if (event.data && event.data.ok) resolve(event.data.doc);
+        else fallback();
+      };
+      worker.postMessage(bytes.buffer.slice(0));
+    });
+  }
+
+  var PART_FOLD = {
+    cells: "cells",
+    voids: "voids",
+    blocks: "blocks",
+    streets: "streets",
+    edges: "edges",
+    bundles: "bundles"
+  };
+
+  function loadParts(url, manifest, report, wanted) {
+    /* the interactive session with the host (world/__init__.py): the plan first, then the
+     * layers ONE AFTER ANOTHER, each as slices. The page loads what it wants next and says so
+     * ("buildings · 4,000 of 17,924") instead of waiting for one blob in the dark — and a
+     * slice can be one district (?region=) when a viewport-driven load wants just that.
+     *
+     * The config's "plan" names the layers that stand before the world is ready; the rest
+     * streams in after the first frame (rest()). On a real image the duct packing alone takes
+     * minutes and nothing the scene draws needs it — the world stands on the fast layers. */
+    var doc = {
+      schema: manifest.schema,
+      arena: manifest.arena,
+      grid: manifest.grid,
+      regions: manifest.regions,
+      cells: [],
+      blocks: [],
+      voids: [],
+      edges: [],
+      bundles: [],
+      streets: [],
+      ring: null,
+      trams: [],
+      carriers: [],
+      metrics: {},
+      counts: {}
+    };
+    var plan = manifest.plan.slice();
+    var later = [];
+    if (wanted && wanted.length) {
+      /* the page picks what stands before the world is ready ("plan" in the config); the
+         rest streams in after the first frame (rest()) */
+      var now = wanted.filter(function (name) {
+        return plan.indexOf(name) >= 0;
+      });
+      later = plan.filter(function (name) {
+        return now.indexOf(name) < 0;
+      });
+      plan = now;
+    }
+
+    function loadPart(name) {
+      report(name, 0, 0); /* the layer is next: the face says so before the first slice */
+      function slices(at) {
+        var query =
+          "part=" + name + "&offset=" + at + "&limit=" + (manifest.slice || 2000);
+        return fetchJson(sceneQuery(url, query)).then(function (part) {
+          if (part.value) {
+            if (name === "frame") {
+              doc.ring = part.value.ring;
+              doc.trams = part.value.trams || [];
+              doc.carriers = part.value.carriers || [];
+              doc.metrics = part.value.metrics || {};
+            } else if (name === "stubs") {
+              /* the packing's verdict per cable: the legs the cable draws itself once the
+                 ducts carry the rest (export: edge.stubs) */
+              for (var edge of doc.edges) {
+                if (part.value[edge.id]) edge.stubs = part.value[edge.id];
+              }
+            } else {
+              doc.counts = part.value;
+            }
+            report(name, 1, 1);
+            return;
+          }
+          doc[PART_FOLD[name]].push.apply(doc[PART_FOLD[name]], part.items);
+          /* the top bar's counts grow as the layers land (cells, cables, ducts); the counts
+             part at the end is the full truth */
+          if (name === "cells" || name === "edges" || name === "bundles") {
+            doc.counts[name] = part.total;
+          }
+          report(name, at + part.count, part.total);
+          if (at + part.count < part.total) return slices(at + part.count);
+        });
+      }
+      return slices(0);
+    }
+
+    function run(list) {
+      function next() {
+        if (!list.length) return Promise.resolve();
+        return loadPart(list.shift()).then(next);
+      }
+      return next();
+    }
+
+    return run(plan).then(function () {
+      return {
+        doc: doc,
+        rest: later.length
+          ? function () {
+              return run(later);
+            }
+          : null
+      };
+    });
+  }
+
+  function loadScene(config, report) {
+    /* the scene, three fills of one face, all answering {doc, rest}: the raw image laid out in
+     * the browser (scene.bin + rxf-reader.js — the fast lane, no host export at all), the
+     * session protocol when the host serves one (the world page), a plain JSON document when
+     * the seat is static (the checked-in demo file). */
+    function fromJson() {
+      /* the manifest first (?parts=1 — cheap, it computes nothing): a served session answers
+       * with its plan and the layers stream in slice by slice from there. Asking for the bare
+       * scene.json instead would hand back the WHOLE document — packing and all, minutes on a
+       * real image — before the first part could be asked for. There is no demo fallback here:
+       * if the session lane will not answer, the page surfaces the error rather than a stale
+       * synthetic world (the image under test is the only world). */
+      return fetchJson(sceneQuery(config.sceneUrl, "parts=1")).then(function (head) {
+        if (head && head.plan) {
+          return loadParts(config.sceneUrl, head, report, config.plan || null);
+        }
+        report("the scene document", 1, 1);
+        return { doc: head, rest: null };
       });
     }
-    return fetch(config.sceneUrl)
-      .then(function (response) {
-        return response.ok ? response.json() : fail();
+    if (!config.binUrl || !config.readerUrl) return fromJson();
+    return fetchBinary(config.binUrl, report)
+      .then(function (bytes) {
+        report("reading the world", 0, 0);
+        return readWorldIn(bytes, config).then(function (doc) {
+          report("the scene document", 1, 1);
+          return { doc: doc, rest: null };
+        });
       })
-      .catch(fail);
+      .catch(function (error) {
+        /* no binary face (an older host) or a reader that will not load: the JSON face.
+         * The refusal is recorded where the page can see it — a lane that silently fell
+         * back is a lane nobody can debug */
+        if (global.__rxErrors) {
+          global.__rxErrors.push("binary lane: " + String((error && error.stack) || error));
+        }
+        return fromJson();
+      });
+  }
+
+  function pollProgress(url, report) {
+    /* the host's compute of the layer being waited on, live (world/__init__.py, /progress):
+     * while a slice request blocks on routing or the street pass, the face keeps saying
+     * where the host is */
+    var stop = false;
+    var timer = global.setInterval(function () {
+      fetch(url)
+        .then(function (response) {
+          return response.ok ? response.json() : null;
+        })
+        .then(function (info) {
+          if (!stop && info && info.state === "working") report(info.stage, info.done, info.total);
+        })
+        .catch(function () {});
+    }, 700);
+    return function () {
+      stop = true;
+      global.clearInterval(timer);
+    };
   }
 
   function boot() {
@@ -2086,15 +2376,38 @@
     var configNode = document.getElementById("rxf-world-config");
     if (!canvas || !configNode) return;
     var config = JSON.parse(configNode.textContent);
-    loadScene(config)
-      .then(function (doc) {
-        return create(canvas, doc, config);
-      })
-      .then(function (api) {
-        global.RXFWorld.api = api;
+    var hud = global.RXFWorldHud;
+    function report(stage, done, total) {
+      if (hud && hud.loading) hud.loading({ stage: stage, done: done, total: total });
+    }
+    report("the scene document", 0, 0);
+    var stop = config.progressUrl ? pollProgress(config.progressUrl, report) : null;
+    loadScene(config, report)
+      .then(function (loaded) {
+        if (stop) stop();
+        config.progress = report;
+        return create(canvas, loaded.doc, config).then(function (api) {
+          global.RXFWorld.api = api;
+          if (hud && hud.ready) hud.ready();
+          if (loaded.rest) {
+            /* the layers that follow the world (ducts, their stubs, the counts): streamed in
+               after the first frame — nothing the scene draws waits on them, and the counts
+               slot fills when they land. The world stands on the fast layers. */
+            loaded
+              .rest()
+              .then(function () {
+                if (hud && hud.counts) hud.counts(loaded.doc.counts);
+              })
+              .catch(function () {
+                /* the face is gone and the world stands; the empty count slot is the truth */
+              });
+          }
+          return api;
+        });
       })
       .catch(function (error) {
-        if (global.RXFWorldHud) global.RXFWorldHud.error(error);
+        if (stop) stop();
+        if (hud && hud.error) hud.error(error);
         throw error;
       });
   }

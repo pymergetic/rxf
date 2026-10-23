@@ -8,7 +8,7 @@
        locally (vendored Babylon under static/vendor) — no remote references, no network at runtime.
        The page is one surface of the ONE shell (docs/21): same service, same nav, same live slot. -->
   <link rel="stylesheet" href="/static/ui/ui.css">
-  <link rel="stylesheet" href="static/scene/rxf-world.css?v=20261015c">
+  <link rel="stylesheet" href="static/scene/rxf-world.css?v=20261018c">
   <style>
     /* the shell chrome above the full-bleed scene: one column, the world takes what the bar and
        the face note leave. rxf-world.css sizes body/#rxf-world to the full height on its own;
@@ -53,6 +53,20 @@
 
   <div id="rxf-world">
     <canvas id="rxf-world-canvas" tabindex="0"></canvas>
+
+    <!-- the loading face: the world on its way (rxf-world-hud.js drives it). The fast lane is
+         the raw image read in the browser (scene.bin + rxf-reader.js) with byte progress;
+         where a lane is missing the face still says the layer and the count — the user never
+         stares at a blank background until the first frame. -->
+    <div class="world-loading" data-loading role="status" aria-live="polite">
+      <div class="loading-word">RXF WORLD</div>
+      <div class="loading-stage" data-loading-stage>loading the world</div>
+      <div class="loading-bar"><i data-loading-bar></i></div>
+      <div class="loading-meta">
+        <span data-loading-count>—</span>
+        <span data-loading-clock>0:00</span>
+      </div>
+    </div>
 
     <!-- top resource bar: live metrics where they exist, "—" (a seam) where they do not yet -->
     <header class="hud-top">
@@ -106,16 +120,35 @@
       <span class="slot"><b>claim</b><i data-cell-field="claim">—</i></span>
       <span class="slot"><b>checksum</b><i data-cell-field="checksum">—</i></span>
       <span class="slot"><b>cables</b><i data-cell-field="edges">—</i></span>
+      <span class="slot"
+        ><b>branch</b
+        ><input
+          class="branch-levels"
+          type="range"
+          min="1"
+          max="3"
+          step="1"
+          value="3"
+          data-branch-levels
+          aria-label="branch levels, 1 to 3"
+        /><i data-branch-levels-value>3</i></span
+      >
     </footer>
   </div>
 
-  <!-- where the scene comes from: the served scene, falling back to the checked-in demo world -->
+  <!-- where the scene comes from: the raw image (scene.bin) read in the browser with
+       rxf-reader.js — the fast lane, no export on the host — then the served scene session.
+       There is no demo fallback: the world is always the image under test (tests/test_serve_real.py
+       pins that it is never a checked-in synthetic scene). progressUrl is the host's compute
+       channel (world/__init__.py): while a slice request waits on a layer, the loading face reads
+       where the host is. "plan" is what stands before the world is ready on the session
+       lane — the rest (ducts, their stubs, the counts) streams in after the first frame. -->
   <script type="application/json" id="rxf-world-config">
-    {"sceneUrl": "scene.json?v=20261015d", "fallbackUrl": "static/scene/demo-scene.json?v=20261015d", "pose": "overview"}
+    {"binUrl": "scene.bin?v=20261018g", "readerUrl": "static/scene/rxf-reader.js?v=20261018g", "workerUrl": "static/scene/rxf-reader-worker.js?v=20261018g", "sceneUrl": "scene.json?v=20261018g", "progressUrl": "scene.json/progress", "plan": ["cells", "voids", "blocks", "streets", "frame", "edges"], "pose": "overview"}
   </script>
   <script src="static/vendor/babylon/babylon.js?v=20261015b"></script>
-  <script src="static/scene/rxf-world-hud.js?v=20261015c"></script>
-  <script src="static/scene/rxf-world.js?v=20261015d"></script>
+  <script src="static/scene/rxf-world-hud.js?v=20261018g"></script>
+  <script src="static/scene/rxf-world.js?v=20261018g"></script>
   <script src="/static/ui/ui.js"></script>
 </body>
 </html>
