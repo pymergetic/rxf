@@ -156,13 +156,13 @@ class _Session:
     def payload(self) -> bytes:
         """The whole document, assembled and cached: the one-shot face of the session."""
         with self._mutex:
-            self._layers_of()
+            layers = self._layers_of()
             if self._payload is not None:
                 return self._payload
             self._begin("document")
             try:
                 payload = json.dumps(
-                    self._layers.document(),
+                    layers.document(),
                     ensure_ascii=False,
                     allow_nan=False,
                     separators=(",", ":"),
