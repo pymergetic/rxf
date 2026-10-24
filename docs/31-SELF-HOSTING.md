@@ -42,8 +42,8 @@ format).
 | 3 | Compiler as RXF (`native/compile.rxfs`) — runtime code generation | in progress |
 | 4 | Live/IO as RXF (`native/live.rxfs`) | in progress |
 | 5 | Builders = Seed only (no clang in the path) | done |
-| 6 | **Source objects in the image** (§3) | planned |
-| 7 | Glue source per arch in the image (§4) | planned |
+| 6 | **Source objects in the image** (§3) | done |
+| 7 | Glue source per arch in the image (§4) | done |
 | 8 | In-image machine-code builds (the Seed in RXF) | later, optional |
 | 9 | Host entries per arch: unix program, bare-metal OS, wasm (§5) | planned |
 

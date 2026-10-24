@@ -4,7 +4,9 @@ Every Code object the Seed builds comes from one file of ``native/**``. This mod
 writes that fact into the image: one ``Source`` object per file -- its text as the
 payload, the digest of that text (``sha256(text)``, the digest of what it means:
 its source), and the language it is in -- digest-wired to the code objects it was
-built into. The edge is stored on the built code (``Code.source``: a field is the
+built into. The glue of ``boot/`` follows the same rule (docs/31 §4): every file
+of the boot tree is a Source object too, with the arch it is for. The edge is
+stored on the built code (``Code.source``: a field is the
 reference); the other direction is computed, as the model computes the other
 direction (``tests/test_starter_delta.py``). The codes a source builds are the
 code objects that name it.
@@ -40,9 +42,42 @@ KINDS = Path("pymergetic/rxf/kinds.rxfd")
 EXECUTION = Path("pymergetic/rxf/execution/__init__.rxfd")
 ALIAS = "sources"
 
-# The languages of the source files; the arch is Any (a source text is not built
-# for one machine -- the Code objects it builds name their targets).
-LANG = {".rxfs": "Rxfs"}
+# The languages of the source files. A native source is Any (a source text is
+# not built for one machine -- the Code objects it builds name their targets);
+# the glue of ``boot/`` is per arch (docs/31 §4), so its rows carry the arch.
+LANG = {
+    ".S": "Asm",
+    ".c": "C",
+    ".h": "C",
+    ".js": "Js",
+    ".ld": "Asm",
+    ".rxfs": "Rxfs",
+    ".sh": "Sh",
+}
+
+# Each file of ``boot/`` as a Source object (boot/README.md's Appendix B): the
+# arch the file is for, ``Any`` where one file serves every seat. The README and
+# the build directory are not build history; every other file of the tree is.
+BOOT_ARCH = {
+    "boot/Makefile": "Any",
+    "boot/aarch64.S": "Aarch64",
+    "boot/aarch64.ld": "Aarch64",
+    "boot/check_map.sh": "Any",
+    "boot/image_stub/entry.c": "Any",
+    "boot/image_stub/image.ld": "Any",
+    "boot/image_stub/uart.h": "Any",
+    "boot/image_stub/uart_aarch64.c": "Aarch64",
+    "boot/image_stub/uart_wasm32.c": "Wasm32",
+    "boot/image_stub/uart_x86_64.c": "X8664",
+    "boot/image_stub/world.c": "Any",
+    "boot/image_stub/world.h": "Any",
+    "boot/run_smoke.sh": "Any",
+    "boot/uefi_stub.c": "X8664",
+    "boot/wasm_shim.c": "Wasm32",
+    "boot/wasm_shim.js": "Wasm32",
+    "boot/x86_64.S": "X8664",
+    "boot/x86_64.ld": "X8664",
+}
 
 SOURCE_TYPE = {
     "name": "Source",
@@ -78,7 +113,14 @@ ENUMS = {
         ("Wasm32", "3"),
         ("X8664", "1"),
     ),
-    "SourceLang": (("Asm", "2"), ("C", "3"), ("Rxfs", "1")),
+    "SourceLang": (
+        ("Asm", "2"),
+        ("C", "3"),
+        ("Js", "4"),
+        ("Make", "5"),
+        ("Rxfs", "1"),
+        ("Sh", "6"),
+    ),
 }
 
 
@@ -86,6 +128,30 @@ def name_of(source: str) -> str:
     """``native/numeric/wrapping.rxfs`` is ``numeric_wrapping``."""
     path = Path(source)
     return "_".join((*path.parts[1:-1], path.stem))
+
+
+def boot_name_of(source: str) -> str:
+    """``boot/image_stub/world.c`` is ``boot_image_stub_world_c`` (the suffix is a
+    part of the name: ``boot/`` carries source and link script of one name)."""
+    path = Path(source)
+    tail = [*path.parts[1:-1], path.stem]
+    if path.suffix:
+        tail.append(path.suffix[1:])
+    return "_".join(("boot", *tail))
+
+
+def lang_of(file: Path) -> str:
+    """The language of a source file: its suffix, or Make for a bare ``Makefile``."""
+    return "Make" if not file.suffix else LANG[file.suffix]
+
+
+def boot_rows() -> list[tuple[str, Path, str, str]]:
+    """``(name, file, lang, arch)`` for each file of ``boot/`` (Appendix B)."""
+    rows = []
+    for source, arch in sorted(BOOT_ARCH.items()):
+        file = ROOT / source
+        rows.append((boot_name_of(source), file, lang_of(file), arch))
+    return rows
 
 
 def insert_sorted(module: ET.Element, element: ET.Element) -> None:
@@ -110,14 +176,19 @@ def ensure_type(module: ET.Element, name: str, fields: tuple[dict, ...]) -> None
 
 def ensure_enums(module: ET.Element) -> None:
     for name, enumerators in ENUMS.items():
-        if any(e.tag == "Type" and e.get("name") == name for e in module):
-            continue
-        element = ET.Element(
-            "Type", {"name": name, "form": "Form.Enum", "size": "4", "align": "4"}
+        existing = next(
+            (e for e in module if e.tag == "Type" and e.get("name") == name), None
         )
+        if existing is None:
+            existing = ET.Element(
+                "Type", {"name": name, "form": "Form.Enum", "size": "4", "align": "4"}
+            )
+            insert_sorted(module, existing)
+        known = {e.get("name") for e in existing if e.tag == "Enumerator"}
         for enumerator, value in enumerators:
-            ET.SubElement(element, "Enumerator", {"name": enumerator, "value": value})
-        insert_sorted(module, element)
+            if enumerator in known:
+                continue
+            insert_sorted(existing, ET.Element("Enumerator", {"name": enumerator, "value": value}))
 
 
 def ensure_field(function: ET.Element, field: dict) -> None:
@@ -187,7 +258,14 @@ def set_sources(starter: Path, built: Mapping[str, str]) -> dict[str, str]:
 
 
 def write_module(starter: Path, named: Mapping[str, str]) -> int:
-    """``sources.rxfd``: one Source per file of ``native/`` that the Seed builds code from."""
+    """``sources.rxfd``: one Source per file the image is built from -- every file
+    of ``native/`` the Seed builds code from, and every file of ``boot/`` (the
+    glue's build history, docs/31 §4)."""
+    rows = [
+        (name, ROOT / seed_build.source_of(key), "Rxfs", "Any")
+        for name, key in named.items()
+    ]
+    rows += boot_rows()
     root = ET.Element("delta")
     module = ET.SubElement(
         root,
@@ -195,18 +273,16 @@ def write_module(starter: Path, named: Mapping[str, str]) -> int:
         {"name": ALIAS, "category": "ModuleCategory.Library"},
     )
     ET.SubElement(module, "Alias", {"name": "kinds", "target": "pymergetic.rxf.kinds"})
-    for name in sorted(named):
-        file = ROOT / seed_build.source_of(named[name])
+    for name, file, lang, arch in sorted(rows):
         text = file.read_bytes()
-        suffix = LANG[file.suffix]
         ET.SubElement(
             module,
             "Source",
             {
                 "name": name,
-                "arch": "@kinds.SourceArch.Any",
+                "arch": f"@kinds.SourceArch.{arch}",
                 "byte_count": str(len(text)),
-                "lang": f"@kinds.SourceLang.{suffix}",
+                "lang": f"@kinds.SourceLang.{lang}",
                 "semantic_digest": hashlib.sha256(text).hexdigest(),
                 DATA: text.hex(),
             },
@@ -214,7 +290,7 @@ def write_module(starter: Path, named: Mapping[str, str]) -> int:
     ET.ElementTree(root).write(
         starter / SOURCES, encoding="UTF-8", xml_declaration=True
     )
-    return len(named)
+    return len(rows)
 
 
 def write_sources(starter: Path, built: Mapping[str, str]) -> int:

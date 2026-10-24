@@ -256,7 +256,10 @@
     <Type name="SourceLang" form="Form.Enum" size="4" align="4">
       <Enumerator name="Asm" value="2" />
       <Enumerator name="C" value="3" />
+      <Enumerator name="Js" value="4" />
+      <Enumerator name="Make" value="5" />
       <Enumerator name="Rxfs" value="1" />
+      <Enumerator name="Sh" value="6" />
     </Type>
     <Type name="StdlibFlags" form="Form.Enum" size="4" align="4" flags="TypeFlags.Bitset">
       <Enumerator name="Native" value="128" />

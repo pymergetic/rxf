@@ -2,7 +2,7 @@
 
 The ~200–500 lines per architecture that are architecturally unavoidable to
 hand control to the RXF object world, plus the QEMU smoke that proves each one.
-Everything here is standalone; `docs/115-selfhosting.md` is the plan this
+Everything here is standalone; `docs/31-SELF-HOSTING.md` is the plan this
 satisfies (its four glue jobs: reset vector + stack/BSS, exception vectors,
 machine mode setup, entry trampoline) and `tests/graph_world.py` is the map and
 entry convention this reproduces row for row.
@@ -128,11 +128,11 @@ Other glue-owned places: x86_64 stack at `0x7C00` growing down (page tables at
 aarch64 stack in the boot ELF's `.boot.bss` (16 KiB); wasm32 C stack 8 KiB
 below the module's data (`--stack-first`), the world written at `0x10000`.
 
-## Appendix B — Source-object fields (for docs/115 §3, lift mechanically)
+## Appendix B — Source-object fields (lifted into `pymergetic.rxf.sources` by `tools/native/source_sync.py`, docs/31 §3)
 
 Each row is one file of this directory as a Source object: `lang`, `arch`,
-`text` (the file's bytes), `semantic_digest` (computed by the integration pass
-from `text` at lift time — not fixed here), and what it `builds` into (Code).
+`text` (the file's bytes), `semantic_digest` (the `sha256` of `text`, computed
+by the lift), and what it `builds` into (Code).
 
 | file | lang | arch | face (entry/export) | builds → |
 |---|---|---|---|---|
@@ -168,7 +168,7 @@ them. Per seat, what is deliberately missing:
   check, and a disk identity instead of the BIOS's DL passed through.
 - A20 is assumed on (QEMU is). Real: enable A20 before the load matters.
 - No IDT is installed: a fault triple-faults the machine (visible and honest
-  in QEMU's log). Real: exception vectors before the entry, per docs/115's job 2.
+  in QEMU's log). Real: exception vectors before the entry, per docs/31's job 2.
 - No E820 memory map, no allocator: the map is fixed. Real: hand the image a
   memory map and make the map relocatable.
 
@@ -202,5 +202,5 @@ them. Per seat, what is deliberately missing:
   `check-map` is the guard against moving only one of them).
 - The image's entry is the smoke's mini interpreter (`image_stub/entry.c`, the
   MOVE/RETURN/REFUSE subset with the reference interpreter's checks). When
-  docs/115's ladder replaces it with the compiled interpreter blob, the call
+  docs/31's ladder replaces it with the compiled interpreter blob, the call
   convention above must not move.

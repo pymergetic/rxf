@@ -50,6 +50,19 @@ def source_names() -> dict[str, Path]:
     }
 
 
+def rows() -> dict[str, tuple[Path, str, str]]:
+    """Every Source object by name: the file it carries, its lang and its arch."""
+    native = {
+        name: (file, "Rxfs", "Any") for name, file in source_names().items()
+    }
+    boot = {
+        name: (file, lang, arch)
+        for name, file, lang, arch in source_sync.boot_rows()
+    }
+    assert not native.keys() & boot.keys()
+    return native | boot
+
+
 def codes_of(image, handle: int) -> dict[str, int]:
     """The Code objects of a function by target name."""
     return {
@@ -61,14 +74,27 @@ def codes_of(image, handle: int) -> dict[str, int]:
 
 def test_every_source_carries_the_text_of_the_file_it_names():
     image = tree.load(STARTER)
-    for name, file in source_names().items():
+    for name, (file, lang, arch) in rows().items():
         text = file.read_bytes()
         fields = dict(image.fields(resolved(image, f"pymergetic.rxf.sources.{name}")))
         assert bytes.fromhex(fields["data"]) == text, name
         assert int(fields["byte_count"]) == len(text), name
         assert fields["semantic_digest"] == hashlib.sha256(text).hexdigest(), name
-        assert str(fields["lang"]).endswith("Rxfs"), name
-        assert str(fields["arch"]).endswith("Any"), name
+        assert str(fields["lang"]).endswith(lang), name
+        assert str(fields["arch"]).endswith(arch), name
+
+
+def test_every_file_of_boot_is_a_source_object():
+    """The table is total (boot/README.md's Appendix B): a new file of ``boot/`` is
+    lifted, or the table says why it is not. Only the README (documentation) and
+    the build directory (derived data) are outside."""
+    boot = Path(__file__).parents[1] / "boot"
+    files = {
+        f"boot/{path.relative_to(boot).as_posix()}"
+        for path in boot.rglob("*")
+        if path.is_file() and "build" not in path.relative_to(boot).parts
+    }
+    assert files - {"boot/README.md"} == set(source_sync.BOOT_ARCH), files
 
 
 def test_every_native_code_names_the_source_it_was_built_from():
@@ -114,7 +140,7 @@ def test_the_sources_of_the_image_are_the_module_the_docs_describe():
     module = resolved(image, "pymergetic.rxf.sources")
     assert image.type_name(module) == "Module"
     names = {image.get(child)["name"] for child in image.children(module)}
-    assert names == set(source_names()) | {"kinds"}, names
+    assert names == set(rows()) | {"kinds"}, names
     source_type = resolved(image, "pymergetic.rxf.execution.Source")
     assert image.type_name(source_type) == "Type"
     fields = {
