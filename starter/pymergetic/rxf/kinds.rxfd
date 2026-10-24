@@ -125,6 +125,11 @@
     <Type name="HashRepresentation" form="Form.Enum" size="4" align="4">
       <Enumerator name="U64Le" value="1" />
     </Type>
+    <Type name="HostKind" form="Form.Enum" size="4" align="4">
+      <Enumerator name="BareMetalOs" value="2" />
+      <Enumerator name="UnixProgram" value="1" />
+      <Enumerator name="Wasm" value="3" />
+    </Type>
     <Type name="Intrinsic" form="Form.Enum" size="4" align="4">
       <Enumerator name="Break" value="6" />
       <Enumerator name="Continue" value="7" />

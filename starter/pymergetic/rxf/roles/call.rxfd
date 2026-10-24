@@ -2,6 +2,7 @@
 <delta xmlns:rxf="urn:pymergetic:rxf">
   <Module name="call" flags="ModuleFlags.Namespace">
     <Role name="AbiSignature" />
+    <Role name="CapabilityRequirement" />
     <Role name="Feature" />
     <Role name="Interpreter" />
     <Role name="Leaf" />

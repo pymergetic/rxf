@@ -68,12 +68,7 @@ def image():
 def expected(image) -> bytes:
     """The report line the interpreter of the image answers for the same entry."""
     linked = package.link_module().link(image, "x86_64", package.BASE)
-    # The entry of the starter takes no arguments (the application.main shape): the
-    # three argument variants of the run helper are one run of it.
-    entry = run.runs(image, linked, [MAIN])[0]
-    result = run.referenced(linked, image, entry)
-    out = int.from_bytes(result.out[:8], "little")
-    return f"rxf result {result.status:08x} {out:016x}\n".encode()
+    return run.report_line(image, linked, MAIN)
 
 
 @pytest.fixture(scope="module")

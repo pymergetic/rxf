@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="hosts" category="ModuleCategory.Library">
+    <Alias name="application" target="pymergetic.rxf.application" />
+    <Alias name="call" target="pymergetic.rxf.roles.call" />
+    <Alias name="capabilities" target="pymergetic.rxf.capabilities" />
+    <Alias name="kinds" target="pymergetic.rxf.kinds" />
+    <HostEntry name="bare_metal_os" entry="@application.main" kind="@kinds.HostKind.BareMetalOs" capability_count="20">
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.clock_monotonic_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.clock_wall_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.console_log_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.environment_get_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.file_close_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.file_list_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.file_open_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.file_read_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.file_stat_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.file_write_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.network_close_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.network_connect_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.network_listen_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.network_receive_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.network_resolve_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.network_send_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.platform_info_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.random_fill_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.timer_cancel_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.timer_schedule_requirement" />
+    </HostEntry>
+    <HostEntry name="unix_program" entry="@application.main" kind="@kinds.HostKind.UnixProgram" capability_count="20">
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.clock_monotonic_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.clock_wall_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.console_log_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.environment_get_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.file_close_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.file_list_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.file_open_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.file_read_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.file_stat_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.file_write_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.network_close_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.network_connect_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.network_listen_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.network_receive_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.network_resolve_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.network_send_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.platform_info_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.random_fill_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.timer_cancel_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.timer_schedule_requirement" />
+    </HostEntry>
+    <HostEntry name="wasm" entry="@application.main" kind="@kinds.HostKind.Wasm" capability_count="20">
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.clock_monotonic_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.clock_wall_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.console_log_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.environment_get_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.file_close_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.file_list_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.file_open_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.file_read_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.file_stat_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.file_write_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.network_close_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.network_connect_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.network_listen_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.network_receive_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.network_resolve_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.network_send_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.platform_info_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.random_fill_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.timer_cancel_requirement" />
+      <rxf:ref role="@call.CapabilityRequirement" kind="RefKind.Data" target="@capabilities.timer_schedule_requirement" />
+    </HostEntry>
+  </Module>
+</delta>

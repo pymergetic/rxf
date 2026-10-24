@@ -94,6 +94,11 @@
       <Field name="semantic_version" value_type="uint32_t" offset="12" />
       <Field name="signature" flags="FieldFlags.Ref" value_type="uint64_t" offset="16" />
     </Type>
+    <Type name="HostEntry" form="Form.Struct" size="16" align="8" flags="TypeFlags.Variable|SelfDescribing">
+      <Field name="capability_count" value_type="uint32_t" offset="12" />
+      <Field name="entry" flags="FieldFlags.Ref" value_type="uint64_t" />
+      <Field name="kind" value_type="@kinds.HostKind" offset="8" />
+    </Type>
     <Type name="Import" form="Form.Struct" size="24" align="8" node_kind="NodeKind.Import">
       <Field name="function" flags="FieldFlags.Ref" value_type="uint64_t" />
       <Field name="optional" value_type="uint32_t" offset="8" />

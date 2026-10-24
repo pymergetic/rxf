@@ -38,6 +38,7 @@ import blob_sync
 import compose
 import graph_header
 import graph_sync
+import host_sync
 import live_sync
 import native_build
 import boot_sync
@@ -350,6 +351,7 @@ def sync(starter: Path, check: bool = False) -> tuple[int, bool]:
         write_provenance(work / "pymergetic" / "rxf" / "targets.rxfd")
         source_sync.write_sources(work, paths)
         boot_sync.write_codes(work)  # the glue's code, pinned to what make builds
+        host_sync.write_hosts(work)  # the entry every host shape runs (docs/31 §5)
         # ``sync_file`` strips every CompilerProvenance object (the recipes are
         # regenerated, never patched in place), so the glue's recipe is written
         # back before anything loads the tree to link it.
