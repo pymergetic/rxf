@@ -125,10 +125,10 @@ def test_the_codes_a_source_builds_are_the_codes_that_name_it():
         expected[source].update(f"{path}.{target}" for target in TARGETS)
     for family in boot_sync.FAMILIES:
         source = boot_sync.source_name(str(family["sources"][0]))
-        expected[source] = {
+        expected[source].update(
             f"pymergetic.rxf.boot.{family['function']}.{seat}"
             for seat in family["codes"]
-        }
+        )
     builds: dict[str, set[str]] = {name: set() for name in expected}
     for handle in range(image.handle_count):
         if not image.live(handle) or image.type_name(handle) != "Code":

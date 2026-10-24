@@ -84,6 +84,71 @@ FAMILIES = (
         "artifact": "build/boot_x86_64.bin",
         "format": "Machine",
     },
+    # The image the glue runs (docs/31 §1's RXFB box, the smoke's world): the
+    # map rows ``make -C boot`` links from ``image_stub`` and every seat loads.
+    # The glue runs it through the entry convention below, so that convention
+    # is the signature of these families (``boot/README.md`` pins it per ABI).
+    {
+        "function": "world_aarch64",
+        "sources": (
+            "boot/image_stub/world.c",
+            "boot/image_stub/entry.c",
+            "boot/image_stub/uart_aarch64.c",
+            "boot/image_stub/uart.h",
+            "boot/image_stub/world.h",
+            "boot/image_stub/image.ld",
+        ),
+        "codes": ("aarch64_linux",),
+        "body": "body_world_aarch64",
+        "artifact": "build/image_aarch64.bin",
+        "format": "Machine",
+        "signature": "run",
+    },
+    {
+        "function": "world_wasm32",
+        "sources": (
+            "boot/image_stub/world.c",
+            "boot/image_stub/entry.c",
+            "boot/image_stub/uart_wasm32.c",
+            "boot/image_stub/uart.h",
+            "boot/image_stub/world.h",
+            "boot/image_stub/image.ld",
+        ),
+        "codes": ("wasm32",),
+        "body": "body_world_wasm32",
+        "artifact": "build/image_wasm32.bin",
+        "format": "Machine",
+        "signature": "run",
+    },
+    {
+        "function": "world_x86_64",
+        "sources": (
+            "boot/image_stub/world.c",
+            "boot/image_stub/entry.c",
+            "boot/image_stub/uart_x86_64.c",
+            "boot/image_stub/uart.h",
+            "boot/image_stub/world.h",
+            "boot/image_stub/image.ld",
+        ),
+        # one blob per machine: the BIOS and the UEFI seat load the same world
+        "codes": ("x86_64_bios", "x86_64_uefi"),
+        "body": "body_world_x86_64",
+        "artifact": "build/image_x86_64.bin",
+        "format": "Machine",
+        "signature": "run",
+    },
+)
+
+# The entry convention (boot/README.md): ``run(context, handle, args, argc,
+# out) -> status`` -- the glue resolves the handle to the program object and the
+# world's entry executes it, writing the answer to ``out``. The ABI shapes of
+# the call are per seat; this is the one face they all speak.
+RUN_PARAMETERS = (
+    ("context", "uint64_t"),
+    ("handle", "uint64_t"),
+    ("args", "uint64_t"),
+    ("argc", "uint64_t"),
+    ("out", "uint64_t"),
 )
 
 # The runtime target a Code names (the seat's ABI, the one the glue speaks to the
@@ -194,6 +259,33 @@ def insert_sorted(module: ET.Element, element: ET.Element) -> None:
     module.append(element)
 
 
+def signature_of(family: Mapping[str, object]) -> ET.Element:
+    """The Signature the family's codes speak.
+
+    The glue is entered and calls nothing (``void()``); the world the glue runs
+    is entered through the entry convention, so its signature is
+    ``run(context, handle, args, argc, out) -> status``.
+    """
+    run = family.get("signature") == "run"
+    made = ET.Element(
+        "Signature",
+        {
+            "name": "signature",
+            "return_type": "uint64_t" if run else "void",
+            "parameter_count": str(len(RUN_PARAMETERS)) if run else "0",
+            "result_count": "0",
+        },
+    )
+    if run:
+        for index, (name, value_type) in enumerate(RUN_PARAMETERS, start=1):
+            ET.SubElement(
+                made,
+                "Parameter",
+                {"name": name, "value_type": value_type, "index": str(index)},
+            )
+    return made
+
+
 def write_codes(
     starter: Path, pins: Mapping[str, tuple[int, str]] | None = None
 ) -> dict[str, tuple[int, str]]:
@@ -277,18 +369,7 @@ def write_codes(
                 },
             ),
         )
-        insert_sorted(
-            made,
-            ET.Element(
-                "Signature",
-                {
-                    "name": "signature",
-                    "return_type": "void",
-                    "parameter_count": "0",
-                    "result_count": "0",
-                },
-            ),
-        )
+        insert_sorted(made, signature_of(family))
         module.append(made)
     ET.ElementTree(root).write(
         starter / MODULE, encoding="UTF-8", xml_declaration=True
