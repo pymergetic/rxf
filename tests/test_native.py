@@ -53,7 +53,10 @@ def test_every_starter_snippet_is_what_the_sources_compile_to():
 def test_the_compiler_provenance_is_the_seed_recipe():
     document = ET.parse(STARTER / "pymergetic" / "rxf" / "targets.rxfd")
     found = {
-        p.get("name"): (p.get("compiler_major"), p.get("recipe_digest"))
+        p.get("name", ""): (
+            p.get("compiler_major", ""),
+            p.get("recipe_digest", ""),
+        )
         for p in document.getroot().iter("CompilerProvenance")
     }
     assert sorted(found) == ["seed_aarch64", "seed_wasm32", "seed_x86_64"]
