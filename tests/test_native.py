@@ -53,7 +53,10 @@ def test_every_starter_snippet_is_what_the_sources_compile_to():
 def test_the_compiler_provenance_is_the_seed_recipe():
     document = ET.parse(STARTER / "pymergetic" / "rxf" / "targets.rxfd")
     found = {
-        p.get("name"): (p.get("compiler_major"), p.get("recipe_digest"))
+        p.get("name", ""): (
+            p.get("compiler_major", ""),
+            p.get("recipe_digest", ""),
+        )
         for p in document.getroot().iter("CompilerProvenance")
     }
     assert sorted(found) == ["seed_aarch64", "seed_wasm32", "seed_x86_64"]
@@ -64,17 +67,19 @@ def test_the_compiler_provenance_is_the_seed_recipe():
     }
 
 
-def test_every_code_names_one_of_the_seed_recipes():
-    """A Code object's provenance reference is one of the three seed recipes of the
-    targets module -- nothing in the starter claims a compiler that is gone. A code of
-    the Bytecode format is a program of the interpreter (what ``compose`` makes of a
-    graph); it is not compiled by any machine and names no compiler."""
+def test_every_code_names_a_recipe_the_image_carries():
+    """A Code object's provenance reference is one of the recipes the image
+    carries -- the three Seed recipes of the targets module, the boot recipe of
+    the glue (docs/31 §4) -- nothing in the starter claims a compiler that is
+    gone. A code of the Bytecode format is a program of the interpreter (what
+    ``compose`` makes of a graph); it is not compiled by any machine and names
+    no compiler."""
     names = {
         p.get("name")
-        for p in ET.parse(STARTER / "pymergetic" / "rxf" / "targets.rxfd")
-        .getroot()
-        .iter("CompilerProvenance")
+        for path in sorted(STARTER.rglob("*.rxfd"))
+        for p in ET.parse(path).getroot().iter("CompilerProvenance")
     }
+    assert {"seed_aarch64", "seed_wasm32", "seed_x86_64", "recipe"} <= names
     codes = compiled = provenance = 0
     for path in sorted(STARTER.rglob("*.rxfd")):
         for code in ET.parse(path).getroot().iter("Code"):

@@ -210,12 +210,16 @@ def ensure_schema(starter: Path) -> None:
     execution.write(starter / EXECUTION, encoding="UTF-8", xml_declaration=True)
 
 
-def module_of(path: Path, starter: Path) -> tuple[str, ET.ElementTree]:
+def module_of(
+    path: Path, starter: Path
+) -> tuple[str, ET.ElementTree[ET.Element[str]]]:
     parts = path.relative_to(starter).with_suffix("").parts
     return graph_sync.module_prefix(parts), ET.parse(path)
 
 
-def add_alias(document: ET.ElementTree, name: str, target: str) -> None:
+def add_alias(
+    document: ET.ElementTree[ET.Element[str]], name: str, target: str
+) -> None:
     module = next(document.getroot().iter("Module"))
     if any(a.tag == "Alias" and a.get("name") == name for a in module):
         return
