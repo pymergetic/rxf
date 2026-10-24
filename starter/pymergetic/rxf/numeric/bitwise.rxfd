@@ -29,9 +29,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_and_int16_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="80" content_digest="0872e25dfdb7af20db73576677b3e866723836fbb9b87dc5b207cf1810a516bb" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9003c40d3e00f1ff8800640f9003c40d3e10741f82000008a60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="33" content_digest="9eb2b3842c67d8cec89cbcae417410dc5b01167337138fbe07c921567048b498" rxf:data="01027e2000ad42ffff03832001ad42ffff0383832103200220033d010041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="85" content_digest="a73cb2dd99523f1ec5ef11e7122a46106eed1cecb0c4e9eff96d1a008a951d49" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c1584821c86641890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="80" content_digest="0872e25dfdb7af20db73576677b3e866723836fbb9b87dc5b207cf1810a516bb" />
+      <CodeBlob name="body_wasm32" byte_count="33" content_digest="9eb2b3842c67d8cec89cbcae417410dc5b01167337138fbe07c921567048b498" />
+      <CodeBlob name="body_x86_64" byte_count="85" content_digest="a73cb2dd99523f1ec5ef11e7122a46106eed1cecb0c4e9eff96d1a008a951d49" />
       <Signature name="signature" return_type="int16_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int16_t" />
         <Parameter name="operand[1]" value_type="int16_t" index="1" />
@@ -101,9 +101,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_and_int32_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="80" content_digest="a309d77b80fc05c309442e794b1f4697c3b7e38e8efdde469d2e1d60ddd760ed" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9007c40d3e00f1ff8800640f9007c40d3e10741f82000008a600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="23" content_digest="05e14620aed65add478db44b2434bc969498541f414ed5640f2a5d2aad49b4f4" rxf:data="01027e2000ad2001ad832103200220033e020041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="80" content_digest="07d5db2fca0d6b0764e7df856a949b014b801553c1c26b9a775f785578ab0e40" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c1584821c841890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="80" content_digest="a309d77b80fc05c309442e794b1f4697c3b7e38e8efdde469d2e1d60ddd760ed" />
+      <CodeBlob name="body_wasm32" byte_count="23" content_digest="05e14620aed65add478db44b2434bc969498541f414ed5640f2a5d2aad49b4f4" />
+      <CodeBlob name="body_x86_64" byte_count="80" content_digest="07d5db2fca0d6b0764e7df856a949b014b801553c1c26b9a775f785578ab0e40" />
       <Signature name="signature" return_type="int32_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int32_t" />
         <Parameter name="operand[1]" value_type="int32_t" index="1" />
@@ -173,9 +173,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_and_int64_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="72" content_digest="508621d6c54532bc217b6e5027ce33596725e246c59101aa842ae8fe9afea744" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9e00f1ff8800640f9e10741f82000008a600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="21" content_digest="6b95335525ac9f950425938d30764c9c548984855a3323f1e03be5055ac1841c" rxf:data="01027e200020018321032002200337030041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="76" content_digest="c16c1ef8acb4eb690d760da03674d0a21ce8a0d7b95892e4aeb5d379086a7b1b" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c1584821c849890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="72" content_digest="508621d6c54532bc217b6e5027ce33596725e246c59101aa842ae8fe9afea744" />
+      <CodeBlob name="body_wasm32" byte_count="21" content_digest="6b95335525ac9f950425938d30764c9c548984855a3323f1e03be5055ac1841c" />
+      <CodeBlob name="body_x86_64" byte_count="76" content_digest="c16c1ef8acb4eb690d760da03674d0a21ce8a0d7b95892e4aeb5d379086a7b1b" />
       <Signature name="signature" return_type="int64_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int64_t" />
         <Parameter name="operand[1]" value_type="int64_t" index="1" />
@@ -245,9 +245,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_and_int8_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="80" content_digest="1f726f925e4cb9cffed6fe2739a075dcc7691204f00984f20b0310b217f1fc18" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9001c40d3e00f1ff8800640f9001c40d3e10741f82000008a60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="31" content_digest="82d2d366b75039511c436e9c038b28caa5f486a97a11418e691a52e52b531b22" rxf:data="01027e2000ad42ff01832001ad42ff0183832103200220033c000041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="84" content_digest="8d3a0144dbf0fdf43b2364709b35e6ca1507f23371b500b79dda1d6575cc7610" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c1584821c841880731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="80" content_digest="1f726f925e4cb9cffed6fe2739a075dcc7691204f00984f20b0310b217f1fc18" />
+      <CodeBlob name="body_wasm32" byte_count="31" content_digest="82d2d366b75039511c436e9c038b28caa5f486a97a11418e691a52e52b531b22" />
+      <CodeBlob name="body_x86_64" byte_count="84" content_digest="8d3a0144dbf0fdf43b2364709b35e6ca1507f23371b500b79dda1d6575cc7610" />
       <Signature name="signature" return_type="int8_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int8_t" />
         <Parameter name="operand[1]" value_type="int8_t" index="1" />
@@ -317,9 +317,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_and_uint16_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="80" content_digest="0872e25dfdb7af20db73576677b3e866723836fbb9b87dc5b207cf1810a516bb" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9003c40d3e00f1ff8800640f9003c40d3e10741f82000008a60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="33" content_digest="9eb2b3842c67d8cec89cbcae417410dc5b01167337138fbe07c921567048b498" rxf:data="01027e2000ad42ffff03832001ad42ffff0383832103200220033d010041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="85" content_digest="a73cb2dd99523f1ec5ef11e7122a46106eed1cecb0c4e9eff96d1a008a951d49" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c1584821c86641890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="80" content_digest="0872e25dfdb7af20db73576677b3e866723836fbb9b87dc5b207cf1810a516bb" />
+      <CodeBlob name="body_wasm32" byte_count="33" content_digest="9eb2b3842c67d8cec89cbcae417410dc5b01167337138fbe07c921567048b498" />
+      <CodeBlob name="body_x86_64" byte_count="85" content_digest="a73cb2dd99523f1ec5ef11e7122a46106eed1cecb0c4e9eff96d1a008a951d49" />
       <Signature name="signature" return_type="uint16_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint16_t" />
         <Parameter name="operand[1]" value_type="uint16_t" index="1" />
@@ -389,9 +389,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_and_uint32_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="80" content_digest="a309d77b80fc05c309442e794b1f4697c3b7e38e8efdde469d2e1d60ddd760ed" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9007c40d3e00f1ff8800640f9007c40d3e10741f82000008a600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="23" content_digest="05e14620aed65add478db44b2434bc969498541f414ed5640f2a5d2aad49b4f4" rxf:data="01027e2000ad2001ad832103200220033e020041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="80" content_digest="07d5db2fca0d6b0764e7df856a949b014b801553c1c26b9a775f785578ab0e40" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c1584821c841890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="80" content_digest="a309d77b80fc05c309442e794b1f4697c3b7e38e8efdde469d2e1d60ddd760ed" />
+      <CodeBlob name="body_wasm32" byte_count="23" content_digest="05e14620aed65add478db44b2434bc969498541f414ed5640f2a5d2aad49b4f4" />
+      <CodeBlob name="body_x86_64" byte_count="80" content_digest="07d5db2fca0d6b0764e7df856a949b014b801553c1c26b9a775f785578ab0e40" />
       <Signature name="signature" return_type="uint32_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint32_t" />
         <Parameter name="operand[1]" value_type="uint32_t" index="1" />
@@ -461,9 +461,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_and_uint64_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="72" content_digest="508621d6c54532bc217b6e5027ce33596725e246c59101aa842ae8fe9afea744" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9e00f1ff8800640f9e10741f82000008a600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="21" content_digest="6b95335525ac9f950425938d30764c9c548984855a3323f1e03be5055ac1841c" rxf:data="01027e200020018321032002200337030041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="76" content_digest="c16c1ef8acb4eb690d760da03674d0a21ce8a0d7b95892e4aeb5d379086a7b1b" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c1584821c849890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="72" content_digest="508621d6c54532bc217b6e5027ce33596725e246c59101aa842ae8fe9afea744" />
+      <CodeBlob name="body_wasm32" byte_count="21" content_digest="6b95335525ac9f950425938d30764c9c548984855a3323f1e03be5055ac1841c" />
+      <CodeBlob name="body_x86_64" byte_count="76" content_digest="c16c1ef8acb4eb690d760da03674d0a21ce8a0d7b95892e4aeb5d379086a7b1b" />
       <Signature name="signature" return_type="uint64_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint64_t" />
         <Parameter name="operand[1]" value_type="uint64_t" index="1" />
@@ -533,9 +533,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_and_uint8_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="80" content_digest="1f726f925e4cb9cffed6fe2739a075dcc7691204f00984f20b0310b217f1fc18" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9001c40d3e00f1ff8800640f9001c40d3e10741f82000008a60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="31" content_digest="82d2d366b75039511c436e9c038b28caa5f486a97a11418e691a52e52b531b22" rxf:data="01027e2000ad42ff01832001ad42ff0183832103200220033c000041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="84" content_digest="8d3a0144dbf0fdf43b2364709b35e6ca1507f23371b500b79dda1d6575cc7610" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c1584821c841880731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="80" content_digest="1f726f925e4cb9cffed6fe2739a075dcc7691204f00984f20b0310b217f1fc18" />
+      <CodeBlob name="body_wasm32" byte_count="31" content_digest="82d2d366b75039511c436e9c038b28caa5f486a97a11418e691a52e52b531b22" />
+      <CodeBlob name="body_x86_64" byte_count="84" content_digest="8d3a0144dbf0fdf43b2364709b35e6ca1507f23371b500b79dda1d6575cc7610" />
       <Signature name="signature" return_type="uint8_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint8_t" />
         <Parameter name="operand[1]" value_type="uint8_t" index="1" />
@@ -603,9 +603,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_not_int16_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="60" content_digest="a0e72fdfc3828c44af076a64364fac2797854dae6e31b30f6fd3c249096fb870" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30301aa800200f9800240f9003c40d3e00320aa60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="27" content_digest="b0abce1db17397fb061b73dcc7c7e9d5a364f3128b3408b3b5fb363ad0480c71" rxf:data="01037e2000ad42ffff0383427f852102200120023d010041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="62" content_digest="28c6b1cf4d52ebf635d4b35a62637b63064dc03c698cae10235bb87452ee275d" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004989f7488b8500000000480fb7c048f7d06641890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="60" content_digest="a0e72fdfc3828c44af076a64364fac2797854dae6e31b30f6fd3c249096fb870" />
+      <CodeBlob name="body_wasm32" byte_count="27" content_digest="b0abce1db17397fb061b73dcc7c7e9d5a364f3128b3408b3b5fb363ad0480c71" />
+      <CodeBlob name="body_x86_64" byte_count="62" content_digest="28c6b1cf4d52ebf635d4b35a62637b63064dc03c698cae10235bb87452ee275d" />
       <Signature name="signature" return_type="int16_t" parameter_count="1" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int16_t" />
         <Result name="value" value_type="int16_t" />
@@ -668,9 +668,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_not_int32_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="60" content_digest="955d6ac31825c98a8e80276c7ca50bf70ae7ed4944e9393db118cb2f6ed86f77" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30301aa800200f9800240f9007c40d3e00320aa600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="22" content_digest="74b70711b24ea70005a5e399a27d9122f46285efe297f7d4f7c7ed7b859204d8" rxf:data="01037e2000ad427f852102200120023e020041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="59" content_digest="9078eaa92abfe209d3f0582a250227187f7d997fa7cd3c74156416b04239e164" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004989f7488b850000000089c048f7d041890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="60" content_digest="955d6ac31825c98a8e80276c7ca50bf70ae7ed4944e9393db118cb2f6ed86f77" />
+      <CodeBlob name="body_wasm32" byte_count="22" content_digest="74b70711b24ea70005a5e399a27d9122f46285efe297f7d4f7c7ed7b859204d8" />
+      <CodeBlob name="body_x86_64" byte_count="59" content_digest="9078eaa92abfe209d3f0582a250227187f7d997fa7cd3c74156416b04239e164" />
       <Signature name="signature" return_type="int32_t" parameter_count="1" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int32_t" />
         <Result name="value" value_type="int32_t" />
@@ -733,9 +733,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_not_int64_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="56" content_digest="ed337ad47a53708bdbcf9524fd94de3b6edf2663c0c01a5e5b337742014a4fad" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30301aa800200f9800240f9e00320aa600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="21" content_digest="7e5c20a325c222c7b3ebb1b082ffb0477c759794967c43a56bb8948b8c4b7219" rxf:data="01037e2000427f8521022001200237030041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="57" content_digest="548bb69628902114d1d17f7f1b4837efc054dd2c3d6ce9bc6c3045968729db2f" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004989f7488b850000000048f7d049890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="56" content_digest="ed337ad47a53708bdbcf9524fd94de3b6edf2663c0c01a5e5b337742014a4fad" />
+      <CodeBlob name="body_wasm32" byte_count="21" content_digest="7e5c20a325c222c7b3ebb1b082ffb0477c759794967c43a56bb8948b8c4b7219" />
+      <CodeBlob name="body_x86_64" byte_count="57" content_digest="548bb69628902114d1d17f7f1b4837efc054dd2c3d6ce9bc6c3045968729db2f" />
       <Signature name="signature" return_type="int64_t" parameter_count="1" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int64_t" />
         <Result name="value" value_type="int64_t" />
@@ -798,9 +798,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_not_int8_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="60" content_digest="b180f2cd722e8fb2ac8891973a5873870c88f054117eafb829d70ef0eddd7476" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30301aa800200f9800240f9001c40d3e00320aa60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="26" content_digest="540ce01be7b601783f5b900920e8233f7493765675503a8d24c2b22f22755b26" rxf:data="01037e2000ad42ff0183427f852102200120023c000041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="61" content_digest="8c416d21f4db8d82e93e222c134a408f0bf35bbcaf8b2182d1afe5402df2f88f" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004989f7488b8500000000480fb6c048f7d041880731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="60" content_digest="b180f2cd722e8fb2ac8891973a5873870c88f054117eafb829d70ef0eddd7476" />
+      <CodeBlob name="body_wasm32" byte_count="26" content_digest="540ce01be7b601783f5b900920e8233f7493765675503a8d24c2b22f22755b26" />
+      <CodeBlob name="body_x86_64" byte_count="61" content_digest="8c416d21f4db8d82e93e222c134a408f0bf35bbcaf8b2182d1afe5402df2f88f" />
       <Signature name="signature" return_type="int8_t" parameter_count="1" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int8_t" />
         <Result name="value" value_type="int8_t" />
@@ -863,9 +863,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_not_uint16_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="60" content_digest="a0e72fdfc3828c44af076a64364fac2797854dae6e31b30f6fd3c249096fb870" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30301aa800200f9800240f9003c40d3e00320aa60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="27" content_digest="b0abce1db17397fb061b73dcc7c7e9d5a364f3128b3408b3b5fb363ad0480c71" rxf:data="01037e2000ad42ffff0383427f852102200120023d010041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="62" content_digest="28c6b1cf4d52ebf635d4b35a62637b63064dc03c698cae10235bb87452ee275d" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004989f7488b8500000000480fb7c048f7d06641890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="60" content_digest="a0e72fdfc3828c44af076a64364fac2797854dae6e31b30f6fd3c249096fb870" />
+      <CodeBlob name="body_wasm32" byte_count="27" content_digest="b0abce1db17397fb061b73dcc7c7e9d5a364f3128b3408b3b5fb363ad0480c71" />
+      <CodeBlob name="body_x86_64" byte_count="62" content_digest="28c6b1cf4d52ebf635d4b35a62637b63064dc03c698cae10235bb87452ee275d" />
       <Signature name="signature" return_type="uint16_t" parameter_count="1" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint16_t" />
         <Result name="value" value_type="uint16_t" />
@@ -928,9 +928,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_not_uint32_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="60" content_digest="955d6ac31825c98a8e80276c7ca50bf70ae7ed4944e9393db118cb2f6ed86f77" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30301aa800200f9800240f9007c40d3e00320aa600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="22" content_digest="74b70711b24ea70005a5e399a27d9122f46285efe297f7d4f7c7ed7b859204d8" rxf:data="01037e2000ad427f852102200120023e020041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="59" content_digest="9078eaa92abfe209d3f0582a250227187f7d997fa7cd3c74156416b04239e164" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004989f7488b850000000089c048f7d041890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="60" content_digest="955d6ac31825c98a8e80276c7ca50bf70ae7ed4944e9393db118cb2f6ed86f77" />
+      <CodeBlob name="body_wasm32" byte_count="22" content_digest="74b70711b24ea70005a5e399a27d9122f46285efe297f7d4f7c7ed7b859204d8" />
+      <CodeBlob name="body_x86_64" byte_count="59" content_digest="9078eaa92abfe209d3f0582a250227187f7d997fa7cd3c74156416b04239e164" />
       <Signature name="signature" return_type="uint32_t" parameter_count="1" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint32_t" />
         <Result name="value" value_type="uint32_t" />
@@ -993,9 +993,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_not_uint64_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="56" content_digest="ed337ad47a53708bdbcf9524fd94de3b6edf2663c0c01a5e5b337742014a4fad" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30301aa800200f9800240f9e00320aa600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="21" content_digest="7e5c20a325c222c7b3ebb1b082ffb0477c759794967c43a56bb8948b8c4b7219" rxf:data="01037e2000427f8521022001200237030041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="57" content_digest="548bb69628902114d1d17f7f1b4837efc054dd2c3d6ce9bc6c3045968729db2f" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004989f7488b850000000048f7d049890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="56" content_digest="ed337ad47a53708bdbcf9524fd94de3b6edf2663c0c01a5e5b337742014a4fad" />
+      <CodeBlob name="body_wasm32" byte_count="21" content_digest="7e5c20a325c222c7b3ebb1b082ffb0477c759794967c43a56bb8948b8c4b7219" />
+      <CodeBlob name="body_x86_64" byte_count="57" content_digest="548bb69628902114d1d17f7f1b4837efc054dd2c3d6ce9bc6c3045968729db2f" />
       <Signature name="signature" return_type="uint64_t" parameter_count="1" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint64_t" />
         <Result name="value" value_type="uint64_t" />
@@ -1058,9 +1058,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_not_uint8_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="60" content_digest="b180f2cd722e8fb2ac8891973a5873870c88f054117eafb829d70ef0eddd7476" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30301aa800200f9800240f9001c40d3e00320aa60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="26" content_digest="540ce01be7b601783f5b900920e8233f7493765675503a8d24c2b22f22755b26" rxf:data="01037e2000ad42ff0183427f852102200120023c000041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="61" content_digest="8c416d21f4db8d82e93e222c134a408f0bf35bbcaf8b2182d1afe5402df2f88f" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004989f7488b8500000000480fb6c048f7d041880731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="60" content_digest="b180f2cd722e8fb2ac8891973a5873870c88f054117eafb829d70ef0eddd7476" />
+      <CodeBlob name="body_wasm32" byte_count="26" content_digest="540ce01be7b601783f5b900920e8233f7493765675503a8d24c2b22f22755b26" />
+      <CodeBlob name="body_x86_64" byte_count="61" content_digest="8c416d21f4db8d82e93e222c134a408f0bf35bbcaf8b2182d1afe5402df2f88f" />
       <Signature name="signature" return_type="uint8_t" parameter_count="1" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint8_t" />
         <Result name="value" value_type="uint8_t" />
@@ -1125,9 +1125,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_or_int16_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="80" content_digest="14b5eb6712b73d7aaa3e9f782fe400f727cbc45951c8edeb8408fa97568ec7ee" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9003c40d3e00f1ff8800640f9003c40d3e10741f8200000aa60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="33" content_digest="ed53594e713db1811aa2ba0cdc063a062ebecf1e99d0250d6bcdfd7a0e0d13e4" rxf:data="01027e2000ad42ffff03832001ad42ffff0383842103200220033d010041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="85" content_digest="ba987bff3aaa94e46e103287ad121373bb9d136e2a43a0e63d9fd2f32c1e0e46" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c1584809c86641890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="80" content_digest="14b5eb6712b73d7aaa3e9f782fe400f727cbc45951c8edeb8408fa97568ec7ee" />
+      <CodeBlob name="body_wasm32" byte_count="33" content_digest="ed53594e713db1811aa2ba0cdc063a062ebecf1e99d0250d6bcdfd7a0e0d13e4" />
+      <CodeBlob name="body_x86_64" byte_count="85" content_digest="ba987bff3aaa94e46e103287ad121373bb9d136e2a43a0e63d9fd2f32c1e0e46" />
       <Signature name="signature" return_type="int16_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int16_t" />
         <Parameter name="operand[1]" value_type="int16_t" index="1" />
@@ -1197,9 +1197,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_or_int32_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="80" content_digest="228f759691222ad495674db4be8669561acd025bf3c13fe7c0acc943037a3176" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9007c40d3e00f1ff8800640f9007c40d3e10741f8200000aa600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="23" content_digest="3851e9e8c86e706437a139720da529fb7e944d751dc4e646b6322309103ce12a" rxf:data="01027e2000ad2001ad842103200220033e020041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="80" content_digest="83177ce7e7d01e159f451ba90b6e458da347cbb305e0a88e5ad636a8073b52ce" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c1584809c841890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="80" content_digest="228f759691222ad495674db4be8669561acd025bf3c13fe7c0acc943037a3176" />
+      <CodeBlob name="body_wasm32" byte_count="23" content_digest="3851e9e8c86e706437a139720da529fb7e944d751dc4e646b6322309103ce12a" />
+      <CodeBlob name="body_x86_64" byte_count="80" content_digest="83177ce7e7d01e159f451ba90b6e458da347cbb305e0a88e5ad636a8073b52ce" />
       <Signature name="signature" return_type="int32_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int32_t" />
         <Parameter name="operand[1]" value_type="int32_t" index="1" />
@@ -1269,9 +1269,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_or_int64_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="72" content_digest="b4d3f72c87db28a32deac5d687196edd558e1eb7e7fb49c58bb21ed88dc9a9f4" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9e00f1ff8800640f9e10741f8200000aa600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="21" content_digest="bbdbdeeae2547eca3a77d2c7841278728102cef86c37c7f057408779166a0290" rxf:data="01027e200020018421032002200337030041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="76" content_digest="15c21d36b8c1f1e0fc63891c22c1a4fefd418890fc85157bdf338e4efb22e51d" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c1584809c849890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="72" content_digest="b4d3f72c87db28a32deac5d687196edd558e1eb7e7fb49c58bb21ed88dc9a9f4" />
+      <CodeBlob name="body_wasm32" byte_count="21" content_digest="bbdbdeeae2547eca3a77d2c7841278728102cef86c37c7f057408779166a0290" />
+      <CodeBlob name="body_x86_64" byte_count="76" content_digest="15c21d36b8c1f1e0fc63891c22c1a4fefd418890fc85157bdf338e4efb22e51d" />
       <Signature name="signature" return_type="int64_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int64_t" />
         <Parameter name="operand[1]" value_type="int64_t" index="1" />
@@ -1341,9 +1341,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_or_int8_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="80" content_digest="ef459f9e39d0f56e1aef3bfb69554fe6d91fa070109f4814aec06f5316c66ab9" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9001c40d3e00f1ff8800640f9001c40d3e10741f8200000aa60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="31" content_digest="b85dd3cc2ce0f52b4b4672c185d90be39bb238edc7920cb6823a37ca2e85bdda" rxf:data="01027e2000ad42ff01832001ad42ff0183842103200220033c000041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="84" content_digest="23e82fd671331172984f095ac2a5864e11109e3c631fac577fa55ee39e7e985e" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c1584809c841880731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="80" content_digest="ef459f9e39d0f56e1aef3bfb69554fe6d91fa070109f4814aec06f5316c66ab9" />
+      <CodeBlob name="body_wasm32" byte_count="31" content_digest="b85dd3cc2ce0f52b4b4672c185d90be39bb238edc7920cb6823a37ca2e85bdda" />
+      <CodeBlob name="body_x86_64" byte_count="84" content_digest="23e82fd671331172984f095ac2a5864e11109e3c631fac577fa55ee39e7e985e" />
       <Signature name="signature" return_type="int8_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int8_t" />
         <Parameter name="operand[1]" value_type="int8_t" index="1" />
@@ -1413,9 +1413,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_or_uint16_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="80" content_digest="14b5eb6712b73d7aaa3e9f782fe400f727cbc45951c8edeb8408fa97568ec7ee" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9003c40d3e00f1ff8800640f9003c40d3e10741f8200000aa60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="33" content_digest="ed53594e713db1811aa2ba0cdc063a062ebecf1e99d0250d6bcdfd7a0e0d13e4" rxf:data="01027e2000ad42ffff03832001ad42ffff0383842103200220033d010041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="85" content_digest="ba987bff3aaa94e46e103287ad121373bb9d136e2a43a0e63d9fd2f32c1e0e46" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c1584809c86641890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="80" content_digest="14b5eb6712b73d7aaa3e9f782fe400f727cbc45951c8edeb8408fa97568ec7ee" />
+      <CodeBlob name="body_wasm32" byte_count="33" content_digest="ed53594e713db1811aa2ba0cdc063a062ebecf1e99d0250d6bcdfd7a0e0d13e4" />
+      <CodeBlob name="body_x86_64" byte_count="85" content_digest="ba987bff3aaa94e46e103287ad121373bb9d136e2a43a0e63d9fd2f32c1e0e46" />
       <Signature name="signature" return_type="uint16_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint16_t" />
         <Parameter name="operand[1]" value_type="uint16_t" index="1" />
@@ -1485,9 +1485,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_or_uint32_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="80" content_digest="228f759691222ad495674db4be8669561acd025bf3c13fe7c0acc943037a3176" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9007c40d3e00f1ff8800640f9007c40d3e10741f8200000aa600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="23" content_digest="3851e9e8c86e706437a139720da529fb7e944d751dc4e646b6322309103ce12a" rxf:data="01027e2000ad2001ad842103200220033e020041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="80" content_digest="83177ce7e7d01e159f451ba90b6e458da347cbb305e0a88e5ad636a8073b52ce" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c1584809c841890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="80" content_digest="228f759691222ad495674db4be8669561acd025bf3c13fe7c0acc943037a3176" />
+      <CodeBlob name="body_wasm32" byte_count="23" content_digest="3851e9e8c86e706437a139720da529fb7e944d751dc4e646b6322309103ce12a" />
+      <CodeBlob name="body_x86_64" byte_count="80" content_digest="83177ce7e7d01e159f451ba90b6e458da347cbb305e0a88e5ad636a8073b52ce" />
       <Signature name="signature" return_type="uint32_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint32_t" />
         <Parameter name="operand[1]" value_type="uint32_t" index="1" />
@@ -1557,9 +1557,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_or_uint64_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="72" content_digest="b4d3f72c87db28a32deac5d687196edd558e1eb7e7fb49c58bb21ed88dc9a9f4" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9e00f1ff8800640f9e10741f8200000aa600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="21" content_digest="bbdbdeeae2547eca3a77d2c7841278728102cef86c37c7f057408779166a0290" rxf:data="01027e200020018421032002200337030041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="76" content_digest="15c21d36b8c1f1e0fc63891c22c1a4fefd418890fc85157bdf338e4efb22e51d" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c1584809c849890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="72" content_digest="b4d3f72c87db28a32deac5d687196edd558e1eb7e7fb49c58bb21ed88dc9a9f4" />
+      <CodeBlob name="body_wasm32" byte_count="21" content_digest="bbdbdeeae2547eca3a77d2c7841278728102cef86c37c7f057408779166a0290" />
+      <CodeBlob name="body_x86_64" byte_count="76" content_digest="15c21d36b8c1f1e0fc63891c22c1a4fefd418890fc85157bdf338e4efb22e51d" />
       <Signature name="signature" return_type="uint64_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint64_t" />
         <Parameter name="operand[1]" value_type="uint64_t" index="1" />
@@ -1629,9 +1629,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_or_uint8_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="80" content_digest="ef459f9e39d0f56e1aef3bfb69554fe6d91fa070109f4814aec06f5316c66ab9" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9001c40d3e00f1ff8800640f9001c40d3e10741f8200000aa60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="31" content_digest="b85dd3cc2ce0f52b4b4672c185d90be39bb238edc7920cb6823a37ca2e85bdda" rxf:data="01027e2000ad42ff01832001ad42ff0183842103200220033c000041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="84" content_digest="23e82fd671331172984f095ac2a5864e11109e3c631fac577fa55ee39e7e985e" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c1584809c841880731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="80" content_digest="ef459f9e39d0f56e1aef3bfb69554fe6d91fa070109f4814aec06f5316c66ab9" />
+      <CodeBlob name="body_wasm32" byte_count="31" content_digest="b85dd3cc2ce0f52b4b4672c185d90be39bb238edc7920cb6823a37ca2e85bdda" />
+      <CodeBlob name="body_x86_64" byte_count="84" content_digest="23e82fd671331172984f095ac2a5864e11109e3c631fac577fa55ee39e7e985e" />
       <Signature name="signature" return_type="uint8_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint8_t" />
         <Parameter name="operand[1]" value_type="uint8_t" index="1" />
@@ -1701,9 +1701,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_xor_int16_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="80" content_digest="02af68bc4f1e7669af1197cc3213ab603a3267e6248bfe973e9d20cbd77ba13d" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9003c40d3e00f1ff8800640f9003c40d3e10741f8200000ca60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="33" content_digest="da86e6e9acdf57fd028240020b24aed7247998b0ac8046a16034b0945198d191" rxf:data="01027e2000ad42ffff03832001ad42ffff0383852103200220033d010041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="85" content_digest="5f340a076f0a964f89a3773df0c0f246771b6330acd296d59fcde92dcff953a2" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c1584831c86641890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="80" content_digest="02af68bc4f1e7669af1197cc3213ab603a3267e6248bfe973e9d20cbd77ba13d" />
+      <CodeBlob name="body_wasm32" byte_count="33" content_digest="da86e6e9acdf57fd028240020b24aed7247998b0ac8046a16034b0945198d191" />
+      <CodeBlob name="body_x86_64" byte_count="85" content_digest="5f340a076f0a964f89a3773df0c0f246771b6330acd296d59fcde92dcff953a2" />
       <Signature name="signature" return_type="int16_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int16_t" />
         <Parameter name="operand[1]" value_type="int16_t" index="1" />
@@ -1773,9 +1773,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_xor_int32_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="80" content_digest="da70632e83e8884f28bfa7419c309fe034818075715ede41dea84a7785b63b76" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9007c40d3e00f1ff8800640f9007c40d3e10741f8200000ca600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="23" content_digest="fe4d380a5ec09f2a82df2869ab792f4e0f1272f0d5f4b925127ab506ce1e5566" rxf:data="01027e2000ad2001ad852103200220033e020041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="80" content_digest="dc6933ffc7c446a66ac688d4bc518ca4a57b4706ce870c1ad6c234c1e3b02948" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c1584831c841890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="80" content_digest="da70632e83e8884f28bfa7419c309fe034818075715ede41dea84a7785b63b76" />
+      <CodeBlob name="body_wasm32" byte_count="23" content_digest="fe4d380a5ec09f2a82df2869ab792f4e0f1272f0d5f4b925127ab506ce1e5566" />
+      <CodeBlob name="body_x86_64" byte_count="80" content_digest="dc6933ffc7c446a66ac688d4bc518ca4a57b4706ce870c1ad6c234c1e3b02948" />
       <Signature name="signature" return_type="int32_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int32_t" />
         <Parameter name="operand[1]" value_type="int32_t" index="1" />
@@ -1845,9 +1845,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_xor_int64_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="72" content_digest="6a07068b8d2ec18201c402d21df6e3bbfb0d542635f1fc2a327af75069985f01" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9e00f1ff8800640f9e10741f8200000ca600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="21" content_digest="985d217c4ba4e03901a3b4c822afe9de7bb4ca2bfa62f55339b613d1afee8361" rxf:data="01027e200020018521032002200337030041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="76" content_digest="b7dcafc1f2b0f590030de31ed15d8fde84a483b67ce57a84db383304c861993c" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c1584831c849890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="72" content_digest="6a07068b8d2ec18201c402d21df6e3bbfb0d542635f1fc2a327af75069985f01" />
+      <CodeBlob name="body_wasm32" byte_count="21" content_digest="985d217c4ba4e03901a3b4c822afe9de7bb4ca2bfa62f55339b613d1afee8361" />
+      <CodeBlob name="body_x86_64" byte_count="76" content_digest="b7dcafc1f2b0f590030de31ed15d8fde84a483b67ce57a84db383304c861993c" />
       <Signature name="signature" return_type="int64_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int64_t" />
         <Parameter name="operand[1]" value_type="int64_t" index="1" />
@@ -1917,9 +1917,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_xor_int8_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="80" content_digest="00acebc7d1bcc44cbcbb2b3d4126b2ccc5397cbe35f75d05600609268061b433" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9001c40d3e00f1ff8800640f9001c40d3e10741f8200000ca60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="31" content_digest="de1c95774e4549e9cc8914b2a16235c63d3dbca25be271ebf83173219d3b737d" rxf:data="01027e2000ad42ff01832001ad42ff0183852103200220033c000041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="84" content_digest="10661a4727a2366ba7e64d9cf09da4623f1b6ac3cbbbc89939e4588306e36c63" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c1584831c841880731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="80" content_digest="00acebc7d1bcc44cbcbb2b3d4126b2ccc5397cbe35f75d05600609268061b433" />
+      <CodeBlob name="body_wasm32" byte_count="31" content_digest="de1c95774e4549e9cc8914b2a16235c63d3dbca25be271ebf83173219d3b737d" />
+      <CodeBlob name="body_x86_64" byte_count="84" content_digest="10661a4727a2366ba7e64d9cf09da4623f1b6ac3cbbbc89939e4588306e36c63" />
       <Signature name="signature" return_type="int8_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int8_t" />
         <Parameter name="operand[1]" value_type="int8_t" index="1" />
@@ -1989,9 +1989,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_xor_uint16_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="80" content_digest="02af68bc4f1e7669af1197cc3213ab603a3267e6248bfe973e9d20cbd77ba13d" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9003c40d3e00f1ff8800640f9003c40d3e10741f8200000ca60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="33" content_digest="da86e6e9acdf57fd028240020b24aed7247998b0ac8046a16034b0945198d191" rxf:data="01027e2000ad42ffff03832001ad42ffff0383852103200220033d010041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="85" content_digest="5f340a076f0a964f89a3773df0c0f246771b6330acd296d59fcde92dcff953a2" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb7c050488b8508000000480fb7c04889c1584831c86641890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="80" content_digest="02af68bc4f1e7669af1197cc3213ab603a3267e6248bfe973e9d20cbd77ba13d" />
+      <CodeBlob name="body_wasm32" byte_count="33" content_digest="da86e6e9acdf57fd028240020b24aed7247998b0ac8046a16034b0945198d191" />
+      <CodeBlob name="body_x86_64" byte_count="85" content_digest="5f340a076f0a964f89a3773df0c0f246771b6330acd296d59fcde92dcff953a2" />
       <Signature name="signature" return_type="uint16_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint16_t" />
         <Parameter name="operand[1]" value_type="uint16_t" index="1" />
@@ -2061,9 +2061,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_xor_uint32_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="80" content_digest="da70632e83e8884f28bfa7419c309fe034818075715ede41dea84a7785b63b76" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9007c40d3e00f1ff8800640f9007c40d3e10741f8200000ca600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="23" content_digest="fe4d380a5ec09f2a82df2869ab792f4e0f1272f0d5f4b925127ab506ce1e5566" rxf:data="01027e2000ad2001ad852103200220033e020041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="80" content_digest="dc6933ffc7c446a66ac688d4bc518ca4a57b4706ce870c1ad6c234c1e3b02948" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000089c050488b850800000089c04889c1584831c841890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="80" content_digest="da70632e83e8884f28bfa7419c309fe034818075715ede41dea84a7785b63b76" />
+      <CodeBlob name="body_wasm32" byte_count="23" content_digest="fe4d380a5ec09f2a82df2869ab792f4e0f1272f0d5f4b925127ab506ce1e5566" />
+      <CodeBlob name="body_x86_64" byte_count="80" content_digest="dc6933ffc7c446a66ac688d4bc518ca4a57b4706ce870c1ad6c234c1e3b02948" />
       <Signature name="signature" return_type="uint32_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint32_t" />
         <Parameter name="operand[1]" value_type="uint32_t" index="1" />
@@ -2133,9 +2133,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_xor_uint64_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="72" content_digest="6a07068b8d2ec18201c402d21df6e3bbfb0d542635f1fc2a327af75069985f01" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9e00f1ff8800640f9e10741f8200000ca600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="21" content_digest="985d217c4ba4e03901a3b4c822afe9de7bb4ca2bfa62f55339b613d1afee8361" rxf:data="01027e200020018521032002200337030041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="76" content_digest="b7dcafc1f2b0f590030de31ed15d8fde84a483b67ce57a84db383304c861993c" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850000000050488b85080000004889c1584831c849890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="72" content_digest="6a07068b8d2ec18201c402d21df6e3bbfb0d542635f1fc2a327af75069985f01" />
+      <CodeBlob name="body_wasm32" byte_count="21" content_digest="985d217c4ba4e03901a3b4c822afe9de7bb4ca2bfa62f55339b613d1afee8361" />
+      <CodeBlob name="body_x86_64" byte_count="76" content_digest="b7dcafc1f2b0f590030de31ed15d8fde84a483b67ce57a84db383304c861993c" />
       <Signature name="signature" return_type="uint64_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint64_t" />
         <Parameter name="operand[1]" value_type="uint64_t" index="1" />
@@ -2205,9 +2205,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.bit_xor_uint8_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="80" content_digest="00acebc7d1bcc44cbcbb2b3d4126b2ccc5397cbe35f75d05600609268061b433" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800240f9001c40d3e00f1ff8800640f9001c40d3e10741f8200000ca60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="31" content_digest="de1c95774e4549e9cc8914b2a16235c63d3dbca25be271ebf83173219d3b737d" rxf:data="01027e2000ad42ff01832001ad42ff0183852103200220033c000041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="84" content_digest="10661a4727a2366ba7e64d9cf09da4623f1b6ac3cbbbc89939e4588306e36c63" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b8500000000480fb6c050488b8508000000480fb6c04889c1584831c841880731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="80" content_digest="00acebc7d1bcc44cbcbb2b3d4126b2ccc5397cbe35f75d05600609268061b433" />
+      <CodeBlob name="body_wasm32" byte_count="31" content_digest="de1c95774e4549e9cc8914b2a16235c63d3dbca25be271ebf83173219d3b737d" />
+      <CodeBlob name="body_x86_64" byte_count="84" content_digest="10661a4727a2366ba7e64d9cf09da4623f1b6ac3cbbbc89939e4588306e36c63" />
       <Signature name="signature" return_type="uint8_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint8_t" />
         <Parameter name="operand[1]" value_type="uint8_t" index="1" />
@@ -2278,9 +2278,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.shift_left_int16_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="148" content_digest="8672d729c0b285cb11950ef744f8adb439ecb92baf326f12f013194f667ed988" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800640f9007c40d3e00f1ff8000280d2e10741f83f0000ebe0b79f9a400000b506000014600080d2ff430091f353c1a8fd7bc1a8c0035fd6800240f9003c4093e00f1ff8800640f9007c40d3e10741f8e20300aa5f0001f12020c29a00309f9a60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="51" content_digest="e563832c5844191c4986509e128e3344829c6b1ae200a0729dd1b8d9ee9ca2db" rxf:data="01027e2001ad421059ada7044041030f0b2000adc32001ad21032003864200200342c000541b2103200220033d010041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="153" content_digest="d5b31723c1ca3c869d0d857603644df1eede26b5e58c91d8e346cb79505d4c58" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850800000089c05048b810000000000000004889c1584839c80f9dc0480fb6c04885c00f8411000000b8030000004881c410000000415f5b5dc3488b8500000000480fbfc050488b850800000089c04889c15848d3e031d24883f940480f43c26641890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="148" content_digest="8672d729c0b285cb11950ef744f8adb439ecb92baf326f12f013194f667ed988" />
+      <CodeBlob name="body_wasm32" byte_count="51" content_digest="e563832c5844191c4986509e128e3344829c6b1ae200a0729dd1b8d9ee9ca2db" />
+      <CodeBlob name="body_x86_64" byte_count="153" content_digest="d5b31723c1ca3c869d0d857603644df1eede26b5e58c91d8e346cb79505d4c58" />
       <Signature name="signature" return_type="int16_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int16_t" />
         <Parameter name="operand[1]" value_type="uint32_t" index="1" />
@@ -2350,9 +2350,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.shift_left_int32_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="148" content_digest="eec1ce41e3732c3564433f963f037ec110e6ed7a199dcbb2f97f062c432f0482" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800640f9007c40d3e00f1ff8000480d2e10741f83f0000ebe0b79f9a400000b506000014600080d2ff430091f353c1a8fd7bc1a8c0035fd6800240f9007c4093e00f1ff8800640f9007c40d3e10741f8e20300aa5f0001f12020c29a00309f9a600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="50" content_digest="0e87694496132770a42f2d71e374bb8fafe4d017d01ab79edf832749a2c606c4" rxf:data="01027e2001ad422059ada7044041030f0b2000ac2001ad21032003864200200342c000541b2103200220033e020041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="151" content_digest="1ba7f7e227fc486ba178b6cd480d0f41fadf31df534113f11eb08e5344b6a7e5" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850800000089c05048b820000000000000004889c1584839c80f9dc0480fb6c04885c00f8411000000b8030000004881c410000000415f5b5dc3488b85000000004863c050488b850800000089c04889c15848d3e031d24883f940480f43c241890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="148" content_digest="eec1ce41e3732c3564433f963f037ec110e6ed7a199dcbb2f97f062c432f0482" />
+      <CodeBlob name="body_wasm32" byte_count="50" content_digest="0e87694496132770a42f2d71e374bb8fafe4d017d01ab79edf832749a2c606c4" />
+      <CodeBlob name="body_x86_64" byte_count="151" content_digest="1ba7f7e227fc486ba178b6cd480d0f41fadf31df534113f11eb08e5344b6a7e5" />
       <Signature name="signature" return_type="int32_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int32_t" />
         <Parameter name="operand[1]" value_type="uint32_t" index="1" />
@@ -2422,9 +2422,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.shift_left_int64_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="144" content_digest="74b813ca230ff09521fa7c22a8403e5b97b2a0ea0cdb551fd6b432d8288dee98" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800640f9007c40d3e00f1ff8000880d2e10741f83f0000ebe0b79f9a400000b506000014600080d2ff430091f353c1a8fd7bc1a8c0035fd6800240f9e00f1ff8800640f9007c40d3e10741f8e20300aa5f0001f12020c29a00309f9a600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="50" content_digest="9190749c65fe96e1c549ed57fd881e6d65a152a0d3f2731b73153cc4500222f6" rxf:data="01027e2001ad42c00059ada7044041030f0b20002001ad21032003864200200342c000541b21032002200337030041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="148" content_digest="88e85f34c85cc5c233b1b1c7a605298d8017d2e129f69f5679eed513a43730dd" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850800000089c05048b840000000000000004889c1584839c80f9dc0480fb6c04885c00f8411000000b8030000004881c410000000415f5b5dc3488b850000000050488b850800000089c04889c15848d3e031d24883f940480f43c249890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="144" content_digest="74b813ca230ff09521fa7c22a8403e5b97b2a0ea0cdb551fd6b432d8288dee98" />
+      <CodeBlob name="body_wasm32" byte_count="50" content_digest="9190749c65fe96e1c549ed57fd881e6d65a152a0d3f2731b73153cc4500222f6" />
+      <CodeBlob name="body_x86_64" byte_count="148" content_digest="88e85f34c85cc5c233b1b1c7a605298d8017d2e129f69f5679eed513a43730dd" />
       <Signature name="signature" return_type="int64_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int64_t" />
         <Parameter name="operand[1]" value_type="uint32_t" index="1" />
@@ -2494,9 +2494,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.shift_left_int8_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="148" content_digest="813952d5e7fe9851addc30162f81a300b3cea86c1e2638db286789dd3ad378d2" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800640f9007c40d3e00f1ff8000180d2e10741f83f0000ebe0b79f9a400000b506000014600080d2ff430091f353c1a8fd7bc1a8c0035fd6800240f9001c4093e00f1ff8800640f9007c40d3e10741f8e20300aa5f0001f12020c29a00309f9a60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="51" content_digest="cd7b778d40a915fb2e3c8f6557a517c8977931eb9e5b1cb958710b5204e16381" rxf:data="01027e2001ad420859ada7044041030f0b2000adc22001ad21032003864200200342c000541b2103200220033c000041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="152" content_digest="add1d88ff46533d1fdc2223541d2824c17f6233588bf9aeda976bce595300388" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850800000089c05048b808000000000000004889c1584839c80f9dc0480fb6c04885c00f8411000000b8030000004881c410000000415f5b5dc3488b8500000000480fbec050488b850800000089c04889c15848d3e031d24883f940480f43c241880731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="148" content_digest="813952d5e7fe9851addc30162f81a300b3cea86c1e2638db286789dd3ad378d2" />
+      <CodeBlob name="body_wasm32" byte_count="51" content_digest="cd7b778d40a915fb2e3c8f6557a517c8977931eb9e5b1cb958710b5204e16381" />
+      <CodeBlob name="body_x86_64" byte_count="152" content_digest="add1d88ff46533d1fdc2223541d2824c17f6233588bf9aeda976bce595300388" />
       <Signature name="signature" return_type="int8_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int8_t" />
         <Parameter name="operand[1]" value_type="uint32_t" index="1" />
@@ -2566,9 +2566,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.shift_left_uint16_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="148" content_digest="90c50bcc4bc9c19f10f1ee22110f70c4f3797d17df40c8a37cf1ce563b482d26" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800640f9007c40d3e00f1ff8000280d2e10741f83f0000ebe0379f9a400000b506000014600080d2ff430091f353c1a8fd7bc1a8c0035fd6800240f9003c40d3e00f1ff8800640f9007c40d3e10741f8e20300aa5f0001f12020c29a00309f9a60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="55" content_digest="ab108fa771a26057835089afd99fc47b67ca436f606a1c28382be5acbb9a76a8" rxf:data="01027e2001ad42105aada7044041030f0b2000ad42ffff03832001ad21032003864200200342c000541b2103200220033d010041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="153" content_digest="16bf06b64b767daa7861fdf17e3142622bc9b3e4cc2fdb81f5f24d97b543fdb9" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850800000089c05048b810000000000000004889c1584839c80f93c0480fb6c04885c00f8411000000b8030000004881c410000000415f5b5dc3488b8500000000480fb7c050488b850800000089c04889c15848d3e031d24883f940480f43c26641890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="148" content_digest="90c50bcc4bc9c19f10f1ee22110f70c4f3797d17df40c8a37cf1ce563b482d26" />
+      <CodeBlob name="body_wasm32" byte_count="55" content_digest="ab108fa771a26057835089afd99fc47b67ca436f606a1c28382be5acbb9a76a8" />
+      <CodeBlob name="body_x86_64" byte_count="153" content_digest="16bf06b64b767daa7861fdf17e3142622bc9b3e4cc2fdb81f5f24d97b543fdb9" />
       <Signature name="signature" return_type="uint16_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint16_t" />
         <Parameter name="operand[1]" value_type="uint32_t" index="1" />
@@ -2638,9 +2638,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.shift_left_uint32_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="148" content_digest="ce672a80a05fd97581fb760730c9cb2d6cb6e3d16feae29ae427ab2aaca3e355" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800640f9007c40d3e00f1ff8000480d2e10741f83f0000ebe0379f9a400000b506000014600080d2ff430091f353c1a8fd7bc1a8c0035fd6800240f9007c40d3e00f1ff8800640f9007c40d3e10741f8e20300aa5f0001f12020c29a00309f9a600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="50" content_digest="1837c445184332c42db9a056f5b4889707a4c4a763277bd3eaca4a7a84d787c4" rxf:data="01027e2001ad42205aada7044041030f0b2000ad2001ad21032003864200200342c000541b2103200220033e020041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="150" content_digest="bc528a4bbf2a52a4a7075ec0d0c4383ee7c4758ce4fe70d11c14ecb6d933c945" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850800000089c05048b820000000000000004889c1584839c80f93c0480fb6c04885c00f8411000000b8030000004881c410000000415f5b5dc3488b850000000089c050488b850800000089c04889c15848d3e031d24883f940480f43c241890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="148" content_digest="ce672a80a05fd97581fb760730c9cb2d6cb6e3d16feae29ae427ab2aaca3e355" />
+      <CodeBlob name="body_wasm32" byte_count="50" content_digest="1837c445184332c42db9a056f5b4889707a4c4a763277bd3eaca4a7a84d787c4" />
+      <CodeBlob name="body_x86_64" byte_count="150" content_digest="bc528a4bbf2a52a4a7075ec0d0c4383ee7c4758ce4fe70d11c14ecb6d933c945" />
       <Signature name="signature" return_type="uint32_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint32_t" />
         <Parameter name="operand[1]" value_type="uint32_t" index="1" />
@@ -2710,9 +2710,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.shift_left_uint64_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="144" content_digest="688942ef6a95b4da69de708afee0d692cc227665f3c6e959503c48a470f9c36d" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800640f9007c40d3e00f1ff8000880d2e10741f83f0000ebe0379f9a400000b506000014600080d2ff430091f353c1a8fd7bc1a8c0035fd6800240f9e00f1ff8800640f9007c40d3e10741f8e20300aa5f0001f12020c29a00309f9a600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="50" content_digest="a15537e94f42089cb1e9953f31c9433a0ff719fcaef8e4ce79a105736979fc9e" rxf:data="01027e2001ad42c0005aada7044041030f0b20002001ad21032003864200200342c000541b21032002200337030041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="148" content_digest="0ee5d062bf511a8b15d40b3c3d8e927d13963373a9329593b8432d7b013f6e5e" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850800000089c05048b840000000000000004889c1584839c80f93c0480fb6c04885c00f8411000000b8030000004881c410000000415f5b5dc3488b850000000050488b850800000089c04889c15848d3e031d24883f940480f43c249890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="144" content_digest="688942ef6a95b4da69de708afee0d692cc227665f3c6e959503c48a470f9c36d" />
+      <CodeBlob name="body_wasm32" byte_count="50" content_digest="a15537e94f42089cb1e9953f31c9433a0ff719fcaef8e4ce79a105736979fc9e" />
+      <CodeBlob name="body_x86_64" byte_count="148" content_digest="0ee5d062bf511a8b15d40b3c3d8e927d13963373a9329593b8432d7b013f6e5e" />
       <Signature name="signature" return_type="uint64_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint64_t" />
         <Parameter name="operand[1]" value_type="uint32_t" index="1" />
@@ -2782,9 +2782,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.shift_left_uint8_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="148" content_digest="417f89c125aecc5cdcf1cf93a0adce4be0bd06201decef83413232dde9fc7764" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800640f9007c40d3e00f1ff8000180d2e10741f83f0000ebe0379f9a400000b506000014600080d2ff430091f353c1a8fd7bc1a8c0035fd6800240f9001c40d3e00f1ff8800640f9007c40d3e10741f8e20300aa5f0001f12020c29a00309f9a60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="54" content_digest="af47ff2333189d23c8dcf40486ef57cf48843ff0e7759594a629e3fe1f4989a3" rxf:data="01027e2001ad42085aada7044041030f0b2000ad42ff01832001ad21032003864200200342c000541b2103200220033c000041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="152" content_digest="edcdbccebca56bd96b27df8259034e18597baf2978d4e3df8442585585e8d612" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850800000089c05048b808000000000000004889c1584839c80f93c0480fb6c04885c00f8411000000b8030000004881c410000000415f5b5dc3488b8500000000480fb6c050488b850800000089c04889c15848d3e031d24883f940480f43c241880731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="148" content_digest="417f89c125aecc5cdcf1cf93a0adce4be0bd06201decef83413232dde9fc7764" />
+      <CodeBlob name="body_wasm32" byte_count="54" content_digest="af47ff2333189d23c8dcf40486ef57cf48843ff0e7759594a629e3fe1f4989a3" />
+      <CodeBlob name="body_x86_64" byte_count="152" content_digest="edcdbccebca56bd96b27df8259034e18597baf2978d4e3df8442585585e8d612" />
       <Signature name="signature" return_type="uint8_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint8_t" />
         <Parameter name="operand[1]" value_type="uint32_t" index="1" />
@@ -2854,9 +2854,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.shift_right_int16_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="148" content_digest="ca6da4e6ccf95ae41766fa9222ec536f2e54105c8dae89b327753f22e5548d55" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800640f9007c40d3e00f1ff8000280d2e10741f83f0000ebe0b79f9a400000b506000014600080d2ff430091f353c1a8fd7bc1a8c0035fd6800240f9003c4093e00f1ff8800640f9007c40d3e10741f8e20300aa5f0001f12028c29a00309f9a60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="51" content_digest="7a867f5dd9e3c63b99f3bacba11f04318f19f4813c284c425971949e761cfaba" rxf:data="01027e2001ad421059ada7044041030f0b2000adc32001ad21032003874200200342c000541b2103200220033d010041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="153" content_digest="f6047ce3b1442407dd22cb9f88985a66979185cf3248dfd7cb05d4d91a45da4d" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850800000089c05048b810000000000000004889c1584839c80f9dc0480fb6c04885c00f8411000000b8030000004881c410000000415f5b5dc3488b8500000000480fbfc050488b850800000089c04889c15848d3f831d24883f940480f43c26641890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="148" content_digest="ca6da4e6ccf95ae41766fa9222ec536f2e54105c8dae89b327753f22e5548d55" />
+      <CodeBlob name="body_wasm32" byte_count="51" content_digest="7a867f5dd9e3c63b99f3bacba11f04318f19f4813c284c425971949e761cfaba" />
+      <CodeBlob name="body_x86_64" byte_count="153" content_digest="f6047ce3b1442407dd22cb9f88985a66979185cf3248dfd7cb05d4d91a45da4d" />
       <Signature name="signature" return_type="int16_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int16_t" />
         <Parameter name="operand[1]" value_type="uint32_t" index="1" />
@@ -2926,9 +2926,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.shift_right_int32_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="148" content_digest="be948628f561d7a00fbc19c5e1eae0ba3f1708d3a350dd962ec1f78c83db1ec7" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800640f9007c40d3e00f1ff8000480d2e10741f83f0000ebe0b79f9a400000b506000014600080d2ff430091f353c1a8fd7bc1a8c0035fd6800240f9007c4093e00f1ff8800640f9007c40d3e10741f8e20300aa5f0001f12028c29a00309f9a600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="50" content_digest="782bdb2e61509a958cf978935a94e5e27769bd3187a0e709c197ac6b7af6dac4" rxf:data="01027e2001ad422059ada7044041030f0b2000ac2001ad21032003874200200342c000541b2103200220033e020041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="151" content_digest="3e5cc283b3d2dab38c59c9c89a8b1d9c018af2a5a5a314a7c7bfa46b43621908" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850800000089c05048b820000000000000004889c1584839c80f9dc0480fb6c04885c00f8411000000b8030000004881c410000000415f5b5dc3488b85000000004863c050488b850800000089c04889c15848d3f831d24883f940480f43c241890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="148" content_digest="be948628f561d7a00fbc19c5e1eae0ba3f1708d3a350dd962ec1f78c83db1ec7" />
+      <CodeBlob name="body_wasm32" byte_count="50" content_digest="782bdb2e61509a958cf978935a94e5e27769bd3187a0e709c197ac6b7af6dac4" />
+      <CodeBlob name="body_x86_64" byte_count="151" content_digest="3e5cc283b3d2dab38c59c9c89a8b1d9c018af2a5a5a314a7c7bfa46b43621908" />
       <Signature name="signature" return_type="int32_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int32_t" />
         <Parameter name="operand[1]" value_type="uint32_t" index="1" />
@@ -2998,9 +2998,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.shift_right_int64_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="144" content_digest="97678c7f6ab617c03f39d3e40d0b0613d3159c5757e52ef561148f83c8b5b9ee" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800640f9007c40d3e00f1ff8000880d2e10741f83f0000ebe0b79f9a400000b506000014600080d2ff430091f353c1a8fd7bc1a8c0035fd6800240f9e00f1ff8800640f9007c40d3e10741f8e20300aa5f0001f12028c29a00309f9a600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="50" content_digest="5b708c648037eb585cd8b697a1f39e918a040d52cf9cd760dd7f3aa9748468a8" rxf:data="01027e2001ad42c00059ada7044041030f0b20002001ad21032003874200200342c000541b21032002200337030041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="148" content_digest="48a47638d0ad1f03dfc5108b04fd61da855b20887c8537b9c304169efcdd9fbd" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850800000089c05048b840000000000000004889c1584839c80f9dc0480fb6c04885c00f8411000000b8030000004881c410000000415f5b5dc3488b850000000050488b850800000089c04889c15848d3f831d24883f940480f43c249890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="144" content_digest="97678c7f6ab617c03f39d3e40d0b0613d3159c5757e52ef561148f83c8b5b9ee" />
+      <CodeBlob name="body_wasm32" byte_count="50" content_digest="5b708c648037eb585cd8b697a1f39e918a040d52cf9cd760dd7f3aa9748468a8" />
+      <CodeBlob name="body_x86_64" byte_count="148" content_digest="48a47638d0ad1f03dfc5108b04fd61da855b20887c8537b9c304169efcdd9fbd" />
       <Signature name="signature" return_type="int64_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int64_t" />
         <Parameter name="operand[1]" value_type="uint32_t" index="1" />
@@ -3070,9 +3070,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.shift_right_int8_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="148" content_digest="33e5f32d45712d79f2a4947a9d6a55e69f964605ebcced348a03afcf09088b20" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800640f9007c40d3e00f1ff8000180d2e10741f83f0000ebe0b79f9a400000b506000014600080d2ff430091f353c1a8fd7bc1a8c0035fd6800240f9001c4093e00f1ff8800640f9007c40d3e10741f8e20300aa5f0001f12028c29a00309f9a60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="51" content_digest="1f7cef777ea294530bea7f90a98d88161d77eb0c0ed5c2207be29c4beda43513" rxf:data="01027e2001ad420859ada7044041030f0b2000adc22001ad21032003874200200342c000541b2103200220033c000041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="152" content_digest="6c6b8288de6718eafa46e1b3c7c6bf647917f58b43425210395a20d3238c0ddb" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850800000089c05048b808000000000000004889c1584839c80f9dc0480fb6c04885c00f8411000000b8030000004881c410000000415f5b5dc3488b8500000000480fbec050488b850800000089c04889c15848d3f831d24883f940480f43c241880731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="148" content_digest="33e5f32d45712d79f2a4947a9d6a55e69f964605ebcced348a03afcf09088b20" />
+      <CodeBlob name="body_wasm32" byte_count="51" content_digest="1f7cef777ea294530bea7f90a98d88161d77eb0c0ed5c2207be29c4beda43513" />
+      <CodeBlob name="body_x86_64" byte_count="152" content_digest="6c6b8288de6718eafa46e1b3c7c6bf647917f58b43425210395a20d3238c0ddb" />
       <Signature name="signature" return_type="int8_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="int8_t" />
         <Parameter name="operand[1]" value_type="uint32_t" index="1" />
@@ -3142,9 +3142,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.shift_right_uint16_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="148" content_digest="fd6f0290e8c47efb7793648091245d600387e525c925879ee6c67332d6083feb" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800640f9007c40d3e00f1ff8000280d2e10741f83f0000ebe0379f9a400000b506000014600080d2ff430091f353c1a8fd7bc1a8c0035fd6800240f9003c40d3e00f1ff8800640f9007c40d3e10741f8e20300aa5f0001f12024c29a00309f9a60020079000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="55" content_digest="873e1b54e1b254514d0b6ae86827474aa1eb49d4648d4304daa0b44f7e78623c" rxf:data="01027e2001ad42105aada7044041030f0b2000ad42ffff03832001ad21032003884200200342c000541b2103200220033d010041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="153" content_digest="8f411253481ce8b8ddd1ec553b312f7eee3bdc824f446bbde8217ffe2b290990" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850800000089c05048b810000000000000004889c1584839c80f93c0480fb6c04885c00f8411000000b8030000004881c410000000415f5b5dc3488b8500000000480fb7c050488b850800000089c04889c15848d3e831d24883f940480f43c26641890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="148" content_digest="fd6f0290e8c47efb7793648091245d600387e525c925879ee6c67332d6083feb" />
+      <CodeBlob name="body_wasm32" byte_count="55" content_digest="873e1b54e1b254514d0b6ae86827474aa1eb49d4648d4304daa0b44f7e78623c" />
+      <CodeBlob name="body_x86_64" byte_count="153" content_digest="8f411253481ce8b8ddd1ec553b312f7eee3bdc824f446bbde8217ffe2b290990" />
       <Signature name="signature" return_type="uint16_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint16_t" />
         <Parameter name="operand[1]" value_type="uint32_t" index="1" />
@@ -3214,9 +3214,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.shift_right_uint32_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="148" content_digest="df781d1a49ac99b0c26595a225a08a1321bfae76c8002a75bbb4f7714f363f8b" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800640f9007c40d3e00f1ff8000480d2e10741f83f0000ebe0379f9a400000b506000014600080d2ff430091f353c1a8fd7bc1a8c0035fd6800240f9007c40d3e00f1ff8800640f9007c40d3e10741f8e20300aa5f0001f12024c29a00309f9a600200b9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="50" content_digest="f4df09a8a2197b851703035658c691f8142d38521e685bb1e9c6aec5433faa37" rxf:data="01027e2001ad42205aada7044041030f0b2000ad2001ad21032003884200200342c000541b2103200220033e020041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="150" content_digest="4612312f6abf274a567c69cb0ead80460414c1a1a4a851308156595f6d2b3d2a" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850800000089c05048b820000000000000004889c1584839c80f93c0480fb6c04885c00f8411000000b8030000004881c410000000415f5b5dc3488b850000000089c050488b850800000089c04889c15848d3e831d24883f940480f43c241890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="148" content_digest="df781d1a49ac99b0c26595a225a08a1321bfae76c8002a75bbb4f7714f363f8b" />
+      <CodeBlob name="body_wasm32" byte_count="50" content_digest="f4df09a8a2197b851703035658c691f8142d38521e685bb1e9c6aec5433faa37" />
+      <CodeBlob name="body_x86_64" byte_count="150" content_digest="4612312f6abf274a567c69cb0ead80460414c1a1a4a851308156595f6d2b3d2a" />
       <Signature name="signature" return_type="uint32_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint32_t" />
         <Parameter name="operand[1]" value_type="uint32_t" index="1" />
@@ -3286,9 +3286,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.shift_right_uint64_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="144" content_digest="8ad26b200c3c2e0df8e3c7b509c8eedbcf126acfcc12c7c318975abd34bd287c" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800640f9007c40d3e00f1ff8000880d2e10741f83f0000ebe0379f9a400000b506000014600080d2ff430091f353c1a8fd7bc1a8c0035fd6800240f9e00f1ff8800640f9007c40d3e10741f8e20300aa5f0001f12024c29a00309f9a600200f9000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="50" content_digest="a559e304dfcbaeb5ef45dbcf61e3900566c31deaa61dce2055a65c5e82939acf" rxf:data="01027e2001ad42c0005aada7044041030f0b20002001ad21032003884200200342c000541b21032002200337030041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="148" content_digest="4fc8e2c13f24facef9b24f10e8478743182b65ee2eaf67940912384157815658" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850800000089c05048b840000000000000004889c1584839c80f93c0480fb6c04885c00f8411000000b8030000004881c410000000415f5b5dc3488b850000000050488b850800000089c04889c15848d3e831d24883f940480f43c249890731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="144" content_digest="8ad26b200c3c2e0df8e3c7b509c8eedbcf126acfcc12c7c318975abd34bd287c" />
+      <CodeBlob name="body_wasm32" byte_count="50" content_digest="a559e304dfcbaeb5ef45dbcf61e3900566c31deaa61dce2055a65c5e82939acf" />
+      <CodeBlob name="body_x86_64" byte_count="148" content_digest="4fc8e2c13f24facef9b24f10e8478743182b65ee2eaf67940912384157815658" />
       <Signature name="signature" return_type="uint64_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint64_t" />
         <Parameter name="operand[1]" value_type="uint32_t" index="1" />
@@ -3358,9 +3358,9 @@
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@bitwise.shift_right_uint8_t.aapcs64_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="148" content_digest="72c6f3fdeb2235f7c0c31f1a3411231f4b71afa8abd6d65ee03bf61300634523" rxf:data="fd7bbfa9f353bfa9ff4300d1f4030091f30302aa800200f9810600f9800640f9007c40d3e00f1ff8000180d2e10741f83f0000ebe0379f9a400000b506000014600080d2ff430091f353c1a8fd7bc1a8c0035fd6800240f9001c40d3e00f1ff8800640f9007c40d3e10741f8e20300aa5f0001f12024c29a00309f9a60020039000080d2ff430091f353c1a8fd7bc1a8c0035fd6" />
-      <CodeBlob name="body_wasm32" byte_count="54" content_digest="6657ce5fc373bdac9b28ae28f96d720694b64f29fabc3596dd1b3508620e395f" rxf:data="01027e2001ad42085aada7044041030f0b2000ad42ff01832001ad21032003884200200342c000541b2103200220033c000041000f0b" />
-      <CodeBlob name="body_x86_64" byte_count="152" content_digest="8fe743e9d1ee118ab15dc5157596a570f53a8493754a26edd37edee646defb57" rxf:data="555341574881ec100000004889e54889fb4989cf4889bd000000004889b5080000004989d7488b850800000089c05048b808000000000000004889c1584839c80f93c0480fb6c04885c00f8411000000b8030000004881c410000000415f5b5dc3488b8500000000480fb6c050488b850800000089c04889c15848d3e831d24883f940480f43c241880731c04881c410000000415f5b5dc3" />
+      <CodeBlob name="body_aarch64" byte_count="148" content_digest="72c6f3fdeb2235f7c0c31f1a3411231f4b71afa8abd6d65ee03bf61300634523" />
+      <CodeBlob name="body_wasm32" byte_count="54" content_digest="6657ce5fc373bdac9b28ae28f96d720694b64f29fabc3596dd1b3508620e395f" />
+      <CodeBlob name="body_x86_64" byte_count="152" content_digest="8fe743e9d1ee118ab15dc5157596a570f53a8493754a26edd37edee646defb57" />
       <Signature name="signature" return_type="uint8_t" parameter_count="2" result_count="1" refusal_set="@numeric.numeric_refusals">
         <Parameter name="operand[0]" value_type="uint8_t" />
         <Parameter name="operand[1]" value_type="uint32_t" index="1" />

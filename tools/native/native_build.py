@@ -90,6 +90,7 @@ def sources() -> list[Path]:
         "compile_build.py",
         "live_build.py",
         "native_symbols.py",
+        "numeric.py",
     )
     return [
         NATIVE / "seed" / "seed.c",

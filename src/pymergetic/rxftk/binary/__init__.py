@@ -88,8 +88,9 @@ class Binary:
         """The bytes of a Code: the payload of the CodeBlob its ``body`` names.
 
         An empty payload is built, not missing: the starter stores the source
-        and the recipe of the built code (Wave 4b step 2) and the builder fills
-        the bytes in, to the pin the blob carries.
+        and the recipe of the built code (Wave 4b steps 2 and 3) and the builder
+        fills the bytes in, to the pin the blob carries. The length the pin
+        names is the length the code promises, stored or built.
         """
         text = values.get("body", "")
         body = self.image.resolve(text) if text else None
@@ -97,14 +98,17 @@ class Binary:
             return None
         blob = self.of(body)
         data = blob.get("data", "")
+        pinned = 2 * int(blob.get("byte_count", "0"))
         if not data:
             if not blob.get("content_digest") or not int(blob.get("byte_count", "0")):
                 self.problem(code, "it is built but does not say what to build")
-            return ""
-        if len(data) != 2 * int(blob.get("byte_count", "0")):
+        else:
+            if len(data) != pinned:
+                self.problem(code, "byte_count is not the length of the data")
+            if blob.get("content_digest") != digest_of(data):
+                self.problem(code, "the blob is not what its digest says")
+        if pinned != 2 * int(values.get("byte_count", "0")):
             self.problem(code, "byte_count is not the length of the data")
-        if blob.get("content_digest") != digest_of(data):
-            self.problem(code, "the blob is not what its digest says")
         return data
 
     def role_target(self, handle: int, role: str) -> int | None:
@@ -166,8 +170,6 @@ class Binary:
             data = self.code_data(code, cv)
             if data is None:
                 self.problem(code, "it says no blob for its bytes")
-            elif data and len(data) != 2 * int(cv.get("byte_count", "0")):
-                self.problem(code, "byte_count is not the length of the data")
             if cv.get("semantic_digest") != values.get("semantic_digest"):
                 self.problem(code, "the semantic digest is not the function's")
             if cv.get("signature") != values.get("signature"):

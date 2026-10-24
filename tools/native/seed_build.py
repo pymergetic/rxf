@@ -21,6 +21,7 @@ import os
 import subprocess
 from pathlib import Path
 
+import numeric
 import seed_cache
 
 HERE = Path(__file__).resolve().parent
@@ -57,314 +58,12 @@ def seed_bin() -> Path:
     return _seed_bin
 
 
-# key -> (source file, fn name, shape argv, result store width).
+# key -> (source file, fn name, shape argv, result store width): the rows of the
+# intrinsics -- hash, the transactional runtime leaves, the memory ops,
+# ``safe_point``, ``uart_pump`` -- the primitives with no NumericContract to
+# compose from. The 286 numeric leaves get no row: their recipe is composed from
+# their contract by ``numeric.py`` (Wave 4b step 3).
 SOURCES: dict[str, tuple[str, str, str, int]] = {
-    # native/numeric/wrapping.rxfs -- wrapping C arithmetic in the unsigned type
-    "wrapping_add_int16_t": ("native/numeric/wrapping.rxfs", "wrapping_add_int16_t", "2u 2u", 2),
-    "wrapping_add_int32_t": ("native/numeric/wrapping.rxfs", "wrapping_add_int32_t", "4u 4u", 4),
-    "wrapping_add_int64_t": ("native/numeric/wrapping.rxfs", "wrapping_add_int64_t", "8u 8u", 8),
-    "wrapping_add_int8_t": ("native/numeric/wrapping.rxfs", "wrapping_add_int8_t", "1u 1u", 1),
-    "wrapping_add_uint16_t": ("native/numeric/wrapping.rxfs", "wrapping_add_uint16_t", "2u 2u", 2),
-    "wrapping_add_uint32_t": ("native/numeric/wrapping.rxfs", "wrapping_add_uint32_t", "4u 4u", 4),
-    "wrapping_add_uint64_t": ("native/numeric/wrapping.rxfs", "wrapping_add_uint64_t", "8u 8u", 8),
-    "wrapping_add_uint8_t": ("native/numeric/wrapping.rxfs", "wrapping_add_uint8_t", "1u 1u", 1),
-    "wrapping_multiply_int16_t": ("native/numeric/wrapping.rxfs", "wrapping_multiply_int16_t", "2u 2u", 2),
-    "wrapping_multiply_int32_t": ("native/numeric/wrapping.rxfs", "wrapping_multiply_int32_t", "4u 4u", 4),
-    "wrapping_multiply_int64_t": ("native/numeric/wrapping.rxfs", "wrapping_multiply_int64_t", "8u 8u", 8),
-    "wrapping_multiply_int8_t": ("native/numeric/wrapping.rxfs", "wrapping_multiply_int8_t", "1u 1u", 1),
-    "wrapping_multiply_uint16_t": ("native/numeric/wrapping.rxfs", "wrapping_multiply_uint16_t", "2u 2u", 2),
-    "wrapping_multiply_uint32_t": ("native/numeric/wrapping.rxfs", "wrapping_multiply_uint32_t", "4u 4u", 4),
-    "wrapping_multiply_uint64_t": ("native/numeric/wrapping.rxfs", "wrapping_multiply_uint64_t", "8u 8u", 8),
-    "wrapping_multiply_uint8_t": ("native/numeric/wrapping.rxfs", "wrapping_multiply_uint8_t", "1u 1u", 1),
-    "wrapping_subtract_int16_t": ("native/numeric/wrapping.rxfs", "wrapping_subtract_int16_t", "2u 2u", 2),
-    "wrapping_subtract_int32_t": ("native/numeric/wrapping.rxfs", "wrapping_subtract_int32_t", "4u 4u", 4),
-    "wrapping_subtract_int64_t": ("native/numeric/wrapping.rxfs", "wrapping_subtract_int64_t", "8u 8u", 8),
-    "wrapping_subtract_int8_t": ("native/numeric/wrapping.rxfs", "wrapping_subtract_int8_t", "1u 1u", 1),
-    "wrapping_subtract_uint16_t": ("native/numeric/wrapping.rxfs", "wrapping_subtract_uint16_t", "2u 2u", 2),
-    "wrapping_subtract_uint32_t": ("native/numeric/wrapping.rxfs", "wrapping_subtract_uint32_t", "4u 4u", 4),
-    "wrapping_subtract_uint64_t": ("native/numeric/wrapping.rxfs", "wrapping_subtract_uint64_t", "8u 8u", 8),
-    "wrapping_subtract_uint8_t": ("native/numeric/wrapping.rxfs", "wrapping_subtract_uint8_t", "1u 1u", 1),
-
-    # native/numeric/bitwise.rxfs -- bitwise not/and/or/xor
-    "bit_and_int16_t": ("native/numeric/bitwise.rxfs", "bit_and_int16_t", "2u 2u", 2),
-    "bit_and_int32_t": ("native/numeric/bitwise.rxfs", "bit_and_int32_t", "4u 4u", 4),
-    "bit_and_int64_t": ("native/numeric/bitwise.rxfs", "bit_and_int64_t", "8u 8u", 8),
-    "bit_and_int8_t": ("native/numeric/bitwise.rxfs", "bit_and_int8_t", "1u 1u", 1),
-    "bit_and_uint16_t": ("native/numeric/bitwise.rxfs", "bit_and_uint16_t", "2u 2u", 2),
-    "bit_and_uint32_t": ("native/numeric/bitwise.rxfs", "bit_and_uint32_t", "4u 4u", 4),
-    "bit_and_uint64_t": ("native/numeric/bitwise.rxfs", "bit_and_uint64_t", "8u 8u", 8),
-    "bit_and_uint8_t": ("native/numeric/bitwise.rxfs", "bit_and_uint8_t", "1u 1u", 1),
-    "bit_not_int16_t": ("native/numeric/bitwise.rxfs", "bit_not_int16_t", "2u", 2),
-    "bit_not_int32_t": ("native/numeric/bitwise.rxfs", "bit_not_int32_t", "4u", 4),
-    "bit_not_int64_t": ("native/numeric/bitwise.rxfs", "bit_not_int64_t", "8u", 8),
-    "bit_not_int8_t": ("native/numeric/bitwise.rxfs", "bit_not_int8_t", "1u", 1),
-    "bit_not_uint16_t": ("native/numeric/bitwise.rxfs", "bit_not_uint16_t", "2u", 2),
-    "bit_not_uint32_t": ("native/numeric/bitwise.rxfs", "bit_not_uint32_t", "4u", 4),
-    "bit_not_uint64_t": ("native/numeric/bitwise.rxfs", "bit_not_uint64_t", "8u", 8),
-    "bit_not_uint8_t": ("native/numeric/bitwise.rxfs", "bit_not_uint8_t", "1u", 1),
-    "bit_or_int16_t": ("native/numeric/bitwise.rxfs", "bit_or_int16_t", "2u 2u", 2),
-    "bit_or_int32_t": ("native/numeric/bitwise.rxfs", "bit_or_int32_t", "4u 4u", 4),
-    "bit_or_int64_t": ("native/numeric/bitwise.rxfs", "bit_or_int64_t", "8u 8u", 8),
-    "bit_or_int8_t": ("native/numeric/bitwise.rxfs", "bit_or_int8_t", "1u 1u", 1),
-    "bit_or_uint16_t": ("native/numeric/bitwise.rxfs", "bit_or_uint16_t", "2u 2u", 2),
-    "bit_or_uint32_t": ("native/numeric/bitwise.rxfs", "bit_or_uint32_t", "4u 4u", 4),
-    "bit_or_uint64_t": ("native/numeric/bitwise.rxfs", "bit_or_uint64_t", "8u 8u", 8),
-    "bit_or_uint8_t": ("native/numeric/bitwise.rxfs", "bit_or_uint8_t", "1u 1u", 1),
-    "bit_xor_int16_t": ("native/numeric/bitwise.rxfs", "bit_xor_int16_t", "2u 2u", 2),
-    "bit_xor_int32_t": ("native/numeric/bitwise.rxfs", "bit_xor_int32_t", "4u 4u", 4),
-    "bit_xor_int64_t": ("native/numeric/bitwise.rxfs", "bit_xor_int64_t", "8u 8u", 8),
-    "bit_xor_int8_t": ("native/numeric/bitwise.rxfs", "bit_xor_int8_t", "1u 1u", 1),
-    "bit_xor_uint16_t": ("native/numeric/bitwise.rxfs", "bit_xor_uint16_t", "2u 2u", 2),
-    "bit_xor_uint32_t": ("native/numeric/bitwise.rxfs", "bit_xor_uint32_t", "4u 4u", 4),
-    "bit_xor_uint64_t": ("native/numeric/bitwise.rxfs", "bit_xor_uint64_t", "8u 8u", 8),
-    "bit_xor_uint8_t": ("native/numeric/bitwise.rxfs", "bit_xor_uint8_t", "1u 1u", 1),
-
-    # native/numeric/shifts.rxfs -- shifts, refusing an out-of-range count
-    "shift_left_int16_t": ("native/numeric/shifts.rxfs", "shift_left_int16_t", "2s 4u", 2),
-    "shift_left_int32_t": ("native/numeric/shifts.rxfs", "shift_left_int32_t", "4s 4u", 4),
-    "shift_left_int64_t": ("native/numeric/shifts.rxfs", "shift_left_int64_t", "8s 4u", 8),
-    "shift_left_int8_t": ("native/numeric/shifts.rxfs", "shift_left_int8_t", "1s 4u", 1),
-    "shift_left_uint16_t": ("native/numeric/shifts.rxfs", "shift_left_uint16_t", "2u 4u", 2),
-    "shift_left_uint32_t": ("native/numeric/shifts.rxfs", "shift_left_uint32_t", "4u 4u", 4),
-    "shift_left_uint64_t": ("native/numeric/shifts.rxfs", "shift_left_uint64_t", "8u 4u", 8),
-    "shift_left_uint8_t": ("native/numeric/shifts.rxfs", "shift_left_uint8_t", "1u 4u", 1),
-    "shift_right_int16_t": ("native/numeric/shifts.rxfs", "shift_right_int16_t", "2s 4u", 2),
-    "shift_right_int32_t": ("native/numeric/shifts.rxfs", "shift_right_int32_t", "4s 4u", 4),
-    "shift_right_int64_t": ("native/numeric/shifts.rxfs", "shift_right_int64_t", "8s 4u", 8),
-    "shift_right_int8_t": ("native/numeric/shifts.rxfs", "shift_right_int8_t", "1s 4u", 1),
-    "shift_right_uint16_t": ("native/numeric/shifts.rxfs", "shift_right_uint16_t", "2u 4u", 2),
-    "shift_right_uint32_t": ("native/numeric/shifts.rxfs", "shift_right_uint32_t", "4u 4u", 4),
-    "shift_right_uint64_t": ("native/numeric/shifts.rxfs", "shift_right_uint64_t", "8u 4u", 8),
-    "shift_right_uint8_t": ("native/numeric/shifts.rxfs", "shift_right_uint8_t", "1u 4u", 1),
-
-    # native/numeric/compare.rxfs -- equal/less and min/max
-    "equal_int16_t": ("native/numeric/compare.rxfs", "equal_int16_t", "2u 2u", 1),
-    "equal_int32_t": ("native/numeric/compare.rxfs", "equal_int32_t", "4u 4u", 1),
-    "equal_int64_t": ("native/numeric/compare.rxfs", "equal_int64_t", "8u 8u", 1),
-    "equal_int8_t": ("native/numeric/compare.rxfs", "equal_int8_t", "1u 1u", 1),
-    "equal_uint16_t": ("native/numeric/compare.rxfs", "equal_uint16_t", "2u 2u", 1),
-    "equal_uint32_t": ("native/numeric/compare.rxfs", "equal_uint32_t", "4u 4u", 1),
-    "equal_uint64_t": ("native/numeric/compare.rxfs", "equal_uint64_t", "8u 8u", 1),
-    "equal_uint8_t": ("native/numeric/compare.rxfs", "equal_uint8_t", "1u 1u", 1),
-    "less_int16_t": ("native/numeric/compare.rxfs", "less_int16_t", "2s 2s", 1),
-    "less_int32_t": ("native/numeric/compare.rxfs", "less_int32_t", "4s 4s", 1),
-    "less_int64_t": ("native/numeric/compare.rxfs", "less_int64_t", "8s 8s", 1),
-    "less_int8_t": ("native/numeric/compare.rxfs", "less_int8_t", "1s 1s", 1),
-    "less_uint16_t": ("native/numeric/compare.rxfs", "less_uint16_t", "2u 2u", 1),
-    "less_uint32_t": ("native/numeric/compare.rxfs", "less_uint32_t", "4u 4u", 1),
-    "less_uint64_t": ("native/numeric/compare.rxfs", "less_uint64_t", "8u 8u", 1),
-    "less_uint8_t": ("native/numeric/compare.rxfs", "less_uint8_t", "1u 1u", 1),
-    "maximum_int16_t": ("native/numeric/compare.rxfs", "maximum_int16_t", "2s 2s", 2),
-    "maximum_int32_t": ("native/numeric/compare.rxfs", "maximum_int32_t", "4s 4s", 4),
-    "maximum_int64_t": ("native/numeric/compare.rxfs", "maximum_int64_t", "8s 8s", 8),
-    "maximum_int8_t": ("native/numeric/compare.rxfs", "maximum_int8_t", "1s 1s", 1),
-    "maximum_uint16_t": ("native/numeric/compare.rxfs", "maximum_uint16_t", "2u 2u", 2),
-    "maximum_uint32_t": ("native/numeric/compare.rxfs", "maximum_uint32_t", "4u 4u", 4),
-    "maximum_uint64_t": ("native/numeric/compare.rxfs", "maximum_uint64_t", "8u 8u", 8),
-    "maximum_uint8_t": ("native/numeric/compare.rxfs", "maximum_uint8_t", "1u 1u", 1),
-    "minimum_int16_t": ("native/numeric/compare.rxfs", "minimum_int16_t", "2s 2s", 2),
-    "minimum_int32_t": ("native/numeric/compare.rxfs", "minimum_int32_t", "4s 4s", 4),
-    "minimum_int64_t": ("native/numeric/compare.rxfs", "minimum_int64_t", "8s 8s", 8),
-    "minimum_int8_t": ("native/numeric/compare.rxfs", "minimum_int8_t", "1s 1s", 1),
-    "minimum_uint16_t": ("native/numeric/compare.rxfs", "minimum_uint16_t", "2u 2u", 2),
-    "minimum_uint32_t": ("native/numeric/compare.rxfs", "minimum_uint32_t", "4u 4u", 4),
-    "minimum_uint64_t": ("native/numeric/compare.rxfs", "minimum_uint64_t", "8u 8u", 8),
-    "minimum_uint8_t": ("native/numeric/compare.rxfs", "minimum_uint8_t", "1u 1u", 1),
-
-    # native/numeric/checked.rxfs -- checked negate/absolute/add/subtract/multiply
-    "checked_absolute_int16_t": ("native/numeric/checked.rxfs", "checked_absolute_int16_t", "2s", 2),
-    "checked_absolute_int32_t": ("native/numeric/checked.rxfs", "checked_absolute_int32_t", "4s", 4),
-    "checked_absolute_int64_t": ("native/numeric/checked.rxfs", "checked_absolute_int64_t", "8s", 8),
-    "checked_absolute_int8_t": ("native/numeric/checked.rxfs", "checked_absolute_int8_t", "1s", 1),
-    "checked_add_int16_t": ("native/numeric/checked.rxfs", "checked_add_int16_t", "2s 2s", 2),
-    "checked_add_int32_t": ("native/numeric/checked.rxfs", "checked_add_int32_t", "4s 4s", 4),
-    "checked_add_int64_t": ("native/numeric/checked.rxfs", "checked_add_int64_t", "8s 8s", 8),
-    "checked_add_int8_t": ("native/numeric/checked.rxfs", "checked_add_int8_t", "1s 1s", 1),
-    "checked_add_uint16_t": ("native/numeric/checked.rxfs", "checked_add_uint16_t", "2u 2u", 2),
-    "checked_add_uint32_t": ("native/numeric/checked.rxfs", "checked_add_uint32_t", "4u 4u", 4),
-    "checked_add_uint64_t": ("native/numeric/checked.rxfs", "checked_add_uint64_t", "8u 8u", 8),
-    "checked_add_uint8_t": ("native/numeric/checked.rxfs", "checked_add_uint8_t", "1u 1u", 1),
-    "checked_multiply_int16_t": ("native/numeric/checked.rxfs", "checked_multiply_int16_t", "2s 2s", 2),
-    "checked_multiply_int32_t": ("native/numeric/checked.rxfs", "checked_multiply_int32_t", "4s 4s", 4),
-    "checked_multiply_int64_t": ("native/numeric/checked.rxfs", "checked_multiply_int64_t", "8s 8s", 8),
-    "checked_multiply_int8_t": ("native/numeric/checked.rxfs", "checked_multiply_int8_t", "1s 1s", 1),
-    "checked_multiply_uint16_t": ("native/numeric/checked.rxfs", "checked_multiply_uint16_t", "2u 2u", 2),
-    "checked_multiply_uint32_t": ("native/numeric/checked.rxfs", "checked_multiply_uint32_t", "4u 4u", 4),
-    "checked_multiply_uint64_t": ("native/numeric/checked.rxfs", "checked_multiply_uint64_t", "8u 8u", 8),
-    "checked_multiply_uint8_t": ("native/numeric/checked.rxfs", "checked_multiply_uint8_t", "1u 1u", 1),
-    "checked_negate_int16_t": ("native/numeric/checked.rxfs", "checked_negate_int16_t", "2s", 2),
-    "checked_negate_int32_t": ("native/numeric/checked.rxfs", "checked_negate_int32_t", "4s", 4),
-    "checked_negate_int64_t": ("native/numeric/checked.rxfs", "checked_negate_int64_t", "8s", 8),
-    "checked_negate_int8_t": ("native/numeric/checked.rxfs", "checked_negate_int8_t", "1s", 1),
-    "checked_subtract_int16_t": ("native/numeric/checked.rxfs", "checked_subtract_int16_t", "2s 2s", 2),
-    "checked_subtract_int32_t": ("native/numeric/checked.rxfs", "checked_subtract_int32_t", "4s 4s", 4),
-    "checked_subtract_int64_t": ("native/numeric/checked.rxfs", "checked_subtract_int64_t", "8s 8s", 8),
-    "checked_subtract_int8_t": ("native/numeric/checked.rxfs", "checked_subtract_int8_t", "1s 1s", 1),
-    "checked_subtract_uint16_t": ("native/numeric/checked.rxfs", "checked_subtract_uint16_t", "2u 2u", 2),
-    "checked_subtract_uint32_t": ("native/numeric/checked.rxfs", "checked_subtract_uint32_t", "4u 4u", 4),
-    "checked_subtract_uint64_t": ("native/numeric/checked.rxfs", "checked_subtract_uint64_t", "8u 8u", 8),
-    "checked_subtract_uint8_t": ("native/numeric/checked.rxfs", "checked_subtract_uint8_t", "1u 1u", 1),
-
-    # native/numeric/saturating.rxfs -- saturating add/subtract/multiply
-    "saturating_add_int16_t": ("native/numeric/saturating.rxfs", "saturating_add_int16_t", "2s 2s", 2),
-    "saturating_add_int32_t": ("native/numeric/saturating.rxfs", "saturating_add_int32_t", "4s 4s", 4),
-    "saturating_add_int64_t": ("native/numeric/saturating.rxfs", "saturating_add_int64_t", "8s 8s", 8),
-    "saturating_add_int8_t": ("native/numeric/saturating.rxfs", "saturating_add_int8_t", "1s 1s", 1),
-    "saturating_add_uint16_t": ("native/numeric/saturating.rxfs", "saturating_add_uint16_t", "2u 2u", 2),
-    "saturating_add_uint32_t": ("native/numeric/saturating.rxfs", "saturating_add_uint32_t", "4u 4u", 4),
-    "saturating_add_uint64_t": ("native/numeric/saturating.rxfs", "saturating_add_uint64_t", "8u 8u", 8),
-    "saturating_add_uint8_t": ("native/numeric/saturating.rxfs", "saturating_add_uint8_t", "1u 1u", 1),
-    "saturating_multiply_int16_t": ("native/numeric/saturating.rxfs", "saturating_multiply_int16_t", "2s 2s", 2),
-    "saturating_multiply_int32_t": ("native/numeric/saturating.rxfs", "saturating_multiply_int32_t", "4s 4s", 4),
-    "saturating_multiply_int64_t": ("native/numeric/saturating.rxfs", "saturating_multiply_int64_t", "8s 8s", 8),
-    "saturating_multiply_int8_t": ("native/numeric/saturating.rxfs", "saturating_multiply_int8_t", "1s 1s", 1),
-    "saturating_multiply_uint16_t": ("native/numeric/saturating.rxfs", "saturating_multiply_uint16_t", "2u 2u", 2),
-    "saturating_multiply_uint32_t": ("native/numeric/saturating.rxfs", "saturating_multiply_uint32_t", "4u 4u", 4),
-    "saturating_multiply_uint64_t": ("native/numeric/saturating.rxfs", "saturating_multiply_uint64_t", "8u 8u", 8),
-    "saturating_multiply_uint8_t": ("native/numeric/saturating.rxfs", "saturating_multiply_uint8_t", "1u 1u", 1),
-    "saturating_subtract_int16_t": ("native/numeric/saturating.rxfs", "saturating_subtract_int16_t", "2s 2s", 2),
-    "saturating_subtract_int32_t": ("native/numeric/saturating.rxfs", "saturating_subtract_int32_t", "4s 4s", 4),
-    "saturating_subtract_int64_t": ("native/numeric/saturating.rxfs", "saturating_subtract_int64_t", "8s 8s", 8),
-    "saturating_subtract_int8_t": ("native/numeric/saturating.rxfs", "saturating_subtract_int8_t", "1s 1s", 1),
-    "saturating_subtract_uint16_t": ("native/numeric/saturating.rxfs", "saturating_subtract_uint16_t", "2u 2u", 2),
-    "saturating_subtract_uint32_t": ("native/numeric/saturating.rxfs", "saturating_subtract_uint32_t", "4u 4u", 4),
-    "saturating_subtract_uint64_t": ("native/numeric/saturating.rxfs", "saturating_subtract_uint64_t", "8u 8u", 8),
-    "saturating_subtract_uint8_t": ("native/numeric/saturating.rxfs", "saturating_subtract_uint8_t", "1u 1u", 1),
-
-    # native/numeric/divrem.rxfs -- divide/remainder, refusing division by zero
-    "divide_int16_t": ("native/numeric/divrem.rxfs", "divide_int16_t", "2s 2s", 2),
-    "divide_int32_t": ("native/numeric/divrem.rxfs", "divide_int32_t", "4s 4s", 4),
-    "divide_int64_t": ("native/numeric/divrem.rxfs", "divide_int64_t", "8s 8s", 8),
-    "divide_int8_t": ("native/numeric/divrem.rxfs", "divide_int8_t", "1s 1s", 1),
-    "divide_uint16_t": ("native/numeric/divrem.rxfs", "divide_uint16_t", "2u 2u", 2),
-    "divide_uint32_t": ("native/numeric/divrem.rxfs", "divide_uint32_t", "4u 4u", 4),
-    "divide_uint64_t": ("native/numeric/divrem.rxfs", "divide_uint64_t", "8u 8u", 8),
-    "divide_uint8_t": ("native/numeric/divrem.rxfs", "divide_uint8_t", "1u 1u", 1),
-    "remainder_int16_t": ("native/numeric/divrem.rxfs", "remainder_int16_t", "2s 2s", 2),
-    "remainder_int32_t": ("native/numeric/divrem.rxfs", "remainder_int32_t", "4s 4s", 4),
-    "remainder_int64_t": ("native/numeric/divrem.rxfs", "remainder_int64_t", "8s 8s", 8),
-    "remainder_int8_t": ("native/numeric/divrem.rxfs", "remainder_int8_t", "1s 1s", 1),
-    "remainder_uint16_t": ("native/numeric/divrem.rxfs", "remainder_uint16_t", "2u 2u", 2),
-    "remainder_uint32_t": ("native/numeric/divrem.rxfs", "remainder_uint32_t", "4u 4u", 4),
-    "remainder_uint64_t": ("native/numeric/divrem.rxfs", "remainder_uint64_t", "8u 8u", 8),
-    "remainder_uint8_t": ("native/numeric/divrem.rxfs", "remainder_uint8_t", "1u 1u", 1),
-
-    # native/numeric/convert.rxfs -- integer <-> integer conversions
-    "convert_int16_t_to_int32_t": ("native/numeric/convert.rxfs", "convert_int16_t_to_int32_t", "2s", 4),
-    "convert_int16_t_to_int64_t": ("native/numeric/convert.rxfs", "convert_int16_t_to_int64_t", "2s", 8),
-    "convert_int16_t_to_int8_t": ("native/numeric/convert.rxfs", "convert_int16_t_to_int8_t", "2s", 1),
-    "convert_int16_t_to_uint16_t": ("native/numeric/convert.rxfs", "convert_int16_t_to_uint16_t", "2s", 2),
-    "convert_int16_t_to_uint32_t": ("native/numeric/convert.rxfs", "convert_int16_t_to_uint32_t", "2s", 4),
-    "convert_int16_t_to_uint64_t": ("native/numeric/convert.rxfs", "convert_int16_t_to_uint64_t", "2s", 8),
-    "convert_int16_t_to_uint8_t": ("native/numeric/convert.rxfs", "convert_int16_t_to_uint8_t", "2s", 1),
-    "convert_int32_t_to_int16_t": ("native/numeric/convert.rxfs", "convert_int32_t_to_int16_t", "4s", 2),
-    "convert_int32_t_to_int64_t": ("native/numeric/convert.rxfs", "convert_int32_t_to_int64_t", "4s", 8),
-    "convert_int32_t_to_int8_t": ("native/numeric/convert.rxfs", "convert_int32_t_to_int8_t", "4s", 1),
-    "convert_int32_t_to_uint16_t": ("native/numeric/convert.rxfs", "convert_int32_t_to_uint16_t", "4s", 2),
-    "convert_int32_t_to_uint32_t": ("native/numeric/convert.rxfs", "convert_int32_t_to_uint32_t", "4s", 4),
-    "convert_int32_t_to_uint64_t": ("native/numeric/convert.rxfs", "convert_int32_t_to_uint64_t", "4s", 8),
-    "convert_int32_t_to_uint8_t": ("native/numeric/convert.rxfs", "convert_int32_t_to_uint8_t", "4s", 1),
-    "convert_int64_t_to_int16_t": ("native/numeric/convert.rxfs", "convert_int64_t_to_int16_t", "8s", 2),
-    "convert_int64_t_to_int32_t": ("native/numeric/convert.rxfs", "convert_int64_t_to_int32_t", "8s", 4),
-    "convert_int64_t_to_int8_t": ("native/numeric/convert.rxfs", "convert_int64_t_to_int8_t", "8s", 1),
-    "convert_int64_t_to_uint16_t": ("native/numeric/convert.rxfs", "convert_int64_t_to_uint16_t", "8s", 2),
-    "convert_int64_t_to_uint32_t": ("native/numeric/convert.rxfs", "convert_int64_t_to_uint32_t", "8s", 4),
-    "convert_int64_t_to_uint64_t": ("native/numeric/convert.rxfs", "convert_int64_t_to_uint64_t", "8s", 8),
-    "convert_int64_t_to_uint8_t": ("native/numeric/convert.rxfs", "convert_int64_t_to_uint8_t", "8s", 1),
-    "convert_int8_t_to_int16_t": ("native/numeric/convert.rxfs", "convert_int8_t_to_int16_t", "1s", 2),
-    "convert_int8_t_to_int32_t": ("native/numeric/convert.rxfs", "convert_int8_t_to_int32_t", "1s", 4),
-    "convert_int8_t_to_int64_t": ("native/numeric/convert.rxfs", "convert_int8_t_to_int64_t", "1s", 8),
-    "convert_int8_t_to_uint16_t": ("native/numeric/convert.rxfs", "convert_int8_t_to_uint16_t", "1s", 2),
-    "convert_int8_t_to_uint32_t": ("native/numeric/convert.rxfs", "convert_int8_t_to_uint32_t", "1s", 4),
-    "convert_int8_t_to_uint64_t": ("native/numeric/convert.rxfs", "convert_int8_t_to_uint64_t", "1s", 8),
-    "convert_int8_t_to_uint8_t": ("native/numeric/convert.rxfs", "convert_int8_t_to_uint8_t", "1s", 1),
-    "convert_uint16_t_to_int16_t": ("native/numeric/convert.rxfs", "convert_uint16_t_to_int16_t", "2u", 2),
-    "convert_uint16_t_to_int32_t": ("native/numeric/convert.rxfs", "convert_uint16_t_to_int32_t", "2u", 4),
-    "convert_uint16_t_to_int64_t": ("native/numeric/convert.rxfs", "convert_uint16_t_to_int64_t", "2u", 8),
-    "convert_uint16_t_to_int8_t": ("native/numeric/convert.rxfs", "convert_uint16_t_to_int8_t", "2u", 1),
-    "convert_uint16_t_to_uint32_t": ("native/numeric/convert.rxfs", "convert_uint16_t_to_uint32_t", "2u", 4),
-    "convert_uint16_t_to_uint64_t": ("native/numeric/convert.rxfs", "convert_uint16_t_to_uint64_t", "2u", 8),
-    "convert_uint16_t_to_uint8_t": ("native/numeric/convert.rxfs", "convert_uint16_t_to_uint8_t", "2u", 1),
-    "convert_uint32_t_to_int16_t": ("native/numeric/convert.rxfs", "convert_uint32_t_to_int16_t", "4u", 2),
-    "convert_uint32_t_to_int32_t": ("native/numeric/convert.rxfs", "convert_uint32_t_to_int32_t", "4u", 4),
-    "convert_uint32_t_to_int64_t": ("native/numeric/convert.rxfs", "convert_uint32_t_to_int64_t", "4u", 8),
-    "convert_uint32_t_to_int8_t": ("native/numeric/convert.rxfs", "convert_uint32_t_to_int8_t", "4u", 1),
-    "convert_uint32_t_to_uint16_t": ("native/numeric/convert.rxfs", "convert_uint32_t_to_uint16_t", "4u", 2),
-    "convert_uint32_t_to_uint64_t": ("native/numeric/convert.rxfs", "convert_uint32_t_to_uint64_t", "4u", 8),
-    "convert_uint32_t_to_uint8_t": ("native/numeric/convert.rxfs", "convert_uint32_t_to_uint8_t", "4u", 1),
-    "convert_uint64_t_to_int16_t": ("native/numeric/convert.rxfs", "convert_uint64_t_to_int16_t", "8u", 2),
-    "convert_uint64_t_to_int32_t": ("native/numeric/convert.rxfs", "convert_uint64_t_to_int32_t", "8u", 4),
-    "convert_uint64_t_to_int64_t": ("native/numeric/convert.rxfs", "convert_uint64_t_to_int64_t", "8u", 8),
-    "convert_uint64_t_to_int8_t": ("native/numeric/convert.rxfs", "convert_uint64_t_to_int8_t", "8u", 1),
-    "convert_uint64_t_to_uint16_t": ("native/numeric/convert.rxfs", "convert_uint64_t_to_uint16_t", "8u", 2),
-    "convert_uint64_t_to_uint32_t": ("native/numeric/convert.rxfs", "convert_uint64_t_to_uint32_t", "8u", 4),
-    "convert_uint64_t_to_uint8_t": ("native/numeric/convert.rxfs", "convert_uint64_t_to_uint8_t", "8u", 1),
-    "convert_uint8_t_to_int16_t": ("native/numeric/convert.rxfs", "convert_uint8_t_to_int16_t", "1u", 2),
-    "convert_uint8_t_to_int32_t": ("native/numeric/convert.rxfs", "convert_uint8_t_to_int32_t", "1u", 4),
-    "convert_uint8_t_to_int64_t": ("native/numeric/convert.rxfs", "convert_uint8_t_to_int64_t", "1u", 8),
-    "convert_uint8_t_to_int8_t": ("native/numeric/convert.rxfs", "convert_uint8_t_to_int8_t", "1u", 1),
-    "convert_uint8_t_to_uint16_t": ("native/numeric/convert.rxfs", "convert_uint8_t_to_uint16_t", "1u", 2),
-    "convert_uint8_t_to_uint32_t": ("native/numeric/convert.rxfs", "convert_uint8_t_to_uint32_t", "1u", 4),
-    "convert_uint8_t_to_uint64_t": ("native/numeric/convert.rxfs", "convert_uint8_t_to_uint64_t", "1u", 8),
-
-    # native/float/float.rxfs -- float/double arithmetic, rounding, isnormal
-    "checked_absolute_double": ("native/float/float.rxfs", "checked_absolute_double", "8f", 8),
-    "checked_absolute_float": ("native/float/float.rxfs", "checked_absolute_float", "4f", 4),
-    "checked_add_double": ("native/float/float.rxfs", "checked_add_double", "8f 8f", 8),
-    "checked_add_float": ("native/float/float.rxfs", "checked_add_float", "4f 4f", 4),
-    "checked_multiply_double": ("native/float/float.rxfs", "checked_multiply_double", "8f 8f", 8),
-    "checked_multiply_float": ("native/float/float.rxfs", "checked_multiply_float", "4f 4f", 4),
-    "checked_negate_double": ("native/float/float.rxfs", "checked_negate_double", "8f", 8),
-    "checked_negate_float": ("native/float/float.rxfs", "checked_negate_float", "4f", 4),
-    "checked_subtract_double": ("native/float/float.rxfs", "checked_subtract_double", "8f 8f", 8),
-    "checked_subtract_float": ("native/float/float.rxfs", "checked_subtract_float", "4f 4f", 4),
-    "divide_double": ("native/float/float.rxfs", "divide_double", "8f 8f", 8),
-    "divide_float": ("native/float/float.rxfs", "divide_float", "4f 4f", 4),
-    "equal_double": ("native/float/float.rxfs", "equal_double", "8f 8f", 1),
-    "equal_float": ("native/float/float.rxfs", "equal_float", "4f 4f", 1),
-    "less_double": ("native/float/float.rxfs", "less_double", "8f 8f", 1),
-    "less_float": ("native/float/float.rxfs", "less_float", "4f 4f", 1),
-    "maximum_double": ("native/float/float.rxfs", "maximum_double", "8f 8f", 8),
-    "maximum_float": ("native/float/float.rxfs", "maximum_float", "4f 4f", 4),
-    "minimum_double": ("native/float/float.rxfs", "minimum_double", "8f 8f", 8),
-    "minimum_float": ("native/float/float.rxfs", "minimum_float", "4f 4f", 4),
-
-    # native/float/convert.rxfs -- float/double <-> integer conversions
-    "convert_double_to_float": ("native/float/convert.rxfs", "convert_double_to_float", "8f", 4),
-    "convert_double_to_int16_t": ("native/float/convert.rxfs", "convert_double_to_int16_t", "8f", 2),
-    "convert_double_to_int32_t": ("native/float/convert.rxfs", "convert_double_to_int32_t", "8f", 4),
-    "convert_double_to_int64_t": ("native/float/convert.rxfs", "convert_double_to_int64_t", "8f", 8),
-    "convert_double_to_int8_t": ("native/float/convert.rxfs", "convert_double_to_int8_t", "8f", 1),
-    "convert_double_to_uint16_t": ("native/float/convert.rxfs", "convert_double_to_uint16_t", "8f", 2),
-    "convert_double_to_uint32_t": ("native/float/convert.rxfs", "convert_double_to_uint32_t", "8f", 4),
-    "convert_double_to_uint64_t": ("native/float/convert.rxfs", "convert_double_to_uint64_t", "8f", 8),
-    "convert_double_to_uint8_t": ("native/float/convert.rxfs", "convert_double_to_uint8_t", "8f", 1),
-    "convert_float_to_double": ("native/float/convert.rxfs", "convert_float_to_double", "4f", 8),
-    "convert_float_to_int16_t": ("native/float/convert.rxfs", "convert_float_to_int16_t", "4f", 2),
-    "convert_float_to_int32_t": ("native/float/convert.rxfs", "convert_float_to_int32_t", "4f", 4),
-    "convert_float_to_int64_t": ("native/float/convert.rxfs", "convert_float_to_int64_t", "4f", 8),
-    "convert_float_to_int8_t": ("native/float/convert.rxfs", "convert_float_to_int8_t", "4f", 1),
-    "convert_float_to_uint16_t": ("native/float/convert.rxfs", "convert_float_to_uint16_t", "4f", 2),
-    "convert_float_to_uint32_t": ("native/float/convert.rxfs", "convert_float_to_uint32_t", "4f", 4),
-    "convert_float_to_uint64_t": ("native/float/convert.rxfs", "convert_float_to_uint64_t", "4f", 8),
-    "convert_float_to_uint8_t": ("native/float/convert.rxfs", "convert_float_to_uint8_t", "4f", 1),
-    "convert_int16_t_to_double": ("native/float/convert.rxfs", "convert_int16_t_to_double", "2s", 8),
-    "convert_int16_t_to_float": ("native/float/convert.rxfs", "convert_int16_t_to_float", "2s", 4),
-    "convert_int32_t_to_double": ("native/float/convert.rxfs", "convert_int32_t_to_double", "4s", 8),
-    "convert_int32_t_to_float": ("native/float/convert.rxfs", "convert_int32_t_to_float", "4s", 4),
-    "convert_int64_t_to_double": ("native/float/convert.rxfs", "convert_int64_t_to_double", "8s", 8),
-    "convert_int64_t_to_float": ("native/float/convert.rxfs", "convert_int64_t_to_float", "8s", 4),
-    "convert_int8_t_to_double": ("native/float/convert.rxfs", "convert_int8_t_to_double", "1s", 8),
-    "convert_int8_t_to_float": ("native/float/convert.rxfs", "convert_int8_t_to_float", "1s", 4),
-    "convert_uint16_t_to_double": ("native/float/convert.rxfs", "convert_uint16_t_to_double", "2u", 8),
-    "convert_uint16_t_to_float": ("native/float/convert.rxfs", "convert_uint16_t_to_float", "2u", 4),
-    "convert_uint32_t_to_double": ("native/float/convert.rxfs", "convert_uint32_t_to_double", "4u", 8),
-    "convert_uint32_t_to_float": ("native/float/convert.rxfs", "convert_uint32_t_to_float", "4u", 4),
-    "convert_uint64_t_to_double": ("native/float/convert.rxfs", "convert_uint64_t_to_double", "8u", 8),
-    "convert_uint64_t_to_float": ("native/float/convert.rxfs", "convert_uint64_t_to_float", "8u", 4),
-    "convert_uint8_t_to_double": ("native/float/convert.rxfs", "convert_uint8_t_to_double", "1u", 8),
-    "convert_uint8_t_to_float": ("native/float/convert.rxfs", "convert_uint8_t_to_float", "1u", 4),
-
     # native/memory/memory.rxfs -- memory copy/move/fill/compare and UTF-8 validate
     "hash_bytes": ("native/memory/memory.rxfs", "hash_bytes", "8p 8u 8u", 8),
     "hash_u64": ("native/memory/memory.rxfs", "hash_u64", "8u 8u", 8),
@@ -407,6 +106,14 @@ SOURCES: dict[str, tuple[str, str, str, int]] = {
 }
 
 
+def _recipe_of(key: str) -> tuple[str, str, str, int]:
+    """The ``(source, fn, shape, store width)`` of a key: the row an intrinsic
+    keeps in ``SOURCES``, or the NumericContract composed (Wave 4b step 3)."""
+    if key in SOURCES:
+        return SOURCES[key]
+    return numeric.recipes()[key]
+
+
 def fn_of(key: str, machine: str) -> str:
     """The `.rxfs` fn a key compiles: the row's fn, except uart_pump, which has one
     fn per machine (the seed lowers its port calls per target). Each program source
@@ -415,7 +122,7 @@ def fn_of(key: str, machine: str) -> str:
         return f"uart_pump_{TARGET[machine]}"
     if key in PROGRAMS:
         return key
-    return SOURCES[key][1]
+    return _recipe_of(key)[1]
 
 
 # The three programs whose shapes their own builders hold (the interpreter of
@@ -433,21 +140,25 @@ PROGRAM_SOURCE = {
 
 
 def source_of(key: str) -> str:
-    """The `.rxfs` file a key is compiled from: the row's source, or a program's."""
+    """The `.rxfs` file a key is compiled from: the row's source, a composed
+    contract's, or a program's."""
     if key in SOURCES:
         return SOURCES[key][0]
+    if key in numeric.recipes():
+        return numeric.recipes()[key][0]
     return PROGRAM_SOURCE[key]
 
 
 def is_seed(key: str) -> bool:
     """True if this key is a snippet the seed compiles (every key is)."""
-    return key in SOURCES or key in PROGRAMS
+    return key in SOURCES or key in numeric.recipes() or key in PROGRAMS
 
 
 def shape_of(key: str) -> tuple[str, int]:
     """``(shape, store width)`` of a key: its C operands as the seed spells them."""
-    if key in SOURCES:
-        return SOURCES[key][2], SOURCES[key][3]
+    if key in SOURCES or key in numeric.recipes():
+        recipe = _recipe_of(key)
+        return recipe[2], recipe[3]
     if key == "graph_run":
         import graph_build
 
@@ -465,7 +176,7 @@ def shape_of(key: str) -> tuple[str, int]:
 
 def keys() -> list[str]:
     """Every snippet key, sorted: what `native_build.build()` compiles."""
-    return sorted([*SOURCES, *PROGRAMS])
+    return sorted([*SOURCES, *numeric.recipes(), *PROGRAMS])
 
 
 # The wasm32 value type a C operand is passed as: a real pointer is an i32 address,
@@ -515,9 +226,18 @@ def code(machine: str, key: str) -> str:
         import live_build
 
         return live_build.code(machine)
-    source, fn, shape, storew = SOURCES[key]
+    source, fn, shape, storew = _recipe_of(key)
+    return code_of(machine, source, fn_of(key, machine), shape, storew)
+
+
+def code_of(machine: str, source: str, fn: str, shape: str, storew: int) -> str:
+    """The hex of one recipe compiled to the object-ABI code of ``machine``.
+
+    The one entry a composed NumericContract and a row of ``SOURCES`` share: the
+    seed compiles ``fn`` of ``source`` with the operand shape its ABI spells.
+    """
     argv = [str(seed_bin()), "codegen", TARGET[machine], "object", str(storew),
-            "#" + fn_of(key, machine)]
+            "#" + fn]
     if shape.startswith("!"):
         argv.append(shape)
         argv.extend(f"@{letters}" for letters in call_type_letters())
