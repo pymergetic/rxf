@@ -11,7 +11,10 @@ import random
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import programs
 import sync
+
+from pymergetic.rxftk.core import tree
 
 ROOT = Path(__file__).parents[1]
 STARTER = ROOT / "starter"
@@ -382,16 +385,41 @@ def snippets() -> list[dict]:
                     "name": f"{'/'.join(parts)}:{function.get('name')}",
                     "kinds": kinds,
                     "out": word(outputs[0].get("pointee_type")),
-                    "wasm": codes["wasm32"].get(sync.DATA),
-                    "x86": codes["x86_64_linux"].get(sync.DATA),
-                    "aarch64": codes["aarch64_linux"].get(sync.DATA),
-                    "aarch64_uefi": codes["aarch64_uefi"].get(sync.DATA),
-                    "uefi": codes["x86_64_uefi"].get(sync.DATA),
-                    "bios": codes["x86_64_bios"].get(sync.DATA),
+                    "wasm": code_bytes(function, codes["wasm32"]),
+                    "x86": code_bytes(function, codes["x86_64_linux"]),
+                    "aarch64": code_bytes(function, codes["aarch64_linux"]),
+                    "aarch64_uefi": code_bytes(function, codes["aarch64_uefi"]),
+                    "uefi": code_bytes(function, codes["x86_64_uefi"]),
+                    "bios": code_bytes(function, codes["x86_64_bios"]),
                     "params": [sync.wasm_type_of(loc) for loc in locations],
                 }
             )
     return found
+
+
+def code_bytes(function: ET.Element, code: ET.Element) -> str:
+    """The hex of a code: its own data, or the payload of the blob its body names."""
+    text = code.get(sync.DATA)
+    if not text:
+        name = str(code.get("body", "")).rsplit(".", 1)[-1]
+        text = next(
+            (
+                child.get(sync.DATA)
+                for child in function
+                if child.tag == "CodeBlob" and child.get("name") == name
+            ),
+            None,
+        )
+    assert text, f"{function.get('name')}:{code.get('name')} has no bytes"
+    return str(text)
+
+
+def running_image():
+    """The image a world test runs: the starter with the built code filled in
+    (Wave 4b step 2). A linked machine holds the filled arena, so a delta a test
+    builds must have the base of this image -- the digest of the running image,
+    not of the seed it was stripped from."""
+    return programs.filled(tree.load(STARTER))
 
 
 def word(value: str | None) -> str:

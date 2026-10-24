@@ -10,13 +10,11 @@ test can act while a run goes on without a second thread, and it is the same on 
 import hashlib
 import shutil
 import struct
-from pathlib import Path
 from typing import Any, cast
 
 import graph_header
 import pytest
 
-from pymergetic.rxftk.core import tree
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import frames, physical
 
@@ -33,7 +31,7 @@ from .graph_programs import (
     obj,
     slot,
 )
-from .snippets import STARTER
+from .snippets import running_image
 from .support import resolved
 
 N = graph_header.numbers()
@@ -58,7 +56,7 @@ EMULATED = ["x86_64", "aarch64"]
 
 @pytest.fixture(scope="module")
 def image() -> Image:
-    return tree.load(Path(STARTER))
+    return running_image()
 
 
 def program(identity: int, trigger: list[Item]) -> bytes:

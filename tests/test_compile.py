@@ -8,19 +8,17 @@ same memory, on each machine, and holds them to the same status and the same val
 
 import shutil
 import struct
-from pathlib import Path
-
 import compose
 import graph_header
+import programs
 import pytest
 
-from pymergetic.rxftk.core import tree
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import physical
 
 from . import live_world as lw
 from .graph_programs import OP, assemble, call, edge, lit, move, slot
-from .snippets import STARTER
+from .snippets import running_image
 from .support import resolved
 from .test_self_edit import FUNCTION, authored, number
 
@@ -43,7 +41,7 @@ TABLES = 0x80000  # the tables of the compiler, this far after the program
 
 @pytest.fixture(scope="module")
 def image() -> Image:
-    return tree.load(Path(STARTER))
+    return running_image()
 
 
 @pytest.fixture(scope="module", params=MACHINES)
@@ -90,7 +88,9 @@ def compile_program(
 
 
 def bytecode(image: Image, path: str) -> bytes:
-    return bytes.fromhex(dict(image.fields(image.handle(f"{path}.bytecode")))["data"])
+    return bytes.fromhex(
+        programs.fields_of(image, image.handle(f"{path}.bytecode"))["data"]
+    )
 
 
 def identity(image: Image, path: str) -> int:

@@ -9,19 +9,16 @@ device is two FIFOs in linear memory (native/graph.h) and the host between two s
 import shutil
 import struct
 from collections import deque
-from pathlib import Path
-
 import graph_header
 import pytest
 
-from pymergetic.rxftk.core import tree
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import frames, physical
 from pymergetic.rxftk.live.client import Client
 from pymergetic.rxftk.live.harness import HostImage
 
 from . import live_world as lw
-from .snippets import STARTER
+from .snippets import running_image
 from .support import resolved
 
 UART = graph_header.leaves()["uart_pump"]
@@ -174,7 +171,7 @@ class UartLink:
 
 @pytest.fixture(scope="module")
 def image() -> Image:
-    return tree.load(Path(STARTER))
+    return running_image()
 
 
 @pytest.fixture(params=list(DEVICES))

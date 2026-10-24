@@ -33,6 +33,7 @@ import struct
 from dataclasses import dataclass, field
 
 import graph_header
+import programs
 from compose import object_id
 
 from pymergetic.rxftk.core.object import Image
@@ -177,6 +178,7 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
     """The image as it sits in memory at ``base`` for one machine."""
     if machine not in MACHINES:
         raise LinkError(f"no machine {machine}")
+    image = programs.filled(image)  # the built code, from its recipe (Wave 4b step 2)
     arena = image.to_bytes()
     cells = arena_cells(arena)
     prefixes: dict[int, int] = {}

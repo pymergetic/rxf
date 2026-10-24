@@ -1937,6 +1937,10 @@ macro m_lit_aarch64() {
     store8(lit + 12, 120);
 }
 
+macro m_lit_body() {
+    store8(lit, 98); store8(lit + 1, 111); store8(lit + 2, 100); store8(lit + 3, 121);
+}
+
 # child_named(parent, lit, n) -> cn_r (live.cpp:1257)
 sub s_child_named(Zparent_child_named, Zn_child_named) {
     if (Zparent_child_named == 0xFFFFFFFFFFFFFFFF) {
@@ -2077,14 +2081,21 @@ sub s_linkable() {
     }
 }
 
-# code_address(function) -> ca_r (1/0), ca_at, ca_bytes (live.cpp:1303): the Code of a native
-# Function for this machine, as an address and a byte range.
+# code_address(function) -> ca_r (1/0), ca_at, ca_rng0/ca_rng1 (live.cpp:1303): the Code of a
+# native Function for this machine, as an address and a byte range. The bytes live in the
+# CodeBlob that the code's `body` names (Wave 4b step 1): the entry is an offset into that
+# blob's value, not the (now fixed-size) code payload.
 macro m_code_addr(Zfunction) {
     var ca_code;
     var ca_c;
     var ca_pay;
     var ca_entry;
     var ca_bytes;
+    var ca_bf;
+    var ca_body;
+    var ca_b;
+    var ca_btype;
+    var ca_prefix;
     ca_r = 0;
     ca_code = 0xFFFFFFFFFFFFFFFF;
     if (load32(ar + 252) == 1) {
@@ -2105,22 +2116,56 @@ macro m_code_addr(Zfunction) {
         if (ca_c == 0) {
             ca_r = 0;
         } else {
-            if (load64(ca_c + 16) < 56) {
+            if (load64(ca_c + 16) < 48) {
                 ca_r = 0;
             } else {
                 ca_pay = ca_c + 64;
                 ca_entry = load64(ca_pay + 40);
-                ca_bytes = load64(ca_pay + 48);
-                if (ca_bytes > load64(ca_c + 16) - 56) {
+                m_lit_body();
+                callsub s_child_named(load64(ca_c), 4);
+                ca_bf = cn_r;
+                if (ca_bf == 0xFFFFFFFFFFFFFFFF) {
                     ca_r = 0;
                 } else {
-                    if (ca_entry >= ca_bytes + 1) {
+                    callsub s_field_info(ca_bf, flF);
+                    if (fif_r == 0) {
                         ca_r = 0;
                     } else {
-                        ca_at = ca_pay + load64(ca_c + 16) - ca_bytes + ca_entry;
-                        ca_rng0 = ca_pay + load64(ca_c + 16) - ca_bytes;
-                        ca_rng1 = ca_bytes;
-                        ca_r = 1;
+                        if (load64(flF + 24) + 8 > load64(ca_c + 16)) {
+                            ca_r = 0;
+                        } else {
+                            ca_body = load64(ca_pay + load64(flF + 24));
+                            callsub s_cell(ca_body);
+                            ca_b = ce_r;
+                            if (ca_b == 0) {
+                                ca_r = 0;
+                            } else {
+                                ca_btype = load64(ca_b);
+                                if (ca_btype == 0xFFFFFFFFFFFFFFFF | ca_btype >= n_kids) {
+                                    ca_r = 0;
+                                } else {
+                                    callsub s_refs_of(ca_btype);
+                                    if (ro_r == 0) {
+                                        ca_r = 0;
+                                    } else {
+                                        ca_prefix = load32(kpfx + 4 * ca_btype);
+                                        if (ca_prefix > load64(ca_b + 16)) {
+                                            ca_r = 0;
+                                        } else {
+                                            ca_bytes = load64(ca_b + 16) - ca_prefix;
+                                            if (ca_entry >= ca_bytes + 1) {
+                                                ca_r = 0;
+                                            } else {
+                                                ca_at = ca_b + 64 + ca_prefix + ca_entry;
+                                                ca_rng0 = ca_b + 64 + ca_prefix;
+                                                ca_rng1 = ca_bytes;
+                                                ca_r = 1;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

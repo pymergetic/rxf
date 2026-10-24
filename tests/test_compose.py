@@ -6,6 +6,7 @@ from pathlib import Path
 
 import compose
 import graph_header
+import programs
 import pytest
 
 from pymergetic.rxftk.core import tree
@@ -22,12 +23,14 @@ def image():
 
 
 def stored(image) -> dict[str, bytes]:
-    """The program each function carries, by the path of the function."""
+    """The program each function carries, by the path of the function -- with the
+    bytes the builder fills in (Wave 4b step 2: a built program carries its pin
+    and not its bytes)."""
     found = {}
     for handle in range(image.handle_count):
         if not image.live(handle) or image.type_name(handle) != "Code":
             continue
-        values = dict(image.fields(handle))
+        values = programs.fields_of(image, handle)
         if "runtime_target" not in values:
             found[image.path(image.get(handle)["parent"])] = bytes.fromhex(
                 values["data"]

@@ -16,6 +16,7 @@ import subprocess
 from dataclasses import dataclass
 
 import link
+import programs
 
 from pymergetic.rxftk.core.object import Image
 
@@ -50,7 +51,7 @@ def runs(image: Image, linked: link.Linked, picks: list[str]) -> list[Run]:
     found = []
     for path in picks:
         program = bytes.fromhex(
-            dict(image.fields(image.handle(f"{path}.bytecode")))["data"]
+            programs.fields_of(image, image.handle(f"{path}.bytecode"))["data"]
         )
         for variant in range(3):
             target = linked.ids[objects[variant % len(objects)]]
@@ -107,7 +108,7 @@ def referenced(linked: link.Linked, image: Image, run: Run) -> Result:
         emulator, linked.context, linked.frame, linked.slots, world.letters()
     )
     program = bytes.fromhex(
-        dict(image.fields(image.handle(f"{run.function}.bytecode")))["data"]
+        programs.fields_of(image, image.handle(f"{run.function}.bytecode"))["data"]
     )
     status, out = interpreter.run(program, run.args, len(run.args) // 8)
     emulator.write(linked.out, out)

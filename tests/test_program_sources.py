@@ -1,88 +1,61 @@
-"""The four large programs are their Seed source and its recipe (docs/29).
+"""The four large programs are pinned by what their source and recipe build.
 
 ``foundation.compile:program``, ``foundation.live:pump`` and
-``foundation.graph:run`` are Seed ``fn``s of ``native/compile.rxfs``,
-``native/live.rxfs`` and ``native/graph.rxfs``, built per machine by
-``tools/native/compile_build.py``, ``live_build.py`` and ``graph_build.py``;
-``foundation.tiny:compile`` is the compiler as a program (docs/19, WP12): the
-bytecode ``tools/native/rxfc.py`` builds from ``native/tiny/tiny.rxfs``. The
-starter stores what these recipes return.
+``foundation.graph:run`` are Seed ``fn``s of ``native/*.rxfs``, built per machine
+by the Seed CLI; ``foundation.tiny:compile`` is the compiler as a program (docs/19,
+WP12), the bytecode ``tools/native/rxfc.py`` builds from ``native/tiny/tiny.rxfs``.
+The starter stores the source, the recipe and the pin -- the byte count, and for
+a native body its ``content_digest`` -- and not the bytes (Wave 4b step 2): the
+code is derived data, and derived data is built, not stored.
 
-That is the license of Wave 4b step 2. The code of these four is the output of
-a recipe over a stored source, byte for byte -- so the image can carry the
-source and the recipe, and the builder can produce the code on demand. The
-sizes this drops are never stored again: the 9.48 MB of ``compile.program``,
-the 0.70 MB of ``tiny.compile``, the 0.57 MB of ``live.pump`` and ``graph.run``
-are 96.7% of what the starter carries as code.
-
-``tests/test_tiny.py`` pins the deeper half of the same claim on every machine:
-the compiler as a program writes what the compiler of the image writes.
+This pins that what the builder fills in IS what the pin names. It is the same
+claim ``tests/test_tiny.py`` makes from the other side on every machine: the
+compiler as a program writes what the compiler of the image writes.
 """
 
-from pathlib import Path
+import hashlib
 
-import compile_build
-import graph_build
-import live_build
-import rxfc
+import programs
 
 from pymergetic.rxftk.core import tree
 
 from .snippets import STARTER
 
-NATIVE = Path(__file__).parents[1] / "native"
 
-BUILT = {
-    "pymergetic.rxf.foundation.compile.program": compile_build,
-    "pymergetic.rxf.foundation.graph.run": graph_build,
-    "pymergetic.rxf.foundation.live.pump": live_build,
-}
-TINY = "pymergetic.rxf.foundation.tiny.compile"
-
-
-def function(image, path: str) -> int:
-    for handle in range(image.handle_count):
-        if image.live(handle) and image.type_name(handle) == "Function":
-            if image.path(handle) == path:
-                return handle
-    raise AssertionError(path)
-
-
-def bodies(image, path: str) -> dict[str, str]:
-    """The data of every ``CodeBlob`` of the function, keyed by machine."""
-    parent = function(image, path)
+def pins_of(image, path: str) -> dict[str, dict[str, str]]:
+    """The fields of the built objects of a function, keyed as their names are."""
+    parent = next(
+        h
+        for h in range(image.handle_count)
+        if image.live(h) and image.type_name(h) == "Function" and image.path(h) == path
+    )
     found = {}
     for handle in range(image.handle_count):
-        if not image.live(handle) or image.type_name(handle) != "CodeBlob":
+        if not image.live(handle) or image.get(handle)["parent"] != parent:
             continue
-        if image.get(handle)["parent"] != parent:
-            continue
-        name = image.get(handle)["name"]
-        found[name.removeprefix("body_")] = dict(image.fields(handle))["data"]
+        name = str(image.get(handle)["name"])
+        if (name.startswith("body_")) or name == "bytecode":
+            found[name] = dict(image.fields(handle))
     return found
 
 
-def program_of(image, path: str) -> str:
-    """The data of the one ``bytecode`` Code of the function."""
-    parent = function(image, path)
-    codes = [
-        handle
-        for handle in range(image.handle_count)
-        if image.live(handle)
-        and image.type_name(handle) == "Code"
-        and image.get(handle)["parent"] == parent
-    ]
-    assert len(codes) == 1, path
-    return dict(image.fields(codes[0]))["data"]
-
-
-def test_each_native_program_is_its_source_built_by_its_recipe():
+def test_each_native_program_is_pinned_by_what_its_recipe_builds():
     image = tree.load(STARTER)
-    for path, recipe in BUILT.items():
-        assert recipe.build() == bodies(image, path), path
+    for path, built in programs.native().items():
+        pins = pins_of(image, path)
+        assert set(pins) == {f"body_{m}" for m in built}, path
+        for machine, hex in built.items():
+            pin = pins[f"body_{machine}"]
+            assert "data" not in pin, f"{path}:{machine} stores what it must build"
+            assert int(pin["byte_count"]) == len(hex) // 2
+            assert pin["content_digest"] == hashlib.sha256(
+                bytes.fromhex(hex)
+            ).hexdigest()
 
 
-def test_the_compiler_as_a_program_is_its_source_built_by_rxfc():
+def test_the_compiler_as_a_program_is_pinned_by_what_rxfc_builds():
     image = tree.load(STARTER)
-    built = rxfc.compile_file(NATIVE / "tiny" / "tiny.rxfs").hex()
-    assert built == program_of(image, TINY)
+    (pin,) = pins_of(image, programs.TINY).values()
+    hex = programs.tiny()
+    assert "data" not in pin  # the starter stores source and recipe, not the code
+    assert int(pin["byte_count"]) == len(hex) // 2

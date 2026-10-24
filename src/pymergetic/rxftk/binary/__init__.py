@@ -85,13 +85,22 @@ class Binary:
         self.issues.append((path, message))
 
     def code_data(self, code: int, values: dict[str, str]) -> str | None:
-        """The bytes of a Code: the payload of the CodeBlob its ``body`` names."""
+        """The bytes of a Code: the payload of the CodeBlob its ``body`` names.
+
+        An empty payload is built, not missing: the starter stores the source
+        and the recipe of the built code (Wave 4b step 2) and the builder fills
+        the bytes in, to the pin the blob carries.
+        """
         text = values.get("body", "")
         body = self.image.resolve(text) if text else None
         if body is None or self.image.type_name(body) != "CodeBlob":
             return None
         blob = self.of(body)
         data = blob.get("data", "")
+        if not data:
+            if not blob.get("content_digest") or not int(blob.get("byte_count", "0")):
+                self.problem(code, "it is built but does not say what to build")
+            return ""
         if len(data) != 2 * int(blob.get("byte_count", "0")):
             self.problem(code, "byte_count is not the length of the data")
         if blob.get("content_digest") != digest_of(data):
@@ -157,7 +166,7 @@ class Binary:
             data = self.code_data(code, cv)
             if data is None:
                 self.problem(code, "it says no blob for its bytes")
-            elif len(data) != 2 * int(cv.get("byte_count", "0")) or not data:
+            elif data and len(data) != 2 * int(cv.get("byte_count", "0")):
                 self.problem(code, "byte_count is not the length of the data")
             if cv.get("semantic_digest") != values.get("semantic_digest"):
                 self.problem(code, "the semantic digest is not the function's")
@@ -205,11 +214,17 @@ class Binary:
         if cv.get("runtime_target"):
             self.problem(code, "a program is the same for every target and names none")
         data = cv.get("data", "")
-        if (
-            len(data) != 2 * int(cv.get("byte_count", "0"))
-            or not data
-            or len(data) % 16
-        ):
+        if data:
+            if (
+                len(data) != 2 * int(cv.get("byte_count", "0"))
+                or len(data) % 16
+            ):
+                self.problem(
+                    code, "byte_count is not the length of the data, in whole words"
+                )
+        elif not int(cv.get("byte_count", "0")):
+            # built from its source and its recipe (Wave 4b step 2): the pin is
+            # the byte count, and the builder fills the bytes in.
             self.problem(
                 code, "byte_count is not the length of the data, in whole words"
             )

@@ -38,7 +38,7 @@ from pymergetic.rxftk.live import physical
 
 from . import live_world as lw
 from . import rxf_world as w
-from .snippets import STARTER
+from .snippets import running_image
 from .test_rxfc import MACHINES
 from .test_tiny import IDS
 
@@ -134,7 +134,7 @@ def value_at(channel: lw.Channel, path: str) -> int:
 
 @pytest.fixture(scope="module")
 def image() -> Image:
-    return tree.load(Path(STARTER))
+    return running_image()
 
 
 @pytest.fixture(scope="module")

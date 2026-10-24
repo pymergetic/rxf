@@ -1307,22 +1307,39 @@ class Session {
     }
 
     /* The Code of a native Function for this machine, as an address. */
-    bool code_address(Handle function, uint64_t *address, uint64_t *size) const {
+    /* The Code of a native Function for this machine, as an address and a byte range. The bytes
+     * live in the CodeBlob that the code's `body` names (Wave 4b step 1): the entry is an offset
+     * into that blob's value, not the (now fixed-size) code payload. */
+    bool code_address(Handle function, uint64_t *address, uint64_t *size) {
         Handle code = kNone;
         if (a_->machine == PYMERGETIC_RXF_MACHINE_X86_64)
             code = child_named(function, "x86_64_linux");
         else if (a_->machine == PYMERGETIC_RXF_MACHINE_AARCH64)
             code = child_named(function, "aarch64_linux");
         const pymergetic_rxf_cell *c = code == kNone ? nullptr : arena_.cell(code);
-        if (c == nullptr || c->payload_size < 56)
+        if (c == nullptr || c->payload_size < 48)
             return false;
         const uint8_t *payload = arena_.payload(code);
-        const uint64_t entry = load<uint64_t>(payload + 40);
-        const uint64_t bytes = load<uint64_t>(payload + 48);
-        if (bytes > c->payload_size - 56 || entry >= bytes + 1)
+        const uint64_t entry = load<uint64_t>(payload + 40); // Code.entry_offset
+        const Handle field = child_named(c->type, "body");
+        pymergetic_rxf_field fld;
+        if (field == kNone || !field_info(field, &fld) || fld.offset + 8 > c->payload_size)
+            return false;
+        const Handle body = load<uint64_t>(payload + fld.offset);
+        const pymergetic_rxf_cell *b = body == kNone ? nullptr : arena_.cell(body);
+        if (b == nullptr || b->type == kNone || b->type >= n_)
+            return false;
+        const uint32_t *ignored = nullptr;
+        if (!refs_of(b->type, &ignored)) // the value of the blob starts where its fields end
+            return false;
+        const uint64_t prefix = pfx_[b->type];
+        if (prefix > b->payload_size)
+            return false;
+        const uint64_t bytes = b->payload_size - prefix;
+        if (entry >= bytes + 1)
             return false;
         const uint64_t start =
-            static_cast<uint64_t>(reinterpret_cast<uintptr_t>(payload)) + c->payload_size - bytes;
+            static_cast<uint64_t>(reinterpret_cast<uintptr_t>(arena_.payload(body))) + prefix;
         *address = start + entry;
         size[0] = start;
         size[1] = bytes;

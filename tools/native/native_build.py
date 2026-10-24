@@ -1,10 +1,13 @@
 """Build the native snippets from their Seed sources, one function per machine.
 
 Every snippet is a ``.rxfs`` ``fn`` of ``native/``, compiled by the seed CLI
-(``native/seed/seed.c``) to the object ABI of its machine -- the bytes the
-starter holds as ``Code`` objects. This module is the one build path: no C
-compiler is in it (docs/31 step 5, "builders = Seed only"). The families below
-name the snippets by the module of the starter they land in.
+(``native/seed/seed.c``) to the object ABI of its machine. The starter holds
+those bytes as ``Code`` objects, except the four large programs
+(``compile.program``, ``live.pump``, ``graph.run``, ``tiny.compile``): their
+bytes are built and not stored (``programs.py``, Wave 4b step 2). This module
+is the one build path: no C compiler is in it (docs/31 step 5, "builders =
+Seed only"). The families below name the snippets by the module of the starter
+they land in.
 
     python tools/native/native_build.py OUTDIR      # writes OUTDIR/<machine>.json
 """

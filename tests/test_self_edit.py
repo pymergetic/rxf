@@ -21,7 +21,7 @@ from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import physical
 
 from . import live_world as lw
-from .snippets import STARTER
+from .snippets import running_image
 
 DOUBLE = Path(__file__).parent / "selfedit" / "double.rxfd"
 FUNCTION = "pymergetic.rxf.selfedit.double"
@@ -39,7 +39,7 @@ MACHINES = [
 
 @pytest.fixture(scope="module")
 def image() -> Image:
-    return tree.load(Path(STARTER))
+    return running_image()
 
 
 @pytest.fixture(scope="module")

@@ -9,18 +9,15 @@ import hashlib
 import random
 import shutil
 import struct
-from pathlib import Path
-
 import pytest
 
-from pymergetic.rxftk.core import tree
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import Refused, frames, physical
 from pymergetic.rxftk.live.client import Declined, LiveError
 from pymergetic.rxftk.live.harness import HostImage
 
 from . import live_world as lw
-from .snippets import STARTER
+from .snippets import running_image
 from .support import resolved
 
 NONE = 0xFFFFFFFFFFFFFFFF
@@ -41,7 +38,7 @@ def unsized(arena: bytes) -> bytes:
 
 @pytest.fixture(scope="module")
 def image() -> Image:
-    return tree.load(Path(STARTER))
+    return running_image()
 
 
 @pytest.fixture(scope="module")

@@ -40,6 +40,7 @@ import graph_header
 import graph_sync
 import live_sync
 import native_build
+import programs
 import seed_build
 import source_sync
 
@@ -349,6 +350,7 @@ def sync(starter: Path, check: bool = False) -> tuple[int, bool]:
         sync_bytecode(work)
         source_sync.write_sources(work, paths)
         blob_sync.write_blobs(work)
+        programs.strip(work)  # the built code is source and recipe, not stored
         image = tree.load(work)
         canonical = Path(directory) / "canonical"
         tree.write(image, canonical)

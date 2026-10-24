@@ -18,6 +18,7 @@ from pathlib import Path
 
 import compose
 import graph_header
+import programs
 
 from pymergetic.rxftk.core.object import Image
 
@@ -148,7 +149,7 @@ def code_of(image: Image) -> Code:
                     body = image.resolve(dict(composer.fields(child)).get("body", ""))
                     assert body is not None and image.type_name(body) == "CodeBlob"
                     found[machine] = bytes.fromhex(
-                        composer.fields(body).get("data", "")
+                        programs.fields_of(image, body).get("data", "")
                     )
         assert set(found) == set(MACHINES), (image.path(function), set(found))
         return found

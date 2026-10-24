@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+import programs
 import rxfc
 
 from pymergetic.rxftk.core import tree
@@ -132,18 +133,24 @@ def stages(request, code, tiny):
         session.close()
 
 
-def test_the_starter_holds_the_compiler_that_the_source_makes(code, tiny):
+def test_the_starter_carries_the_pin_and_the_builder_fills_what_the_source_makes(
+    code, tiny
+):
     image = tree.load(STARTER)
     path = "pymergetic.rxf.foundation.tiny.compile"
     function = image.resolve(path)
     codes = [
-        dict(image.fields(h))
+        h
         for h in range(image.handle_count)
         if image.live(h)
         and image.type_name(h) == "Code"
         and image.get(h)["parent"] == function
     ]
-    assert [bytes.fromhex(c["data"]) for c in codes] == [tiny]
+    assert len(codes) == 1
+    pin = dict(image.fields(codes[0]))
+    assert "data" not in pin  # the starter stores source and recipe, not the code
+    assert int(pin["byte_count"]) == len(tiny)
+    assert bytes.fromhex(programs.fields_of(image, codes[0])["data"]) == tiny
 
 
 def test_the_compiler_of_the_image_and_the_one_that_is_a_program_write_the_same_code(
