@@ -1,15 +1,18 @@
-"""The four large programs are their source and their recipe (Wave 4b step 2).
+"""The built code is its source and its recipe (Wave 4b steps 2 and 3).
 
 The starter stores the source and the recipe of ``foundation.compile:program``,
-``foundation.live:pump``, ``foundation.graph:run`` and ``foundation.tiny:compile``
-and not their code: the code is derived data, and derived data is built, not
-stored. ``sync.py`` calls ``strip`` after the tree is written, so the starter
-carries what the recipes must fill -- the byte count, and for a native body its
-``content_digest`` -- and not the bytes. ``filled`` fills a copy of a loaded
-image from the recipes (the Seed CLI over ``native/*.rxfs``, ``rxfc`` over
-``native/tiny/tiny.rxfs``): that is what ``link.py`` links and packages, so the
-binary a seat runs is complete and the seed a delta carries is source. The
-caller's image is untouched -- its digest stays the digest of the seed.
+``foundation.live:pump``, ``foundation.graph:run`` and ``foundation.tiny:compile``,
+and of the 286 numeric leaves, and not their code: the code is derived data, and
+derived data is built, not stored. A program's recipe is the Seed ``fn`` of its
+``native/*.rxfs`` (or ``rxfc`` over ``native/tiny/tiny.rxfs``); a numeric leaf's
+recipe is its ``NumericContract`` composed (``numeric.py``) -- the contract is
+fully specified, so it is the recipe. ``sync.py`` calls ``strip`` after the tree
+is written, so the starter carries what the recipes must fill -- the byte count,
+and for a native body its ``content_digest`` -- and not the bytes. ``filled``
+fills a copy of a loaded image from the recipes: that is what ``link.py`` links
+and packages, so the binary a seat runs is complete and the seed a delta carries
+is source. The caller's image is untouched -- its digest stays the digest of the
+seed.
 
 ``fields_of`` is the same fill for a reader, and ``fill``/``strip`` the same at
 the tree level (``fill`` also on the command line). The pin is always the digest
@@ -32,19 +35,23 @@ from pathlib import Path
 import compile_build
 import graph_build
 import live_build
+import numeric
 import rxfc
+import seed_build
 
 from pymergetic.rxftk.core.object import Image
 
 RXF = "urn:pymergetic:rxf"
 DATA = f"{{{RXF}}}data"
+REF = f"{{{RXF}}}ref"
 ET.register_namespace("rxf", RXF)
 
 NATIVE = Path(__file__).resolve().parents[2] / "native"
 TINY_SOURCE = NATIVE / "tiny" / "tiny.rxfs"
 
 # The function paths whose code the recipes build: the three Seed fns and the
-# compiler as a program.
+# compiler as a program. A numeric leaf is identified by the NumericContract its
+# Function references -- it is built the same way, from that contract.
 NATIVE_PROGRAMS = {
     "pymergetic.rxf.foundation.compile.program": compile_build,
     "pymergetic.rxf.foundation.graph.run": graph_build,
@@ -73,12 +80,47 @@ def _built_object(name: str) -> bool:
     return name.startswith("body_") or name == "bytecode"
 
 
-def built_data(path: str, name: str) -> str:
-    """The hex the builder fills into the object ``name`` of the function ``path``."""
+def contract_of_image(image, handle: int) -> dict[str, str] | None:
+    """The NumericContract an image Function references, as its fields."""
+    if image.type_name(handle) != "Function":
+        return None
+    for ref in image.get(handle)["refs"]:
+        target = int(ref[0])
+        if image.type_name(target) == "NumericContract":
+            return dict(image.fields(target))
+    return None
+
+
+def contract_of_tree(
+    document: ET.ElementTree[ET.Element[str]], function: ET.Element[str]
+) -> dict[str, str] | None:
+    """The NumericContract a tree Function names, as its fields."""
+    for child in function:
+        if child.tag != REF or not str(child.get("role", "")).endswith(
+            "call.NumericContract"
+        ):
+            continue
+        name = str(child.get("target", "")).rsplit(".", 1)[-1]
+        for candidate in document.getroot().iter("NumericContract"):
+            if candidate.get("name") == name:
+                return dict(candidate.attrib)
+    return None
+
+
+def built_data(path: str, name: str, contract: dict[str, str] | None = None) -> str:
+    """The hex the builder fills into the object ``name`` of the function ``path``.
+
+    A numeric leaf is composed from its contract and compiled -- the contract is
+    its recipe (Wave 4b step 3) -- so the fill never reads a second spec."""
     if path in NATIVE_PROGRAMS and name.startswith("body_"):
         return native()[path][name.removeprefix("body_")]
     if path == TINY and name == "bytecode":
         return tiny()
+    if contract is not None and name.startswith("body_"):
+        source, fn, shape, storew = numeric.compose(contract)
+        return seed_build.code_of(
+            name.removeprefix("body_"), source, fn, shape, storew
+        )
     raise KeyError(f"{path}:{name} is not built here")
 
 
@@ -88,9 +130,11 @@ def fields_of(image, handle: int) -> dict[str, str]:
     if values.get("data"):
         return values
     name = str(image.get(handle)["name"])
-    path = image.path(image.get(handle)["parent"])
-    if path in BUILT and _built_object(name):
-        values["data"] = built_data(path, name)
+    parent = image.get(handle)["parent"]
+    path = image.path(parent)
+    contract = contract_of_image(image, parent)
+    if (path in BUILT or contract is not None) and _built_object(name):
+        values["data"] = built_data(path, name, contract)
     return values
 
 
@@ -109,12 +153,13 @@ def filled(image: Image) -> Image:
         if parent == (1 << 64) - 1:
             continue
         path = made.path(parent)
-        if path not in BUILT or not _built_object(name):
+        contract = contract_of_image(made, parent)
+        if (path not in BUILT and contract is None) or not _built_object(name):
             continue
         values = dict(made.fields(handle))
         if values.get("data"):
             continue  # stored bytes
-        data = bytes.fromhex(built_data(path, name))
+        data = bytes.fromhex(built_data(path, name, contract))
         payload = made.get(handle)["payload"]
         prefix = made.layout(made.get(handle)["type"])["prefix"]
         made.set_payload(handle, payload[:prefix] + data)
@@ -146,14 +191,15 @@ def _run(starter: Path, fill_it: bool) -> int:
             prefix = module_parts(file, starter)
             for function in module.iter("Function"):
                 path = f"{prefix}.{function.get('name')}"
-                if path not in BUILT:
+                contract = contract_of_tree(document, function)
+                if path not in BUILT and contract is None:
                     continue
                 for child in function:
                     name = str(child.get("name", ""))
                     if not _built_object(name):
                         continue
                     if fill_it:
-                        child.set(DATA, built_data(path, name))
+                        child.set(DATA, built_data(path, name, contract))
                     elif DATA in child.attrib:
                         del child.attrib[DATA]
                     else:
