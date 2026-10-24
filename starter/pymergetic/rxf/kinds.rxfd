@@ -247,6 +247,17 @@
     <Type name="SeedPolicy" form="Form.Enum" size="4" align="4">
       <Enumerator name="Fixed" value="1" />
     </Type>
+    <Type name="SourceArch" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Aarch64" value="2" />
+      <Enumerator name="Any" value="4" />
+      <Enumerator name="Wasm32" value="3" />
+      <Enumerator name="X8664" value="1" />
+    </Type>
+    <Type name="SourceLang" form="Form.Enum" size="4" align="4">
+      <Enumerator name="Asm" value="2" />
+      <Enumerator name="C" value="3" />
+      <Enumerator name="Rxfs" value="1" />
+    </Type>
     <Type name="StdlibFlags" form="Form.Enum" size="4" align="4" flags="TypeFlags.Bitset">
       <Enumerator name="Native" value="128" />
       <Enumerator name="Semantic" value="64" />
