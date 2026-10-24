@@ -36,6 +36,14 @@ def report(directory: Path) -> dict:
     return binary.check(tree.load(directory))
 
 
+NATIVE = "pymergetic.rxf.kinds.FunctionImplementation.Native"
+
+
+def is_native(image, handle: int) -> bool:
+    """Whether a function is a native one (the glue of ``boot/`` is not)."""
+    return dict(image.fields(handle)).get("implementation") == NATIVE
+
+
 def edit(directory: Path, module: str, function: str, change) -> None:
     path = directory / (module.replace(".", "/") + ".rxfd")
     if not path.exists():
@@ -59,22 +67,36 @@ def test_the_starter_is_a_complete_binary(capsys):
 
 
 def test_every_native_function_has_code_for_bios_unix_uefi_and_wasm():
+    """Every native function runs on every seat: one code per seat of it. The
+    count is over the codes of native functions only -- the glue of ``boot/`` is
+    not a native function (docs/28's glue rule: it is the platform's fill of the
+    startup seam) and carries its own code objects."""
     image = tree.load(STARTER)
     machines = {"bios": 0, "linux": 0, "uefi": 0, "wasm": 0}
     for handle in range(image.handle_count):
-        if image.live(handle) and image.type_name(handle) == "Code":
-            target = dict(image.fields(handle)).get("runtime_target")
-            if target is None:
-                continue  # a program, the same for every target
-            target = target.rsplit(".", 1)[-1]
-            for name in machines:
-                if f"_{name}_" in target:
-                    machines[name] += 1
+        if not image.live(handle) or image.type_name(handle) != "Code":
+            continue
+        values = dict(image.fields(handle))
+        owner = image.resolve(values.get("owner_function", ""))
+        if owner is None or not is_native(image, owner):
+            continue
+        target = values.get("runtime_target")
+        if target is None:
+            continue  # a program, the same for every target
+        target = target.rsplit(".", 1)[-1]
+        for name in machines:
+            if f"_{name}_" in target:
+                machines[name] += 1
     assert machines == {"bios": 321, "linux": 642, "uefi": 642, "wasm": 321}
 
 
 def test_the_seats_of_a_function_share_one_blob_per_machine():
-    """The dedup of the starter: six seats, three blobs, one per machine."""
+    """The dedup of the starter: six seats, three blobs, one per machine. Two
+    codes of one function that name one machine always name one blob (every
+    function, glue included); the three-blob economy is the claim of the native
+    functions, whose machine code is the same on every seat of a machine. The
+    glue of ``boot/`` is per seat by design -- the BIOS sector and the UEFI stub
+    are two artifacts of one machine -- and is not part of that economy."""
     image = tree.load(STARTER)
     seats = {
         "x86_64_linux": "x86_64",
@@ -98,10 +120,12 @@ def test_the_seats_of_a_function_share_one_blob_per_machine():
         if (parent, machine) in shared:
             assert shared[parent, machine] == body, image.path(handle)
         shared[parent, machine] = body
-        per_function[parent].add(body)
+        if is_native(image, parent):
+            per_function[parent].add(body)
     assert per_function, "the starter has no native code"
     assert all(len(bodies) == 3 for bodies in per_function.values())
-    assert len(shared) == 3 * len(per_function)
+    natives = sum(1 for parent, _ in shared if is_native(image, parent))
+    assert natives == 3 * len(per_function)
 
 
 def test_a_missing_code_is_found_and_so_is_every_caller(copy):

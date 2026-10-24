@@ -40,6 +40,7 @@ import graph_header
 import graph_sync
 import live_sync
 import native_build
+import boot_sync
 import programs
 import seed_build
 import source_sync
@@ -347,8 +348,12 @@ def sync(starter: Path, check: bool = False) -> tuple[int, bool]:
             parts = path.relative_to(work).with_suffix("").parts
             total += sync_file(path, parts, bytes_of)
         write_provenance(work / "pymergetic" / "rxf" / "targets.rxfd")
-        sync_bytecode(work)
         source_sync.write_sources(work, paths)
+        boot_sync.write_codes(work)  # the glue's code, pinned to what make builds
+        # ``sync_file`` strips every CompilerProvenance object (the recipes are
+        # regenerated, never patched in place), so the glue's recipe is written
+        # back before anything loads the tree to link it.
+        sync_bytecode(work)
         blob_sync.write_blobs(work)
         programs.strip(work)  # the built code is source and recipe, not stored
         image = tree.load(work)

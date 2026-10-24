@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="boot" category="ModuleCategory.Library">
+    <Alias name="boot" target="pymergetic.rxf.boot" />
+    <Alias name="call" target="pymergetic.rxf.roles.call" />
+    <Alias name="kinds" target="pymergetic.rxf.kinds" />
+    <Alias name="sources" target="pymergetic.rxf.sources" />
+    <Alias name="targets" target="pymergetic.rxf.targets" />
+    <CompilerProvenance name="recipe" compiler_major="1" recipe_digest="13e7805eda6b5f986952c611ea6c744d86666a282334c9f035a4ce32c6f55d5c" />
+    <Function name="start_aarch64" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.start_aarch64.signature" semantic_digest="884bd4aad1d5d45797ca7c96beea73425dd9edd04011cf172789e5cc89e8a323">
+      <Code name="aarch64_linux" owner_function="@boot.start_aarch64" runtime_target="@targets.aarch64_linux_aapcs64" signature="@boot.start_aarch64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="181624" semantic_digest="884bd4aad1d5d45797ca7c96beea73425dd9edd04011cf172789e5cc89e8a323" source="@sources.boot_aarch64_S" body="@boot.start_aarch64.body_aarch64">
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
+      </Code>
+      <CodeBlob name="body_aarch64" byte_count="181624" content_digest="5cff5b0a8997aa063cb326ec47edf927e9b2d77f1d36001b5919f0b48b97c521" />
+      <Signature name="signature" return_type="void" />
+    </Function>
+    <Function name="start_uefi" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.start_uefi.signature" semantic_digest="54cd3bf96ab7e486da6fdd1ef931a4883f904bfedc2c9a4d41c8cb756903edd3">
+      <CodeBlob name="body_uefi" byte_count="2560" content_digest="a6a9c123dae8e2f112bb4a49c7a99a786d33a822278aedbf79ad08b0ee1582be" />
+      <Signature name="signature" return_type="void" />
+      <Code name="x86_64_uefi" owner_function="@boot.start_uefi" runtime_target="@targets.x86_64_uefi_sysv" signature="@boot.start_uefi.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="2560" semantic_digest="54cd3bf96ab7e486da6fdd1ef931a4883f904bfedc2c9a4d41c8cb756903edd3" source="@sources.boot_uefi_stub_c" body="@boot.start_uefi.body_uefi">
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
+      </Code>
+    </Function>
+    <Function name="start_wasm32" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.start_wasm32.signature" semantic_digest="b1b87efb84581b68bdce3488ea231ab64fd6c90623c7b8bfef1d1dff6b9143c4">
+      <CodeBlob name="body_wasm32" byte_count="2871" content_digest="7a1ff15728c46b46c81bcb112cfbda9658b16908dff22fca9499e5589069e726" />
+      <Signature name="signature" return_type="void" />
+      <Code name="wasm32" owner_function="@boot.start_wasm32" runtime_target="@targets.wasm32_wasm_c" signature="@boot.start_wasm32.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="2871" semantic_digest="b1b87efb84581b68bdce3488ea231ab64fd6c90623c7b8bfef1d1dff6b9143c4" source="@sources.boot_wasm_shim_c" body="@boot.start_wasm32.body_wasm32">
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
+      </Code>
+    </Function>
+    <Function name="start_x86_64" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.start_x86_64.signature" semantic_digest="b589d6a3652cef09f6f467e00c1cc9ff4bd1bf1cf92c278dd594177e58d3cc36">
+      <CodeBlob name="body_bios" byte_count="1305" content_digest="41980700edfd35b50aa05a34e708e5818c9b7b09ad95222fc162438b62c46a8a" />
+      <Signature name="signature" return_type="void" />
+      <Code name="x86_64_bios" owner_function="@boot.start_x86_64" runtime_target="@targets.x86_64_bios_sysv" signature="@boot.start_x86_64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="1305" semantic_digest="b589d6a3652cef09f6f467e00c1cc9ff4bd1bf1cf92c278dd594177e58d3cc36" source="@sources.boot_x86_64_S" body="@boot.start_x86_64.body_bios">
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
+      </Code>
+    </Function>
+  </Module>
+</delta>

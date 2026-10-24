@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+import boot_sync
 import seed_build
 import source_sync
 import sync
@@ -118,10 +119,16 @@ def test_every_native_code_names_the_source_it_was_built_from():
 def test_the_codes_a_source_builds_are_the_codes_that_name_it():
     """The other direction of the edge is computed, and it is total."""
     image = tree.load(STARTER)
-    expected: dict[str, set[str]] = {name: set() for name in source_names()}
+    expected: dict[str, set[str]] = {name: set() for name in rows()}
     for key, path in built().items():
         source = source_sync.name_of(seed_build.source_of(key))
         expected[source].update(f"{path}.{target}" for target in TARGETS)
+    for family in boot_sync.FAMILIES:
+        source = boot_sync.source_name(str(family["sources"][0]))
+        expected[source] = {
+            f"pymergetic.rxf.boot.{family['function']}.{seat}"
+            for seat in family["codes"]
+        }
     builds: dict[str, set[str]] = {name: set() for name in expected}
     for handle in range(image.handle_count):
         if not image.live(handle) or image.type_name(handle) != "Code":
