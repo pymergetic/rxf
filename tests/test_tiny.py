@@ -30,6 +30,8 @@ from .graph_programs import OP, assemble, lit, move, slot
 from .snippets import STARTER
 from .test_rxfc import MACHINES, SAMPLES, program
 
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
+
 TINY = Path(__file__).parents[1] / "native" / "tiny" / "tiny.rxfs"
 IDS = {"x86_64": 1, "aarch64": 2, "wasm32": 3}
 UNSUPPORTED = 16

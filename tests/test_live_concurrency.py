@@ -45,6 +45,8 @@ from pymergetic.rxftk.live.front import identity
 from pymergetic.rxftk.server.app import PokeBody, SourceBody, create_app
 from pymergetic.rxftk.server.live.runner import Runner
 
+pytestmark = pytest.mark.live
+
 ROOT = Path(__file__).parents[1]
 STARTER = ROOT / "starter"
 MODULE = "pymergetic.rxf.selfedit"

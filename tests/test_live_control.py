@@ -34,6 +34,8 @@ from .graph_programs import (
 from .snippets import running_image
 from .support import resolved
 
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
+
 N = graph_header.numbers()
 LEAF = graph_header.leaves()
 LIVE = 1  # RXF_OBJECT_LIVE

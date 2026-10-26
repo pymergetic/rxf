@@ -42,6 +42,8 @@ from .snippets import running_image
 from .test_rxfc import MACHINES
 from .test_tiny import IDS
 
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
+
 FRONT = Path(__file__).parents[1] / "native" / "front" / "front.rxfs"
 TRIPLE = Path(__file__).parent / "selfedit" / "triple.rxfs"
 FRONT_XML = Path(__file__).parent / "selfedit" / "front.rxfd"

@@ -33,6 +33,8 @@ from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.server.app import create_app
 from pymergetic.rxftk.server.inspector import Inspector
 
+pytestmark = pytest.mark.live
+
 ROOT = Path(__file__).parents[1]
 STARTER = ROOT / "starter"
 

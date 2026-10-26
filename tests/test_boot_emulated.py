@@ -18,6 +18,8 @@ from . import image_world as run
 from .emulator import Emulator, Integer
 from .snippets import STARTER
 
+pytestmark = pytest.mark.nightly
+
 MAIN = "pymergetic.rxf.application.main"
 PACKAGE_AT = 0x1000000
 RESULT_AT = 0xC00000

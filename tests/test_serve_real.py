@@ -37,6 +37,8 @@ from pymergetic.rxftk.server.inspector import Inspector
 from pymergetic.rxftk.world import scene_json
 from pymergetic.rxftk.world.demo import demo_inspector
 
+pytestmark = pytest.mark.live
+
 ROOT = Path(__file__).parents[1]
 STARTER = ROOT / "starter"
 # The synthetic demo, computed live — the anti-demo-drift reference. It is never a checked-in

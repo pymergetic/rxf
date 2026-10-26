@@ -83,6 +83,13 @@ extend-exclude = ["src/pymergetic/rxftk/core/*.pyi"]
 [tool.pytest.ini_options]
 # The native tools are scripts (tools/native), not a package; tests import them by name.
 pythonpath = ["tools/native", "."]
+# Lane markers (tools/test_lanes.sh): what runs pre-commit, per slice, per night.
+markers = [
+  "slow: takes more than ten seconds (kept out of the pre-commit lane)",
+  "nightly: emulator, boot, or per-test cold-start matrix (the nightly lane runs it)",
+  "live: binds real sockets or ports (runs serial, never under xdist)",
+]
+addopts = "--strict-markers"
 filterwarnings = [
   # Python Fire still calls asyncio.iscoroutinefunction (removal planned for 3.16).
   "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning",

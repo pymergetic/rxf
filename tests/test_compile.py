@@ -22,6 +22,8 @@ from .snippets import running_image
 from .support import resolved
 from .test_self_edit import FUNCTION, authored, number
 
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
+
 COMPILE = graph_header.leaves()["compile_program"]
 UNSUPPORTED = graph_header.numbers()["RXF_REFUSE_UNSUPPORTED"]
 OUT_OF_MEMORY, TYPE_MISMATCH = 9, 14
