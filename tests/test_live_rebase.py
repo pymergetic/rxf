@@ -33,7 +33,6 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-
 from pymergetic.rxftk.core import tree
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import physical
@@ -42,6 +41,10 @@ from pymergetic.rxftk.live.front import identity
 from pymergetic.rxftk.server import editor
 from pymergetic.rxftk.server.app import PokeBody, SourceBody, create_app
 from pymergetic.rxftk.server.live.runner import Runner
+
+# Pokes, edits and installs over a live app session and its routes: the live class
+# of test_live_concurrency and test_serve_real.
+pytestmark = pytest.mark.live
 
 ROOT = Path(__file__).parents[1]
 STARTER = ROOT / "starter"

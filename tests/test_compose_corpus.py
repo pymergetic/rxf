@@ -230,6 +230,7 @@ def test_the_in_image_plan_places_the_values_and_orders_the_blocks(program, star
     assert order == list(plan.blocks)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("target_path", graph_paths())
 def test_the_in_image_plan_writes_the_program_word_for_word(program, starter, arena, target_path):
     """The in-image composer writes the words of a graph's program byte for byte what
@@ -282,6 +283,7 @@ def expression_paths() -> tuple[str, ...]:
     return tuple(sorted(image.path(h) for h in expression_handles(image)))
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("target_path", expression_paths())
 def test_the_in_image_expression_writes_the_program_word_for_word(
     program, starter, arena, target_path

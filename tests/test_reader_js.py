@@ -89,6 +89,7 @@ def test_reader_js_survives_the_poison_and_the_stale(tmp_path: Path) -> None:
     assert document["counts"] == expected["counts"]
 
 
+@pytest.mark.slow
 def test_reader_js_reads_the_real_tree_at_scale(tmp_path: Path) -> None:
     """The real `starter/` tree (17,924 cells, 79,711 cables): the scale the demo cannot show —
     the multi-chunk index (handles past 4096), the tie rounding of `round(value, 3)` (the
