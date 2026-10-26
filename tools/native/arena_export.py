@@ -113,6 +113,14 @@ GENESIS_PEOPLE = {
         "Wrote MicroPython; the Python that runs where memory is scarce is his.",
         (("wrote", f"{HONORS}/{WORKS}/micropython", 0),),
     ),
+    "rouven_raudzus": Entry(
+        "Built this system - one arena, one image, one machine that remembers - "
+        "and put the names of those whose work it carries inside every byte of it.",
+        (
+            ("invented", "pymergetic", 0),
+            ("wrote", "pymergetic", 1),
+        ),
+    ),
     "terry_davis": Entry(
         "1969-2018. Built TempleOS alone - compiler, kernel, userland - and "
         "proved the whole-system dream is human.",

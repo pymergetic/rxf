@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
@@ -195,6 +196,21 @@ void bind_arena(nb::module_ &m) {
                  return handle;
              },
              nb::arg("parent"), nb::arg("name"))
+        .def("children",
+             [](HostObjectArena &self, uint32_t handle) {
+                 uint32_t need = 0;
+                 arena::Status probe = self.arena.children(handle, nullptr, 0, &need);
+                 if (probe != arena::Status::Ok && probe != arena::Status::OutOfMemory)
+                     check(probe);
+                 std::vector<uint32_t> buffer(need);
+                 uint32_t count = 0;
+                 check(self.arena.children(handle, buffer.data(), need, &count));
+                 nb::list found;
+                 for (uint32_t at = 0; at < count; ++at)
+                     found.append(buffer[at]);
+                 return found;
+             },
+             nb::arg("handle"))
         .def("load",
              [](HostObjectArena &self, uint32_t handle) {
                  pymergetic_rxf_object *record = nullptr;

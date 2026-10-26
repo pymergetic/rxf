@@ -78,6 +78,12 @@ class ObjectArena {
     /* The tree walk (docs/32 2): the child of `parent` named `name`, or
      * PYMERGETIC_RXF_HANDLE32_NONE when the chain has none. */
     Status find(uint32_t parent, const char *name, uint32_t *handle);
+    /* The children of `handle` in chain order (docs/32 2): the whole live chain of a
+     * module, empty for anything that is not one (a leaf cannot have children). The
+     * contract of image(): when the buffer is too small (or out == nullptr) the count
+     * it needs is reported in *written and the call answers OutOfMemory. */
+    Status children(uint32_t handle, uint32_t *out, uint32_t capacity,
+                    uint32_t *written);
 
     /* The record a handle names, checked against the index entry and the record
      * itself; a stale handle answers BadHandle before it touches payload bytes. */

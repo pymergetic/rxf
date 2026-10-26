@@ -913,6 +913,37 @@ Status ObjectArena::find(uint32_t parent, const char *name, uint32_t *handle) {
     return Status::Ok;
 }
 
+Status ObjectArena::children(uint32_t handle, uint32_t *out, uint32_t capacity,
+                             uint32_t *written) {
+    *written = 0;
+    if (pymergetic_rxf_handle32_index(handle) == PYMERGETIC_RXF_INDEX_SELF)
+        return Status::Protected; /* its payload is the slot table, not a chain */
+    pymergetic_rxf_object *module = nullptr;
+    Status st = load(handle, &module);
+    if (st != Status::Ok)
+        return st;
+    if (module->kind != PYMERGETIC_RXF_OBJ_MODULE)
+        return Status::Ok; /* a leaf cannot have children */
+    uint32_t count = 0;
+    uint32_t walk = module_of(module)->children;
+    while (walk != PYMERGETIC_RXF_HANDLE32_NONE) {
+        if (out != nullptr && count < capacity)
+            out[count] = walk;
+        ++count;
+        pymergetic_rxf_object *child = nullptr;
+        st = load(walk, &child);
+        if (st != Status::Ok)
+            return st;
+        walk = child->link;
+    }
+    *written = count;
+    if (count == 0)
+        return Status::Ok;
+    if (out == nullptr || count > capacity)
+        return Status::OutOfMemory; /* *written is what the buffer has to offer */
+    return Status::Ok;
+}
+
 Status ObjectArena::load(uint32_t handle, pymergetic_rxf_object **out) {
     if (handle == PYMERGETIC_RXF_HANDLE32_NONE)
         return Status::BadHandle;

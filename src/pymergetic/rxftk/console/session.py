@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from pymergetic.rxftk.core.delta import DeltaError
+from pymergetic.rxftk.honors import Honors, HonorsError
 from pymergetic.rxftk.live.front import Front, Installed, Verdict
 
 PROGRAM = re.compile(r"(?m)^[ \t]*program[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*\(")
@@ -78,10 +79,12 @@ class Console:
         front: Front,
         out: TextIO,
         files: Mapping[str, bytes] | None = None,
+        honors: Honors | None = None,
     ) -> None:
         self._front = front
         self._out = out
         self._files = dict(files or {})
+        self._honors = honors
         self._transaction = getattr(front, "transaction", nullcontext)
 
     def submit(
@@ -168,23 +171,92 @@ class Console:
 
     def _meta(self, word: str) -> bool:
         """One word of the terminal (`:quit` answers True: leave)."""
-        if word in (":quit", ":q"):
+        parts = word.split(" ", 1)
+        head, rest = parts[0], parts[1] if len(parts) > 1 else ""
+        if head in (":quit", ":q"):
             return True
-        if word == ":list":
+        if head == ":list":
             with self._transaction():
                 entries = self._front.installed()
             for entry in entries:
                 self._out.write(f"{entry.path} (id 0x{entry.identity:016x})\n")
             return False
-        if word == ":help":
+        if head == ":honors":
+            self._honors_word(rest)
+            return False
+        if head == ":about":
+            self._about_word(rest)
+            return False
+        if head == ":honor":
+            self._honor_word(rest)
+            return False
+        if head == ":help":
             self._out.write(
                 "a program of .rxfs ends at a blank line (or a line of one `.`)\n"
-                ":list  what the image has installed\n"
-                ":quit  leave\n"
+                ":list   what the image has installed\n"
+                ":honors  the founding core and the ledger (docs/36)\n"
+                ":about NAME  one person or one work, with its refs\n"
+                ":honor NAME ROLE TEXT  one entry onto the ledger about NAME\n"
+                ":quit   leave\n"
             )
             return False
         self._out.write(f"no such word: {word} (:help shows the words)\n")
         return False
+
+    def _honors_of(self, word: str) -> Honors:
+        """The honors of the image this terminal talks to, or the truth about a v6
+        image: it carries none (docs/36 4 - the honors live in the image)."""
+        if self._honors is None:
+            raise HonorsError(f"this image carries no honors ({word} reads them)")
+        return self._honors
+
+    def _honors_word(self, rest: str) -> None:
+        if rest.strip():
+            self._out.write(":honors takes no name (about NAME does)\n")
+            return
+        try:
+            report = self._honors_of(":honors").who()
+        except HonorsError as problem:
+            self._out.write(f"{problem}\n")
+            return
+        for group in ("roles", "people", "works", "ledger"):
+            self._out.write(f"{group}\n")
+            for member in report[group]:
+                self._out.write(f"  {member['name']}  {member['text']}\n")
+
+    def _about_word(self, rest: str) -> None:
+        name = rest.strip()
+        if not name:
+            self._out.write(":about NAME - one person or one work\n")
+            return
+        try:
+            found = self._honors_of(f":about {name}").about(name)
+        except HonorsError as problem:
+            self._out.write(f"{problem}\n")
+            return
+        self._out.write(f"{found['name']} ({found['kind']})\n")
+        self._out.write(f"  {found['text']}\n")
+        for ref in found["refs"]:
+            self._out.write(
+                f"  {ref['role']} -> {ref['target']} ({ref['index']})\n"
+            )
+        for entry in found["vouched"]:
+            self._out.write(f"  vouched by {entry}\n")
+
+    def _honor_word(self, rest: str) -> None:
+        words = rest.split(" ", 2)
+        if len(words) < 3 or not all(words):
+            self._out.write(":honor NAME ROLE TEXT - one entry onto the ledger\n")
+            return
+        name, role, text = words
+        try:
+            entry = self._honors_of(f":honor {name}").append(
+                text, about=name, role=role, by="console"
+            )
+        except HonorsError as problem:
+            self._out.write(f"{problem}\n")
+            return
+        self._out.write(f"appended {entry} about {name} with {role}\n")
 
     def _outcome(self, outcome: Mapping[str, Any], summary: dict[str, Any]) -> None:
         summary["submitted"] += 1

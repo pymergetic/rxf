@@ -13,6 +13,7 @@ from typing import Any
 from pymergetic.rxftk.cli import Problems
 from pymergetic.rxftk.console.session import Console, beside
 from pymergetic.rxftk.console.world import attach
+from pymergetic.rxftk.honors import Honors
 
 
 def console(
@@ -22,6 +23,7 @@ def console(
     name: str | None = None,
     timeout: float = 30.0,
     inspect: bool = False,
+    honors: str | None = None,
 ) -> Any:
     """The terminal on a running image: type `.rxfs`, the image compiles and installs it.
 
@@ -34,12 +36,18 @@ def console(
     `.rxfs` sources beside SOURCE (or beside the terminal). `--inspect` only says what the image
     has installed. `--link` is where the running image is (docs/19): `shm:name`,
     `pty:/dev/pts/3`, `tty:/dev/ttyUSB0`, `fd:3`. `--name` names the Function of SOURCE when
-    its source names no program.
+    its source names no program. `--honors` is the image file whose honors the words `:honors`,
+    `:about NAME` and `:honor NAME ROLE TEXT` answer and append to (docs/36).
     """
     if source is not None and inspect:
         raise Problems({"ok": False, "message": "--inspect reads; it takes no source"})
     world = attach(link, timeout=timeout)
-    session = Console(world.front, sys.stdout, files=beside(Path.cwd()))
+    session = Console(
+        world.front,
+        sys.stdout,
+        files=beside(Path.cwd()),
+        honors=Honors.attach(Path(honors).read_bytes()) if honors else None,
+    )
     try:
         if inspect:
             return session.listed()
