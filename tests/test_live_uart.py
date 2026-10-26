@@ -21,6 +21,10 @@ from . import live_world as lw
 from .snippets import running_image
 from .support import resolved
 
+# Every test runs code on a machine the harness boots per test; the emulated seats
+# cost minutes each. Nightly material like test_compile.
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
+
 UART = graph_header.leaves()["uart_pump"]
 COM1 = 0x3F8
 PL011 = 0x09000000

@@ -46,6 +46,10 @@ from .test_front_image import (
 )
 from .test_rxfc import MACHINES
 
+# Every test here boots an emulated machine; one boot compiles on the image's own
+# front end in Unicorn and takes minutes. Nightly material like test_compile.
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
+
 COMPOSE = Path(__file__).parents[1] / "native" / "compose" / "compose.rxfs"
 SELFEDIT_OUT = "pymergetic.rxf.selfedit.out"
 OUT_ROOM = 0x10000

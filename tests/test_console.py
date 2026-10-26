@@ -40,6 +40,10 @@ from pymergetic.rxftk.server.live import Session
 from . import live_world as lw
 from .test_rxfc import MACHINES
 
+# Most tests here boot an emulated machine and compile on the image's own front end
+# in Unicorn - minutes each. Nightly material like test_compile and test_self_edit.
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
+
 ROOT = Path(__file__).parents[1]
 FRONT = ROOT / "native" / "front" / "front.rxfs"
 STARTER = ROOT / "starter"

@@ -25,7 +25,7 @@ classifiers = [
 dependencies = ["fire>=0.7"]
 
 [project.optional-dependencies]
-test = ["pytest>=8", "pytest-xdist>=3.6", "fastapi>=0.110", "unicorn>=2.1"]
+test = ["pytest>=8", "pytest-xdist>=3.6", "fastapi>=0.110", "httpx>=0.27", "unicorn>=2.1"]
 server = ["fastapi>=0.110", "uvicorn[standard]>=0.27", "jinja2>=3", "python-multipart>=0.0.20"]
 
 [project.scripts]
@@ -66,7 +66,7 @@ describe_command = ["git", "describe", "--dirty", "--tags", "--long", "--match",
 build = ["cp312-*", "cp313-*", "cp314-*"]
 skip = ["*-musllinux_*", "*-win32", "*_i686"]
 environment-pass = ["SETUPTOOLS_SCM_PRETEND_VERSION"]
-test-requires = ["pytest>=8", "fastapi>=0.110"]
+test-requires = ["pytest>=8", "fastapi>=0.110", "httpx>=0.27"]
 # Everything except the two tests that compile C (tests/ground).
 test-command = "pytest {project}/tests --ignore={project}/tests/test_ground_layout.py --ignore={project}/tests/test_arena_freestanding.py"
 

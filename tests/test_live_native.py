@@ -20,6 +20,10 @@ from . import live_world as lw
 from .snippets import running_image
 from .support import resolved
 
+# Every test runs code on a machine the harness boots per test; the emulated seats
+# cost minutes each. Nightly material like test_compile.
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
+
 NONE = 0xFFFFFFFFFFFFFFFF
 MACHINES = [
     "x86_64",
