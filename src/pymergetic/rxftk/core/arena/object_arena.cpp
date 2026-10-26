@@ -957,6 +957,14 @@ Status ObjectArena::payload(uint32_t handle, const uint8_t **bytes, uint32_t *si
     return Status::Ok;
 }
 
+Status ObjectArena::set_flags(uint32_t handle, uint16_t flags) {
+    pymergetic_rxf_object *record = nullptr;
+    Status st = load(handle, &record);
+    if (st != Status::Ok)
+        return st;
+    return j_set(&record->flags, flags);
+}
+
 Status ObjectArena::release_handle(uint32_t handle) {
     if (handle == PYMERGETIC_RXF_HANDLE32_NONE)
         return Status::Ok; /* releasing nothing is a no-op */

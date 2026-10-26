@@ -9,6 +9,7 @@ from pymergetic.rxftk.core.arena import (
     HANDLE32_NONE,
     OBJ_MODULE,
     OBJ_SYM,
+    OFLAG_RO,
 )
 
 from .snippets import STARTER
@@ -153,3 +154,38 @@ def test_a_dangling_ref_refuses_the_export():
 
     with pytest.raises(ValueError, match="dangling ref"):
         arena_export.export_world(TinyWorld())
+
+
+def test_the_founding_core_lands(arena):
+    role = down(arena, "honors", "roles", "inspired")
+    assert arena.payload(role).rstrip(b"\0") == b"made it thinkable"
+    person = down(arena, "honors", "people", "terry_davis")
+    assert b"TempleOS" in arena.payload(person)
+    work = down(arena, "honors", "works", "templeos")
+    assert b"one person" in arena.payload(work)
+    assert down(arena, "honors", "ledger") != HANDLE32_NONE
+
+
+def test_the_founding_refs_land_as_tables(arena):
+    table = down(arena, "sys", arena_export.RELATIONS, "honors.people.terry_davis")
+    assert arena.load(table)[7] == 2 * arena_export.REF_RECORD.size
+    records = [
+        arena_export.REF_RECORD.unpack_from(arena.payload(table), at)
+        for at in range(0, 2 * arena_export.REF_RECORD.size, arena_export.REF_RECORD.size)
+    ]
+    targets = [arena.symbol(arena.load(target)[3]) for target, _, *_ in records]
+    roles = [arena.symbol(arena.load(role)[3]) for _, role, *_ in records]
+    assert (targets, roles) == (["templeos", "pymergetic"], ["wrote", "inspired"])
+
+
+def test_the_genesis_is_read_only(arena):
+    for path in (
+        ("honors", "roles", "wrote"),
+        ("honors", "people", "terry_davis"),
+        ("honors", "works", "templeos"),
+        ("sys", arena_export.RELATIONS, "honors.works.templeos"),
+    ):
+        handle = down(arena, *path)
+        assert arena.load(handle)[2] & OFLAG_RO, f"{'/'.join(path)} is Genesis"
+    ledger = down(arena, "honors", "ledger")
+    assert not arena.load(ledger)[2] & OFLAG_RO, "the ledger grows"

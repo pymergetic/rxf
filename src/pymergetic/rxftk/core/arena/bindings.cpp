@@ -221,6 +221,13 @@ void bind_arena(nb::module_ &m) {
                      static_cast<uint32_t>(data.size())));
              },
              nb::arg("handle"), nb::arg("data"))
+        /* The state flags: the Genesis of the honors (docs/36 3) is marked
+         * OFLAG_RO at image build. */
+        .def("set_flags",
+             [](HostObjectArena &self, uint32_t handle, uint16_t flags) {
+                 check(self.arena.set_flags(handle, flags));
+             },
+             nb::arg("handle"), nb::arg("flags"))
         .def("release",
              [](HostObjectArena &self, uint32_t handle) {
                  check(self.arena.release_handle(handle));

@@ -91,6 +91,11 @@ class ObjectArena {
     Status set_payload(uint32_t handle, const uint8_t *bytes, uint32_t size);
     Status payload(uint32_t handle, const uint8_t **bytes, uint32_t *size);
 
+    /* The state flags (ground.h PYMERGETIC_RXF_OFLAG_*). The Genesis of the
+     * honors (docs/36 3) is marked OFLAG_RO at image build: the flag states the
+     * intent as data. */
+    Status set_flags(uint32_t handle, uint16_t flags);
+
     /* The object's span frees, its index entry dies, and the handle is stale from
      * here on (the reuse of the span bumps the generation). */
     Status release_handle(uint32_t handle);
