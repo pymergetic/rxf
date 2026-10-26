@@ -603,6 +603,30 @@ PYMERGETIC_RXF_PIN(pymergetic_rxf_journal, granularity, 8, 4);
 PYMERGETIC_RXF_PIN(pymergetic_rxf_journal, reserved, 12, 4);
 PYMERGETIC_RXF_PIN(pymergetic_rxf_journal, base, 16, 8);
 
+/* sys/specs: the semantic face of an object (docs/32 5). The record carries the
+ * storage role; what the world says about an object beyond that - its Type, the
+ * packed flags word (node kind, state, owner: the PYMERGETIC_RXF_FLAG_*_SHIFT
+ * layout of the v6 cell, kept whole so nothing is lost), its position among the
+ * ordered siblings and its 64-bit generation - is one row of this table, keyed
+ * by the same index as the slot table. The payload of the object is `capacity`
+ * rows and nothing else; the table never moves its rows, a row is written through
+ * the journal like every other store, and a released index is reset to the
+ * default row (untyped, all zero). */
+typedef struct PYMERGETIC_RXF_ALIGNED8 pymergetic_rxf_spec {
+    uint32_t type;       /* handle32 of the Type object, PYMERGETIC_RXF_HANDLE32_NONE = untyped */
+    uint32_t flags;      /* the world's flags word: kind | state | owner */
+    uint32_t index;      /* position among the ordered siblings; 0 = the order is the name */
+    uint32_t reserved;   /* must be zero */
+    uint64_t generation; /* the world's generation of the object */
+} pymergetic_rxf_spec;
+
+PYMERGETIC_RXF_GROUND_ASSERT(sizeof(pymergetic_rxf_spec) == 24, "a spec row is 24 bytes");
+PYMERGETIC_RXF_PIN(pymergetic_rxf_spec, type, 0, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_spec, flags, 4, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_spec, index, 8, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_spec, reserved, 12, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_spec, generation, 16, 8);
+
 #ifdef __cplusplus
 }
 #endif

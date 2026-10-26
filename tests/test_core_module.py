@@ -15,6 +15,12 @@ from pymergetic.rxftk.core.arena import (
     CELL_SIZE,
     FIELD_SIZE,
     HANDLE32_GEN_BITS,
+    FLAG_KIND_MASK,
+    FLAG_KIND_SHIFT,
+    FLAG_OWNER_MASK,
+    FLAG_OWNER_SHIFT,
+    FLAG_STATE_MASK,
+    FLAG_STATE_SHIFT,
     HANDLE32_INDEX_BITS,
     HANDLE32_NONE,
     HANDLE_FIELD,
@@ -40,6 +46,7 @@ from pymergetic.rxftk.core.arena import (
     OFLAG_RO,
     OFLAG_ROOT,
     REF_SIZE,
+    SPEC_SIZE,
     SUPERBLOCK_SIZE,
     SUPERBLOCK_VERSION,
     TYPE_SIZE,
@@ -110,3 +117,7 @@ def test_core_reports_one_arena_layout():
     assert (OBJ_SYM, OBJ_BLOB, OBJ_FRAME) == (5, 6, 7)
     assert OBJ_FREE == 0xFFFF
     assert (OFLAG_RO, OFLAG_ROOT, OFLAG_DIRTY, OFLAG_JOURNALED) == (1, 2, 4, 8)
+    # the semantic face (docs/32 5): a 24-byte row, and the flags word it keeps whole
+    assert SPEC_SIZE == 24
+    assert (FLAG_KIND_SHIFT, FLAG_STATE_SHIFT, FLAG_OWNER_SHIFT) == (0, 8, 14)
+    assert (FLAG_KIND_MASK, FLAG_STATE_MASK, FLAG_OWNER_MASK) == (0xFF, 0x3F, 0xF)

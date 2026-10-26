@@ -55,6 +55,7 @@ Status ObjectArena::init(const Memory &memory, uint32_t root, uint32_t entry) {
         return Status::OutOfMemory;
     memory_ = memory;
     need_ = 0;
+    specs_handle_ = 0;
     /* The superblock and the end marker have to be materialized before they are written. */
     Status status = s_ensure(0, PYMERGETIC_RXF_SUPER_SIZE + PYMERGETIC_RXF_FREE_MIN_SPAN);
     if (status != Status::Ok)
@@ -89,6 +90,7 @@ Status ObjectArena::attach(const Memory &memory) {
         return Status::BadImage;
     memory_ = memory;
     need_ = 0;
+    specs_handle_ = 0;
     const pymergetic_rxf_superblock *super = this->super();
     if (super->magic[0] != 'R' || super->magic[1] != 'X' || super->magic[2] != 'F' ||
         super->magic[3] != 'A' || super->version != PYMERGETIC_RXF_SUPER_VERSION)
@@ -662,6 +664,67 @@ void ObjectArena::sync_free_head() {
                 marker_offset());
 }
 
+/* The rows of sys/specs (docs/32 5). The handle is looked up by name once - a cold
+ * attach has nothing cached - and kept; the object itself is loaded every time, so
+ * a stale or moved table is never trusted. */
+Status ObjectArena::spec_rows(pymergetic_rxf_spec **rows, uint32_t *count) {
+    if (specs_handle_ == 0) {
+        uint32_t sys = PYMERGETIC_RXF_HANDLE32_NONE;
+        uint32_t found = PYMERGETIC_RXF_HANDLE32_NONE;
+        const uint32_t root = super()->root;
+        if (root == PYMERGETIC_RXF_HANDLE32_NONE ||
+            find(root, "sys", &sys) != Status::Ok || sys == PYMERGETIC_RXF_HANDLE32_NONE ||
+            find(sys, "specs", &found) != Status::Ok)
+            found = PYMERGETIC_RXF_HANDLE32_NONE;
+        specs_handle_ = found;
+    }
+    if (specs_handle_ == PYMERGETIC_RXF_HANDLE32_NONE)
+        return Status::BadImage;
+    pymergetic_rxf_object *record = nullptr;
+    Status st = load(specs_handle_, &record);
+    if (st != Status::Ok)
+        return st;
+    *rows = reinterpret_cast<pymergetic_rxf_spec *>(reinterpret_cast<uint8_t *>(record) +
+                                                    sizeof(pymergetic_rxf_object));
+    *count = record->payload / sizeof(pymergetic_rxf_spec);
+    return Status::Ok;
+}
+
+Status ObjectArena::spec(uint32_t handle, pymergetic_rxf_spec *out) {
+    pymergetic_rxf_object *record = nullptr;
+    Status st = load(handle, &record); /* the handle is checked before its row is read */
+    if (st != Status::Ok)
+        return st;
+    pymergetic_rxf_spec *rows = nullptr;
+    uint32_t count = 0;
+    st = spec_rows(&rows, &count);
+    if (st != Status::Ok)
+        return st;
+    const uint32_t index = pymergetic_rxf_handle32_index(handle);
+    if (index >= count)
+        return Status::BadHandle;
+    *out = rows[index];
+    return Status::Ok;
+}
+
+Status ObjectArena::set_spec(uint32_t handle, const pymergetic_rxf_spec &row) {
+    if (row.reserved != 0)
+        return Status::BadImage; /* the reserved word is zero in every row */
+    pymergetic_rxf_object *record = nullptr;
+    Status st = load(handle, &record);
+    if (st != Status::Ok)
+        return st;
+    pymergetic_rxf_spec *rows = nullptr;
+    uint32_t count = 0;
+    st = spec_rows(&rows, &count);
+    if (st != Status::Ok)
+        return st;
+    const uint32_t index = pymergetic_rxf_handle32_index(handle);
+    if (index >= count)
+        return Status::BadHandle;
+    return j_copy(&rows[index], &row, sizeof(row));
+}
+
 Status ObjectArena::bootstrap(const char *image_name, uint32_t capacity) {
     if (image_name == nullptr || image_name[0] == 0)
         return Status::BadName;
@@ -749,6 +812,23 @@ Status ObjectArena::bootstrap(const char *image_name, uint32_t capacity) {
         if (st != Status::Ok)
             return st;
     }
+
+    /* sys/specs (docs/32 5): one row per index of the object index. It is made
+     * before the journal attaches, like the index and syms: the table is boot
+     * ground, and a journaled fill of its rows would be the biggest thing the
+     * undo ring ever records. Every row starts untyped. */
+    st = create(sys, "specs", PYMERGETIC_RXF_OBJ_SPEC,
+                (uint64_t)capacity * sizeof(pymergetic_rxf_spec), &made);
+    if (st != Status::Ok)
+        return st;
+    specs_handle_ = made;
+    pymergetic_rxf_spec *rows = nullptr;
+    uint32_t row_count = 0;
+    st = spec_rows(&rows, &row_count);
+    if (st != Status::Ok)
+        return st;
+    for (uint32_t i = 0; i < row_count; i++)
+        rows[i].type = PYMERGETIC_RXF_HANDLE32_NONE;
 
     /* The journal leaf carries the undo ring (docs/32 3): from its attach on,
      * every write is recorded before the store. The ring is sized for the boot
@@ -1015,8 +1095,14 @@ Status ObjectArena::release_handle(uint32_t handle) {
     if (st != Status::Ok)
         return st;
     const uint32_t index = pymergetic_rxf_handle32_index(handle);
+    /* The rows of sys/specs, when the image has them: the table is protected like
+     * the index, and the row of the released object goes back to the default. */
+    pymergetic_rxf_spec *rows = nullptr;
+    uint32_t row_count = 0;
+    const bool has_specs = spec_rows(&rows, &row_count) == Status::Ok;
     if (handle == super()->root || handle == journal_handle_ ||
-        index == PYMERGETIC_RXF_INDEX_SELF || index == PYMERGETIC_RXF_INDEX_SYMS)
+        (has_specs && handle == specs_handle_) || index == PYMERGETIC_RXF_INDEX_SELF ||
+        index == PYMERGETIC_RXF_INDEX_SYMS)
         return Status::Protected;
     if (record->kind == PYMERGETIC_RXF_OBJ_MODULE &&
         module_of(record)->children != PYMERGETIC_RXF_HANDLE32_NONE)
@@ -1072,6 +1158,13 @@ Status ObjectArena::release_handle(uint32_t handle) {
     st = j_set(&entry->slot, (uint64_t)0);
     if (st != Status::Ok)
         return st;
+    if (has_specs && index < row_count) {
+        pymergetic_rxf_spec fresh{};
+        fresh.type = PYMERGETIC_RXF_HANDLE32_NONE;
+        st = j_copy(&rows[index], &fresh, sizeof(fresh));
+        if (st != Status::Ok)
+            return st;
+    }
     if (free_handle_ == handle)
         free_handle_ = 0;
     sync_free_head();

@@ -82,6 +82,15 @@ void bind_arena(nb::module_ &m) {
     m.attr("MODULE_SIZE") = sizeof(pymergetic_rxf_module);
     m.attr("SYMS_HEAD_SIZE") = sizeof(pymergetic_rxf_syms);
     m.attr("SYMS_ANONYMOUS") = PYMERGETIC_RXF_SYMS_ANONYMOUS;
+    /* The semantic face (docs/32 5): the row of sys/specs, and the layout of the
+     * flags word it keeps whole (kind | state | owner). */
+    m.attr("SPEC_SIZE") = sizeof(pymergetic_rxf_spec);
+    m.attr("FLAG_KIND_SHIFT") = PYMERGETIC_RXF_FLAG_KIND_SHIFT;
+    m.attr("FLAG_KIND_MASK") = PYMERGETIC_RXF_FLAG_KIND_MASK;
+    m.attr("FLAG_STATE_SHIFT") = PYMERGETIC_RXF_FLAG_STATE_SHIFT;
+    m.attr("FLAG_STATE_MASK") = PYMERGETIC_RXF_FLAG_STATE_MASK;
+    m.attr("FLAG_OWNER_SHIFT") = PYMERGETIC_RXF_FLAG_OWNER_SHIFT;
+    m.attr("FLAG_OWNER_MASK") = PYMERGETIC_RXF_FLAG_OWNER_MASK;
     /* The undo ring (docs/32 3): the record, the head, the granule. */
     m.attr("UNDO_SIZE") = sizeof(pymergetic_rxf_undo);
     m.attr("JOURNAL_HEAD_SIZE") = sizeof(pymergetic_rxf_journal);
@@ -254,6 +263,27 @@ void bind_arena(nb::module_ &m) {
                  check(self.arena.set_flags(handle, flags));
              },
              nb::arg("handle"), nb::arg("flags"))
+        /* The semantic face (docs/32 5): the row of sys/specs for a handle,
+         * as (type, flags, index, generation), and the journaled store. */
+        .def("spec",
+             [](HostObjectArena &self, uint32_t handle) {
+                 pymergetic_rxf_spec row{};
+                 check(self.arena.spec(handle, &row));
+                 return nb::make_tuple(row.type, row.flags, row.index, row.generation);
+             },
+             nb::arg("handle"))
+        .def("set_spec",
+             [](HostObjectArena &self, uint32_t handle, uint32_t type, uint32_t flags,
+                uint32_t index, uint64_t generation) {
+                 pymergetic_rxf_spec row{};
+                 row.type = type;
+                 row.flags = flags;
+                 row.index = index;
+                 row.generation = generation;
+                 check(self.arena.set_spec(handle, row));
+             },
+             nb::arg("handle"), nb::arg("type"), nb::arg("flags"), nb::arg("index"),
+             nb::arg("generation"))
         .def("release",
              [](HostObjectArena &self, uint32_t handle) {
                  check(self.arena.release_handle(handle));

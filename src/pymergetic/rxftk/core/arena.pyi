@@ -100,6 +100,20 @@ SYMS_HEAD_SIZE: int = 8
 
 SYMS_ANONYMOUS: int = 0
 
+SPEC_SIZE: int = 24
+
+FLAG_KIND_SHIFT: int = 0
+
+FLAG_KIND_MASK: int = 255
+
+FLAG_STATE_SHIFT: int = 8
+
+FLAG_STATE_MASK: int = 63
+
+FLAG_OWNER_SHIFT: int = 14
+
+FLAG_OWNER_MASK: int = 15
+
 UNDO_SIZE: int = 16
 
 JOURNAL_HEAD_SIZE: int = 24
@@ -140,6 +154,10 @@ class ObjectArena:
     def set_payload(self, handle: int, data: bytes) -> None: ...
 
     def set_flags(self, handle: int, flags: int) -> None: ...
+
+    def spec(self, handle: int) -> tuple: ...
+
+    def set_spec(self, handle: int, type: int, flags: int, index: int, generation: int) -> None: ...
 
     def release(self, handle: int) -> None: ...
 

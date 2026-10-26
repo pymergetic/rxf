@@ -10,6 +10,7 @@ from pymergetic.rxftk.core.arena import (
     OBJ_MODULE,
     OBJ_SYM,
     OFLAG_RO,
+    SPEC_SIZE,
 )
 
 from .snippets import STARTER
@@ -153,6 +154,85 @@ def test_a_dangling_ref_refuses_the_export():
             }
 
     with pytest.raises(ValueError, match="dangling ref"):
+        arena_export.export_world(TinyWorld())
+
+
+@pytest.fixture(scope="module")
+def placed(world):
+    """The arena together with where each world object landed in it."""
+    return arena_export.place_world(world)
+
+
+def every_object(world):
+    stack = [0]
+    while stack:
+        source = stack.pop()
+        yield source
+        stack.extend(world.children(source))
+
+
+def test_every_object_keeps_its_semantic_face(world, placed):
+    """docs/32 5: the record flattens the world's kind to a storage role; the row
+    of sys/specs keeps the Type, the flags word, the index and the generation."""
+    arena, handles = placed
+    handles = {0: arena.root_handle, **handles}
+    count = 0
+    for source in every_object(world):
+        info = world.get(source)
+        kind = info["type"]
+        want_type = HANDLE32_NONE if kind == (1 << 64) - 1 else handles[kind]
+        assert arena.spec(handles[source]) == (
+            want_type,
+            arena_export.flags_word(info),
+            info["index"],
+            info["generation"],
+        ), info["path"]
+        count += 1
+    assert count == world.handle_count  # every world object, none skipped
+
+
+def test_the_row_keeps_the_kinds_the_record_flattens(world, placed):
+    arena, handles = placed
+    world_kinds: dict[int, set[int]] = {}
+    for source in every_object(world):
+        if source == 0:
+            continue
+        role = arena.load(handles[source])[0]
+        world_kinds.setdefault(role, set()).add(world.get(source)["kind"])
+    # more than one world kind shares a storage role: the record alone loses them
+    assert any(len(kinds) > 1 for kinds in world_kinds.values())
+    for source in every_object(world):
+        if source == 0:
+            continue
+        row = arena.spec(handles[source])
+        assert row[1] & 0xFF == world.get(source)["kind"]  # the kind byte of the flags
+
+
+def test_the_spec_table_is_sized_to_the_index(placed):
+    arena, _ = placed
+    table = down(arena, "sys", "specs")
+    rows = arena.load(table)[7] // SPEC_SIZE
+    assert rows > 0 and arena.load(table)[7] == rows * SPEC_SIZE
+
+
+def test_a_dangling_type_refuses_the_export():
+    class TinyWorld:
+        def children(self, handle):
+            return [1] if handle == 0 else []
+
+        def get(self, handle):
+            if handle == 0:
+                return {"name": None, "kind": 0, "payload": b"", "refs": []}
+            return {
+                "name": "x",
+                "path": "x",
+                "kind": 0,
+                "payload": b"",
+                "refs": [],
+                "type": 999,  # 999 is no object this walk places
+            }
+
+    with pytest.raises(ValueError, match="dangling type"):
         arena_export.export_world(TinyWorld())
 
 

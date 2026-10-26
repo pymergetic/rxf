@@ -21,10 +21,12 @@ from pymergetic.rxftk.core.arena import (
     OBJ_FREE,
     OBJ_JOURNAL,
     OBJ_MODULE,
+    OBJ_SPEC,
     OBJ_SYM,
     OBJECT_HEADER_SIZE as HEADER,
     OFLAG_ROOT,
     SLOT_SIZE,
+    SPEC_SIZE,
     SUPERBLOCK_SIZE as SUPER_SIZE,
     SUPERBLOCK_VERSION,
     SYMS_ANONYMOUS,
@@ -209,9 +211,10 @@ def test_bootstrap_plants_the_sys_tree():
     leaves = {
         "objects": 0x100000,
         "functions": 0x100004,
-        "journal": 0x100005,
-        "caps": 0x100006,
-        "free": 0x100007,
+        "specs": 0x100005,
+        "journal": 0x100006,
+        "caps": 0x100007,
+        "free": 0x100008,
         "syms": 0x100001,
     }
     for name, handle in leaves.items():
@@ -545,3 +548,90 @@ def test_attach_refuses_foreign_images() -> None:
     ):
         with pytest.raises(ArenaError):
             ObjectArena.attach(bad)
+
+
+# ---- the semantic face: sys/specs (docs/32 5) -------------------------------
+
+
+def specs_of(a: ObjectArena) -> int:
+    return a.find(a.find(a.root_handle, "sys"), "specs")
+
+
+def test_bootstrap_sizes_the_spec_table_to_the_index():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot", 64)
+    table = specs_of(a)
+    assert a.load(table)[0] == OBJ_SPEC
+    assert a.load(table)[7] == 64 * SPEC_SIZE  # one row per index, nothing else
+    assert a.verify() is None
+
+
+def test_a_new_object_has_the_default_row_until_its_creator_writes_one():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot", 64)
+    sys_h = a.find(a.root_handle, "sys")
+    handle = a.new_object(sys_h, "thing", OBJ_BLOB, 8)
+    assert a.spec(handle) == (HANDLE32_NONE, 0, 0, 0)  # untyped, all zero
+    a.set_spec(handle, 7, 0x2A08, 3, 1 << 40)
+    assert a.spec(handle) == (7, 0x2A08, 3, 1 << 40)  # the generation keeps its 64 bits
+    assert a.verify() is None
+
+
+def test_a_spec_row_is_checked_through_its_handle():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot", 64)
+    sys_h = a.find(a.root_handle, "sys")
+    handle = a.new_object(sys_h, "gone", OBJ_BLOB, 8)
+    a.release(handle)
+    with pytest.raises(ArenaError):
+        a.spec(handle)  # a stale handle answers no row
+    with pytest.raises(ArenaError):
+        a.set_spec(handle, 1, 1, 1, 1)
+    with pytest.raises(ArenaError):
+        a.spec(HANDLE32_NONE)
+
+
+def test_a_released_index_comes_back_with_the_default_row():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot", 64)
+    sys_h = a.find(a.root_handle, "sys")
+    first = a.new_object(sys_h, "first", OBJ_BLOB, 8)
+    a.set_spec(first, 5, 0xFF, 9, 77)
+    a.release(first)
+    second = a.new_object(sys_h, "second", OBJ_BLOB, 8)
+    assert second & 0xFFFFF == first & 0xFFFFF  # the index is handed out again
+    assert second != first  # under a new generation
+    assert a.spec(second) == (HANDLE32_NONE, 0, 0, 0)  # nothing of the old life
+
+
+def test_the_spec_table_cannot_be_released():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot", 64)
+    with pytest.raises(ArenaError):
+        a.release(specs_of(a))
+
+
+def test_rollback_unwinds_a_spec_row():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot", 64)
+    sys_h = a.find(a.root_handle, "sys")
+    handle = a.new_object(sys_h, "thing", OBJ_BLOB, 8)
+    a.set_spec(handle, 4, 0x10, 1, 2)
+    a.journal_commit()
+    a.set_spec(handle, 9, 0x20, 8, 7)
+    assert a.spec(handle) == (9, 0x20, 8, 7)
+    a.journal_rollback()
+    assert a.spec(handle) == (4, 0x10, 1, 2)  # the last commit's row
+
+
+def test_the_rows_survive_an_attach_and_a_cold_lookup():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot", 64)
+    sys_h = a.find(a.root_handle, "sys")
+    handle = a.new_object(sys_h, "thing", OBJ_BLOB, 8)
+    a.set_spec(handle, 6, 0x300, 2, 5)
+    a.journal_commit()
+    image = a.to_bytes()
+    for b in (ObjectArena.attach(image), ObjectArena.attach(image, fixed=True)):
+        assert b.spec(handle) == (6, 0x300, 2, 5)  # no handle cached: found by name
+        assert b.to_bytes() == image

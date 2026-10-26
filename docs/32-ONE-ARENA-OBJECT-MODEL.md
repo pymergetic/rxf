@@ -118,6 +118,7 @@ image ("boot")                      <- root handle
 ├── sys/                            <- system namespace
 │   ├── objects/                    <- object index: kind + slot + gen table
 │   ├── functions/                  <- function index: entry, spec, arity
+│   ├── specs                       <- semantic rows: type, flags, index, generation (5)
 │   ├── journal/                    <- undo/redo ring, granularity, base
 │   ├── caps/                       <- capability cells (io, net, time, …)
 │   ├── free                        <- FREE ring head (allocator state)
@@ -245,33 +246,55 @@ Nothing can migrate to the new arena without this answer:
 - **the delta apply on the new storage**: `Create` and `Set` carry those fields
   and a refused round trip is a digest break.
 
-Options, in the vocabulary the model already has:
+### 5.1 The decision: `sys/specs`
 
-1. **A semantic prefix in the payload.** A world object's payload opens with the
-   fields the record does not carry, then the value — the shape the delta object
-   already has, and the shape the module payload already uses (the arena-owned
-   chain head, then the module's own bytes). One object, one place, no second
-   source of truth. Cost: a reader of value bytes learns the prefix.
-2. **A spec table beside the object index.** `sys/specs`, one row per object
-   index, carrying `type`, `flags`, `state`, `generation`, `index` — a table
-   object like `sys/objects` and `sys/relations`, keyed by the same index as the
-   slot table. Value bytes stay what the world says they are (the property every
-   reader and the digests lean on). Cost: one more table to keep in step with the
-   records, as the relation tables already are.
-3. **The fields as relations.** `type` is a reference like any other. Cost: a
-   relation table per object for a scalar, and the 32-bit `flags` still has no
-   home in a 16-bit field.
+The semantic fields are one row per object in a table object, `sys/specs`, keyed
+by the same index as the slot table. The options that were weighed - a prefix in
+every payload, the fields as relations, and packing them into the spare bits of
+the record and the slot entry - lost to this one for the same reason: the value
+bytes of an object stay what the world says they are, which is the property every
+reader, the linker and the digests lean on, and the table is the pattern the model
+already has (`sys/objects`, `sys/relations`: a table is an object).
 
-The decision gates the live engine on this model and the scene reader; it does
-not gate the allocator, the journal, or the honors. Until it is made, the
-convergence stops at the seam: the linker writes this model, the live engine
-still serves the old one, and the request path of `tests/test_live_native.py`
-and `tests/test_live_control.py` fails there (the pump refuses the attach on the
-format gate).
+```
+pymergetic_rxf_spec - 24 bytes, ground.h
+0x00 | 4 | type        handle32 of the Type object, HANDLE32_NONE = untyped
+0x04 | 4 | flags       the world's packed flags word: kind | state | owner
+0x08 | 4 | index       position among the ordered siblings, 0 = the order is the name
+0x0c | 4 | reserved    zero
+0x10 | 8 | generation  the world's 64-bit generation
+```
 
-A consequence either way: the canonical digest of an image becomes the digest of
-its canonical bytes in *this* model, and the old and the new build answer the
-same one only when they serve the same arena.
+Laws of the table:
+
+- **The flags word is kept whole.** Its layout is the v6 cell's
+  (`PYMERGETIC_RXF_FLAG_*_SHIFT`: node kind in bits 0-7, state in 8-13, owner in
+  14-17). The record's `kind` is the storage role and flattens the node kind (a
+  data object, a module's group and a card are all BLOBs or MODULEs there); the
+  row is where the node kind survives.
+- **The payload is the rows and nothing else**, `capacity` of them - the capacity
+  of the object index - so row `i` is at `24 * i` and an index never has a row
+  missing. The table does not grow: the index does not either.
+- **A new object has the default row** - untyped, everything else zero - until its
+  creator writes one. A released index goes back to the default, so a reused index
+  carries nothing of its previous life.
+- **A row is written through the journal** like every other store: a rollback
+  restores the last commit's row, and `spec` / `set_spec` check the handle before
+  they touch the row, so a stale handle answers no row.
+- **The table is made before the journal attaches**, like the index and syms: it
+  is boot ground, and a journaled fill of its rows would be the biggest thing the
+  undo ring ever recorded. It is protected like the index: it cannot be released.
+- **It is found by name once**, and the handle is kept: a cold attach has nothing
+  cached and reads `sys/specs` as any other object.
+
+The writer fills the rows in a third pass (`tools/native/arena_export.py`), after
+the tree and the relation tables, because a Type can only be named once every
+object is placed; the Genesis objects the writer adds have the default row. The
+live engine carries the table next: `GET` answers its row, the apply writes it.
+
+A consequence: the canonical digest of an image is the digest of its canonical
+bytes in *this* model, and the old and the new build answer the same one only when
+they serve the same arena.
 
 ---
 

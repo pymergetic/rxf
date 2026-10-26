@@ -106,8 +106,17 @@ class ObjectArena {
      * intent as data. */
     Status set_flags(uint32_t handle, uint16_t flags);
 
+    /* The semantic face of an object (docs/32 5): its row of sys/specs, keyed by
+     * the index of the handle (the handle is checked like every other use). A
+     * freshly created object has the default row - untyped, all zero - until the
+     * creator writes it; `set_spec` goes through the journal. An image without the
+     * table (not bootstrapped) answers BadImage. */
+    Status spec(uint32_t handle, pymergetic_rxf_spec *out);
+    Status set_spec(uint32_t handle, const pymergetic_rxf_spec &row);
+
     /* The object's span frees, its index entry dies, and the handle is stale from
-     * here on (the reuse of the span bumps the generation). */
+     * here on (the reuse of the span bumps the generation). Its spec row returns
+     * to the default. */
     Status release_handle(uint32_t handle);
 
     /* Symbol interning (sys/syms): id 0 is anonymous, the first string takes id 1.
@@ -191,10 +200,15 @@ class ObjectArena {
     Status syms_relocate(uint32_t capacity, uint32_t room);
     /* sys/free mirrors the FREE ring anchor; no-op on an arena without the model. */
     void sync_free_head();
+    /* The rows of sys/specs and how many the table holds. The handle is looked up
+     * once (a cold attach has none cached) and kept; an image without the table
+     * answers BadImage. */
+    Status spec_rows(pymergetic_rxf_spec **rows, uint32_t *count);
 
     Memory memory_{};
     uint64_t need_ = 0;
     uint32_t free_handle_ = 0;
+    uint32_t specs_handle_ = 0; /* 0: not looked up yet; HANDLE32_NONE: the image has none */
     uint32_t journal_handle_ = PYMERGETIC_RXF_HANDLE32_NONE;
     bool journal_growing_ = false;
     /* The exempt log regions: the ring payload (its bytes are the undo log) and,

@@ -14,11 +14,17 @@ is the arena path pymergetic/rxf/foo. The kinds follow the storage roles:
   layouts (type, field, enumerator) are SPEC, names (import, export, alias) are
   SYM, the rest is BLOB.
 
+The record carries the storage role, not what the world says about an object
+beyond it: the semantic face is one row of `sys/specs` per object (docs/32 5) -
+the Type, the packed flags word (node kind, state, owner), the position among the
+ordered siblings and the 64-bit generation - so the export loses none of it.
+
 Relations are data, not navigation (docs/32 2): each world object's refs become
 a table of the pinned 24-byte reference records in `sys/relations/<path>`, with
 `target` and `role` remapped to arena handles. A dangling target refuses the
-export. The walk is two passes - the tree first (every world handle earns its
-arena handle), then the tables.
+export. The walk is three passes - the tree first (every world handle earns its
+arena handle), then the tables, then the semantic rows (a Type can only be named
+once everything is placed).
 
 Then the founding core lands (docs/36): `honors/roles`, `honors/people`,
 `honors/works` - the Genesis, OFLAG_RO - and the append-only `honors/ledger`.
@@ -34,6 +40,9 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from pymergetic.rxftk.core.arena import (
+    FLAG_KIND_SHIFT,
+    FLAG_OWNER_SHIFT,
+    FLAG_STATE_SHIFT,
     HANDLE32_NONE,
     MODULE_SIZE,
     OBJ_BLOB,
@@ -205,6 +214,7 @@ def place_world(
     for child in world.children(0):  # the world's root IS the arena's root
         _place(world, child, arena.root_handle, arena, handles)
     relations = _relations(world, handles, arena)
+    _specs(world, handles, arena)
     _genesis(arena, relations)
     arena.journal_commit()
     arena.verify()
@@ -271,6 +281,44 @@ def _relations(world: World, handles: dict[int, int], arena: ObjectArena) -> int
 
     walk(0)
     return relations
+
+
+def flags_word(info: dict[str, Any]) -> int:
+    """The world's packed flags word (ground.h PYMERGETIC_RXF_FLAG_*_SHIFT), put
+    back together from the fields the world answers it by."""
+    return (
+        (info.get("kind", 0) << FLAG_KIND_SHIFT)
+        | (info.get("state", 0) << FLAG_STATE_SHIFT)
+        | (info.get("owner_kind", 0) << FLAG_OWNER_SHIFT)
+    )
+
+
+def _specs(world: World, handles: dict[int, int], arena: ObjectArena) -> None:
+    """The semantic row of every world object (pass 3, docs/32 5). The world's root
+    is the arena's root; a Type that was never placed is a dangling reference, and
+    the export refuses it like a dangling relation."""
+    placed = {0: arena.root_handle, **handles}
+
+    def walk(source: int) -> None:
+        info = world.get(source)
+        kind = info.get("type")
+        if kind is None or kind == HANDLE_NONE_64:
+            type_handle = HANDLE32_NONE
+        elif kind in placed:
+            type_handle = placed[kind]
+        else:
+            raise ValueError(f"dangling type: no arena object for world handle {kind}")
+        arena.set_spec(
+            placed[source],
+            type_handle,
+            flags_word(info),
+            info.get("index", 0),
+            info.get("generation", 0),
+        )
+        for child in world.children(source):
+            walk(child)
+
+    walk(0)
 
 
 def _genesis(arena: ObjectArena, relations: int) -> None:
