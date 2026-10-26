@@ -83,6 +83,14 @@ class ObjectArena {
      * itself; a stale handle answers BadHandle before it touches payload bytes. */
     Status load(uint32_t handle, pymergetic_rxf_object **out);
 
+    /* The payload behind the record header (docs/32 2): the room the object was
+     * created with, zeroed on grant (the record's payload length is that room,
+     * and the span depends on it). `set_payload` copies the bytes through the
+     * journal and refuses past the room (TooLarge); `payload` answers the room
+     * as bytes. */
+    Status set_payload(uint32_t handle, const uint8_t *bytes, uint32_t size);
+    Status payload(uint32_t handle, const uint8_t **bytes, uint32_t *size);
+
     /* The object's span frees, its index entry dies, and the handle is stale from
      * here on (the reuse of the span bumps the generation). */
     Status release_handle(uint32_t handle);

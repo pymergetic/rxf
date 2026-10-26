@@ -933,6 +933,30 @@ Status ObjectArena::load(uint32_t handle, pymergetic_rxf_object **out) {
     return Status::Ok;
 }
 
+Status ObjectArena::set_payload(uint32_t handle, const uint8_t *bytes, uint32_t size) {
+    if (size > 0 && bytes == nullptr)
+        return Status::BadImage;
+    pymergetic_rxf_object *record = nullptr;
+    Status st = load(handle, &record);
+    if (st != Status::Ok)
+        return st;
+    if (size > record->payload)
+        return Status::TooLarge; /* a write past the granted room refuses */
+    if (size == 0)
+        return Status::Ok;
+    return j_copy(reinterpret_cast<uint8_t *>(record) + sizeof(pymergetic_rxf_object), bytes, size);
+}
+
+Status ObjectArena::payload(uint32_t handle, const uint8_t **bytes, uint32_t *size) {
+    pymergetic_rxf_object *record = nullptr;
+    Status st = load(handle, &record);
+    if (st != Status::Ok)
+        return st;
+    *bytes = reinterpret_cast<const uint8_t *>(record) + sizeof(pymergetic_rxf_object);
+    *size = record->payload;
+    return Status::Ok;
+}
+
 Status ObjectArena::release_handle(uint32_t handle) {
     if (handle == PYMERGETIC_RXF_HANDLE32_NONE)
         return Status::Ok; /* releasing nothing is a no-op */

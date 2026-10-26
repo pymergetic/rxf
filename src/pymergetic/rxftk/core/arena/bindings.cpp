@@ -204,6 +204,23 @@ void bind_arena(nb::module_ &m) {
                                        record->payload);
              },
              nb::arg("handle"))
+        /* The payload behind the record header (docs/32 2): the granted room as
+         * bytes, and the journaled store that fills it. */
+        .def("payload",
+             [](HostObjectArena &self, uint32_t handle) {
+                 const uint8_t *bytes = nullptr;
+                 uint32_t size = 0;
+                 check(self.arena.payload(handle, &bytes, &size));
+                 return nb::bytes(reinterpret_cast<const char *>(bytes), size);
+             },
+             nb::arg("handle"))
+        .def("set_payload",
+             [](HostObjectArena &self, uint32_t handle, nb::bytes data) {
+                 check(self.arena.set_payload(
+                     handle, reinterpret_cast<const uint8_t *>(data.c_str()),
+                     static_cast<uint32_t>(data.size())));
+             },
+             nb::arg("handle"), nb::arg("data"))
         .def("release",
              [](HostObjectArena &self, uint32_t handle) {
                  check(self.arena.release_handle(handle));
