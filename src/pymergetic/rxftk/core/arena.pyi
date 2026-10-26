@@ -66,6 +66,8 @@ OBJ_FRAME: int = 7
 
 OBJ_FREE: int = 65535
 
+OBJ_JOURNAL: int = 8
+
 OFLAG_RO: int = 1
 
 OFLAG_ROOT: int = 2
@@ -98,6 +100,12 @@ SYMS_HEAD_SIZE: int = 8
 
 SYMS_ANONYMOUS: int = 0
 
+UNDO_SIZE: int = 16
+
+JOURNAL_HEAD_SIZE: int = 24
+
+JOURNAL_GRANULE: int = 8
+
 class ObjectArena:
     @staticmethod
     def create(limit: int, fixed: bool = False) -> ObjectArena: ...
@@ -123,6 +131,12 @@ class ObjectArena:
     def intern(self, text: str) -> int: ...
 
     def symbol(self, id: int) -> str: ...
+
+    def journal_commit(self) -> None: ...
+
+    def journal_rollback(self) -> None: ...
+
+    def journal_records(self) -> int: ...
 
     @property
     def root_handle(self) -> int: ...

@@ -448,7 +448,8 @@ enum {
     PYMERGETIC_RXF_OBJ_SPEC = 4,
     PYMERGETIC_RXF_OBJ_SYM = 5,
     PYMERGETIC_RXF_OBJ_BLOB = 6,
-    PYMERGETIC_RXF_OBJ_FRAME = 7
+    PYMERGETIC_RXF_OBJ_FRAME = 7,
+    PYMERGETIC_RXF_OBJ_JOURNAL = 8
 };
 #define PYMERGETIC_RXF_OBJ_FREE 0xFFFFU
 
@@ -569,6 +570,38 @@ PYMERGETIC_RXF_GROUND_ASSERT(sizeof(pymergetic_rxf_syms) == 8, "the syms head is
 PYMERGETIC_RXF_PIN(pymergetic_rxf_syms, count, 0, 4);
 PYMERGETIC_RXF_PIN(pymergetic_rxf_syms, capacity, 4, 4);
 #define PYMERGETIC_RXF_SYMS_ANONYMOUS 0U
+
+/* sys/journal: the undo ring (docs/32 3, steps 4-5). Every granule written is
+ * recorded before the store; commit drops the ring; rollback walks it in reverse
+ * and restores every granule, so a crash leaves the state of the last commit. */
+static const uint32_t PYMERGETIC_RXF_JOURNAL_GRANULE = 8u;
+
+/* One undo record: a granule's offset and its bytes before the write. */
+typedef struct PYMERGETIC_RXF_ALIGNED8 pymergetic_rxf_undo {
+    uint64_t at;     /* the granule's offset in the arena */
+    uint64_t before; /* its bytes before the write */
+} pymergetic_rxf_undo;
+
+PYMERGETIC_RXF_GROUND_ASSERT(sizeof(pymergetic_rxf_undo) == 16, "an undo record is 16 bytes");
+PYMERGETIC_RXF_PIN(pymergetic_rxf_undo, at, 0, 8);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_undo, before, 8, 8);
+
+/* The journal head. The records follow it as one append stack (walked in reverse
+ * by rollback); the ring grows by moving to a larger object like sys/syms. */
+typedef struct PYMERGETIC_RXF_ALIGNED8 pymergetic_rxf_journal {
+    uint32_t count;       /* undo records held */
+    uint32_t capacity;    /* records this ring holds */
+    uint32_t granularity; /* always PYMERGETIC_RXF_JOURNAL_GRANULE */
+    uint32_t reserved;
+    uint64_t base; /* the covered region starts here (docs/32: granularity, base) */
+} pymergetic_rxf_journal;
+
+PYMERGETIC_RXF_GROUND_ASSERT(sizeof(pymergetic_rxf_journal) == 24, "a journal head is 24 bytes");
+PYMERGETIC_RXF_PIN(pymergetic_rxf_journal, count, 0, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_journal, capacity, 4, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_journal, granularity, 8, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_journal, reserved, 12, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_journal, base, 16, 8);
 
 #ifdef __cplusplus
 }

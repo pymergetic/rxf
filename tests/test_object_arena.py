@@ -13,9 +13,12 @@ from pymergetic.rxftk.core.arena import (
     INDEX_OFFSET,
     INDEX_SELF,
     INDEX_SYMS,
+    JOURNAL_GRANULE,
+    JOURNAL_HEAD_SIZE,
     MODULE_SIZE,
     OBJ_BLOB,
     OBJ_FREE,
+    OBJ_JOURNAL,
     OBJ_MODULE,
     OBJ_SYM,
     OBJECT_HEADER_SIZE as HEADER,
@@ -24,6 +27,7 @@ from pymergetic.rxftk.core.arena import (
     SUPERBLOCK_SIZE as SUPER_SIZE,
     SYMS_ANONYMOUS,
     SYMS_HEAD_SIZE,
+    UNDO_SIZE,
     ObjectArena,
 )
 
@@ -320,3 +324,109 @@ def test_creation_grows_committed_by_the_objects_span():
     assert a.committed >= before + room_span(100)
     # The payload field is the granted size: 8-aligned, and span = header + payload.
     assert a.load(handle)[7] == 104
+
+
+# ---- the undo journal (docs/32 3) ------------------------------------------
+
+
+def test_the_journal_layout_pins():
+    assert (UNDO_SIZE, JOURNAL_HEAD_SIZE, JOURNAL_GRANULE) == (16, 24, 8)
+    assert OBJ_JOURNAL == 8
+
+
+def test_bootstrap_ends_on_a_committed_state():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    assert a.journal_records() == 0  # boot is one committed state
+    assert a.load(a.find(a.find(a.root_handle, "sys"), "journal"))[0] == OBJ_JOURNAL
+
+
+def test_writes_are_recorded_before_the_store_and_dropped_at_commit():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    a.new_object(a.find(a.root_handle, "sys"), "extra", OBJ_BLOB, 64)
+    assert a.journal_records() > 0  # write-ahead: the records precede the stores
+    a.journal_commit()
+    assert a.journal_records() == 0  # commit drops the ring
+
+
+def test_rollback_unwinds_a_create_and_gives_the_span_back():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    before = a.committed
+    a.journal_commit()
+    sys_h = a.find(a.root_handle, "sys")
+    handle = a.new_object(sys_h, "extra", OBJ_BLOB, 64)
+    assert a.find(sys_h, "extra") == handle
+    a.journal_rollback()
+    assert a.journal_records() == 0
+    assert a.find(sys_h, "extra") == HANDLE32_NONE
+    with pytest.raises(ArenaError):
+        a.load(handle)  # the handle is stale the moment the create is unwound
+    assert a.committed == before  # the span is back with the marker
+    a.verify()
+
+
+def test_rollback_unwinds_a_release_and_keeps_the_handle():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    sys_h = a.find(a.root_handle, "sys")
+    handle = a.new_object(sys_h, "kept", OBJ_BLOB, 8)
+    a.journal_commit()
+    a.release(handle)
+    assert a.find(sys_h, "kept") == HANDLE32_NONE
+    a.journal_rollback()
+    assert a.find(sys_h, "kept") == handle  # the unlink is unwound too
+    assert a.load(handle)[0] == OBJ_BLOB
+    a.verify()
+
+
+def test_rollback_rewinds_the_names_so_the_same_ids_come_back():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    first = a.intern("fresh")
+    a.journal_commit()
+    second = a.intern("fresh-2")
+    assert second > first
+    a.journal_rollback()
+    assert a.intern("fresh-2") == second  # the table rewound: the id is handed out again
+    assert a.symbol(second) == "fresh-2"
+    a.verify()
+
+
+def test_a_commit_survives_the_next_rollback():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    sys_h = a.find(a.root_handle, "sys")
+    handle = a.new_object(sys_h, "kept", OBJ_BLOB, 8)
+    a.journal_commit()
+    a.journal_rollback()  # nothing is held: nothing is unwound
+    assert a.find(sys_h, "kept") == handle
+    a.verify()
+
+
+def test_rollback_across_a_journal_relocation_restores_the_state_and_the_log():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    before = a.committed
+    a.journal_commit()
+    sys_h = a.find(a.root_handle, "sys")
+    for i in range(12):
+        a.new_object(sys_h, f"fill-{i:02d}", OBJ_BLOB, 8)
+    # The boot ring holds 256 records; past it the log relocates mid-transaction,
+    # and the move itself is journaled (docs/32 3: the journal "can itself be
+    # journaled") so the rollback unwinds it too.
+    assert a.journal_records() > 256
+    a.journal_rollback()
+    assert a.journal_records() == 0
+    for i in range(12):
+        assert a.find(sys_h, f"fill-{i:02d}") == HANDLE32_NONE
+    assert a.committed == before  # the log is back on its boot span
+    a.verify()
+    # The reopened log still works: the next transaction rolls back just as well.
+    handle = a.new_object(sys_h, "again", OBJ_BLOB, 8)
+    assert a.find(sys_h, "again") == handle
+    a.journal_rollback()
+    assert a.find(sys_h, "again") == HANDLE32_NONE
+    assert a.committed == before
+    a.verify()

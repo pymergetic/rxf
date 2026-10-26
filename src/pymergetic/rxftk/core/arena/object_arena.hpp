@@ -87,17 +87,56 @@ class ObjectArena {
     Status intern(const char *text, uint16_t *id);
     Status symbol(uint16_t id, const char **text, uint32_t *length);
 
+    /* sys/journal: the undo ring (docs/32 3, steps 4-5). Every write path records
+     * the granules it is about to touch before the store; `journal_commit` drops
+     * the ring and `journal_rollback` walks it in reverse, restoring every granule
+     * to the bytes of the last commit. The log's own state (record appends, the
+     * head's count, the ring content while it relocates) is exempt: the ring is
+     * the undo log, not its own subject. */
+    Status journal_commit();
+    Status journal_rollback();
+    uint32_t journal_records();
+    uint32_t journal_handle() const {
+        return journal_handle_;
+    }
+
     uint32_t root_handle() const {
         return super()->root;
     }
 
   private:
+    /* Every store goes through the journal: the granules it touches are recorded
+     * before the write (docs/32 3, step 4). `j_set` is the field store, `j_fill`
+     * and `j_copy` the region writes; on an arena without a journal they just
+     * store. */
+    template <typename T>
+    Status j_set(T *dst, T value) {
+        Status st = journal_before_write(
+            static_cast<uint64_t>(reinterpret_cast<uint8_t *>(dst) -
+                                  static_cast<uint8_t *>(memory_.base)),
+            sizeof(T));
+        if (st != Status::Ok)
+            return st;
+        *dst = value;
+        return Status::Ok;
+    }
+    Status j_fill(void *at, uint8_t byte, uint64_t len);
+    Status j_copy(void *at, const void *src, uint64_t len);
+    Status journal_before_write(uint64_t at, uint64_t len);
+    /* Undo room for one write sequence that caches ring state between reads and
+     * writes (docs/32 3, step 4). A ring mutation reserves its worst-case granule
+     * count up front, so the log cannot relocate - and with it the tail marker or
+     * a free span the mutation still points at - in the middle of the sequence. */
+    Status journal_reserve(uint32_t granules);
+    Status journal_attach(uint32_t handle);
+    Status journal_grow(uint32_t capacity);
+
     pymergetic_rxf_object *record_at(uint64_t offset) const;
     uint64_t *links_at(uint64_t offset) const;
     /* The end marker: the FREE ring anchor at superblock.committed. */
     uint64_t marker_offset() const;
-    void ring_unlink(uint64_t offset);
-    void ring_insert_after(uint64_t anchor, uint64_t offset);
+    Status ring_unlink(uint64_t offset);
+    Status ring_insert_after(uint64_t anchor, uint64_t offset);
 
     /* The object index at PYMERGETIC_RXF_INDEX_OFFSET and one of its entries. */
     pymergetic_rxf_slots *index_table() const;
@@ -105,6 +144,7 @@ class ObjectArena {
     /* The payload of a Module (children chain head) and of the sys/syms table. */
     pymergetic_rxf_module *module_of(pymergetic_rxf_object *object) const;
     pymergetic_rxf_syms *syms_of(pymergetic_rxf_object *object) const;
+    pymergetic_rxf_journal *journal_of(pymergetic_rxf_object *object) const;
     /* The sys/syms table as entry 1 names it (the identity, not a cached pointer). */
     Status syms_record(pymergetic_rxf_object **out);
     /* The id a text already has; false when nothing interned it yet. */
@@ -120,6 +160,20 @@ class ObjectArena {
     Memory memory_{};
     uint64_t need_ = 0;
     uint32_t free_handle_ = 0;
+    uint32_t journal_handle_ = PYMERGETIC_RXF_HANDLE32_NONE;
+    bool journal_growing_ = false;
+    /* The exempt log regions: the ring payload (its bytes are the undo log) and,
+     * mid-relocation, the new span's content. */
+    uint64_t journal_lo_ = 0;
+    uint64_t journal_hi_ = 0;
+    uint64_t grow_lo_ = 0;
+    uint64_t grow_hi_ = 0;
+    /* The relocation of the ring redirects its own writes here: the appends land
+     * in the new ring once the move is done (64 records cover the move's
+     * bookkeeping; the ring content copy is exempt, like the appends). */
+    static constexpr uint32_t kJournalPending = 64;
+    pymergetic_rxf_undo pending_[kJournalPending] = {};
+    uint32_t pending_count_ = 0;
 };
 
 } // namespace pymergetic::rxf::core::arena

@@ -62,6 +62,7 @@ void bind_arena(nb::module_ &m) {
     m.attr("OBJ_BLOB") = static_cast<int>(PYMERGETIC_RXF_OBJ_BLOB);
     m.attr("OBJ_FRAME") = static_cast<int>(PYMERGETIC_RXF_OBJ_FRAME);
     m.attr("OBJ_FREE") = PYMERGETIC_RXF_OBJ_FREE;
+    m.attr("OBJ_JOURNAL") = static_cast<int>(PYMERGETIC_RXF_OBJ_JOURNAL);
     m.attr("OFLAG_RO") = PYMERGETIC_RXF_OFLAG_RO;
     m.attr("OFLAG_ROOT") = PYMERGETIC_RXF_OFLAG_ROOT;
     m.attr("OFLAG_DIRTY") = PYMERGETIC_RXF_OFLAG_DIRTY;
@@ -79,6 +80,10 @@ void bind_arena(nb::module_ &m) {
     m.attr("MODULE_SIZE") = sizeof(pymergetic_rxf_module);
     m.attr("SYMS_HEAD_SIZE") = sizeof(pymergetic_rxf_syms);
     m.attr("SYMS_ANONYMOUS") = PYMERGETIC_RXF_SYMS_ANONYMOUS;
+    /* The undo ring (docs/32 3): the record, the head, the granule. */
+    m.attr("UNDO_SIZE") = sizeof(pymergetic_rxf_undo);
+    m.attr("JOURNAL_HEAD_SIZE") = sizeof(pymergetic_rxf_journal);
+    m.attr("JOURNAL_GRANULE") = PYMERGETIC_RXF_JOURNAL_GRANULE;
 
     nb::class_<HostObjectArena> object_arena(m, "ObjectArena");
     object_arena
@@ -173,6 +178,14 @@ void bind_arena(nb::module_ &m) {
                  return nb::str(text, length);
              },
              nb::arg("id"))
+        /* The undo ring (docs/32 3, step 5): commit drops it, rollback unwinds it
+         * in reverse, `journal_records` is how much of it is still held. */
+        .def("journal_commit",
+             [](HostObjectArena &self) { check(self.arena.journal_commit()); })
+        .def("journal_rollback",
+             [](HostObjectArena &self) { check(self.arena.journal_rollback()); })
+        .def("journal_records",
+             [](HostObjectArena &self) { return self.arena.journal_records(); })
         .def_prop_ro("root_handle",
                      [](const HostObjectArena &self) { return self.arena.root_handle(); })
         .def("record",
