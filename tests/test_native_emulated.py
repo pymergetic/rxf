@@ -30,6 +30,8 @@ from .snippets import (
     values,
 )
 
+pytestmark = pytest.mark.nightly
+
 BUFFER = 0x20000
 PAGE = 0x1000
 CASES = 24

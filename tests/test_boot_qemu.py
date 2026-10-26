@@ -56,7 +56,7 @@ needs_qemu = pytest.mark.skipif(QEMU is None, reason="needs qemu-system-x86_64")
 needs_ovmf = pytest.mark.skipif(
     OVMF_CODE is None or OVMF_VARS is None, reason="needs OVMF firmware"
 )
-pytestmark = [needs_qemu]
+pytestmark = [pytest.mark.nightly, pytest.mark.slow, needs_qemu]
 
 
 @pytest.fixture(scope="module")

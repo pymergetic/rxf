@@ -23,6 +23,8 @@ from pymergetic.rxftk.live import physical
 from . import live_world as lw
 from .snippets import running_image
 
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
+
 DOUBLE = Path(__file__).parent / "selfedit" / "double.rxfd"
 FUNCTION = "pymergetic.rxf.selfedit.double"
 MAIN = "pymergetic.rxf.application.main"
