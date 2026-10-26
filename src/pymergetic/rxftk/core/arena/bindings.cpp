@@ -3,6 +3,7 @@
 #include <pymergetic/rxftk/core/arena/object_arena.hpp>
 #include <pymergetic/rxftk/core/object/image.hpp>
 
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <string>
@@ -106,6 +107,51 @@ void bind_arena(nb::module_ &m) {
                 return held;
             },
             nb::arg("limit"), nb::arg("fixed") = false)
+        .def_static(
+            "attach",
+            [](nb::bytes data, bool fixed) {
+                pymergetic_rxf_superblock peek;
+                if (data.size() < sizeof(peek))
+                    throw ArenaError("BadImage");
+                std::memcpy(&peek, data.c_str(), sizeof(peek));
+                /* Sizing and sanity peek only; ObjectArena::attach revalidates the header. */
+                const uint64_t foot =
+                    sizeof(pymergetic_rxf_object) + PYMERGETIC_RXF_FREE_LINKS;
+                if (peek.magic[0] != 'R' || peek.magic[1] != 'X' || peek.magic[2] != 'F' ||
+                    peek.magic[3] != 'A' || peek.version != PYMERGETIC_RXF_SUPER_VERSION ||
+                    peek.committed + foot != (uint64_t)data.size() ||
+                    peek.committed > peek.limit)
+                    throw ArenaError("BadImage");
+                auto host = object::HostMemory::reserve(peek.limit);
+                if (host == nullptr)
+                    throw ArenaError("OutOfMemory");
+                if (fixed) {
+                    if (!host->commit(peek.limit))
+                        throw ArenaError("OutOfMemory");
+                } else if (!host->commit(data.size())) {
+                    throw ArenaError("OutOfMemory");
+                }
+                std::memcpy(host->base(), data.c_str(), data.size());
+                arena::Memory memory = host->memory();
+                if (fixed)
+                    memory.commit = nullptr;
+                auto held = std::make_unique<HostObjectArena>();
+                held->memory = std::move(host);
+                check(held->arena.attach(memory));
+                return held;
+            },
+            nb::arg("data"), nb::arg("fixed") = false)
+        .def("to_bytes",
+            [](HostObjectArena &self) {
+                uint64_t need = 0;
+                if (self.arena.image(nullptr, 0, &need) != arena::Status::OutOfMemory ||
+                    need < PYMERGETIC_RXF_SUPER_SIZE)
+                    throw ArenaError("BadImage");
+                std::string buf((size_t)need, '\0');
+                uint64_t written = 0;
+                check(self.arena.image(reinterpret_cast<uint8_t *>(buf.data()), need, &written));
+                return nb::bytes(buf.data(), written);
+            })
         .def("s_allocate",
              [](HostObjectArena &self, uint64_t room) {
                  uint64_t offset = 0;

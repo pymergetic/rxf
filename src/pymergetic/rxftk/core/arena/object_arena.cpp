@@ -93,9 +93,46 @@ Status ObjectArena::attach(const Memory &memory) {
     if (super->magic[0] != 'R' || super->magic[1] != 'X' || super->magic[2] != 'F' ||
         super->magic[3] != 'A' || super->version != PYMERGETIC_RXF_SUPER_VERSION)
         return Status::BadImage;
+    /* A truncated image (committed or its tail marker beyond what the seat
+     * materialized) is never trusted. */
+    const uint64_t foot = sizeof(pymergetic_rxf_object) + PYMERGETIC_RXF_FREE_LINKS;
     if (super->limit > memory.limit || super->committed < PYMERGETIC_RXF_SUPER_SIZE ||
-        super->committed > super->limit)
+        super->committed > super->limit || super->committed + foot > memory.committed ||
+        super->committed + foot > super->limit)
         return Status::BadImage;
+    /* The journal leaf is re-derived from the module tree (sys/journal): from here on
+     * every write is recorded again and an attached image can roll back to its last
+     * commit (docs/32 3). An image without that leaf simply has no undo ring. */
+    uint32_t sys = PYMERGETIC_RXF_HANDLE32_NONE;
+    if (find(super->root, "sys", &sys) == Status::Ok) {
+        uint32_t journal = PYMERGETIC_RXF_HANDLE32_NONE;
+        if (find(sys, "journal", &journal) == Status::Ok)
+            return journal_attach(journal);
+    }
+    return Status::Ok;
+}
+
+Status ObjectArena::image(uint8_t *out, uint64_t capacity, uint64_t *written) const {
+    if (written == nullptr)
+        return Status::BadImage;
+    *written = 0;
+    if (memory_.base == nullptr)
+        return Status::BadImage;
+    const pymergetic_rxf_superblock *super = this->super();
+    const uint64_t committed = super->committed;
+    /* The tail marker sits at the committed boundary and its ring links are live
+     * allocator state, so the image carries those bytes too: a loader's verify()
+     * finds them where it expects them. */
+    const uint64_t foot = sizeof(pymergetic_rxf_object) + PYMERGETIC_RXF_FREE_LINKS;
+    if (committed < PYMERGETIC_RXF_SUPER_SIZE || committed + foot > memory_.limit)
+        return Status::BadImage;
+    const uint64_t end = committed + foot;
+    if (out == nullptr || capacity < end) {
+        *written = end;
+        return Status::OutOfMemory;
+    }
+    mem::copy(out, memory_.base, end);
+    *written = end;
     return Status::Ok;
 }
 
@@ -1256,8 +1293,14 @@ Status ObjectArena::journal_commit() {
     Status st = load(journal_handle_, &record);
     if (st != Status::Ok)
         return st;
-    /* Dropping the ring is log state: the head is exempt from its own undo. */
+    /* Dropping the ring is log state: the head is exempt from its own undo. The dead
+     * log of the flight is cleared with it, so the committed image is deterministic
+     * - it reads exactly as a state that never held that flight (docs/32 3). */
     journal_of(record)->count = 0;
+    if (journal_hi_ > journal_lo_ + sizeof(pymergetic_rxf_journal))
+        mem::fill(static_cast<uint8_t *>(memory_.base) + journal_lo_ +
+                      sizeof(pymergetic_rxf_journal),
+                  0, journal_hi_ - journal_lo_ - sizeof(pymergetic_rxf_journal));
     return Status::Ok;
 }
 
@@ -1300,6 +1343,12 @@ Status ObjectArena::journal_rollback() {
         fresh->reserved = 0;
         fresh->base = 0;
     }
+    /* The ring payload is the dead log of the flight. Cleared, the image reads
+     * exactly as it did at the last commit (docs/32 3): the flight left no byte. */
+    if (journal_hi_ > journal_lo_ + sizeof(pymergetic_rxf_journal))
+        mem::fill(static_cast<uint8_t *>(memory_.base) + journal_lo_ +
+                      sizeof(pymergetic_rxf_journal),
+                  0, journal_hi_ - journal_lo_ - sizeof(pymergetic_rxf_journal));
     return Status::Ok;
 }
 

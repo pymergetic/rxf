@@ -21,6 +21,12 @@ class ObjectArena {
     Status init(const Memory &memory, uint32_t root, uint32_t entry);
     /* An existing image in `memory`; checks the superblock only. */
     Status attach(const Memory &memory);
+
+    /* The committed image of the arena: the superblock and every byte up to
+     * superblock.committed (docs/32 1 and 3). A loader reopens it with attach().
+     * Two arenas that saw the same work give the same bytes. When the buffer is too
+     * small (or out == nullptr) the required size is reported in *written. */
+    Status image(uint8_t *out, uint64_t capacity, uint64_t *written) const;
     /* Every invariant of the layout and of the FREE ring. Walks the whole arena. */
     Status verify() const;
 

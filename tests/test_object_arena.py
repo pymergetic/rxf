@@ -8,6 +8,7 @@ import pytest
 
 from pymergetic.rxftk.core.arena import (
     ArenaError,
+    FREE_LINKS,
     FREE_MIN_SPAN,
     HANDLE32_NONE,
     INDEX_OFFSET,
@@ -25,6 +26,7 @@ from pymergetic.rxftk.core.arena import (
     OFLAG_ROOT,
     SLOT_SIZE,
     SUPERBLOCK_SIZE as SUPER_SIZE,
+    SUPERBLOCK_VERSION,
     SYMS_ANONYMOUS,
     SYMS_HEAD_SIZE,
     UNDO_SIZE,
@@ -430,3 +432,81 @@ def test_rollback_across_a_journal_relocation_restores_the_state_and_the_log():
     assert a.find(sys_h, "again") == HANDLE32_NONE
     assert a.committed == before
     a.verify()
+
+
+def test_the_image_bytes_are_the_superblock_plus_the_committed_state() -> None:
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    image = a.to_bytes()
+    assert image[:4] == b"RXFA"
+    assert int.from_bytes(image[4:8], "little") == SUPERBLOCK_VERSION
+    assert int.from_bytes(image[8:16], "little") == a.committed
+    # The image carries the committed state and the tail marker that closes it.
+    assert len(image) == a.committed + HEADER + FREE_LINKS
+
+
+def test_the_same_work_gives_the_same_image() -> None:
+    def work() -> bytes:
+        a = ObjectArena.create(1 << 20)
+        a.bootstrap("boot", 256)
+        sys_h = a.find(a.root_handle, "sys")
+        a.new_object(sys_h, "alpha", OBJ_BLOB, 16)
+        a.intern("hello")
+        a.journal_commit()
+        return a.to_bytes()
+
+    assert work() == work()
+
+
+def test_an_attached_image_is_the_same_arena() -> None:
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot", 256)
+    sys_h = a.find(a.root_handle, "sys")
+    keep = a.new_object(sys_h, "keep", OBJ_BLOB, 16)
+    word = a.intern("hello")
+    a.journal_commit()
+    image = a.to_bytes()
+
+    for b in (ObjectArena.attach(image), ObjectArena.attach(image, fixed=True)):
+        assert b.to_bytes() == image
+        assert b.load(keep)[0] == OBJ_BLOB
+        assert b.load(keep)[7] == 16
+        assert b.intern("hello") == word
+        assert b.symbol(word) == "hello"
+        assert b.verify() is None
+
+
+def test_the_attached_journal_rolls_back_to_the_last_commit() -> None:
+    """A crash mid-write leaves exactly the superblock + committed state (docs/32 3):
+    what the seat held at the crash carries the flight, and the re-opened journal
+    reverses it back to the last commit."""
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot", 256)
+    a.journal_commit()
+    stable = a.to_bytes()
+    sys_h = a.find(a.root_handle, "sys")
+    a.new_object(sys_h, "doomed", OBJ_BLOB, 16)  # still in flight: the crash happens here
+    assert a.journal_records() > 0
+    crashed = a.to_bytes()
+
+    b = ObjectArena.attach(crashed)
+    assert b.journal_records() == a.journal_records()
+    b.journal_rollback()
+    assert b.to_bytes() == stable
+    assert b.find(b.find(b.root_handle, "sys"), "doomed") == HANDLE32_NONE
+    assert b.verify() is None
+
+
+def test_attach_refuses_foreign_images() -> None:
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    image = a.to_bytes()
+    for bad in (
+        b"",
+        image[:20],  # below the superblock
+        b"RXFV" + image[4:],  # a foreign magic
+        image[:4] + (2).to_bytes(4, "little") + image[8:],  # a foreign version
+        image[:-8],  # a truncated body: committed no longer matches the data
+    ):
+        with pytest.raises(ArenaError):
+            ObjectArena.attach(bad)
