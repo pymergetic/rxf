@@ -95,6 +95,7 @@ Read in order:
 26. [One arena, one object model](32-ONE-ARENA-OBJECT-MODEL.md)
 27. [Sealed and compressed areas](33-SEALED-AND-COMPRESSED-AREAS.md)
 28. [Extending RXF](34-EXTENDING.md)
+29. [The Honors](36-THE-HONORS.md)
 
 These documents specify RXF independently of any runtime provider. The optional Metal binding
 is described separately in [`integrations/metal.md`](integrations/metal.md).
