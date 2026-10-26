@@ -107,6 +107,20 @@ def test_the_pin_is_what_make_builds():
         assert digest == hashlib.sha256(data).hexdigest(), name
 
 
+def test_the_uefi_body_reproduces_byte_for_byte():
+    """The PE link stamps the header with a wall-clock timestamp unless the
+    recipe says otherwise (boot/Makefile: ``/timestamp:0``): two fresh builds
+    have to be one artifact, or the pin is only cache-lucky."""
+    missing = [tool for tool in TOOLS if shutil.which(tool) is None]
+    if missing:
+        pytest.skip("boot build tools missing: " + ", ".join(missing))
+    family = next(f for f in boot_sync.FAMILIES if f["body"] == "body_uefi")
+    first = boot_sync.build()[str(family["body"])]
+    (boot_sync.BOOT / str(family["artifact"])).unlink()
+    second = boot_sync.build()[str(family["body"])]
+    assert first == second
+
+
 def test_the_starter_carries_the_pin_and_not_the_bytes():
     """Derived data is built, not stored: the bodies of the glue are pins."""
     text = (STARTER / "pymergetic/rxf/boot.rxfd").read_text()

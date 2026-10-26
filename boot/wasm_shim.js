@@ -42,6 +42,16 @@ async function main() {
   const mapAt = instance.exports.map_at();
   const memory = instance.exports.memory;
 
+  // The seat's growth fill (docs/32 3.1): grow linear memory past the promised
+  // room before the views below exist -- memory.grow detaches the buffer. The
+  // arena will hook the same export as its commit fill.
+  const grow = instance.exports.grow;
+  const before = memory.buffer.byteLength;
+  const want = BigInt(before + 65536);
+  if (grow(0, want) !== 1 || memory.buffer.byteLength < Number(want)) {
+    throw new Error(`grow to ${want} bytes did not extend the memory`);
+  }
+
   // The map: seven 32-bit words of layout (boot/wasm_shim.c's struct).
   const map = new Uint32Array(memory.buffer, mapAt, 7);
   const [context, handle, handleCopy, args, argc, out, fifo] = map;

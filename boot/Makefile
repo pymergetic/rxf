@@ -134,10 +134,12 @@ $(BUILD)/shim_wasm.o: wasm_shim.c $(MAP) | $(BUILD)
 
 # --stack-first: the 8 KiB C stack sits below the module's data, clear of the
 # world rows the host writes at 0x10000. run is the face; map_at arrives via
-# the shim's export_name attribute (the linker renames it there).
+# the shim's export_name attribute (the linker renames it there). The initial
+# memory is the room the map promises; the maximum is the seat's growth headroom
+# (docs/32 3.1: wasm grows with memory.grow, with an initial and a maximum).
 $(BUILD)/rxf_boot.wasm: $(BUILD)/entry_wasm.o $(BUILD)/uart_wasm.o $(BUILD)/shim_wasm.o
 	wasm-ld --no-entry --export=run --export-memory \
-	    --stack-first -z stack-size=8192 --initial-memory=131072 --max-memory=131072 \
+	    --stack-first -z stack-size=8192 --initial-memory=131072 --max-memory=1048576 \
 	    -o $@ $^
 
 # ---- x86_64 UEFI: a PE stub and the volume it reads the image from ----------
@@ -146,7 +148,7 @@ uefi: $(BUILD)/uefi_root/EFI/BOOT/BOOTX64.EFI
 
 $(BUILD)/BOOTX64.EFI: uefi_stub.c image_stub/uart_x86_64.c image_stub/uart.h $(MAP)
 	$(CLANG) --target=x86_64-windows-msvc -fuse-ld=lld-link -nostdlib $(CFLAGS) \
-	    -Wl,/subsystem:efi_application -Wl,/entry:efi_main \
+	    -Wl,/subsystem:efi_application -Wl,/entry:efi_main -Wl,/timestamp:0 \
 	    uefi_stub.c image_stub/uart_x86_64.c -o $@
 
 # QEMU's virtual FAT (fat:rw:) serves this directory: the stub is the removable

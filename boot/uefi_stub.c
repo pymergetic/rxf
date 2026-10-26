@@ -5,9 +5,10 @@
  * loader makes unavoidable lives here: the PE entry point in the Microsoft x64
  * calling convention, the protocols that find the file the image lives in, the
  * fixed-address allocation the memory map (boot/image_stub/world.h) assumes,
- * and the coarse answer on the magic port. The image's entry is called per
- * System V exactly as the BIOS trampoline calls it -- the convention of
- * tests/graph_world.py, unchanged between firmware and firmware.
+ * the seat's growth fill that claims it against the firmware's memory map
+ * (docs/32 3.1), and the coarse answer on the magic port. The image's entry is
+ * called per System V exactly as the BIOS trampoline calls it -- the convention
+ * of tests/graph_world.py, unchanged between firmware and firmware.
  *
  * Build: clang --target=x86_64-windows-msvc -fuse-ld=lld-link -nostdlib
  *              -Wl,/subsystem:efi_application -Wl,/entry:efi_main
@@ -18,6 +19,8 @@
  * firmware ABI is the Microsoft x64 one, so every service pointer is ms_abi
  * and the one call into the image is sysv_abi.
  */
+#include <stdbool.h>
+
 #include "image_stub/uart.h"
 #include "image_stub/world.h"
 
@@ -75,7 +78,9 @@ typedef struct {
     u8 header[24];
     void *raise_tpl, *restore_tpl;
     efi_status(MS *allocate_pages)(u32, u32, u64, u64 *);
-    void *free_pages, *get_memory_map, *allocate_pool, *free_pool;
+    void *free_pages;
+    efi_status(MS *get_memory_map)(u64 *, void *, u64 *, u64 *, u32 *);
+    void *allocate_pool, *free_pool;
     void *create_event, *set_timer, *wait_for_event, *signal_event, *close_event, *check_event;
     void *install_protocol, *reinstall_protocol, *uninstall_protocol;
     efi_status(MS *handle_protocol)(efi_handle, const efi_guid *, void **);
@@ -127,6 +132,66 @@ static void magic_port(u8 byte) {
     __asm__ volatile("outb %0, %1" : : "a"(byte), "Nd"((u16)RXF_BOOT_MAGIC_PORT));
 }
 
+/* The memory descriptor GetMemoryMap hands out (the stride the walk uses is
+ * descriptor_size, so the fields below are only the prefix every version shares). */
+typedef struct {
+    u32 type;
+    u32 pad;
+    u64 physical_start;
+    u64 virtual_start;
+    u64 pages;
+    u64 attribute;
+} efi_memory_descriptor;
+
+#define EFI_CONVENTIONAL_MEMORY 7u
+
+/* The seat's growth fill (docs/32 3.1: UEFI answers with E820's question through
+ * GetMemoryMap and then AllocatePages). The shape is Memory.commit's
+ * (core/arena/arena.hpp): the end of the bytes the arena wants materialized,
+ * counted from the region's start, answered true when they are material now. */
+typedef struct {
+    boot_services *boot;
+    u64 base;    /* where the region starts: the map's base */
+    u64 have;    /* bytes materialized from the base */
+    u64 ceiling; /* the end the region may grow to */
+} efi_growth;
+
+static bool efi_commit(void *ctx, u64 committed) {
+    efi_growth *growth = (efi_growth *)ctx;
+    if (committed <= growth->have)
+        return true;
+    if (committed > growth->ceiling)
+        return false;
+    u64 at = growth->base + growth->have;
+    u64 pages = (committed - growth->have + 0xfff) / 0x1000;
+    if (growth->boot->allocate_pages(EFI_ALLOCATE_ADDRESS, EFI_LOADER_DATA, pages, &at) !=
+        EFI_SUCCESS)
+        return false;
+    growth->have += pages * 0x1000;
+    return true;
+}
+
+/* The room above the promised one the firmware's map offers at this base: how
+ * far the conventional memory run behind the map's base reaches. Zero when the
+ * map cannot be read; the promised room is claimed either way. */
+static u64 growth_headroom(boot_services *boot, u64 base, u64 room) {
+    static u8 map[32768];
+    u64 size = sizeof(map), key = 0, stride = 0;
+    u32 version = 0;
+    if (boot->get_memory_map(&size, map, &key, &stride, &version) != EFI_SUCCESS || stride == 0)
+        return 0;
+    u64 ceiling = base + room;
+    for (u64 at = 0; at + sizeof(efi_memory_descriptor) <= size; at += stride) {
+        const efi_memory_descriptor *d = (const efi_memory_descriptor *)(map + at);
+        if (d->type != EFI_CONVENTIONAL_MEMORY)
+            continue;
+        u64 stop = d->physical_start + d->pages * 0x1000;
+        if (d->physical_start <= base && base < stop && stop > ceiling)
+            ceiling = stop;
+    }
+    return ceiling - (base + room);
+}
+
 efi_status MS efi_main(efi_handle image, system_table *st) {
     void *loaded = 0, *fs = 0;
     efi_file *root = 0, *file = 0;
@@ -139,12 +204,14 @@ efi_status MS efi_main(efi_handle image, system_table *st) {
     }
 
     /* The fixed-address room the map promises: world, entry code and the zero
-     * rows the glue zeroes. A real boot that wants to live anywhere else must
-     * move the map with it (boot/README.md). */
-    u64 room = RXF_BOOT_X86_ROOM; /* the image's room: world rows, code, zero rows */
-    u64 at = RXF_BOOT_X86_IMAGE_BASE;
-    if (st->boot->allocate_pages(EFI_ALLOCATE_ADDRESS, EFI_LOADER_DATA, (room + 0xfff) / 0x1000,
-                                 &at) != EFI_SUCCESS) {
+     * rows the glue zeroes. The seat's growth fill claims it, with the ceiling
+     * the firmware's memory map offers above the room for the arena to grow
+     * into. A real boot that wants to live anywhere else must move the map with
+     * it (boot/README.md). */
+    efi_growth growth = {st->boot, RXF_BOOT_X86_IMAGE_BASE, 0, 0};
+    growth.ceiling = growth.base + RXF_BOOT_X86_ROOM +
+                     growth_headroom(st->boot, RXF_BOOT_X86_IMAGE_BASE, RXF_BOOT_X86_ROOM);
+    if (!efi_commit(&growth, RXF_BOOT_X86_ROOM)) {
         report(st->boot, (const u16 *)L"no room at the map");
         magic_port(RXF_BOOT_MAGIC_FAIL);
         return EFI_SUCCESS;
@@ -160,7 +227,7 @@ efi_status MS efi_main(efi_handle image, system_table *st) {
         magic_port(RXF_BOOT_MAGIC_FAIL);
         return EFI_SUCCESS;
     }
-    u64 size = room; /* the buffer is the whole room; the file is smaller */
+    u64 size = RXF_BOOT_X86_ROOM; /* the buffer is the whole room; the file is smaller */
     if (file->read(file, &size, (void *)RXF_BOOT_X86_IMAGE_BASE) != EFI_SUCCESS ||
         size < RXF_BOOT_ENTRY + 64) {
         report(st->boot, (const u16 *)L"short RXF.IMG");

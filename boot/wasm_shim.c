@@ -15,6 +15,8 @@
  * step) and calls run(i32, i32, i64, i64, i32), the exact signature
  * tests/graph_world.py's node harness calls.
  */
+#include <stdbool.h>
+
 #include "stdlib_runtime.h"
 #include "world.h"
 
@@ -47,6 +49,19 @@ static struct rxf_boot_map map __attribute__((section(".data.map"))) = {
 
 __attribute__((export_name("map_at"))) rxf_u32 rxf_boot_map_at(void) {
     return (rxf_u32)(unsigned long)&map;
+}
+
+/* The seat's growth fill (docs/32 3.1): wasm grows with memory.grow, with an
+ * initial and a maximum. The shape is Memory.commit's (core/arena/arena.hpp):
+ * the end of the bytes the arena wants materialized, answered true when linear
+ * memory covers them now. The host's harness calls it once as its prove. */
+__attribute__((export_name("grow"))) bool rxf_boot_wasm_grow(void *ctx, rxf_u64 committed) {
+    (void)ctx;
+    const rxf_u64 have = (rxf_u64)__builtin_wasm_memory_size(0) * 65536u;
+    if (committed <= have)
+        return true;
+    const rxf_u64 pages = (committed - have + 65535u) / 65536u;
+    return __builtin_wasm_memory_grow(0, (unsigned long)pages) != (unsigned long)-1;
 }
 
 /* The image's entry under the name the host calls. The export's wasm type
