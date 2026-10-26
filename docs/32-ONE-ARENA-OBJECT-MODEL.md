@@ -218,7 +218,64 @@ safe are exactly the pieces that make concurrency cheap:
 That combination — lock-free parallelism, crash consistency, and object identity
 across threads from one mechanism — is the return on the lookup overhead.
 
-## 5. Related
+## 5. The semantic face of an object
+
+One question the layout above does not answer, and every consumer of the format
+asks: **where do the semantic fields of a world object live?**
+
+A world object — the model the host toolchain and [the delta format](15-DELTAS-AND-XML.md)
+speak — is more than a record. The cell of the superseded binary model carries
+`type` (a handle), `generation` (64 bits), `flags` (32 bits, the packed state
+among them: provenance, disposition, cleanliness, mobility), and the position
+among the siblings. The delta form carries the same fields as `type` (a path),
+`flags`, `index`, `generation` (`pymergetic_rxf_delta_object` in
+[the live header](../src/pymergetic/rxftk/core/live/live.h)). The 24-byte record
+carries none of them: `kind` is the storage role, `gen` is 12 bits of
+stale-handle detection, `flags` is 16 bits of storage state (RO, ROOT, DIRTY,
+JOURNALED), and the sibling position is the chain order.
+
+Nothing can migrate to the new arena without this answer:
+
+- **the live engine** (`native/live.rxfs` and `core/live/live.cpp`, which must
+  move together): `GET` answers a cell header, the apply writes `type`, `flags`,
+  `index`, `generation` from a delta, and the parity contract of
+  `tests/test_live_native.py` holds the two builds to the same answers;
+- **the scene reader**: the kind word, the state word and the type-derived field
+  edges of a scene document;
+- **the delta apply on the new storage**: `Create` and `Set` carry those fields
+  and a refused round trip is a digest break.
+
+Options, in the vocabulary the model already has:
+
+1. **A semantic prefix in the payload.** A world object's payload opens with the
+   fields the record does not carry, then the value — the shape the delta object
+   already has, and the shape the module payload already uses (the arena-owned
+   chain head, then the module's own bytes). One object, one place, no second
+   source of truth. Cost: a reader of value bytes learns the prefix.
+2. **A spec table beside the object index.** `sys/specs`, one row per object
+   index, carrying `type`, `flags`, `state`, `generation`, `index` — a table
+   object like `sys/objects` and `sys/relations`, keyed by the same index as the
+   slot table. Value bytes stay what the world says they are (the property every
+   reader and the digests lean on). Cost: one more table to keep in step with the
+   records, as the relation tables already are.
+3. **The fields as relations.** `type` is a reference like any other. Cost: a
+   relation table per object for a scalar, and the 32-bit `flags` still has no
+   home in a 16-bit field.
+
+The decision gates the live engine on this model and the scene reader; it does
+not gate the allocator, the journal, or the honors. Until it is made, the
+convergence stops at the seam: the linker writes this model, the live engine
+still serves the old one, and the request path of `tests/test_live_native.py`
+and `tests/test_live_control.py` fails there (the pump refuses the attach on the
+format gate).
+
+A consequence either way: the canonical digest of an image becomes the digest of
+its canonical bytes in *this* model, and the old and the new build answer the
+same one only when they serve the same arena.
+
+---
+
+## 6. Related
 
 - [The self-hosting plan](31-SELF-HOSTING.md) — waves, and where this rework lands.
 - [The arena and allocator state](03-ALLOCATOR-STATE.md) — the current state fields.
