@@ -74,5 +74,38 @@ OFLAG_DIRTY: int = 4
 
 OFLAG_JOURNALED: int = 8
 
+FREE_PREV: int = 0
+
+FREE_NEXT: int = 8
+
+FREE_LINKS: int = 16
+
+FREE_MIN_SPAN: int = 40
+
+class ObjectArena:
+    @staticmethod
+    def create(limit: int, fixed: bool = False) -> ObjectArena: ...
+
+    def s_allocate(self, room: int) -> int: ...
+
+    def s_release(self, offset: int) -> None: ...
+
+    def s_ensure(self, at: int, length: int) -> None: ...
+
+    def verify(self) -> None: ...
+
+    def record(self, offset: int) -> tuple: ...
+
+    def links(self, offset: int) -> tuple: ...
+
+    @property
+    def committed(self) -> int: ...
+
+    @property
+    def limit(self) -> int: ...
+
+    @property
+    def need(self) -> int: ...
+
 class ArenaError(RuntimeError):
     pass

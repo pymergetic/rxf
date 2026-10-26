@@ -491,6 +491,22 @@ pymergetic_rxf_object_size(const pymergetic_rxf_object *object) {
            (((uint64_t)object->payload + 7ULL) & ~7ULL);
 }
 
+/* The FREE ring links (docs/32 1.3): a FREE span whose payload room is at least
+ * 16 bytes carries the ring in its payload - prev and next are the arena offsets
+ * of the neighbouring FREE objects - and the ring is circular. The span length is
+ * the object size (24 + room), so the links are the only payload words. The end
+ * marker (the FREE span at superblock.committed) is the ring anchor: a span with
+ * room below 16 cannot carry links and stays a linkless fragment until the tail
+ * merge or compaction takes it. */
+#define PYMERGETIC_RXF_FREE_PREV 0U
+#define PYMERGETIC_RXF_FREE_NEXT 8U
+#define PYMERGETIC_RXF_FREE_LINKS 16U
+#define PYMERGETIC_RXF_FREE_MIN_SPAN                                                                    \
+    ((uint64_t)sizeof(pymergetic_rxf_object) + PYMERGETIC_RXF_FREE_LINKS)
+
+PYMERGETIC_RXF_GROUND_ASSERT(PYMERGETIC_RXF_FREE_MIN_SPAN == 40,
+                             "a ring free span is 40 bytes (24 header + 16 links)");
+
 #ifdef __cplusplus
 }
 #endif

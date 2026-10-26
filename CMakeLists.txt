@@ -33,7 +33,7 @@ target_compile_options(rxf_kinds PRIVATE -Wall -Wextra -Werror)
 set_target_properties(rxf_kinds PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # pymergetic::rxf::core::arena is freestanding: no exceptions, no RTTI, nothing from the standard library.
-add_library(rxf_arena STATIC ${RXF_CORE}/arena/arena.cpp)
+add_library(rxf_arena STATIC ${RXF_CORE}/arena/arena.cpp ${RXF_CORE}/arena/object_arena.cpp)
 target_link_libraries(rxf_arena PUBLIC rxf_ground)
 target_compile_options(rxf_arena PRIVATE -fno-exceptions -fno-rtti -Wall -Wextra -Werror)
 set_target_properties(rxf_arena PROPERTIES POSITION_INDEPENDENT_CODE ON)

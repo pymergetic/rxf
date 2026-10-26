@@ -96,8 +96,14 @@ header `link` field is the single forward chain of a parent's children.
 
 Cells pack back to back. When a span frees, it becomes a **free cell**: same 24-byte
 header, `kind = FREE`, `name = 0`, and the free cells are kept in a `FREE` ring so a
-later allocation can split one. The end marker (a zero-length free cell) sits at
-`committed` and grows when the region grows.
+later allocation can split one. A free cell's payload carries the ring links (`prev`,
+`next`, the arena offsets of the neighbours), so a ring cell is 40 bytes or more; a
+freed span below that stays linkless until compaction takes it. The end marker — the
+free span at `committed`, the anchor of the ring — covers the tail and grows when the
+region grows; releasing the span adjacent to it merges into it. The allocator takes
+the best-fitting cell and splits it when the remainder can carry links (40 bytes or
+more), and the generation of a reused cell is bumped so a stale handle fails its
+check.
 
 ---
 
