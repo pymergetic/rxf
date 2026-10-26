@@ -4,7 +4,11 @@
 #include <pymergetic/rxftk/core/object/image.hpp>
 
 #include <memory>
+#include <optional>
+#include <string>
 
+#include <nanobind/stl/optional.h>
+#include <nanobind/stl/string.h>
 #include <nanobind/stl/unique_ptr.h>
 
 namespace pymergetic::rxf::core::bindings {
@@ -66,6 +70,15 @@ void bind_arena(nb::module_ &m) {
     m.attr("FREE_NEXT") = PYMERGETIC_RXF_FREE_NEXT;
     m.attr("FREE_LINKS") = PYMERGETIC_RXF_FREE_LINKS;
     m.attr("FREE_MIN_SPAN") = (uint64_t)PYMERGETIC_RXF_FREE_MIN_SPAN;
+    /* The object model (docs/32 2): the index, a Module's payload, the names. */
+    m.attr("INDEX_OFFSET") = (uint64_t)PYMERGETIC_RXF_INDEX_OFFSET;
+    m.attr("INDEX_SELF") = PYMERGETIC_RXF_INDEX_SELF;
+    m.attr("INDEX_SYMS") = PYMERGETIC_RXF_INDEX_SYMS;
+    m.attr("SLOT_SIZE") = sizeof(pymergetic_rxf_slot);
+    m.attr("SLOTS_HEAD_SIZE") = sizeof(pymergetic_rxf_slots);
+    m.attr("MODULE_SIZE") = sizeof(pymergetic_rxf_module);
+    m.attr("SYMS_HEAD_SIZE") = sizeof(pymergetic_rxf_syms);
+    m.attr("SYMS_ANONYMOUS") = PYMERGETIC_RXF_SYMS_ANONYMOUS;
 
     nb::class_<HostObjectArena> object_arena(m, "ObjectArena");
     object_arena
@@ -106,6 +119,62 @@ void bind_arena(nb::module_ &m) {
              },
              nb::arg("at"), nb::arg("length"))
         .def("verify", [](HostObjectArena &self) { check(self.arena.verify()); })
+        /* The object model (docs/32 2): the sys/ skeleton, the tree walk, the
+         * names. `new_object` is `create` on the arena (the factory above owns
+         * the Python name); every handle it or `find` answers is checked on the
+         * way back in through `load`. */
+        .def("bootstrap",
+             [](HostObjectArena &self, const char *name, uint32_t capacity) {
+                 check(self.arena.bootstrap(name, capacity));
+             },
+             nb::arg("name"), nb::arg("capacity") = 1024)
+        .def("new_object",
+             [](HostObjectArena &self, uint32_t parent, std::optional<std::string> name,
+                uint16_t kind, uint64_t room) {
+                 uint32_t handle = PYMERGETIC_RXF_HANDLE32_NONE;
+                 check(self.arena.create(parent, name ? name->c_str() : nullptr, kind, room,
+                                         &handle));
+                 return handle;
+             },
+             nb::arg("parent"), nb::arg("name"), nb::arg("kind"), nb::arg("room"))
+        .def("find",
+             [](HostObjectArena &self, uint32_t parent, const char *name) -> uint32_t {
+                 uint32_t handle = PYMERGETIC_RXF_HANDLE32_NONE;
+                 check(self.arena.find(parent, name, &handle));
+                 return handle;
+             },
+             nb::arg("parent"), nb::arg("name"))
+        .def("load",
+             [](HostObjectArena &self, uint32_t handle) {
+                 pymergetic_rxf_object *record = nullptr;
+                 check(self.arena.load(handle, &record));
+                 return nb::make_tuple(record->kind, record->gen, record->flags, record->name,
+                                       record->parent, record->link, record->refs,
+                                       record->payload);
+             },
+             nb::arg("handle"))
+        .def("release",
+             [](HostObjectArena &self, uint32_t handle) {
+                 check(self.arena.release_handle(handle));
+             },
+             nb::arg("handle"))
+        .def("intern",
+             [](HostObjectArena &self, const char *text) {
+                 uint16_t id = 0;
+                 check(self.arena.intern(text, &id));
+                 return id;
+             },
+             nb::arg("text"))
+        .def("symbol",
+             [](HostObjectArena &self, uint16_t id) {
+                 const char *text = nullptr;
+                 uint32_t length = 0;
+                 check(self.arena.symbol(id, &text, &length));
+                 return nb::str(text, length);
+             },
+             nb::arg("id"))
+        .def_prop_ro("root_handle",
+                     [](const HostObjectArena &self) { return self.arena.root_handle(); })
         .def("record",
              [](const HostObjectArena &self, uint64_t offset) {
                  const pymergetic_rxf_object *record =

@@ -9,9 +9,21 @@ import pytest
 from pymergetic.rxftk.core.arena import (
     ArenaError,
     FREE_MIN_SPAN,
+    HANDLE32_NONE,
+    INDEX_OFFSET,
+    INDEX_SELF,
+    INDEX_SYMS,
+    MODULE_SIZE,
+    OBJ_BLOB,
     OBJ_FREE,
+    OBJ_MODULE,
+    OBJ_SYM,
     OBJECT_HEADER_SIZE as HEADER,
+    OFLAG_ROOT,
+    SLOT_SIZE,
     SUPERBLOCK_SIZE as SUPER_SIZE,
+    SYMS_ANONYMOUS,
+    SYMS_HEAD_SIZE,
     ObjectArena,
 )
 
@@ -165,3 +177,146 @@ def test_the_fixed_region_build_refuses_without_consulting_the_hook(tmp_path):
     assert built.returncode == 0, built.stderr
     ran = subprocess.run([str(probe)], capture_output=True, text=True, check=False)
     assert ran.returncode == 0, (ran.stdout, ran.stderr)
+
+
+# ---- the object model (docs/32 slice 3) ------------------------------------
+
+
+def test_the_object_model_layout_pins():
+    assert SLOT_SIZE == 16
+    assert MODULE_SIZE == 8
+    assert SYMS_HEAD_SIZE == 8
+    assert INDEX_OFFSET == 4096
+    assert INDEX_SELF == 0
+    assert INDEX_SYMS == 1
+    assert SYMS_ANONYMOUS == 0  # id 0 is anonymous and stored nowhere
+    assert HANDLE32_NONE == 0xFFFFFFFF
+
+
+def test_bootstrap_plants_the_sys_tree():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    # Handle numbers are layout: gen 1, indices in creation order.
+    assert a.root_handle == 0x100002
+    sys_h = a.find(a.root_handle, "sys")
+    assert sys_h == 0x100003
+    leaves = {
+        "objects": 0x100000,
+        "functions": 0x100004,
+        "journal": 0x100005,
+        "caps": 0x100006,
+        "free": 0x100007,
+        "syms": 0x100001,
+    }
+    for name, handle in leaves.items():
+        assert a.find(sys_h, name) == handle, name
+    root = a.load(a.root_handle)
+    assert root[0] == OBJ_MODULE
+    assert root[2] & OFLAG_ROOT
+    assert a.load(leaves["objects"])[0] == OBJ_MODULE
+    assert a.load(leaves["syms"])[0] == OBJ_SYM  # its payload is the string table
+
+
+def test_lookups_walk_the_tree_and_misses_answer_none():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    sys_h = a.find(a.root_handle, "sys")
+    assert a.find(sys_h, "caps") != HANDLE32_NONE
+    assert a.find(sys_h, "not-there") == HANDLE32_NONE  # a miss answers HANDLE32_NONE
+    assert a.find(sys_h, "sys") == HANDLE32_NONE  # children only, no recursion
+    assert a.find(a.find(sys_h, "caps"), "sys") == HANDLE32_NONE
+    with pytest.raises(ArenaError):
+        a.find(HANDLE32_NONE, "caps")  # a dead parent is a caller error, not a miss
+
+
+def test_interning_dedupes_and_symbols_roundtrip():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    first = a.intern("hello")
+    assert a.intern("hello") == first
+    second = a.intern("world")
+    assert second != first
+    assert a.symbol(first) == "hello"
+    assert a.symbol(second) == "world"
+
+
+def test_anonymous_objects_carry_the_anonymous_name():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    sys_h = a.find(a.root_handle, "sys")
+    handle = a.new_object(sys_h, None, OBJ_BLOB, 8)
+    assert a.load(handle)[3] == SYMS_ANONYMOUS
+
+
+def test_create_load_release_and_stale_handles():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    sys_h = a.find(a.root_handle, "sys")
+    handle = a.new_object(sys_h, "temp", OBJ_BLOB, 16)
+    record = a.load(handle)
+    assert record[0] == OBJ_BLOB
+    assert record[6] == 1  # refs
+    assert record[7] == 16  # payload
+    a.release(handle)
+    with pytest.raises(ArenaError):
+        a.load(handle)
+    a.release(HANDLE32_NONE)  # a no-op, not an error
+    reused = a.new_object(sys_h, "other", OBJ_BLOB, 8)
+    assert reused & 0xFFFFF == handle & 0xFFFFF  # the index lives again
+    assert reused != handle  # under a new generation
+    with pytest.raises(ArenaError):
+        a.load(handle)  # the stale handle stays refused
+    with pytest.raises(ArenaError):
+        a.release(handle)  # and cannot free the new occupant
+
+
+def test_releasing_unlinks_the_child_from_its_parent():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    sys_h = a.find(a.root_handle, "sys")
+    keep = a.new_object(sys_h, "keep", OBJ_BLOB, 8)
+    drop = a.new_object(sys_h, "drop", OBJ_BLOB, 8)
+    a.release(drop)
+    assert a.find(sys_h, "drop") == HANDLE32_NONE
+    assert a.find(sys_h, "keep") == keep
+
+
+def test_the_index_object_refuses_children():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    objects_h = a.find(a.find(a.root_handle, "sys"), "objects")
+    with pytest.raises(ArenaError):
+        a.new_object(objects_h, "child", OBJ_BLOB, 8)
+    with pytest.raises(ArenaError):
+        a.find(objects_h, "anything")
+    with pytest.raises(ArenaError):
+        a.release(objects_h)
+
+
+def test_creation_refuses_oversized_payloads():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    sys_h = a.find(a.root_handle, "sys")
+    with pytest.raises(ArenaError):
+        a.new_object(sys_h, "big", OBJ_BLOB, 2**40)
+
+
+def test_syms_growth_relocates_and_repoints_the_index():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    for i in range(200):  # several times over the initial syms window
+        a.intern(f"symbol-{i:04d}")
+    assert a.symbol(a.intern("symbol-0199")) == "symbol-0199"
+    assert a.symbol(a.intern("symbol-0000")) == "symbol-0000"
+    assert a.verify() is None
+
+
+def test_creation_grows_committed_by_the_objects_span():
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    before = a.committed
+    sys_h = a.find(a.root_handle, "sys")
+    handle = a.new_object(sys_h, "sized", OBJ_BLOB, 100)
+    assert a.committed >= before + room_span(100)
+    # The payload field is the granted size: 8-aligned, and span = header + payload.
+    assert a.load(handle)[7] == 104
