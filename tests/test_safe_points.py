@@ -36,6 +36,10 @@ from .test_live_control import (
     the_value,
 )
 
+# Every test here boots the live world and compiles on the image's own front end
+# in Unicorn - minutes each. Nightly like the test_live_control harness it uses.
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
+
 STALE = graph_header.numbers()["RXF_REFUSE_STALE_GENERATION"]
 SAFE_POINT = graph_header.leaves()["safe_point"]
 

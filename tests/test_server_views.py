@@ -33,6 +33,11 @@ from pymergetic.rxftk.server.live import Session
 
 from .test_console import MACHINES, MODULE, TRIPLE, Seat, booted, seat_of
 
+# The tests that touch the live tree boot a machine through booted/seat_of and
+# compile on the image's own front end in Unicorn - minutes each. Nightly like
+# test_console, whose harness this uses.
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
+
 STARTER = Path(__file__).parents[1] / "starter"
 
 

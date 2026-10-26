@@ -7,6 +7,7 @@ a structure larger than 16 bytes as a copy whose address takes an integer slot.
 """
 
 from dataclasses import dataclass
+import time
 
 import pytest
 
@@ -51,16 +52,28 @@ class Blob:
 
 Argument = Integer | Real | Blob
 
+# One call must come back: a guest that never returns to the sentinel fails its
+# test with the program counter it was left at, instead of eating a test lane
+# until somebody kills the run. The slices keep unicorn's timeout small enough
+# to notice the budget without another thread.
+CALL_TIMEOUT = 600.0
+SLICE_TIMEOUT = 5.0
+
+
+class RunawayCall(RuntimeError):
+    """The guest did not return to the sentinel inside the call budget."""
+
 
 def pages(size: int) -> int:
     return (size + PAGE - 1) // PAGE * PAGE
 
 
 class Emulator:
-    def __init__(self, machine: str, shift: int = 0) -> None:
+    def __init__(self, machine: str, shift: int = 0, call_timeout: float = CALL_TIMEOUT) -> None:
         """``shift`` moves the code, the stack and the rest behind the memory of a world that needs
-        more than the 8 MB below them."""
+        more than the 8 MB below them. ``call_timeout`` bounds one call (see ``RunawayCall``)."""
         self.machine = machine
+        self.call_timeout = call_timeout
         self.code_at, self.stack, self.scratch, self.back = (
             CODE + shift,
             STACK + shift,
@@ -107,6 +120,26 @@ class Emulator:
             return self.call_sysv(address, arguments)
         return self.call_aapcs64(address, arguments)
 
+    def run(self, address: int) -> None:
+        """Run to the sentinel at ``self.back``, in slices, refusing a guest that never returns."""
+        program_counter = (
+            x86.UC_X86_REG_RIP if self.machine == "x86_64" else arm64.UC_ARM64_REG_PC
+        )
+        deadline = time.monotonic() + self.call_timeout
+        current = address
+        while True:
+            left = deadline - time.monotonic()
+            slice_us = max(1, int(min(SLICE_TIMEOUT, left) * 1_000_000))
+            self.uc.emu_start(current, self.back, timeout=slice_us)
+            current = self.uc.reg_read(program_counter)
+            if current == self.back:
+                return
+            if time.monotonic() >= deadline:
+                raise RunawayCall(
+                    f"the {self.machine} guest did not return within {self.call_timeout:.0f}s; "
+                    f"pc=0x{current:x}"
+                )
+
     def call_sysv(self, address: int, arguments: list[Argument]) -> int:
         registers = iter(X86_INTEGERS)
         real = 0
@@ -128,7 +161,7 @@ class Emulator:
         top = self.stack + STACK_SIZE - PAGE
         self.uc.mem_write(top, self.back.to_bytes(8, "little") + bytes(stack))
         self.uc.reg_write(x86.UC_X86_REG_RSP, top)
-        self.uc.emu_start(address, self.back)
+        self.run(address)
         return self.uc.reg_read(x86.UC_X86_REG_EAX)
 
     def call_aapcs64(self, address: int, arguments: list[Argument]) -> int:
@@ -165,5 +198,5 @@ class Emulator:
         self.uc.mem_write(top, bytes(stack) or b"\0")
         self.uc.reg_write(arm64.UC_ARM64_REG_SP, top)
         self.uc.reg_write(arm64.UC_ARM64_REG_X30, self.back)
-        self.uc.emu_start(address, self.back)
+        self.run(address)
         return self.uc.reg_read(arm64.UC_ARM64_REG_W0)

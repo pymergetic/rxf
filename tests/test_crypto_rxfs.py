@@ -29,6 +29,11 @@ from . import graph_world as world
 from . import rxf_sim, rxf_world
 from .snippets import STARTER
 
+# The prove matrix: every case runs the program in a pure-Python simulator and on
+# every machine's interpreter. One BLAKE2s case alone emulated for 8+ minutes
+# before this mark. Nightly material like test_compile's machine matrix.
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
+
 ROOT = Path(__file__).parents[1]
 CRYPTO = ROOT / "native" / "crypto"
 SHA256 = rxfc.compile_file(CRYPTO / "sha256.rxfs")
