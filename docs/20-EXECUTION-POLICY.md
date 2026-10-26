@@ -314,9 +314,11 @@ step is a safe point, and nothing is held across it.
   refused (`handle_stale_refused`) and never rebinds to the new cell of a reused slot.
 - **release(handle)** drops the claim. A claim is always released by its holder, and always before
   the safe point.
-- **C_FORWARD tracking.** When a cell slides (S8), the compactor writes the cell's new offset into
-  the old header before the copy; the word travels with the cell into its new header, and the old
-  place carries the record until the pass finishes or until the geometry covers it. A reader at an
+- **C_FORWARD tracking.** When a record slides (S8), the compactor writes the record's new offset
+  into the old header's `link` word before the copy (`C_FORWARD` is the forwarding home of the v7
+  object record); the word travels with the copy, so the mover restores the chain word in the new
+  header and the forwarding record exists only at the vacated place — until the pass finishes or
+  until the geometry covers it. A reader at an
   old address consults the record; a reader with a handle does not need it. Mid-flight — the cell
   of a live run moved between two of its safe points — is legal and expected: the next step
   resolves the handle again and finds the new place (`relocated_steps`).
@@ -348,16 +350,19 @@ cells), so the compactor has real gaps to close under live runs.
 2. a pinned cell keeps its source address: the pass leaves it and slides around it (a pin
    constrains the running source address, not the successor, docs/03);
 3. a dead cell (kind 254) vanishes and its slot stays free;
-4. an unpinned live cell slides down to the frontier: write `C_FORWARD` into the old header,
-   copy the whole cell, publish the new offset in the slot, release the claim. The payload
+4. an unpinned live record slides down to the frontier: write `C_FORWARD` (the vacated place's
+   `link` word) with the new offset, copy the whole record, restore the chain word in the new
+   header, publish the new offset in the slot, release the claim. The payload
    checksum is taken before the copy and after it; a copy that does not match is counted and never
    observed (`checksum_fails == 0` is a proof obligation);
 5. when the pass ends, the vacated tail (after the new frontier) is filled with `0xA5` and
    ASAN-poisoned. Nothing poisons a live cell; a stale raw address reads poison and is caught.
 
-**The C_FORWARD flip.** The forwarding word is written before the copy and travels with the cell
-into its new header; at the old place it survives exactly as long as the geometry says — an
-overlapping slide (a gap smaller than the cell) or a later slide into the old place consumes it.
+**The C_FORWARD flip.** The forwarding word is written before the copy — a slide can overlap its
+own old place (a gap smaller than the record), where writing after the copy would tear the new
+payload — and it travels with the copy into the new header, whose chain word the mover restores.
+At the old place the record survives exactly as long as the geometry says — an
+overlapping slide (a gap smaller than the record) or a later slide into the old place consumes it.
 The evidence accounts for every moved cell exactly: `forward_ok` (the record was read back at the
 old place and equalled the new offset) plus `forward_lost` (the old place is another cell's bytes
 now) equals `moved_cells`, pass for pass. A record that the geometry left in place and whose value

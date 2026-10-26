@@ -30,16 +30,28 @@ typedef uint64_t rxf_smp_handle;
 #define RXF_SMP_H_INDEX(h) ((uint32_t)(h))
 #define RXF_SMP_H_GENERATION(h) ((uint32_t)((h) >> 32))
 
-/* The 64-byte cell header of the arena (docs/17 "Arena and RXFB v6", the numbers of
- * native/compose/words.rxfs): C_FORWARD at byte 48 is the compaction forwarding offset. */
-#define RXF_SMP_CELL_BYTES 64u
+/* The 24-byte object header of the v7 arena (docs/32 1, ground.h pymergetic_rxf_object,
+ * the numbers of tools/native/arena_export.py): kind/gen/flags/name are 16 bits each,
+ * parent/link/refs/payload 32 bits each, and the payload follows the header in 8-byte
+ * slots. The record is the one object model of the image - this proof speaks it so the
+ * policy it pins is the policy the real arena compacts under. */
+#define RXF_SMP_CELL_BYTES 24u
 #define RXF_SMP_C_TYPE 0u
-#define RXF_SMP_C_PAYLOAD_SIZE 16u
-#define RXF_SMP_C_GENERATION 24u
-#define RXF_SMP_C_FLAGS 40u
-#define RXF_SMP_C_FORWARD 48u
-#define RXF_SMP_C_INDEX 56u
+#define RXF_SMP_C_GENERATION 2u
+#define RXF_SMP_C_FLAGS 4u
+#define RXF_SMP_C_NAME 6u
+#define RXF_SMP_C_PARENT 8u
+#define RXF_SMP_C_LINK 12u
+#define RXF_SMP_C_REFS 16u
+#define RXF_SMP_C_PAYLOAD_SIZE 20u
 #define RXF_SMP_FLAG_PINNED 1u
+
+/* Where a compaction pass records where a record went (docs/20, S8): the vacated place's
+ * `link` word names the new offset. `link` is a chain word in a live record, so the mover
+ * saves it before the copy and restores it in the new header - the forwarding word exists
+ * only at the vacated place, exactly as long as no later slide covers it. What geometry
+ * cannot protect, rxf_smp_compact_finish poisons. */
+#define RXF_SMP_C_FORWARD 12u
 
 /* The kinds of cell this proof makes. */
 enum {

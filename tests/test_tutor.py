@@ -78,8 +78,11 @@ def source_constants() -> dict[str, int]:
         "RXF_SMP_C_PAYLOAD_SIZE",
         "RXF_SMP_C_GENERATION",
         "RXF_SMP_C_FLAGS",
+        "RXF_SMP_C_NAME",
+        "RXF_SMP_C_PARENT",
+        "RXF_SMP_C_LINK",
+        "RXF_SMP_C_REFS",
         "RXF_SMP_C_FORWARD",
-        "RXF_SMP_C_INDEX",
         "RXF_SMP_CLAIM_MOVING",
     ):
         expected[name] = define(arena, name)
@@ -127,9 +130,15 @@ def source_constants() -> dict[str, int]:
         )
     }
     for field, name in (
+        ("type", "RXFB_C_TYPE"),
         ("parent", "RXFB_C_PARENT"),
+        ("payload_size", "RXFB_C_PAYLOAD_SIZE"),
+        ("generation", "RXFB_C_GENERATION"),
         ("name", "RXFB_C_NAME"),
+        ("flags", "RXFB_C_FLAGS"),
         ("ref_count", "RXFB_C_REFCOUNT"),
+        ("forward", "RXFB_C_FORWARD"),
+        ("index", "RXFB_C_INDEX"),
         ("reserved", "RXFB_C_RESERVED"),
     ):
         assert field in pins, f"ground.h no longer pins pymergetic_rxf_cell.{field}"
@@ -236,17 +245,16 @@ def engine_values() -> dict[str, int]:
 
 
 REQUIRED_PINS = {
-    # the cell header the arena strip shows
+    # the object record the arena strip shows
     "RXF_SMP_C_TYPE",
-    "RXFB_C_PARENT",
-    "RXF_SMP_C_PAYLOAD_SIZE",
     "RXF_SMP_C_GENERATION",
-    "RXFB_C_NAME",
     "RXF_SMP_C_FLAGS",
-    "RXFB_C_REFCOUNT",
+    "RXF_SMP_C_NAME",
+    "RXF_SMP_C_PARENT",
+    "RXF_SMP_C_LINK",
+    "RXF_SMP_C_REFS",
+    "RXF_SMP_C_PAYLOAD_SIZE",
     "RXF_SMP_C_FORWARD",
-    "RXF_SMP_C_INDEX",
-    "RXFB_C_RESERVED",
     "RXF_SMP_CELL_BYTES",
     # the machine
     "RXF_SMP_STATE_FREE",

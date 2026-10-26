@@ -172,22 +172,44 @@ in.</p>
 
 <table>
   <tr><th>offset</th><th>word</th><th>size</th><th>live view field</th></tr>
-  <tr><td><span class="pin" data-pin="RXF_SMP_C_TYPE" data-value="0">0</span></td><td><code>type</code></td><td>8 B</td><td>Details &rarr; type</td></tr>
+  <tr><td><span class="pin" data-pin="RXFB_C_TYPE" data-value="0">0</span></td><td><code>type</code></td><td>8 B</td><td>Details &rarr; type</td></tr>
   <tr><td><span class="pin" data-pin="RXFB_C_PARENT" data-value="8">8</span></td><td><code>parent</code></td><td>8 B</td><td>Details &rarr; parent</td></tr>
-  <tr><td><span class="pin" data-pin="RXF_SMP_C_PAYLOAD_SIZE" data-value="16">16</span></td><td><code>payload_size</code></td><td>8 B</td><td>Cell &rarr; payload</td></tr>
-  <tr><td><span class="pin" data-pin="RXF_SMP_C_GENERATION" data-value="24">24</span></td><td><code>generation</code></td><td>8 B</td><td>Details &rarr; handle &rarr; generation</td></tr>
+  <tr><td><span class="pin" data-pin="RXFB_C_PAYLOAD_SIZE" data-value="16">16</span></td><td><code>payload_size</code></td><td>8 B</td><td>Cell &rarr; payload</td></tr>
+  <tr><td><span class="pin" data-pin="RXFB_C_GENERATION" data-value="24">24</span></td><td><code>generation</code></td><td>8 B</td><td>Details &rarr; handle &rarr; generation</td></tr>
   <tr><td><span class="pin" data-pin="RXFB_C_NAME" data-value="32">32</span></td><td><code>name</code></td><td>8 B</td><td>Cell &rarr; name at</td></tr>
-  <tr><td><span class="pin" data-pin="RXF_SMP_C_FLAGS" data-value="40">40</span></td><td><code>flags</code></td><td>4 B</td><td>Flags &rarr; raw</td></tr>
+  <tr><td><span class="pin" data-pin="RXFB_C_FLAGS" data-value="40">40</span></td><td><code>flags</code></td><td>4 B</td><td>Flags &rarr; raw</td></tr>
   <tr><td><span class="pin" data-pin="RXFB_C_REFCOUNT" data-value="44">44</span></td><td><code>ref_count</code></td><td>4 B</td><td>Cell &rarr; refs</td></tr>
-  <tr><td><span class="pin" data-pin="RXF_SMP_C_FORWARD" data-value="48">48</span></td><td><code>forward</code> &mdash; <code>C_FORWARD</code></td><td>8 B</td><td>Cell &rarr; forward</td></tr>
-  <tr><td><span class="pin" data-pin="RXF_SMP_C_INDEX" data-value="56">56</span></td><td><code>index</code></td><td>4 B</td><td>Cell &rarr; index</td></tr>
+  <tr><td><span class="pin" data-pin="RXFB_C_FORWARD" data-value="48">48</span></td><td><code>forward</code> &mdash; <code>C_FORWARD</code></td><td>8 B</td><td>Cell &rarr; forward</td></tr>
+  <tr><td><span class="pin" data-pin="RXFB_C_INDEX" data-value="56">56</span></td><td><code>index</code></td><td>4 B</td><td>Cell &rarr; index</td></tr>
   <tr><td><span class="pin" data-pin="RXFB_C_RESERVED" data-value="60">60</span></td><td><code>reserved</code></td><td>4 B</td><td>&mdash;</td></tr>
 </table>
-<p class="note">The header is <span class="pin" data-pin="RXF_SMP_CELL_BYTES" data-value="64">64</span>
-bytes (<code>RXF_SMP_CELL_BYTES</code>, <code>sizeof(pymergetic_rxf_cell)</code>); a reference row is
-<span class="pin" data-pin="RXFB_REF_BYTES" data-value="24">24</span> bytes. A cell with
-<code>flags</code> pinned stays at its source address when the arena is compacted
+<p class="note">The cell header is 64 bytes (<code>sizeof(pymergetic_rxf_cell)</code>, the header the
+live view decodes); a reference row is <span class="pin" data-pin="RXFB_REF_BYTES" data-value="24">24</span>
+bytes. A cell with <code>flags</code> pinned stays at its source address when the arena is compacted
 (<span class="pin" data-pin="RXF_SMP_FLAG_PINNED" data-value="1">RXF_SMP_FLAG_PINNED = 1</span>).</p>
+
+<h3 id="object-record">The object record</h3>
+<p>The machine's one arena (docs/32) indexes 24-byte object records, and the compaction proof
+compacts exactly these: the record is the image's header word set, the payload follows it in
+8-byte slots. A record carries no index of its own &mdash; the index lives in the slot table, and
+the slot is the authority for a handle's generation.</p>
+<table>
+  <tr><th>offset</th><th>word</th><th>size</th><th>record field</th></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_TYPE" data-value="0">0</span></td><td><code>kind</code> &mdash; the storage role</td><td>2 B</td><td><code>OBJ_*</code></td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_GENERATION" data-value="2">2</span></td><td><code>gen</code></td><td>2 B</td><td>Details &rarr; handle &rarr; generation</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_FLAGS" data-value="4">4</span></td><td><code>flags</code></td><td>2 B</td><td>Flags &rarr; raw</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_NAME" data-value="6">6</span></td><td><code>name</code></td><td>2 B</td><td>symbol id in <code>sys/syms</code></td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_PARENT" data-value="8">8</span></td><td><code>parent</code></td><td>4 B</td><td>Details &rarr; parent</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_LINK" data-value="12">12</span></td><td><code>link</code> &mdash; next sibling, and the <code>C_FORWARD</code> home of a vacated record</td><td>4 B</td><td>Cell &rarr; forward</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_REFS" data-value="16">16</span></td><td><code>refs</code></td><td>4 B</td><td>Cell &rarr; refs (the count; the tables live in <code>sys/relations</code>)</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_PAYLOAD_SIZE" data-value="20">20</span></td><td><code>payload</code></td><td>4 B</td><td>Cell &rarr; payload</td></tr>
+</table>
+<p class="note">The record is <span class="pin" data-pin="RXF_SMP_CELL_BYTES" data-value="24">24</span>
+bytes of header (<code>RXF_SMP_CELL_BYTES</code>, <code>sizeof(pymergetic_rxf_object)</code>) and its
+payload in 8-byte slots. When a compaction pass slides a record, the vacated place's
+<code>link</code> word names where it went &mdash; the forwarding offset of
+<span class="pin" data-pin="RXF_SMP_C_FORWARD" data-value="12">12</span> (<code>C_FORWARD</code>)
+&mdash; and the mover restores the chain word in the record's new header.</p>
 
 <h3 id="run-cells">Run cells</h3>
 <p>A run cell is a cell whose payload is <code>smp_run_payload</code>: the state machine, the wake
@@ -279,8 +301,9 @@ handed out, so the all-zero handle is invalid everywhere; it is the
 <code>HANDLE_NONE</code> of the proof.</p>
 <p>The live detail view shows the two halves on the handle row &mdash; <i>index</i> and
 <i>generation</i> &mdash; and the generation word itself sits at
-<span class="pin" data-pin="RXF_SMP_C_GENERATION" data-value="24">offset 24</span> of the
-<a href="#cell-anatomy">cell header</a>.</p>
+<span class="pin" data-pin="RXFB_C_GENERATION" data-value="24">offset 24</span> of the
+<a href="#cell-anatomy">cell header</a> (the object record keeps its own at
+<a href="#object-record">offset 2</a>).</p>
 
 <h3 id="repr-a">REPR A: the Python-heap face</h3>
 <p>REPR A is the word a Python value is in this machine

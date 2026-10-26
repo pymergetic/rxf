@@ -19,7 +19,7 @@
     "cells": { "RUN": 1, "DATA": 2, "CHANNEL": 3, "RING": 4, "DELTA": 5, "SCRATCH": 6 },
     "refuse": { "CALL_DEPTH": 17, "UNBOUND": 13, "STALE_GENERATION": 12 },
     "call_depth": 8,
-    "cell_bytes": 64,
+    "cell_bytes": 24,
     "handle_shift": 32,
     "claim_moving": "0x80000000",
     "poison": "0xA5",

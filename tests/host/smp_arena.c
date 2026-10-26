@@ -14,41 +14,48 @@
 
 #define RXF_SMP_DEAD_TYPE 254u
 
-static inline uint64_t read_u64(const uint8_t *p) {
-    uint64_t v;
-    memcpy(&v, p, 8);
+static inline uint32_t read_u32(const uint8_t *p) {
+    uint32_t v;
+    memcpy(&v, p, 4);
     return v;
 }
 
-static inline void write_u64(uint8_t *p, uint64_t v) {
-    memcpy(p, &v, 8);
+static inline void write_u32(uint8_t *p, uint32_t v) {
+    memcpy(p, &v, 4);
 }
 
-static inline uint64_t align16(uint64_t n) {
-    return (n + 15u) & ~(uint64_t)15u;
+static inline uint16_t read_u16(const uint8_t *p) {
+    uint16_t v;
+    memcpy(&v, p, 2);
+    return v;
 }
 
-/* The whole extent of a cell: a 64-byte header and the payload padded to 16. The cells of this
- * proof carry no inline references (docs/17 keeps them after the payload; nothing here uses them,
- * so the walk is header + payload only). */
+static inline void write_u16(uint8_t *p, uint16_t v) {
+    memcpy(p, &v, 2);
+}
+
+static inline uint64_t align8(uint64_t n) {
+    return (n + 7u) & ~(uint64_t)7u;
+}
+
+/* The whole extent of a record: the 24-byte header and its payload in 8-byte slots
+ * (ground.h: "the object header: 24 bytes, then the payload inline in 8-byte slots").
+ * The records of this proof carry no relation tables (docs/32 2 keeps them in
+ * sys/relations; nothing here uses them, so the walk is header + payload only). */
 static uint64_t cell_bytes(uint64_t payload_size) {
-    return align16(RXF_SMP_CELL_BYTES + align16(payload_size));
+    return RXF_SMP_CELL_BYTES + align8(payload_size);
 }
 
 static inline uint32_t cell_type(const uint8_t *c) {
-    return (uint32_t)read_u64(c + RXF_SMP_C_TYPE);
+    return read_u16(c + RXF_SMP_C_TYPE);
 }
 
 static inline uint64_t cell_payload_size(const uint8_t *c) {
-    return read_u64(c + RXF_SMP_C_PAYLOAD_SIZE);
+    return read_u32(c + RXF_SMP_C_PAYLOAD_SIZE);
 }
 
 static inline uint32_t cell_flags(const uint8_t *c) {
-    return (uint32_t)read_u64(c + RXF_SMP_C_FLAGS);
-}
-
-static inline uint32_t cell_generation(const uint8_t *c) {
-    return (uint32_t)read_u64(c + RXF_SMP_C_GENERATION);
+    return read_u16(c + RXF_SMP_C_FLAGS);
 }
 
 int rxf_smp_arena_create(rxf_smp_arena *a, uint64_t bytes, uint32_t slot_count) {
@@ -63,7 +70,7 @@ int rxf_smp_arena_create(rxf_smp_arena *a, uint64_t bytes, uint32_t slot_count) 
         return -1;
     }
     a->bytes = bytes;
-    a->frontier = 64; /* offset 0 is never a cell, so 0 means "free" everywhere */
+    a->frontier = RXF_SMP_CELL_BYTES; /* offset 0 is never a record, so 0 means "free" everywhere */
     a->slot_count = slot_count;
     a->next_index = 1; /* slot 0 is never handed out: the all-zero handle stays invalid */
     return 0;
@@ -108,11 +115,10 @@ rxf_smp_handle rxf_smp_arena_alloc(rxf_smp_arena *a, uint32_t type, uint64_t pay
     __asan_unpoison_memory_region(c, (size_t)size);
 #endif
     memset(c, 0, (size_t)size);
-    write_u64(c + RXF_SMP_C_TYPE, type);
-    write_u64(c + RXF_SMP_C_PAYLOAD_SIZE, payload_size);
-    write_u64(c + RXF_SMP_C_GENERATION, generation);
-    write_u64(c + RXF_SMP_C_FLAGS, flags);
-    write_u64(c + RXF_SMP_C_INDEX, index);
+    write_u16(c + RXF_SMP_C_TYPE, (uint16_t)type);
+    write_u16(c + RXF_SMP_C_GENERATION, (uint16_t)generation);
+    write_u16(c + RXF_SMP_C_FLAGS, (uint16_t)flags);
+    write_u32(c + RXF_SMP_C_PAYLOAD_SIZE, (uint32_t)payload_size);
     atomic_store_explicit(&s->generation, generation, memory_order_release);
     atomic_store_explicit(&s->offset, off, memory_order_release);
     return RXF_SMP_HANDLE(index, generation);
@@ -139,7 +145,7 @@ void rxf_smp_arena_free(rxf_smp_arena *a, rxf_smp_handle h) {
         return;
     }
     uint8_t *c = a->base + off;
-    write_u64(c + RXF_SMP_C_TYPE, RXF_SMP_DEAD_TYPE); /* kind 254 of docs/17: a dead cell */
+    write_u16(c + RXF_SMP_C_TYPE, (uint16_t)RXF_SMP_DEAD_TYPE); /* kind 254 of docs/17: a dead record */
     atomic_store_explicit(&s->offset, 0, memory_order_release);
     atomic_store_explicit(&s->claim, 0, memory_order_release);
     a->freed++;
@@ -264,7 +270,7 @@ void rxf_smp_compact_move(rxf_smp_arena *a, rxf_smp_compact_stats *st) {
         }
         order[j + 1] = key;
     }
-    uint64_t front = 64;
+    uint64_t front = RXF_SMP_CELL_BYTES;
     for (uint32_t i = 0; i < n; i++) {
         rxf_smp_slot *s = &a->slots[order[i]];
         uint8_t *c = claim_cell(a, s);
@@ -273,18 +279,18 @@ void rxf_smp_compact_move(rxf_smp_arena *a, rxf_smp_compact_stats *st) {
         uint32_t type = cell_type(c);
         uint64_t size = cell_bytes(cell_payload_size(c));
         if (type == RXF_SMP_DEAD_TYPE) {
-            /* A freed cell (kind 254 of docs/17): it vanishes and its slot stays free. */
+            /* A freed record (kind 254 of docs/17): it vanishes and its slot stays free. */
             st->dead_cells++;
             atomic_store_explicit(&s->offset, 0, memory_order_release);
-            write_u64(c + RXF_SMP_C_TYPE, 0);
+            write_u16(c + RXF_SMP_C_TYPE, 0);
             atomic_store_explicit(&s->claim, 0, memory_order_release);
             continue;
         }
         uint64_t old = (uint64_t)(c - a->base);
         uint64_t new_off = front;
         if (cell_flags(c) & RXF_SMP_FLAG_PINNED) {
-            /* A pin holds its running source address (docs/03), so the cell stays where it is and
-             * the space before it is a gap this pass cannot cross. */
+            /* A pin holds its running source address (docs/03), so the record stays where it is
+             * and the space before it is a gap this pass cannot cross. */
             st->pinned_cells++;
             new_off = old;
             front = old + size;
@@ -292,32 +298,40 @@ void rxf_smp_compact_move(rxf_smp_arena *a, rxf_smp_compact_stats *st) {
             continue;
         }
         if (old != front) {
-            /* Slide the cell down. The claim we hold is what makes this copy safe against readers
-             * of the old place: a reader is refused while it is held, and when it is released the
-             * new offset is already published (below). The old header keeps the forwarding offset
-             * until the pass finishes (docs/03). The forwarding word is written BEFORE the copy
-             * and travels with it into the new header: written after, it would land inside the
-             * new cell's payload whenever the slide overlaps the old place (a gap smaller than
-             * the cell, which the churn of the delta produces), tearing the payload the pass
-             * just proved whole. At the old place the record survives exactly as long as no
-             * later slide covers it; the reader of the record (the mutator's check in
-             * smp_witness.c) counts only what the geometry leaves. */
-            write_u64(c + RXF_SMP_C_FORWARD, front);
+            /* Slide the record down. The claim we hold is what makes this copy safe against
+             * readers of the old place: a reader is refused while it is held, and when it is
+             * released the new offset is already published (below). The old header keeps the
+             * forwarding offset until the pass finishes (docs/03) - it names where the record
+             * went, in the `link` word this policy pins (smp_arena.h). `link` is a live chain
+             * word in the record that survives the move, so the mover saves it before the copy
+             * and restores it in the new header; the forwarding word exists only at the
+             * vacated place. It is written BEFORE the copy because a slide that overlaps its
+             * old place (a gap smaller than the record, which the churn of the delta produces)
+             * would otherwise never let the old header exist at all. At the old place the
+             * record survives exactly as long as no later slide covers it; the reader of the
+             * record (the mutator's check in smp_witness.c) counts only what the geometry
+             * leaves. */
+            uint32_t chain = read_u32(c + RXF_SMP_C_LINK);
+            write_u32(c + RXF_SMP_C_FORWARD, (uint32_t)front);
             uint64_t want = payload_checksum(c + RXF_SMP_CELL_BYTES, cell_payload_size(c));
             memmove(a->base + front, c, (size_t)size);
             uint8_t *nw = a->base + front;
+            write_u32(nw + RXF_SMP_C_LINK, chain);
             if (payload_checksum(nw + RXF_SMP_CELL_BYTES, cell_payload_size(nw)) != want)
                 st->checksum_fails++; /* a copy that broke: never observed */
             st->moved_cells++;
             st->moved_bytes += size;
             st->moved_by_type[type < 8 ? type : 0]++;
             if (st->observe) {
-                /* The harness looks at every moved cell: 1 when it belongs to a run that is
+                /* The harness looks at every moved record: 1 when it belongs to a run that is
                  * parked at this instant (docs/20, S7), 2 when the run is between safe points
-                 * (mid-flight, S8). */
-                int seen = st->observe(
-                    st->ctx, nw + RXF_SMP_CELL_BYTES, type,
-                    RXF_SMP_HANDLE(*(uint32_t *)(nw + RXF_SMP_C_INDEX), cell_generation(nw)));
+                 * (mid-flight, S8). The handle comes from the slot walk (the record carries no
+                 * index of its own in the v7 header), the generation from the slot that has
+                 * always been the authority for it. */
+                int seen = st->observe(st->ctx, nw + RXF_SMP_CELL_BYTES, type,
+                                       RXF_SMP_HANDLE(order[i],
+                                                      atomic_load_explicit(&s->generation,
+                                                                           memory_order_relaxed)));
                 if (seen & 1)
                     st->parked_moved++;
                 if (seen & 2)
