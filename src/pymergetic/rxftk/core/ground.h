@@ -375,6 +375,122 @@ PYMERGETIC_RXF_PIN(pymergetic_rxf_doc, kind, 0, 4);
 PYMERGETIC_RXF_PIN(pymergetic_rxf_doc, status, 4, 4);
 PYMERGETIC_RXF_PIN(pymergetic_rxf_doc, codec, 8, 4);
 
+/* ---- one arena: the superblock and the object record (docs/32) ----------
+ * The one-arena object model supersedes the RXFB v6 header/index/cell split
+ * above: one linear region, a 4 KiB superblock as the only fixed structure,
+ * and everything after the superblock an object. A handle is (index, gen) into
+ * the object table, so a stale handle fails its check instead of resolving.
+ * The object record is a 24-byte header with its payload inline behind it,
+ * packed in 8-byte slots. Cell size = 24 + ceil(payload/8) slots.
+ */
+
+/* The superblock: 4 KiB at byte 0, the only non-object. The rest of it is
+ * zero, reserved; the version byte is the gate for later formats. */
+#define PYMERGETIC_RXF_SUPER_SIZE 4096U
+#define PYMERGETIC_RXF_SUPER_VERSION 1U
+
+typedef struct PYMERGETIC_RXF_ALIGNED8 pymergetic_rxf_superblock {
+    uint8_t magic[4];  /* "RXFA" */
+    uint32_t version;  /* PYMERGETIC_RXF_SUPER_VERSION */
+    uint64_t committed; /* first free offset */
+    uint64_t limit;     /* end of the claimed region */
+    uint32_t root;      /* root handle: the image itself */
+    uint32_t entry;     /* entry handle: the first run */
+    uint8_t reserved[PYMERGETIC_RXF_SUPER_SIZE - 32]; /* must be zero */
+} pymergetic_rxf_superblock;
+
+PYMERGETIC_RXF_GROUND_ASSERT(sizeof(pymergetic_rxf_superblock) == PYMERGETIC_RXF_SUPER_SIZE,
+                             "superblock is one page");
+PYMERGETIC_RXF_GROUND_ASSERT(PYMERGETIC_RXF_ALIGNOF(pymergetic_rxf_superblock) == 8,
+                             "superblock alignment");
+PYMERGETIC_RXF_PIN(pymergetic_rxf_superblock, magic, 0, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_superblock, version, 4, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_superblock, committed, 8, 8);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_superblock, limit, 16, 8);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_superblock, root, 24, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_superblock, entry, 28, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_superblock, reserved, 32, PYMERGETIC_RXF_SUPER_SIZE - 32);
+
+/* A handle is (index, gen): the index names a slot of the object table and the
+ * generation makes a stale handle fail its check instead of resolving. The
+ * all-ones handle is PYMERGETIC_RXF_HANDLE32_NONE. */
+typedef uint32_t pymergetic_rxf_handle32;
+#define PYMERGETIC_RXF_HANDLE32_NONE 0xFFFFFFFFU
+#define PYMERGETIC_RXF_HANDLE32_INDEX_BITS 20U
+#define PYMERGETIC_RXF_HANDLE32_GEN_BITS 12U
+#define PYMERGETIC_RXF_HANDLE32_INDEX_MASK                                                             \
+    ((1U << PYMERGETIC_RXF_HANDLE32_INDEX_BITS) - 1U)
+#define PYMERGETIC_RXF_HANDLE32_GEN_MASK ((1U << PYMERGETIC_RXF_HANDLE32_GEN_BITS) - 1U)
+PYMERGETIC_RXF_GROUND_ASSERT(PYMERGETIC_RXF_HANDLE32_INDEX_BITS + PYMERGETIC_RXF_HANDLE32_GEN_BITS ==
+                                 32,
+                             "a handle fills 32 bits");
+
+static inline pymergetic_rxf_handle32 pymergetic_rxf_handle32_pack(uint32_t index, uint32_t gen) {
+    return (pymergetic_rxf_handle32)(((gen & PYMERGETIC_RXF_HANDLE32_GEN_MASK)
+                                      << PYMERGETIC_RXF_HANDLE32_INDEX_BITS) |
+                                     (index & PYMERGETIC_RXF_HANDLE32_INDEX_MASK));
+}
+
+static inline uint32_t pymergetic_rxf_handle32_index(pymergetic_rxf_handle32 handle) {
+    return handle & PYMERGETIC_RXF_HANDLE32_INDEX_MASK;
+}
+
+static inline uint32_t pymergetic_rxf_handle32_gen(pymergetic_rxf_handle32 handle) {
+    return (handle >> PYMERGETIC_RXF_HANDLE32_INDEX_BITS) & PYMERGETIC_RXF_HANDLE32_GEN_MASK;
+}
+
+/* Object kinds. FREE marks a free span: its payload carries the FREE ring
+ * links, so a later allocation can split one. */
+enum {
+    PYMERGETIC_RXF_OBJ_MODULE = 1,
+    PYMERGETIC_RXF_OBJ_FUNC = 2,
+    PYMERGETIC_RXF_OBJ_HASH = 3,
+    PYMERGETIC_RXF_OBJ_SPEC = 4,
+    PYMERGETIC_RXF_OBJ_SYM = 5,
+    PYMERGETIC_RXF_OBJ_BLOB = 6,
+    PYMERGETIC_RXF_OBJ_FRAME = 7
+};
+#define PYMERGETIC_RXF_OBJ_FREE 0xFFFFU
+
+/* Object flags. */
+#define PYMERGETIC_RXF_OFLAG_RO 0x1U
+#define PYMERGETIC_RXF_OFLAG_ROOT 0x2U
+#define PYMERGETIC_RXF_OFLAG_DIRTY 0x4U
+#define PYMERGETIC_RXF_OFLAG_JOURNALED 0x8U
+
+/* The object header: 24 bytes, then the payload inline in 8-byte slots. */
+#define PYMERGETIC_RXF_OBJECT_ALIGN 8U
+typedef struct PYMERGETIC_RXF_ALIGNED8 pymergetic_rxf_object {
+    uint16_t kind;    /* PYMERGETIC_RXF_OBJ_* */
+    uint16_t gen;     /* generation (stale-handle detection) */
+    uint16_t flags;   /* PYMERGETIC_RXF_OFLAG_* */
+    uint16_t name;    /* symbol id (interned, 0 = anonymous) */
+    uint32_t parent;  /* handle of the parent object */
+    uint32_t link;    /* next sibling under the parent */
+    uint32_t refs;    /* reference count */
+    uint32_t payload; /* payload length in bytes */
+} pymergetic_rxf_object;
+
+PYMERGETIC_RXF_GROUND_ASSERT(sizeof(pymergetic_rxf_object) == 24, "object header is 24 bytes");
+PYMERGETIC_RXF_GROUND_ASSERT(PYMERGETIC_RXF_ALIGNOF(pymergetic_rxf_object) ==
+                                 PYMERGETIC_RXF_OBJECT_ALIGN,
+                             "object header alignment");
+PYMERGETIC_RXF_PIN(pymergetic_rxf_object, kind, 0, 2);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_object, gen, 2, 2);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_object, flags, 4, 2);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_object, name, 6, 2);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_object, parent, 8, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_object, link, 12, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_object, refs, 16, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_object, payload, 20, 4);
+
+/* object size = 24 + ceil(payload/8) slots, packed 8-byte aligned */
+static inline __attribute__((unused)) uint64_t
+pymergetic_rxf_object_size(const pymergetic_rxf_object *object) {
+    return (uint64_t)sizeof(pymergetic_rxf_object) +
+           (((uint64_t)object->payload + 7ULL) & ~7ULL);
+}
+
 #ifdef __cplusplus
 }
 #endif

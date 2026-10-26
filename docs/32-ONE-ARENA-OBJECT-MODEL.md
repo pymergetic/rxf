@@ -28,7 +28,7 @@ structure is a 4 KiB superblock at byte 0. Everything after it is arena.
 |  limit, root handle, entry      |
 +---------------------------------+  <- byte 4096, 16-byte aligned
 | first objects                   |  the boot/sys skeleton (see 2)
-|  each: 32-byte header + payload |  8-byte aligned, packed
+|  each: 24-byte header + payload |  8-byte aligned, packed
 |  ...                            |
 |  ...                            |
 |  end marker                     |  free-space header, name = FREE ring
@@ -62,7 +62,7 @@ the version byte is the gate.
 
 ### 1.2 The object header
 
-32 bytes, then the payload inline, padded to 8 bytes:
+24 bytes, then the payload inline, padded to 8 bytes:
 
 | offset | size | field | meaning |
 |---|---|---|---|
@@ -94,7 +94,7 @@ header `link` field is the single forward chain of a parent's children.
 
 ### 1.3 Gaps and free space
 
-Cells pack back to back. When a span frees, it becomes a **free cell**: same 32-byte
+Cells pack back to back. When a span frees, it becomes a **free cell**: same 24-byte
 header, `kind = FREE`, `name = 0`, and the free cells are kept in a `FREE` ring so a
 later allocation can split one. The end marker (a zero-length free cell) sits at
 `committed` and grows when the region grows.

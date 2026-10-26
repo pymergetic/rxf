@@ -310,7 +310,7 @@ VOID_TILE = 512  # a poison run longer than this becomes several void tiles
 # The layout of the world, all in world units. The arena is a strip of bytes: one district per
 # DISTRICT_SPAN bytes at BYTE_SCALE units per byte, laid out as city blocks (DISTRICT_COLS per
 # row, rows flowing along Z). Buildings sit on a deterministic tile raster inside their district
-# (offset order, row major). One grid law, no exceptions („jede Zelle gleiche Grundgröße"):
+# (offset order, row major). One grid law, no exceptions ("every cell the same base size"):
 # every district plots on the SAME rule — its byte span at BYTE_SCALE, never a gutter because
 # its bytes happen to carry no cell — every floor tile is exactly GRID_STEP, and every building
 # stands on the same base of FP_RATIO tiles. An empty district is the same plate as a built one,
@@ -441,8 +441,8 @@ def _districts(header: Mapping[str, Any]) -> list[dict[str, Any]]:
     The districts are laid out as city blocks: a square plan of _district_cols columns, rows
     flowing along Z, so the arena reads as one connected world instead of a strip. Every district
     plots on the same rule — its byte span at BYTE_SCALE and DISTRICT_DEPTH deep — whether its
-    bytes carry cells or not: an empty district is the same plate as a built one („jede Zelle
-    gleiche Grundgröße"), and the gaps between plates never depend on what the arena carries."""
+    bytes carry cells or not: an empty district is the same plate as a built one ("every cell
+    the same base size"), and the gaps between plates never depend on what the arena carries."""
     body = int(header["body_size"])
     chunks: list[tuple[str, str, int, int]] = [
         ("header", "header", 0, int(header["header_size"])),
@@ -520,7 +520,7 @@ def _mass(payload_size: int) -> float:
 
 def _bulk(family: str, payload_size: int) -> tuple[float, float]:
     """Footprint and height of a building: every cell stands on the SAME base — one FP_RATIO
-    tile of the placement grid („jede Zelle gleiche Grundgröße") — and the height is the mass
+    tile of the placement grid ("every cell the same base size") — and the height is the mass
     signal: run cells are tall control towers, data cells are blocks that grow with their
     payload, rubble stays low. The world reads bulk at any zoom through the silhouette."""
     mass = _mass(payload_size)
@@ -660,7 +660,7 @@ def _tiles(count: int, width: float, depth: float) -> tuple[dict[str, Any], list
     """The placement raster of a district and the tile of each of `count` buildings on it
     (offset order, row major, deterministic and centered). One grid law for every district:
     every floor tile is exactly GRID_STEP and the raster is centered in the plot — an empty
-    district's floor plates are the same base as any other's („jede Zelle gleiche Grundgröße"),
+    district's floor plates are the same base as any other's ("every cell the same base size"),
     and the steps never flex per district. A cells district holds at most
     DISTRICT_SPAN // 64 = 64 buildings and the standard plate affords 7 x 10 = 70 tiles; only
     a band narrower than a full district can outgrow its raster — then it grows by whole

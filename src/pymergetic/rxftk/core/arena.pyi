@@ -36,5 +36,43 @@ BLOCK_NAMES: int = 2
 
 NAME_BLOCK_PAYLOAD: int = 4096
 
+SUPERBLOCK_SIZE: int = 4096
+
+SUPERBLOCK_VERSION: int = 1
+
+OBJECT_HEADER_SIZE: int = 24
+
+OBJECT_ALIGN: int = 8
+
+HANDLE32_NONE: int = 4294967295
+
+HANDLE32_INDEX_BITS: int = 20
+
+HANDLE32_GEN_BITS: int = 12
+
+OBJ_MODULE: int = 1
+
+OBJ_FUNC: int = 2
+
+OBJ_HASH: int = 3
+
+OBJ_SPEC: int = 4
+
+OBJ_SYM: int = 5
+
+OBJ_BLOB: int = 6
+
+OBJ_FRAME: int = 7
+
+OBJ_FREE: int = 65535
+
+OFLAG_RO: int = 1
+
+OFLAG_ROOT: int = 2
+
+OFLAG_DIRTY: int = 4
+
+OFLAG_JOURNALED: int = 8
+
 class ArenaError(RuntimeError):
     pass

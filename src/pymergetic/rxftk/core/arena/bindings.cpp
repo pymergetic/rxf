@@ -24,6 +24,27 @@ void bind_arena(nb::module_ &m) {
     m.attr("BLOCK_INDEX") = PYMERGETIC_RXF_BLOCK_INDEX;
     m.attr("BLOCK_NAMES") = PYMERGETIC_RXF_BLOCK_NAMES;
     m.attr("NAME_BLOCK_PAYLOAD") = PYMERGETIC_RXF_NAME_BLOCK_PAYLOAD;
+    /* The one-arena object model (docs/32). The OBJ_* values are members of an unnamed
+     * enumeration in ground.h; nanobind reports them as plain integers. */
+    m.attr("SUPERBLOCK_SIZE") = sizeof(pymergetic_rxf_superblock);
+    m.attr("SUPERBLOCK_VERSION") = PYMERGETIC_RXF_SUPER_VERSION;
+    m.attr("OBJECT_HEADER_SIZE") = sizeof(pymergetic_rxf_object);
+    m.attr("OBJECT_ALIGN") = PYMERGETIC_RXF_OBJECT_ALIGN;
+    m.attr("HANDLE32_NONE") = PYMERGETIC_RXF_HANDLE32_NONE;
+    m.attr("HANDLE32_INDEX_BITS") = PYMERGETIC_RXF_HANDLE32_INDEX_BITS;
+    m.attr("HANDLE32_GEN_BITS") = PYMERGETIC_RXF_HANDLE32_GEN_BITS;
+    m.attr("OBJ_MODULE") = static_cast<int>(PYMERGETIC_RXF_OBJ_MODULE);
+    m.attr("OBJ_FUNC") = static_cast<int>(PYMERGETIC_RXF_OBJ_FUNC);
+    m.attr("OBJ_HASH") = static_cast<int>(PYMERGETIC_RXF_OBJ_HASH);
+    m.attr("OBJ_SPEC") = static_cast<int>(PYMERGETIC_RXF_OBJ_SPEC);
+    m.attr("OBJ_SYM") = static_cast<int>(PYMERGETIC_RXF_OBJ_SYM);
+    m.attr("OBJ_BLOB") = static_cast<int>(PYMERGETIC_RXF_OBJ_BLOB);
+    m.attr("OBJ_FRAME") = static_cast<int>(PYMERGETIC_RXF_OBJ_FRAME);
+    m.attr("OBJ_FREE") = PYMERGETIC_RXF_OBJ_FREE;
+    m.attr("OFLAG_RO") = PYMERGETIC_RXF_OFLAG_RO;
+    m.attr("OFLAG_ROOT") = PYMERGETIC_RXF_OFLAG_ROOT;
+    m.attr("OFLAG_DIRTY") = PYMERGETIC_RXF_OFLAG_DIRTY;
+    m.attr("OFLAG_JOURNALED") = PYMERGETIC_RXF_OFLAG_JOURNALED;
     // The constructor registers the exception type with nanobind and the module.
     [[maybe_unused]] nb::exception<ArenaError> error(m, "ArenaError", PyExc_RuntimeError);
 }
