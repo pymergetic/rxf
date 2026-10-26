@@ -20,7 +20,6 @@ import struct
 from pathlib import Path
 
 import compose
-import link
 import pytest
 import rxfc
 
@@ -42,9 +41,31 @@ WORK_CAPACITY = 0x90000
 LIMIT = 800_000_000
 
 
+def arena_cells(arena: bytes) -> list[int]:
+    """The cell offset of every handle of a v6 arena (``RXFB`` 6), or -1 for a free slot.
+
+    The v6 read, and the only one left in this tree: this corpus runs the in-image
+    composer on the world's own arena and holds its descriptor to this walk. The
+    linked image carries the v7 arena now (docs/32); when the composer cuts over
+    (docs/31, wave 7) this walk dies with the format it reads.
+    """
+    cell_bytes, chunk_handles = 64, 4096
+    index_off, _ = struct.unpack_from("<QQ", arena, 48)
+    chunks, handles = struct.unpack_from("<QQ", arena, 80)
+    directory = struct.unpack_from(f"<{chunks}Q", arena, index_off)
+    found: list[int] = []
+    for handle in range(handles):
+        chunk, slot = divmod(handle, chunk_handles)
+        (entry,) = struct.unpack_from(
+            "<Q", arena, directory[chunk] + cell_bytes + 8 * slot
+        )
+        found.append(-1 if entry & 1 else entry)
+    return found
+
+
 def cell_of_arena(arena: bytes, handle: int) -> dict:
     """The raw cell of a handle: what the in-image reader walks the arena to."""
-    cells = link.arena_cells(arena)
+    cells = arena_cells(arena)
     off = cells[handle]
     type_h, parent, payload_size, _gen, name_off, flags, ref_count, _fwd, _idx, _rsv = (
         struct.unpack_from("<QQQQQIIQII", arena, off)

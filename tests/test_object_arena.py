@@ -276,6 +276,21 @@ def test_create_load_release_and_stale_handles():
         a.release(handle)  # and cannot free the new occupant
 
 
+def test_locate_points_at_the_record_and_its_payload():
+    """Where the bytes sit in the committed image: what a loader points at a value with."""
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    sys_h = a.find(a.root_handle, "sys")
+    handle = a.new_object(sys_h, "span", OBJ_BLOB, 8)
+    a.set_payload(handle, b"01234567")
+    record_offset, payload_offset = a.locate(handle)
+    assert payload_offset == record_offset + 24  # the header is 24 bytes, payload inline
+    image = a.to_bytes()
+    assert image[payload_offset : payload_offset + 8] == b"01234567"
+    with pytest.raises(ArenaError):
+        a.locate(HANDLE32_NONE)
+
+
 def test_releasing_unlinks_the_child_from_its_parent():
     a = ObjectArena.create(1 << 20)
     a.bootstrap("boot")
@@ -350,6 +365,26 @@ def test_writes_are_recorded_before_the_store_and_dropped_at_commit():
     assert a.journal_records() > 0  # write-ahead: the records precede the stores
     a.journal_commit()
     assert a.journal_records() == 0  # commit drops the ring
+
+
+def test_a_detached_journal_writes_through_and_keeps_what_is_written():
+    """The build's mode (docs/32 3): nothing to unwind, and the undo ring must not
+    become the biggest thing in the image a writer makes. A detach is not a
+    rollback - what is written is kept - and the image is whole without it: a
+    cold attach re-derives the journal from the tree."""
+    a = ObjectArena.create(1 << 20)
+    a.bootstrap("boot")
+    a.journal_detach()
+    sys_h = a.find(a.root_handle, "sys")
+    handle = a.new_object(sys_h, "written", OBJ_BLOB, 64)
+    a.set_payload(handle, b"x" * 64)
+    assert a.journal_records() == 0  # nothing recorded: nothing held
+    journal = a.find(sys_h, "journal")
+    assert a.load(journal)[7] == 24 + 256 * UNDO_SIZE  # the ring never grew past its start
+    a.journal_commit()  # no-ops, not errors
+    a.journal_rollback()
+    assert a.find(sys_h, "written") == handle
+    assert a.payload(handle) == b"x" * 64
 
 
 def test_rollback_unwinds_a_create_and_gives_the_span_back():

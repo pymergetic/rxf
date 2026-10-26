@@ -174,21 +174,33 @@ class World(Protocol):
     """The reader side of a world (tools/native/link.py's image): a path tree of
     named objects with payloads. `get` answers the world's dict for one handle."""
 
-    def children(self, handle: int) -> list[int]: ...
+    def children(self, handle: int, /) -> list[int]: ...
 
-    def get(self, handle: int) -> dict[str, Any]: ...
+    def get(self, handle: int, /) -> dict[str, Any]: ...
 
 
 def export_world(world: World, limit: int = 256 * 1024 * 1024) -> ObjectArena:
     """The world as an arena image: root "boot", the world's tree under it.
 
     The export is deterministic - the same world answers byte-identical images.
-    The arena arrives committed (one journal commit at the end of the walk).
+    The arena arrives committed and with its journal detached: the walk is a
+    build and has nothing to unwind, and an attached undo ring would record every
+    granule of it - the ring would be the biggest thing in the image it makes.
+    The image itself is whole: a cold attach re-derives the journal from the tree.
     """
+    return place_world(world, limit)[0]
+
+
+def place_world(
+    world: World, limit: int = 256 * 1024 * 1024
+) -> tuple[ObjectArena, dict[int, int]]:
+    """The arena of `export_world`, and where each world object landed in it: the
+    map a loader joins the two object models by (world handle -> arena handle)."""
     objects, tables = _survey(world)
     arena = ObjectArena.create(limit)
     arena.bootstrap("boot", objects + tables + INDEX_HEADROOM)
     arena.journal_commit()  # the skeleton is ground, not history
+    arena.journal_detach()  # the walk is a build: nothing to unwind (see export_world)
     handles: dict[int, int] = {}
     for child in world.children(0):  # the world's root IS the arena's root
         _place(world, child, arena.root_handle, arena, handles)
@@ -196,7 +208,7 @@ def export_world(world: World, limit: int = 256 * 1024 * 1024) -> ObjectArena:
     _genesis(arena, relations)
     arena.journal_commit()
     arena.verify()
-    return arena
+    return arena, handles
 
 
 def _survey(world: World) -> tuple[int, int]:

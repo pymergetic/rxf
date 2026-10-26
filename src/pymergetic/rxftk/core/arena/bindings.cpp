@@ -220,6 +220,16 @@ void bind_arena(nb::module_ &m) {
                                        record->payload);
              },
              nb::arg("handle"))
+        /* Where a record and its payload sit in the committed image (bytes from
+         * the arena start): what a loader points at an object's value with. */
+        .def("locate",
+             [](HostObjectArena &self, uint32_t handle) {
+                 uint64_t record_offset = 0;
+                 uint64_t payload_offset = 0;
+                 check(self.arena.locate(handle, &record_offset, &payload_offset));
+                 return nb::make_tuple(record_offset, payload_offset);
+             },
+             nb::arg("handle"))
         /* The payload behind the record header (docs/32 2): the granted room as
          * bytes, and the journaled store that fills it. */
         .def("payload",
@@ -272,6 +282,10 @@ void bind_arena(nb::module_ &m) {
              [](HostObjectArena &self) { check(self.arena.journal_rollback()); })
         .def("journal_records",
              [](HostObjectArena &self) { return self.arena.journal_records(); })
+        /* The journal stops recording and its ring is dropped: a build (the
+         * world->arena writer) that has nothing to unwind detaches. */
+        .def("journal_detach",
+             [](HostObjectArena &self) { check(self.arena.journal_detach()); })
         .def_prop_ro("root_handle",
                      [](const HostObjectArena &self) { return self.arena.root_handle(); })
         .def("record",

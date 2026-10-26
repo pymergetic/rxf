@@ -13,12 +13,13 @@ With a ``LiveSpec`` the arena has headroom behind it and the image ends in the l
 ``area`` is the ``pymergetic_rxf_live_area`` of ``core/live/live.h`` and the capability table
 (words 6 and 7 of the context) holds one entry, the Channel, that points at it.
 
-The arena is the RXFB v6 image as ``Image.to_bytes()`` makes it, byte for byte,
-and so are the Code cells in it: the machine code of the leaves and the
-interpreter is where the arena has it, and a function slot points there. The
-object entries are the runtime view of the arena: one per live object, sorted by
-id, with the payload address of the cell. They are derived and recomputed on
-every link, never edited.
+The arena is the v7 one-arena image (docs/32 1) that ``tools/native/arena_export.py``
+makes from the world, byte for byte, and so are the Code cells in it: the machine
+code of the leaves and the interpreter is where the arena has it, and a function
+slot points there. The object entries are the runtime view of the arena: one per
+live object, sorted by id, with the address of the object's value in the arena -
+past the record's payload head (a module owns its chain head first) and the type's
+fixed part. They are derived and recomputed on every link, never edited.
 
 An object is found by an id that no delta holds a handle of: the ``object_id``
 of a ``SemanticObject``, else the first 8 bytes of the SHA-256 of the path. The
@@ -32,12 +33,19 @@ import hashlib
 import struct
 from dataclasses import dataclass, field
 
+import arena_export
 import graph_header
 import programs
 from compose import object_id
 
+from pymergetic.rxftk.core.arena import (
+    MODULE_SIZE,
+    OBJECT_HEADER_SIZE,
+    OBJ_MODULE,
+    SUPERBLOCK_SIZE,
+    ObjectArena,
+)
 from pymergetic.rxftk.core.object import Image
-from pymergetic.rxftk.live.harness import table_slots
 
 HANDLE_NONE = (1 << 64) - 1
 CONTEXT_BYTES = 144
@@ -45,7 +53,6 @@ CONTEXT_VERSION = 2
 SLOT_BYTES = 24
 ENTRY_BYTES = 80
 MEMBER_BYTES = 72
-CELL_BYTES = 64
 LIVE = 1
 JOURNAL_CAPACITY = 8
 SPARE = 8  # free entries, ids 1..SPARE, for what a program allocates
@@ -155,23 +162,21 @@ class Linked:
         return struct.pack("<3Q", self.ids[path], generation, offset)
 
 
-def arena_cells(arena: bytes) -> list[int]:
-    """The cell offset of every handle of an arena, or -1 for a free slot."""
-    index_off, _ = struct.unpack_from("<QQ", arena, 48)
-    chunks, handles = struct.unpack_from("<QQ", arena, 80)
-    directory = struct.unpack_from(f"<{chunks}Q", arena, index_off)
-    found: list[int] = []
-    for handle in range(handles):
-        chunk, slot = divmod(handle, graph_chunk())
-        (entry,) = struct.unpack_from(
-            "<Q", arena, directory[chunk] + CELL_BYTES + 8 * slot
-        )
-        found.append(-1 if entry & 1 else entry)
-    return found
+def table_slots(arena: bytes, headroom: int = 4) -> int:
+    """A lookup table for the handles a v7 arena can hold, twice over.
 
-
-def graph_chunk() -> int:
-    return 4096
+    The slot table is the first object of the arena at its fixed place (docs/32 1:
+    the anchor a cold attach needs) and its head carries the count and capacity.
+    """
+    count, capacity = struct.unpack_from(
+        "<II", arena, SUPERBLOCK_SIZE + OBJECT_HEADER_SIZE
+    )
+    assert count <= capacity, "the slot table never publishes past its capacity"
+    want = 2 * capacity * headroom // 4
+    slots = 1024
+    while slots < want:
+        slots *= 2
+    return slots
 
 
 def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) -> Linked:
@@ -179,8 +184,8 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
     if machine not in MACHINES:
         raise LinkError(f"no machine {machine}")
     image = programs.filled(image)  # the built code, from its recipe (Wave 4b step 2)
-    arena = image.to_bytes()
-    cells = arena_cells(arena)
+    made, placed = arena_export.place_world(image)  # the v7 arena (docs/32 1)
+    arena = made.to_bytes()
     prefixes: dict[int, int] = {}
 
     def prefix(handle: int) -> int:
@@ -194,10 +199,17 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
             )
         return prefixes[type_handle]
 
+    def value(handle: int) -> int:
+        """Where an object's value sits in the arena: past the record's payload
+        head (a module owns its chain head first) and the type's fixed part."""
+        target = placed[handle]
+        kind = made.load(target)[0]
+        return made.locate(target)[1] + (MODULE_SIZE if kind == OBJ_MODULE else 0)
+
     # The entries: where the value of each live object is, in the arena
     rows: list[tuple[int, int, int, int, str]] = []  # id, type id, offset, size, path
-    for handle, cell in enumerate(cells):
-        if cell < 0 or not image.live(handle):
+    for handle in range(image.handle_count):
+        if not image.live(handle):
             continue
         info = image.get(handle)
         if info["kind"] in (254, 255) or info["type"] == HANDLE_NONE:
@@ -217,7 +229,7 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
             (
                 object_id(image, handle, fields),
                 type_id,
-                cell + CELL_BYTES + offset,
+                value(handle) + offset,
                 size,
                 image.path(handle),
             )
@@ -276,7 +288,7 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
             total += UART_FIFO_BLOCK
 
     paths = {row[4]: row[0] for row in rows}
-    code_of = _code(image, machine, cells)
+    code_of = _code(image, machine, made, placed)
 
     def address(path: str) -> int:
         handle = image.resolve(path)
@@ -380,7 +392,9 @@ def _leaf(image: Image, identifier: int) -> str:
     raise LinkError(f"{RUN} has no leaf {identifier}")
 
 
-def _code(image: Image, machine: str, cells: list[int]) -> dict[int, int]:
+def _code(
+    image: Image, machine: str, made: ObjectArena, placed: dict[int, int]
+) -> dict[int, int]:
     """For each Function with code for the machine, the arena offset of its first byte."""
     found: dict[int, int] = {}
     wanted = MACHINES[machine]
@@ -398,7 +412,7 @@ def _code(image: Image, machine: str, cells: list[int]) -> dict[int, int]:
         if body is None or image.type_name(body) != "CodeBlob":
             raise LinkError(f"{image.path(handle)} says no blob for its bytes")
         blob = image.get(body)
-        blob_at = cells[body] + CELL_BYTES + _blob_prefix(image, blob["type"])
+        blob_at = made.locate(placed[body])[1] + _blob_prefix(image, blob["type"])
         found[info["parent"]] = blob_at + entry
     return found
 

@@ -88,6 +88,10 @@ class ObjectArena {
     /* The record a handle names, checked against the index entry and the record
      * itself; a stale handle answers BadHandle before it touches payload bytes. */
     Status load(uint32_t handle, pymergetic_rxf_object **out);
+    /* Where that record and its payload sit in the committed image, in bytes from
+     * the arena start (the slot table carries the record offset): what a loader
+     * needs to point at an object's value. */
+    Status locate(uint32_t handle, uint64_t *record_offset, uint64_t *payload_offset);
 
     /* The payload behind the record header (docs/32 2): the room the object was
      * created with, zeroed on grant (the record's payload length is that room,
@@ -121,6 +125,12 @@ class ObjectArena {
     Status journal_commit();
     Status journal_rollback();
     uint32_t journal_records();
+    /* The journal stops recording and its ring is dropped, as at a commit: a
+     * detach is not a rollback - what is written is kept. A build (the world->
+     * arena writer) detaches: it has nothing to unwind, and the undo ring would
+     * otherwise be the biggest thing in the image it makes. The image itself is
+     * unaffected - a cold attach re-derives the journal from the tree. */
+    Status journal_detach();
     uint32_t journal_handle() const {
         return journal_handle_;
     }

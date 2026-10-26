@@ -964,6 +964,17 @@ Status ObjectArena::load(uint32_t handle, pymergetic_rxf_object **out) {
     return Status::Ok;
 }
 
+Status ObjectArena::locate(uint32_t handle, uint64_t *record_offset, uint64_t *payload_offset) {
+    pymergetic_rxf_object *record = nullptr;
+    Status st = load(handle, &record);
+    if (st != Status::Ok)
+        return st;
+    const pymergetic_rxf_slot *entry = index_entry(pymergetic_rxf_handle32_index(handle));
+    *record_offset = entry->slot;
+    *payload_offset = entry->slot + sizeof(pymergetic_rxf_object);
+    return Status::Ok;
+}
+
 Status ObjectArena::set_payload(uint32_t handle, const uint8_t *bytes, uint32_t size) {
     if (size > 0 && bytes == nullptr)
         return Status::BadImage;
@@ -1422,6 +1433,17 @@ uint32_t ObjectArena::journal_records() {
     if (load(journal_handle_, &record) != Status::Ok)
         return 0;
     return journal_of(record)->count;
+}
+
+Status ObjectArena::journal_detach() {
+    Status st = journal_commit(); /* the drop a detach is: what is written is kept */
+    if (st != Status::Ok)
+        return st;
+    journal_handle_ = PYMERGETIC_RXF_HANDLE32_NONE;
+    journal_lo_ = 0;
+    journal_hi_ = 0;
+    pending_count_ = 0;
+    return Status::Ok;
 }
 
 } // namespace pymergetic::rxf::core::arena
