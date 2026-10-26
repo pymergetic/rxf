@@ -14,8 +14,11 @@ is the arena path pymergetic/rxf/foo. The kinds follow the storage roles:
   layouts (type, field, enumerator) are SPEC, names (import, export, alias) are
   SYM, the rest is BLOB.
 
-Relations (the world's refs) are the next slice; here the tree, the names and
-the payload bytes land.
+Relations are data, not navigation (docs/32 2): each world object's refs become
+a table of the pinned 24-byte reference records in `sys/relations/<path>`, with
+`target` and `role` remapped to arena handles. A dangling target refuses the
+export. The walk is two passes - the tree first (every world handle earns its
+arena handle), then the tables.
 """
 
 from __future__ import annotations
@@ -52,6 +55,13 @@ LEAF_KIND: dict[int, int] = {
 # would read as a chain onto the index object. The module's own data follows.
 EMPTY_MODULE_HEAD = struct.pack("<II", HANDLE32_NONE, 0)
 
+# Relation tables (docs/32 2): sys/relations holds one child per related object,
+# named by the object's dotted path; its payload is the pinned reference record
+# (ground.h pymergetic_rxf_ref) per ref, in the world's order.
+RELATIONS = "relations"
+REF_RECORD = struct.Struct("<QQHHI")  # target, role, kind, binding, index
+HANDLE_NONE_64 = (1 << 64) - 1  # ground.h PYMERGETIC_RXF_HANDLE_NONE
+
 # Index room beyond the world's own objects: sys/ leaves, the honors tree, and
 # the objects the image needs after the walk.
 INDEX_HEADROOM = 256
@@ -72,22 +82,36 @@ def export_world(world: World, limit: int = 256 * 1024 * 1024) -> ObjectArena:
     The export is deterministic - the same world answers byte-identical images.
     The arena arrives committed (one journal commit at the end of the walk).
     """
-    count = _count(world, 0)
+    objects, tables = _survey(world)
     arena = ObjectArena.create(limit)
-    arena.bootstrap("boot", count + INDEX_HEADROOM)
+    arena.bootstrap("boot", objects + tables + INDEX_HEADROOM)
     arena.journal_commit()  # the skeleton is ground, not history
+    handles: dict[int, int] = {}
     for child in world.children(0):  # the world's root IS the arena's root
-        _place(world, child, arena.root_handle, arena)
+        _place(world, child, arena.root_handle, arena, handles)
+    _relations(world, handles, arena)
     arena.journal_commit()
     arena.verify()
     return arena
 
 
-def _count(world: World, source: int) -> int:
-    return 1 + sum(_count(world, child) for child in world.children(source))
+def _survey(world: World) -> tuple[int, int]:
+    """The world's object count and how many of them carry relation tables."""
+
+    def walk(source: int) -> tuple[int, int]:
+        objects, tables = 1, 1 if world.get(source).get("refs") else 0
+        for child in world.children(source):
+            more, more_tables = walk(child)
+            objects += more
+            tables += more_tables
+        return objects, tables
+
+    return walk(0)
 
 
-def _place(world: World, source: int, target: int, arena: ObjectArena) -> None:
+def _place(
+    world: World, source: int, target: int, arena: ObjectArena, handles: dict[int, int]
+) -> None:
     info = world.get(source)
     name = info.get("name") or None  # the world may spell anonymity as ""
     data = info.get("payload") or b""
@@ -105,8 +129,49 @@ def _place(world: World, source: int, target: int, arena: ObjectArena) -> None:
         )
         if data:
             arena.set_payload(handle, data)
+    handles[source] = handle
     for child in children:
-        _place(world, child, handle, arena)
+        _place(world, child, handle, arena, handles)
+
+
+def _relations(world: World, handles: dict[int, int], arena: ObjectArena) -> None:
+    """The refs of every world object as tables under sys/relations (pass 2)."""
+    sys = arena.find(arena.root_handle, "sys")
+    assert sys != HANDLE32_NONE, "bootstrap lays out sys/"
+    relations = arena.new_object(sys, RELATIONS, OBJ_MODULE, MODULE_SIZE)
+
+    def walk(source: int) -> None:
+        info = world.get(source)
+        refs = info.get("refs")
+        if refs:
+            path = info.get("path")
+            if not path:
+                raise ValueError(f"object {source} has refs but no path to name them by")
+            table = b"".join(_record(handles, ref) for ref in refs)
+            handle = arena.new_object(relations, path, OBJ_SPEC, _round8(len(table)))
+            arena.set_payload(handle, table)
+        for child in world.children(source):
+            walk(child)
+
+    walk(0)
+
+
+def _record(handles: dict[int, int], ref: tuple[int, int, int, int, int]) -> bytes:
+    target, role, index, kind, binding = ref
+    return REF_RECORD.pack(
+        _handle(handles, target), _handle(handles, role), kind, binding, index
+    )
+
+
+def _handle(handles: dict[int, int], source: int) -> int:
+    """The world handle as its arena handle (index, gen), zero-extended into the
+    record's 64-bit field. A target the walk never placed is a dangling ref, and
+    the export refuses it."""
+    if source is None or source == HANDLE_NONE_64:
+        return HANDLE_NONE_64
+    if source not in handles:
+        raise ValueError(f"dangling ref: no arena object for world handle {source}")
+    return handles[source]
 
 
 def _round8(size: int) -> int:

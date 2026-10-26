@@ -14,6 +14,14 @@ from pymergetic.rxftk.core.arena import (
 from .snippets import STARTER
 
 ALGORITHMS = ("pymergetic", "rxf", "algorithms", "algorithms")
+BINARY_SEARCH_GRAPH = (
+    "pymergetic",
+    "rxf",
+    "algorithms",
+    "binary_search",
+    "binary_search_graph",
+)
+BYTECODE = ("pymergetic", "rxf", "algorithms", "binary_search", "bytecode")
 
 
 @pytest.fixture(scope="module")
@@ -93,3 +101,55 @@ def test_kinds_are_storage_roles(world, arena):
 def test_the_export_is_deterministic(world, arena):
     again = arena_export.export_world(world)
     assert bytes(again.to_bytes()) == bytes(arena.to_bytes())
+
+
+def test_the_refs_land_as_relation_tables(world, arena):
+    source = source_of(world, *BINARY_SEARCH_GRAPH)
+    refs = world.get(source)["refs"]
+    assert len(refs) == 3
+    path = world.get(source)["path"]
+    table_handle = down(arena, "sys", arena_export.RELATIONS, path)
+    assert arena.load(table_handle)[7] == len(refs) * arena_export.REF_RECORD.size
+    table = arena.payload(table_handle)
+    for ref, (target, role, kind, binding, index) in zip(
+        refs,
+        (
+            arena_export.REF_RECORD.unpack_from(table, at)
+            for at in range(0, len(table), arena_export.REF_RECORD.size)
+        ),
+        strict=True,
+    ):
+        world_target, world_role, world_index, world_kind, world_binding = ref
+        assert (kind, binding, index) == (world_kind, world_binding, world_index)
+        assert arena.symbol(arena.load(target)[3]) == world.get(world_target)["name"]
+        assert arena.symbol(arena.load(role)[3]) == world.get(world_role)["name"]
+
+
+def test_a_leaf_with_refs_gets_its_table_too(world, arena):
+    source = source_of(world, *BYTECODE)
+    assert not world.children(source), "the pinned path is a leaf"
+    refs = world.get(source)["refs"]
+    assert refs
+    path = world.get(source)["path"]
+    table_handle = down(arena, "sys", arena_export.RELATIONS, path)
+    assert arena.load(table_handle)[7] == len(refs) * arena_export.REF_RECORD.size
+
+
+def test_a_dangling_ref_refuses_the_export():
+    class TinyWorld:
+        def children(self, handle):
+            return [1] if handle == 0 else []
+
+        def get(self, handle):
+            if handle == 0:
+                return {"name": None, "kind": 0, "payload": b"", "refs": []}
+            return {
+                "name": "x",
+                "path": "x",
+                "kind": 0,
+                "payload": b"",
+                "refs": [(999, 1, 0, 0, 0)],  # 999 is no object this walk places
+            }
+
+    with pytest.raises(ValueError, match="dangling ref"):
+        arena_export.export_world(TinyWorld())

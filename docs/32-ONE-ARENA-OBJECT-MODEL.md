@@ -121,7 +121,8 @@ image ("boot")                      <- root handle
 │   ├── journal/                    <- undo/redo ring, granularity, base
 │   ├── caps/                       <- capability cells (io, net, time, …)
 │   ├── free                        <- FREE ring head (allocator state)
-│   └── syms                        <- interned symbol table (string cells)
+│   ├── syms                        <- interned symbol table (string cells)
+│   └── relations/                  <- relation tables, one child per related object
 ├── pymergetic/                     <- the Python module tree (starter/)
 │   └── rxf/ …
 ├── io/ net/ time/ …                <- capability-backed faces
@@ -135,6 +136,14 @@ Laws:
   it never carries ownership. `link`, `hash_next`, `journal ring`, `name ring`.
 - **Ownership is a tree (or refcount-DAG) and is acyclic.** The journal unwinds it
   in reverse.
+
+Relations are objects too: `(target, role, index, kind, binding)` is the pinned
+24-byte reference record (`pymergetic_rxf_ref`), and an object's relations are a
+table of those records in a named object under `sys/relations` - one child per
+related object, named by its dotted path. `target` and `role` are arena handles
+(`(index, gen)`, zero-extended into the record's 64-bit fields); a dangling
+target is refused at write time. Relations are data, not navigation: the name
+tree stays a tree, and only modules hold children.
 
 Objects of code are objects too: a function is a named object whose payload is a
 slot table (the compiled body); anonymous bodies live under their stem with variant
