@@ -2309,7 +2309,7 @@ sub s_refs_of(Ztype_refs_of) {
                             store64(ro_f + 56, load64(ro_f + 56) + 1);
                             ro_g = rframes + 72 * ro_sp;
                             store64(ro_g, load64(ro_f + 24));
-                            store32(ro_g + 8, load32(kstart + 4 * load64(ro_f + 24)));
+                            store32(ro_g + 8, load32(kstart + 4 * (load64(ro_f + 24) & 1048575)));
                             store32(ro_g + 12, load32(kstart + 4 * (load64(ro_f + 24) + 1)));
                             store64(ro_g + 16, ro_at);
                             store8(ro_g + 64, 0);
@@ -2978,7 +2978,7 @@ macro m_emit() {
                 callsub s_cell(hx_r);
                 em_c = ce_r;
                 if (load64(em_c + 8) != 0xFFFFFFFFFFFFFFFF) {
-                    if (load64(em_c + 8) >= em_n) {
+                    if ((load64(em_c + 8) & 1048575) >= em_n) {
                         em_go = 0;
                     } else {
                         if (load8(em_keep + (load64(em_c + 8) & 1048575)) == 0) {
@@ -2988,7 +2988,7 @@ macro m_emit() {
                 }
                 if (em_go == 1) {
                     if (load64(em_c) != 0xFFFFFFFFFFFFFFFF) {
-                        if (load64(em_c) >= em_n) {
+                        if ((load64(em_c) & 1048575) >= em_n) {
                             em_go = 0;
                         } else {
                             if (load8(em_keep + (load64(em_c) & 1048575)) == 0) {
@@ -3005,10 +3005,10 @@ macro m_emit() {
                         em_t = load64(em_rp + 24 * em_k);
                         em_gone = 0;
                         if (em_t != 0xFFFFFFFFFFFFFFFF) {
-                            if (em_t >= em_n) {
+                            if ((em_t & 1048575) >= em_n) {
                                 em_gone = 1;
                             } else {
-                                if (load8(em_keep + em_t) == 0) {
+                                if (load8(em_keep + (em_t & 1048575)) == 0) {
                                     em_gone = 1;
                                 }
                             }
@@ -3020,7 +3020,7 @@ macro m_emit() {
                         }
                         if (em_go == 1) {
                             if (load64(em_rp + 24 * em_k + 8) != 0xFFFFFFFFFFFFFFFF) {
-                                if (load64(em_rp + 24 * em_k + 8) >= em_n) {
+                                if ((load64(em_rp + 24 * em_k + 8) & 1048575) >= em_n) {
                                     em_go = 0;
                                 } else {
                                     if (load8(em_keep + (load64(em_rp + 24 * em_k + 8) & 1048575)) == 0) {
@@ -3131,7 +3131,7 @@ macro m_emit() {
                     em_nref = em_nref + 1;
                 } else {
                     if (em_t < em_n) {
-                        if (load8(em_keep + em_t) == 1) {
+                        if (load8(em_keep + (em_t & 1048575)) == 1) {
                             em_nref = em_nref + 1;
                         }
                     }
@@ -3145,7 +3145,7 @@ macro m_emit() {
             if (load64(em_c) == 0xFFFFFFFFFFFFFFFF | load64(em_c) >= em_n) {
                 cs_type = 0xFFFFFFFFFFFFFFFF;
             } else {
-                cs_type = load32(em_remap + 4 * load64(em_c));
+                cs_type = load32(em_remap + 4 * (load64(em_c) & 1048575));
                 if (cs_type == 0xFFFFFFFF) {
                     cs_type = 0xFFFFFFFFFFFFFFFF;
                 }
@@ -3153,7 +3153,7 @@ macro m_emit() {
             if (load64(em_c + 8) == 0xFFFFFFFFFFFFFFFF | load64(em_c + 8) >= em_n) {
                 cs_parent = 0xFFFFFFFFFFFFFFFF;
             } else {
-                cs_parent = load32(em_remap + 4 * load64(em_c + 8));
+                cs_parent = load32(em_remap + 4 * (load64(em_c + 8) & 1048575));
                 if (cs_parent == 0xFFFFFFFF) {
                     cs_parent = 0xFFFFFFFFFFFFFFFF;
                 }
@@ -3233,7 +3233,7 @@ macro m_emit() {
                                 if (em_t >= em_n) {
                                     em_gone = 1;
                                 } else {
-                                    if (load8(em_keep + em_t) == 0) {
+                                    if (load8(em_keep + (em_t & 1048575)) == 0) {
                                         em_gone = 1;
                                     }
                                 }
@@ -3249,12 +3249,12 @@ macro m_emit() {
                                     load64(em_rp + 24 * em_k + 8) >= em_n) {
                                     store64(em_to + 24 * em_w + 8, 0xFFFFFFFFFFFFFFFF);
                                 } else {
-                                    if (load32(em_remap + 4 * load64(em_rp + 24 * em_k + 8)) ==
+                                    if (load32(em_remap + 4 * (load64(em_rp + 24 * em_k + 8) & 1048575)) ==
                                         0xFFFFFFFF) {
                                         store64(em_to + 24 * em_w + 8, 0xFFFFFFFFFFFFFFFF);
                                     } else {
                                         store64(em_to + 24 * em_w + 8,
-                                                load32(em_remap + 4 * load64(em_rp + 24 * em_k + 8)));
+                                                load32(em_remap + 4 * (load64(em_rp + 24 * em_k + 8) & 1048575)));
                                     }
                                 }
                                 em_w = em_w + 1;
