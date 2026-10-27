@@ -145,7 +145,8 @@ void rxf_smp_arena_free(rxf_smp_arena *a, rxf_smp_handle h) {
         return;
     }
     uint8_t *c = a->base + off;
-    write_u16(c + RXF_SMP_C_TYPE, (uint16_t)RXF_SMP_DEAD_TYPE); /* kind 254 of docs/17: a dead record */
+    write_u16(c + RXF_SMP_C_TYPE,
+              (uint16_t)RXF_SMP_DEAD_TYPE); /* kind 254 of docs/17: a dead record */
     atomic_store_explicit(&s->offset, 0, memory_order_release);
     atomic_store_explicit(&s->claim, 0, memory_order_release);
     a->freed++;
@@ -328,10 +329,10 @@ void rxf_smp_compact_move(rxf_smp_arena *a, rxf_smp_compact_stats *st) {
                  * (mid-flight, S8). The handle comes from the slot walk (the record carries no
                  * index of its own in the v7 header), the generation from the slot that has
                  * always been the authority for it. */
-                int seen = st->observe(st->ctx, nw + RXF_SMP_CELL_BYTES, type,
-                                       RXF_SMP_HANDLE(order[i],
-                                                      atomic_load_explicit(&s->generation,
-                                                                           memory_order_relaxed)));
+                int seen = st->observe(
+                    st->ctx, nw + RXF_SMP_CELL_BYTES, type,
+                    RXF_SMP_HANDLE(order[i],
+                                   atomic_load_explicit(&s->generation, memory_order_relaxed)));
                 if (seen & 1)
                     st->parked_moved++;
                 if (seen & 2)
