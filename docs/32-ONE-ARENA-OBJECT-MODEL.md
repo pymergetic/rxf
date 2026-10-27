@@ -325,6 +325,50 @@ A consequence: the canonical digest of an image is the digest of its canonical
 bytes in *this* model, and the old and the new build answer the same one only when
 they serve the same arena.
 
+### 5.3 The world cell of the live engine
+
+The live engine speaks a *world cell*: `GET` answers one, a delta writes one. In
+the superseded model a cell was a 64-byte record with its refs inline behind its
+payload. Here a cell is not stored, it is *derived* - the record and its spec row
+together - and the engine materializes it into a 64-byte view whose field offsets
+the protocol keeps:
+
+```
+0x00 | 8 | type          spec.type, a handle32 zero-extended
+0x08 | 8 | parent        record.parent
+0x10 | 8 | payload_size  record.payload
+0x18 | 8 | generation    spec.generation
+0x20 | 8 | name          the offset of the name string from the arena start
+0x28 | 4 | flags         spec.flags - the world's packed word (kind | state | owner)
+0x2c | 4 | ref_count     the rows of sys/relations/<path>
+0x30 | 8 | forward       the compaction home (docs/20 S7: the record's `link` word)
+0x38 | 4 | index         spec.index
+0x3c | 4 | reserved      zero
+```
+
+A view is good until the next call of the accessor that filled it; a call that
+keeps two cells takes a second view. The value bytes and the reference rows are
+*not* in the view - they stay real pointers into the arena, so a read of a
+payload or a ref row never copies.
+
+What the superseded model had that this one does not, and what replaces it:
+
+| superseded | here |
+|---|---|
+| a block cell (kind 255): index chunks, name blocks | the slot table at byte 4096 and `sys/syms` |
+| a dead cell (kind 254) left in the stream | a released index entry, and a FREE span in the ring |
+| the index chunk directory at `index_off` | the slot table's entries |
+| `names_off` / `names_size` | the `sys/syms` object (relocates like any object) |
+| `handle_count`, `free_head` in the header | the slot head's `count`, and the FREE ring anchor |
+| inline ref rows behind a payload | `sys/relations/<path>` |
+| `forward` in the cell header | the record's `link` word while a compaction is in flight |
+
+The engine's allocator is this model's allocator: best fit over the FREE ring,
+the end marker never taken whole, a split keeping the ring position of the taken
+span, and the generation of a reused span bumped so a stale handle keeps failing.
+Its undo is the granule log of docs/19, which covers the arena bytes above the
+superblock; the superblock's own words are saved and restored by `begin`.
+
 ---
 
 ## 6. Related
