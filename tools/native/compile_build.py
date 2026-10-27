@@ -7,10 +7,12 @@ encoder helpers macros, the state of ``rxf_cc`` the state of ``compile_program``
 seed CLI (``native/seed/seed.c``) over that file and returns the code of
 ``compile_program`` per machine -- the object-ABI body of
 ``f(params..., out) -> status``, here spelled ``!pp``:
-``compile_program(context, request)``. The request is the struct of
-``native/compile.h`` (program, program_size, out, out_capacity, work,
-work_capacity, out_size, at); the run writes out_size and at through it and every
-exit is a ``refuse <status>``.
+``compile_program(context, request)``. The request is the struct of program,
+program_size, out, out_capacity, work, work_capacity, out_size, at; the run writes
+out_size and at through it and every exit is a ``refuse <status>``. There is no
+``native/compile.h``: the request type is declared where it is used, in the fill
+(``native/crypto/pm_crypto.c``), the way ``rxf_safe_point`` is -- ``tests/test_native.py``
+pins ``native/*.h`` to the four headers it has, and a fifth would break that pin.
 
     python tools/native/compile_build.py            # hex of the three machines
     python tools/native/compile_build.py --json     # {machine: hex}

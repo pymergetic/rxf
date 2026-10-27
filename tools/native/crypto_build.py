@@ -2,10 +2,13 @@
 
 The card is the words of ``native/crypto/*.rxfs`` -- the ONE defining source of every
 primitive (docs/25 §11) -- run by the C fill ``native/crypto/pm_crypto.c`` over the
-interpreter of ``native/graph.c`` and the in-image compiler of ``native/compile.c``
-(docs/18). This helper is the one build path: it compiles the words out of the ``.rxfs``
-sources into the generated ``build/crypto_words.c`` (bytes), then compiles and links the
-runtime and the fill into the shared library of the card. The host binding
+seed's interpreter (``native/graph.rxfs``) and in-image compiler
+(``native/compile.rxfs``, docs/18/29). This helper is the one build path: it compiles
+the words out of the ``.rxfs`` sources into the generated ``build/crypto_words.c``
+(bytes), packs the runtime the fill runs over -- the seed's own object-ABI bodies of
+the interpreter, the compiler and the leaves, as one ELF relocatable
+(``tools/native/seed_object.py``), never a C twin -- and compiles and links the fill,
+the words and the runtime into the shared library of the card. The host binding
 (``src/pymergetic/rxftk/net/crypto.py``) and the tests both come here, so the build and its
 cache live in exactly one place.
 
@@ -14,8 +17,9 @@ cache live in exactly one place.
     python tools/native/crypto_build.py --json     # print {"library": ..., "cached": ...}
     python tools/native/crypto_build.py --check    # exit 0 when nothing is stale (print nothing)
 
-The build is cached by mtime: the C compiler runs only when a source (``*.rxfs``, the C of
-the runtime and the fill, or the words compiler ``tools/native/rxfc.py``) is newer than the
+The build is cached by mtime: the C compiler runs only when a source (``*.rxfs`` of the
+words or the runtime, the C of the fill, or the seed and words compilers of
+``tools/native/``) is newer than the
 built library. The library is ``native/crypto/build/libpm_crypto.so`` (or the shared
 library name of the platform).
 """
@@ -25,11 +29,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import shutil
 import struct
 import subprocess
 import sys
 from pathlib import Path
+
+import seed_build
+import seed_object
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -52,16 +60,22 @@ PROGRAMS = [
     "x25519",
 ]
 
-# The C of the card: the runtime the words run on and the fill of the ABI.
+# The C of the card: the fill of the ABI. The runtime the words run on is not C -- it is
+# the seed's own bodies (native/graph.rxfs the interpreter, native/compile.rxfs the
+# in-image compiler, the families of native/ the leaves), linked from their object-ABI
+# code (docs/29/30) as build/runtime.o. A C twin of any of them is refused
+# (one defining lang).
 C_SOURCES = [
-    NATIVE / "graph.c",
-    NATIVE / "basics.c",
-    NATIVE / "stdlib_memory.c",
-    NATIVE / "stdlib_runtime.c",
-    NATIVE / "safe.c",
-    NATIVE / "compile.c",
     CARD / "pm_crypto.c",
 ]
+
+# The seed machine per host machine: the runtime the fill links is the host's own code.
+HOST_MACHINE = {
+    "x86_64": "x86_64",
+    "amd64": "x86_64",
+    "aarch64": "aarch64",
+    "arm64": "aarch64",
+}
 
 
 class BuildError(RuntimeError):
@@ -73,6 +87,40 @@ def _compiler() -> str:
     return "clang-18" if shutil.which("clang-18") else "cc"
 
 
+def host_machine() -> str:
+    """The seed machine this host runs: the runtime bodies are the host's own code."""
+    found = HOST_MACHINE.get(platform.machine().lower())
+    if found is None:
+        raise BuildError(
+            f"no seed machine for host {platform.machine()!r}: the card links the "
+            "object-ABI bodies of the host's own machine"
+        )
+    return found
+
+
+def runtime_names(card: Path = CARD) -> list[str]:
+    """The runtime the fill links, by symbol: every ``rxf_*`` name the fill references
+    that a seed snippet defines (the interpreter, the compiler, the leaves)."""
+    named = seed_object.symbols([card / "pm_crypto.c"])
+    return [name for name in named if seed_object.key_of(name) is not None]
+
+
+def runtime_object(card: Path = CARD) -> Path:
+    """One ELF relocatable of the runtime bodies the fill links (bytes, the way a
+    compiler writes them): the seed's object-ABI code of every symbol, rebuilt when
+    the code changed."""
+    machine = host_machine()
+    bodies = seed_object.bodies_of(machine, runtime_names(card))
+    data = seed_object.object_bytes(bodies, machine)
+    out = card / "build" / "runtime.o"
+    if not out.is_file() or out.read_bytes() != data:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        made = out.with_name(f"{out.name}.{os.getpid()}.tmp")
+        made.write_bytes(data)
+        os.replace(made, out)  # a build of another process is replaced whole, never half
+    return out
+
+
 def words_sources(card: Path = CARD) -> list[Path]:
     """The ``.rxfs`` sources: what the words of the card are made of."""
     return sorted(card.glob("*.rxfs"))
@@ -81,10 +129,22 @@ def words_sources(card: Path = CARD) -> list[Path]:
 def sources(card: Path = CARD) -> list[Path]:
     """Every file whose mtime decides whether the build is stale."""
     here = Path(__file__).resolve()
-    found = [here, ROOT / "tools" / "native" / "rxfc.py", card / "words.h"]
+    tools = ROOT / "tools" / "native"
+    found = [here, tools / "rxfc.py", card / "words.h"]
+    found.extend(
+        tools / f"{name}.py"
+        for name in ("seed_object", "seed_build", "seed_cache", "graph_build", "compile_build")
+    )
+    found.append(NATIVE / "seed" / "seed.c")
     found.extend(C_SOURCES)
     found.extend(sorted((NATIVE).glob("*.h")))
     found.extend(words_sources(card))
+    # the .rxfs sources of the runtime bodies the fill links (graph_build/compile_build
+    # compile through seed_build too, so their sources are named by the keys)
+    for name in runtime_names(card):
+        key = seed_object.key_of(name)
+        assert key is not None
+        found.append(ROOT / seed_build.source_of(key))
     return [path for path in found if path.is_file()]
 
 
@@ -166,6 +226,7 @@ def build(*, force: bool = False, compiler: str | None = None, card: Path = CARD
     if not shutil.which(cc):
         raise BuildError(f"{cc!r} not found on PATH; the card is the C fill of its words")
     words = make_words(card)
+    runtime = runtime_object(card)
     library.parent.mkdir(parents=True, exist_ok=True)
     command = [
         cc,
@@ -176,6 +237,7 @@ def build(*, force: bool = False, compiler: str | None = None, card: Path = CARD
         "-Wno-unknown-pragmas",
         *[str(path) for path in C_SOURCES],
         str(words),
+        str(runtime),
         "-o",
         str(library),
     ]
