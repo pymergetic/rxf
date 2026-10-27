@@ -1,6 +1,6 @@
+#include <pymergetic/rxftk/core/arena/object_arena.hpp>
 #include <pymergetic/rxftk/core/bindings.hpp>
 #include <pymergetic/rxftk/core/ground.h>
-#include <pymergetic/rxftk/core/arena/object_arena.hpp>
 #include <pymergetic/rxftk/core/object/image.hpp>
 
 #include <cstring>
@@ -134,12 +134,10 @@ void bind_arena(nb::module_ &m) {
                     throw ArenaError("BadImage");
                 std::memcpy(&peek, data.c_str(), sizeof(peek));
                 /* Sizing and sanity peek only; ObjectArena::attach revalidates the header. */
-                const uint64_t foot =
-                    sizeof(pymergetic_rxf_object) + PYMERGETIC_RXF_FREE_LINKS;
+                const uint64_t foot = sizeof(pymergetic_rxf_object) + PYMERGETIC_RXF_FREE_LINKS;
                 if (peek.magic[0] != 'R' || peek.magic[1] != 'X' || peek.magic[2] != 'F' ||
                     peek.magic[3] != 'A' || peek.version != PYMERGETIC_RXF_SUPER_VERSION ||
-                    peek.committed + foot != (uint64_t)data.size() ||
-                    peek.committed > peek.limit)
+                    peek.committed + foot != (uint64_t)data.size() || peek.committed > peek.limit)
                     throw ArenaError("BadImage");
                 auto host = object::HostMemory::reserve(peek.limit);
                 if (host == nullptr)
@@ -161,221 +159,235 @@ void bind_arena(nb::module_ &m) {
             },
             nb::arg("data"), nb::arg("fixed") = false)
         .def("to_bytes",
-            [](HostObjectArena &self) {
-                uint64_t need = 0;
-                if (self.arena.image(nullptr, 0, &need) != arena::Status::OutOfMemory ||
-                    need < PYMERGETIC_RXF_SUPER_SIZE)
-                    throw ArenaError("BadImage");
-                std::string buf((size_t)need, '\0');
-                uint64_t written = 0;
-                check(self.arena.image(reinterpret_cast<uint8_t *>(buf.data()), need, &written));
-                return nb::bytes(buf.data(), written);
-            })
-        .def("s_allocate",
-             [](HostObjectArena &self, uint64_t room) {
-                 uint64_t offset = 0;
-                 check(self.arena.s_allocate(room, &offset));
-                 return offset;
-             },
-             nb::arg("room"))
-        .def("s_release",
-             [](HostObjectArena &self, uint64_t offset) {
-                 check(self.arena.s_release(offset));
-             },
-             nb::arg("offset"))
-        .def("s_ensure",
-             [](HostObjectArena &self, uint64_t at, uint64_t length) {
-                 check(self.arena.s_ensure(at, length));
-             },
-             nb::arg("at"), nb::arg("length"))
+             [](HostObjectArena &self) {
+                 uint64_t need = 0;
+                 if (self.arena.image(nullptr, 0, &need) != arena::Status::OutOfMemory ||
+                     need < PYMERGETIC_RXF_SUPER_SIZE)
+                     throw ArenaError("BadImage");
+                 std::string buf((size_t)need, '\0');
+                 uint64_t written = 0;
+                 check(self.arena.image(reinterpret_cast<uint8_t *>(buf.data()), need, &written));
+                 return nb::bytes(buf.data(), written);
+             })
+        .def(
+            "s_allocate",
+            [](HostObjectArena &self, uint64_t room) {
+                uint64_t offset = 0;
+                check(self.arena.s_allocate(room, &offset));
+                return offset;
+            },
+            nb::arg("room"))
+        .def(
+            "s_release",
+            [](HostObjectArena &self, uint64_t offset) { check(self.arena.s_release(offset)); },
+            nb::arg("offset"))
+        .def(
+            "s_ensure",
+            [](HostObjectArena &self, uint64_t at, uint64_t length) {
+                check(self.arena.s_ensure(at, length));
+            },
+            nb::arg("at"), nb::arg("length"))
         .def("verify", [](HostObjectArena &self) { check(self.arena.verify()); })
         /* The object model (docs/32 2): the sys/ skeleton, the tree walk, the
          * names. `new_object` is `create` on the arena (the factory above owns
          * the Python name); every handle it or `find` answers is checked on the
          * way back in through `load`. */
-        .def("bootstrap",
-             [](HostObjectArena &self, const char *name, uint32_t capacity) {
-                 check(self.arena.bootstrap(name, capacity));
-             },
-             nb::arg("name"), nb::arg("capacity") = 1024)
-        .def("new_object",
-             [](HostObjectArena &self, uint32_t parent, std::optional<std::string> name,
-                uint16_t kind, uint64_t room) {
-                 uint32_t handle = PYMERGETIC_RXF_HANDLE32_NONE;
-                 check(self.arena.create(parent, name ? name->c_str() : nullptr, kind, room,
-                                         &handle));
-                 return handle;
-             },
-             nb::arg("parent"), nb::arg("name"), nb::arg("kind"), nb::arg("room"))
-        .def("find",
-             [](HostObjectArena &self, uint32_t parent, const char *name) -> uint32_t {
-                 uint32_t handle = PYMERGETIC_RXF_HANDLE32_NONE;
-                 check(self.arena.find(parent, name, &handle));
-                 return handle;
-             },
-             nb::arg("parent"), nb::arg("name"))
-        .def("children",
-             [](HostObjectArena &self, uint32_t handle) {
-                 uint32_t need = 0;
-                 arena::Status probe = self.arena.children(handle, nullptr, 0, &need);
-                 if (probe != arena::Status::Ok && probe != arena::Status::OutOfMemory)
-                     check(probe);
-                 std::vector<uint32_t> buffer(need);
-                 uint32_t count = 0;
-                 check(self.arena.children(handle, buffer.data(), need, &count));
-                 nb::list found;
-                 for (uint32_t at = 0; at < count; ++at)
-                     found.append(buffer[at]);
-                 return found;
-             },
-             nb::arg("handle"))
-        .def("load",
-             [](HostObjectArena &self, uint32_t handle) {
-                 pymergetic_rxf_object *record = nullptr;
-                 check(self.arena.load(handle, &record));
-                 return nb::make_tuple(record->kind, record->gen, record->flags, record->name,
-                                       record->parent, record->link, record->refs,
-                                       record->payload);
-             },
-             nb::arg("handle"))
+        .def(
+            "bootstrap",
+            [](HostObjectArena &self, const char *name, uint32_t capacity) {
+                check(self.arena.bootstrap(name, capacity));
+            },
+            nb::arg("name"), nb::arg("capacity") = 1024)
+        .def(
+            "new_object",
+            [](HostObjectArena &self, uint32_t parent, std::optional<std::string> name,
+               uint16_t kind, uint64_t room) {
+                uint32_t handle = PYMERGETIC_RXF_HANDLE32_NONE;
+                check(
+                    self.arena.create(parent, name ? name->c_str() : nullptr, kind, room, &handle));
+                return handle;
+            },
+            nb::arg("parent"), nb::arg("name"), nb::arg("kind"), nb::arg("room"))
+        .def(
+            "find",
+            [](HostObjectArena &self, uint32_t parent, const char *name) -> uint32_t {
+                uint32_t handle = PYMERGETIC_RXF_HANDLE32_NONE;
+                check(self.arena.find(parent, name, &handle));
+                return handle;
+            },
+            nb::arg("parent"), nb::arg("name"))
+        .def(
+            "children",
+            [](HostObjectArena &self, uint32_t handle) {
+                uint32_t need = 0;
+                arena::Status probe = self.arena.children(handle, nullptr, 0, &need);
+                if (probe != arena::Status::Ok && probe != arena::Status::OutOfMemory)
+                    check(probe);
+                std::vector<uint32_t> buffer(need);
+                uint32_t count = 0;
+                check(self.arena.children(handle, buffer.data(), need, &count));
+                nb::list found;
+                for (uint32_t at = 0; at < count; ++at)
+                    found.append(buffer[at]);
+                return found;
+            },
+            nb::arg("handle"))
+        .def(
+            "load",
+            [](HostObjectArena &self, uint32_t handle) {
+                pymergetic_rxf_object *record = nullptr;
+                check(self.arena.load(handle, &record));
+                return nb::make_tuple(record->kind, record->gen, record->flags, record->name,
+                                      record->parent, record->link, record->refs, record->payload);
+            },
+            nb::arg("handle"))
         /* Where a record and its payload sit in the committed image (bytes from
          * the arena start): what a loader points at an object's value with. */
-        .def("locate",
-             [](HostObjectArena &self, uint32_t handle) {
-                 uint64_t record_offset = 0;
-                 uint64_t payload_offset = 0;
-                 check(self.arena.locate(handle, &record_offset, &payload_offset));
-                 return nb::make_tuple(record_offset, payload_offset);
-             },
-             nb::arg("handle"))
+        .def(
+            "locate",
+            [](HostObjectArena &self, uint32_t handle) {
+                uint64_t record_offset = 0;
+                uint64_t payload_offset = 0;
+                check(self.arena.locate(handle, &record_offset, &payload_offset));
+                return nb::make_tuple(record_offset, payload_offset);
+            },
+            nb::arg("handle"))
         /* The payload behind the record header (docs/32 2): the granted room as
          * bytes, and the journaled store that fills it. */
-        .def("payload",
-             [](HostObjectArena &self, uint32_t handle) {
-                 const uint8_t *bytes = nullptr;
-                 uint32_t size = 0;
-                 check(self.arena.payload(handle, &bytes, &size));
-                 return nb::bytes(reinterpret_cast<const char *>(bytes), size);
-             },
-             nb::arg("handle"))
-        .def("set_payload",
-             [](HostObjectArena &self, uint32_t handle, nb::bytes data) {
-                 check(self.arena.set_payload(
-                     handle, reinterpret_cast<const uint8_t *>(data.c_str()),
-                     static_cast<uint32_t>(data.size())));
-             },
-             nb::arg("handle"), nb::arg("data"))
+        .def(
+            "payload",
+            [](HostObjectArena &self, uint32_t handle) {
+                const uint8_t *bytes = nullptr;
+                uint32_t size = 0;
+                check(self.arena.payload(handle, &bytes, &size));
+                return nb::bytes(reinterpret_cast<const char *>(bytes), size);
+            },
+            nb::arg("handle"))
+        .def(
+            "set_payload",
+            [](HostObjectArena &self, uint32_t handle, nb::bytes data) {
+                check(self.arena.set_payload(handle,
+                                             reinterpret_cast<const uint8_t *>(data.c_str()),
+                                             static_cast<uint32_t>(data.size())));
+            },
+            nb::arg("handle"), nb::arg("data"))
         /* The state flags: the Genesis of the honors (docs/36 3) is marked
          * OFLAG_RO at image build. */
-        .def("set_flags",
-             [](HostObjectArena &self, uint32_t handle, uint16_t flags) {
-                 check(self.arena.set_flags(handle, flags));
-             },
-             nb::arg("handle"), nb::arg("flags"))
+        .def(
+            "set_flags",
+            [](HostObjectArena &self, uint32_t handle, uint16_t flags) {
+                check(self.arena.set_flags(handle, flags));
+            },
+            nb::arg("handle"), nb::arg("flags"))
         /* The semantic face (docs/32 5): the row of sys/specs for a handle,
          * as (type, flags, index, generation), and the journaled store. */
-        .def("spec",
-             [](HostObjectArena &self, uint32_t handle) {
-                 pymergetic_rxf_spec row{};
-                 check(self.arena.spec(handle, &row));
-                 return nb::make_tuple(row.type, row.flags, row.index, row.generation);
-             },
-             nb::arg("handle"))
-        .def("set_spec",
-             [](HostObjectArena &self, uint32_t handle, uint32_t type, uint32_t flags,
-                uint32_t index, uint64_t generation) {
-                 pymergetic_rxf_spec row{};
-                 row.type = type;
-                 row.flags = flags;
-                 row.index = index;
-                 row.generation = generation;
-                 check(self.arena.set_spec(handle, row));
-             },
-             nb::arg("handle"), nb::arg("type"), nb::arg("flags"), nb::arg("index"),
-             nb::arg("generation"))
+        .def(
+            "spec",
+            [](HostObjectArena &self, uint32_t handle) {
+                pymergetic_rxf_spec row{};
+                check(self.arena.spec(handle, &row));
+                return nb::make_tuple(row.type, row.flags, row.index, row.generation);
+            },
+            nb::arg("handle"))
+        .def(
+            "set_spec",
+            [](HostObjectArena &self, uint32_t handle, uint32_t type, uint32_t flags,
+               uint32_t index, uint64_t generation) {
+                pymergetic_rxf_spec row{};
+                row.type = type;
+                row.flags = flags;
+                row.index = index;
+                row.generation = generation;
+                check(self.arena.set_spec(handle, row));
+            },
+            nb::arg("handle"), nb::arg("type"), nb::arg("flags"), nb::arg("index"),
+            nb::arg("generation"))
         /* The tree and the relations (docs/32 2): the dotted path of an object, and
          * the rows of the relation table named after it. */
-        .def("path_of",
-             [](HostObjectArena &self, uint32_t handle) {
-                 uint32_t need = 0;
-                 arena::Status probe = self.arena.path_of(handle, nullptr, 0, &need);
-                 if (probe != arena::Status::Ok && probe != arena::Status::OutOfMemory)
-                     check(probe);
-                 std::string text(need, '\0');
-                 check(self.arena.path_of(handle, text.data(), need, &need));
-                 return text;
-             },
-             nb::arg("handle"))
-        .def("refs_of",
-             [](HostObjectArena &self, uint32_t handle) {
-                 uint32_t need = 0;
-                 arena::Status probe = self.arena.refs_of(handle, nullptr, 0, &need);
-                 if (probe != arena::Status::Ok && probe != arena::Status::OutOfMemory)
-                     check(probe);
-                 std::vector<pymergetic_rxf_ref> rows(need);
-                 uint32_t count = 0;
-                 check(self.arena.refs_of(handle, rows.data(), need, &count));
-                 nb::list found;
-                 for (uint32_t at = 0; at < count; ++at) {
-                     const pymergetic_rxf_ref &row = rows[at];
-                     found.append(
-                         nb::make_tuple(row.target, row.role, row.kind, row.binding, row.index));
-                 }
-                 return found;
-             },
-             nb::arg("handle"))
-        .def("release",
-             [](HostObjectArena &self, uint32_t handle) {
-                 check(self.arena.release_handle(handle));
-             },
-             nb::arg("handle"))
-        .def("intern",
-             [](HostObjectArena &self, const char *text) {
-                 uint16_t id = 0;
-                 check(self.arena.intern(text, &id));
-                 return id;
-             },
-             nb::arg("text"))
-        .def("symbol",
-             [](HostObjectArena &self, uint16_t id) {
-                 const char *text = nullptr;
-                 uint32_t length = 0;
-                 check(self.arena.symbol(id, &text, &length));
-                 return nb::str(text, length);
-             },
-             nb::arg("id"))
+        .def(
+            "path_of",
+            [](HostObjectArena &self, uint32_t handle) {
+                uint32_t need = 0;
+                arena::Status probe = self.arena.path_of(handle, nullptr, 0, &need);
+                if (probe != arena::Status::Ok && probe != arena::Status::OutOfMemory)
+                    check(probe);
+                std::string text(need, '\0');
+                check(self.arena.path_of(handle, text.data(), need, &need));
+                return text;
+            },
+            nb::arg("handle"))
+        .def(
+            "refs_of",
+            [](HostObjectArena &self, uint32_t handle) {
+                uint32_t need = 0;
+                arena::Status probe = self.arena.refs_of(handle, nullptr, 0, &need);
+                if (probe != arena::Status::Ok && probe != arena::Status::OutOfMemory)
+                    check(probe);
+                std::vector<pymergetic_rxf_ref> rows(need);
+                uint32_t count = 0;
+                check(self.arena.refs_of(handle, rows.data(), need, &count));
+                nb::list found;
+                for (uint32_t at = 0; at < count; ++at) {
+                    const pymergetic_rxf_ref &row = rows[at];
+                    found.append(
+                        nb::make_tuple(row.target, row.role, row.kind, row.binding, row.index));
+                }
+                return found;
+            },
+            nb::arg("handle"))
+        .def(
+            "release",
+            [](HostObjectArena &self, uint32_t handle) {
+                check(self.arena.release_handle(handle));
+            },
+            nb::arg("handle"))
+        .def(
+            "intern",
+            [](HostObjectArena &self, const char *text) {
+                uint16_t id = 0;
+                check(self.arena.intern(text, &id));
+                return id;
+            },
+            nb::arg("text"))
+        .def(
+            "symbol",
+            [](HostObjectArena &self, uint16_t id) {
+                const char *text = nullptr;
+                uint32_t length = 0;
+                check(self.arena.symbol(id, &text, &length));
+                return nb::str(text, length);
+            },
+            nb::arg("id"))
         /* The undo ring (docs/32 3, step 5): commit drops it, rollback unwinds it
          * in reverse, `journal_records` is how much of it is still held. */
-        .def("journal_commit",
-             [](HostObjectArena &self) { check(self.arena.journal_commit()); })
+        .def("journal_commit", [](HostObjectArena &self) { check(self.arena.journal_commit()); })
         .def("journal_rollback",
              [](HostObjectArena &self) { check(self.arena.journal_rollback()); })
-        .def("journal_records",
-             [](HostObjectArena &self) { return self.arena.journal_records(); })
+        .def("journal_records", [](HostObjectArena &self) { return self.arena.journal_records(); })
         /* The journal stops recording and its ring is dropped: a build (the
          * world->arena writer) that has nothing to unwind detaches. */
-        .def("journal_detach",
-             [](HostObjectArena &self) { check(self.arena.journal_detach()); })
+        .def("journal_detach", [](HostObjectArena &self) { check(self.arena.journal_detach()); })
         .def_prop_ro("root_handle",
                      [](const HostObjectArena &self) { return self.arena.root_handle(); })
-        .def("record",
-             [](const HostObjectArena &self, uint64_t offset) {
-                 const pymergetic_rxf_object *record =
-                     reinterpret_cast<const pymergetic_rxf_object *>(
-                         self.arena.memory().base + offset);
-                 return nb::make_tuple(record->kind, record->gen, record->flags, record->name,
-                                       record->parent, record->link, record->refs,
-                                       record->payload);
-             },
-             nb::arg("offset"))
-        .def("links",
-             [](const HostObjectArena &self, uint64_t offset) {
-                 const uint64_t *links = reinterpret_cast<const uint64_t *>(
-                     self.arena.memory().base + offset + sizeof(pymergetic_rxf_object));
-                 return nb::make_tuple(links[PYMERGETIC_RXF_FREE_PREV / 8],
-                                       links[PYMERGETIC_RXF_FREE_NEXT / 8]);
-             },
-             nb::arg("offset"))
+        .def(
+            "record",
+            [](const HostObjectArena &self, uint64_t offset) {
+                const pymergetic_rxf_object *record =
+                    reinterpret_cast<const pymergetic_rxf_object *>(self.arena.memory().base +
+                                                                    offset);
+                return nb::make_tuple(record->kind, record->gen, record->flags, record->name,
+                                      record->parent, record->link, record->refs, record->payload);
+            },
+            nb::arg("offset"))
+        .def(
+            "links",
+            [](const HostObjectArena &self, uint64_t offset) {
+                const uint64_t *links = reinterpret_cast<const uint64_t *>(
+                    self.arena.memory().base + offset + sizeof(pymergetic_rxf_object));
+                return nb::make_tuple(links[PYMERGETIC_RXF_FREE_PREV / 8],
+                                      links[PYMERGETIC_RXF_FREE_NEXT / 8]);
+            },
+            nb::arg("offset"))
         .def_prop_ro("handle_count",
                      [](const HostObjectArena &self) { return self.arena.handle_count(); })
         .def_prop_ro("committed",
