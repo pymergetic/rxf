@@ -8,22 +8,23 @@
  * tests/graph_world.py's flat memory is), stack and BSS zeroing, then the
  * entry call.
  *
- * The image is a flat binary linked at 0x40100000 (boot/image_stub/image.ld)
- * and carried in this ELF's .image section (aarch64.ld): qemu -kernel loads
- * one ELF here, and the bytes are build output, not source.
+ * The image is the packed v7 image (tools/native/boot_image.py: the linked
+ * image of the starter, docs/32 1, with the carrier rows of world_v7.h and the
+ * entry code), and its bytes ride in this ELF's .image section at the map base
+ * (aarch64.ld): qemu -kernel loads one file here, and the bytes are build
+ * output, not source.
  *
  * The entry call follows tests/emulator.py's call_aapcs64 exactly: x0 the
  * context, x1 the address of the 24-byte handle (a struct over 16 bytes is
  * replaced by a pointer to a caller-made copy -- here the image's own
- * HANDLE_COPY row, the row tests/graph_world.py's host writes for the wasm32
- * call), x2 args, x3 argc, x4 out.
+ * HANDLE_COPY row, which boot_image.py filled), x2 args, x3 argc, x4 out.
  *
- * The constants below are world.h's map, in asm (as on x86_64); `make
+ * The constants below are world_v7.h's map, in asm (as on x86_64); `make
  * check-map` compares them against the header so they cannot drift.
  */
     .equ IMAGE_BASE, 0x40100000         /* QEMU virt DRAM: where the world runs */
-    .equ ENTRY, IMAGE_BASE + 0xB000     /* rxf_graph_run */
-    .equ CONTEXT, IMAGE_BASE + 0x0000   /* struct rxf_runtime_context (144 bytes) */
+    .equ ENTRY, IMAGE_BASE + 0xB000     /* rxf_graph_run, in the carrier room */
+    .equ CONTEXT, IMAGE_BASE + 0x10000  /* the linked image's context (link.py) */
     .equ ARGS, IMAGE_BASE + 0x5800      /* the argument words the program takes */
     .equ OUT, IMAGE_BASE + 0x5900       /* where the answer lands */
     .equ HANDLE, IMAGE_BASE + 0x8600    /* the 3-word handle copy */
@@ -79,9 +80,9 @@ el1:
     add x9, x9, :lo12:boot_stack_top
     mov sp, x9
 
-    /* job 1 again: BSS zeroing -- the FRAME and FIFO rows of the map (world.h):
-     * the run cell and the wasm seat's device block are never in any file, so
-     * what zeroes them here is what makes the image's runtime rows honest. */
+    /* job 1 again: BSS zeroing -- the FRAME and FIFO rows of the map
+     * (world_v7.h): the run cell and the zero row beside it are never in any
+     * file, so what zeroes them here is what makes the map's rows honest. */
     ldr x9, =BSS_START
     ldr x10, =BSS_END
     bl zero

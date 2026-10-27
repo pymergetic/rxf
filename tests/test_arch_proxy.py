@@ -84,7 +84,7 @@ def test_a_seat_entry_is_one_architectures_code_and_never_a_gap():
     a target that lacks it has no gap."""
     every = arch_proxy.functions(STARTER)
     entries = [label for label in every if label.startswith(arch_proxy.SEAT_ENTRIES)]
-    assert len(entries) == 7, entries  # four starts and three worlds
+    assert len(entries) == 6, entries  # four starts and two entries
     for label in entries:
         assert not [g for g in arch_proxy.gaps(STARTER) if g[0] == label]
         assert len(every[label]) < len(MAP)  # never the code of every target

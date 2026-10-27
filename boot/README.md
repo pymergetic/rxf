@@ -4,8 +4,8 @@ The ~200–500 lines per architecture that are architecturally unavoidable to
 hand control to the RXF object world, plus the QEMU smoke that proves each one.
 Everything here is standalone; `docs/31-SELF-HOSTING.md` is the plan this
 satisfies (its four glue jobs: reset vector + stack/BSS, exception vectors,
-machine mode setup, entry trampoline) and `tests/graph_world.py` is the map and
-entry convention this reproduces row for row.
+machine mode setup, entry trampoline) and `boot/image_stub/world_v7.h` is the
+memory map and entry convention every seat establishes.
 
 ## What boots, and what the smoke proves
 
@@ -27,17 +27,16 @@ All four seats pass on this machine (QEMU 8.2, clang 18, gas, wasm-ld, node):
 | `wasm32-node` | JS host: map → handle copy → `run` → FIFO drain | node exit 0 |
 | `x86_64-uefi` | OVMF → PE stub → EFI file protocol → image | magic port 0xF4, QEMU exit 33 |
 
-The `x86_64-bios` seat boots the **real linked image**: the memory
+Every seat boots the **real linked image**: the memory
 `tools/native/link.py` makes of the starter (its CONTEXT/ENTRIES/ARENA rows),
 whose arena is the v7 one-arena image of [docs/32](../docs/32-ONE-ARENA-OBJECT-MODEL.md)
 — superblock ("RXFA", version 1) at its byte 0, the object index as the first
-object at offset 4096, every handle one hop through its slot table. That is
-the one-seat probe: the other three seats still carry the tiny stub world
-(`image_stub/world.c`) on the `world.h` map until the four-seat cutover moves
-them in one change. The probe's run resolves its handle through the v7 slot
-table (`image_stub/entry.c`, `RXF_BOOT_V7`): the map rows of the linked image
-are the image's own — the guest walks context → capabilities → the Channel's
-live area → the arena, and nothing pins a row the linker does not put there.
+object at offset 4096, every handle one hop through its slot table.
+`tools/native/boot_image.py` packs those bytes per machine with the carrier
+rows of `world_v7.h` and the compiled entry code (`image_stub/entry.c`): the
+map rows of the linked image are the image's own — the guest walks context →
+capabilities → the Channel's live area → the arena, and nothing pins a row the
+linker does not put there.
 
 The run is the whole convention on the path of the magic bytes: the glue
 resolves the handle (3 words) to the program object, passes `args`/`argc`/`out`
@@ -53,24 +52,21 @@ on wasm32).
 | `x86_64.S` | 16-bit BIOS sector + 32/64-bit trampoline (gas) |
 | `x86_64.ld` | sector at 0x7C00, stage2 at 0x8000 |
 | `aarch64.S` | QEMU virt entry: vectors, EL drop, MMU off, entry call |
-| `aarch64.ld` | boot ELF: glue code + the image's bytes at the map base |
-| `wasm_shim.c` | wasm32 trampoline: `run`/`map_at` exports |
-| `wasm_shim.js` | the wasm32 host: lays the world out, calls `run`, drains the FIFO |
+| `aarch64.ld` | boot ELF: glue code + the packed image's bytes at the map base |
+| `wasm_shim.c` | wasm32 trampoline: `run`/`map_at`/`fifo_at` exports |
+| `wasm_shim.js` | the wasm32 host: lays the image out, calls `run`, drains the FIFO |
 | `uefi_stub.c` | minimal UEFI PE entry (the firmware contract, in C) |
-| `image_stub/world.h` | the map: every row offset, per-seat bases, magic port |
-| `image_stub/world.c` | the smoke's world: context, object, program, handle, capabilities |
-| `image_stub/world_v7.h` | the v7 map (`x86_64-bios`): the carrier rows and the walk into the linked image |
+| `image_stub/world_v7.h` | the map: every row offset, per-seat bases, magic port |
 | `image_stub/entry.c` | the image's `rxf_graph_run`: the subset the program needs |
-| `image_stub/entry_v7.ld` | the entry code at its carrier row of the v7 image |
+| `image_stub/entry_v7.ld` | the entry code at its carrier row of the image |
 | `image_stub/uart_*.c` | the Uart capability's fill, one per machine |
-| `image_stub/image.ld` | the flat image: the rows at their map offsets |
 | `Makefile` | builds every seat; `check-map` proves the carriers agree |
-| `check_map.sh` | the maps' carriers compared: world.h / world_v7.h vs asm vs linked images |
+| `check_map.sh` | the map's carriers compared: world_v7.h vs asm vs entry links |
 | `run_smoke.sh` | boots every seat, asserts the serial bytes and the exit |
 
-Beside this tree, `tools/native/boot_image.py` packs the `x86_64-bios` image:
-the linked v7 image of the starter (tools/native/link.py) with the carrier
-rows of `world_v7.h` and the compiled entry code — bytes, never source.
+Beside this tree, `tools/native/boot_image.py` packs each seat's image: the
+linked v7 image of the starter (tools/native/link.py) with the carrier rows of
+`world_v7.h` and the compiled entry code — bytes, never source.
 
 ## Build and run
 
@@ -100,65 +96,59 @@ tool is missing is skipped loudly, never silently.
 | wasm32 | wasm | exported `run(i32 context, i32 handle_copy, i64 args, i64 argc, i32 out) -> i32`, the handle rebuilt from the host's copy |
 
 `tests/emulator.py`'s `call_sysv` pins the x86_64 stack shape (return address,
-then the handle's three words at `[rsp+8..32)`); `tests/graph_world.py`'s
-`Blob(struct.pack('<3Q', *handle))` is that stack argument and its wasm
-`HANDLE_COPY` step is the by-reference copy.
+then the handle's three words at `[rsp+8..32)`); the image's `HANDLE_COPY` row
+is the by-reference copy the aarch64 trampoline and the wasm host pass.
 
 ---
 
 ## Appendix A — the memory map the glue establishes
 
-Every row is `tests/graph_world.py`'s row, offset for offset. The base moves
-per machine (a flat image runs where its machine has room); the offsets never
-do. `make check-map` proves the carriers (the map headers, the asm `.equ`
-rows, the linked images' symbols) agree on every one.
-
-The `x86_64-bios` seat runs the v7 map (`image_stub/world_v7.h`) instead: the
-carrier keeps these rows (the entry convention does not move), and the
-CONTEXT row is the linked image's first bytes — `tools/native/link.py`'s
-runtime context, with the journal, the function slots, the object entries and
-the v7 arena behind it. The guest walks that image (entry.c, `RXF_BOOT_V7`):
-context → the capability table → the Channel's live area → the arena, whose
-superblock sits at its byte 0 and whose object index at offset 4096 carries
-the slot table every handle resolves through (docs/32 1 and 4). The loader
-reads the image in 64 KiB chunks, as many as the head row at offset 0 of the
-carrier carries — the linked world grows with the starter and no row pins its
-size.
+One map for every seat: `image_stub/world_v7.h`, the rows `tools/native/link.py`
+lays the image out to and the carrier the entry convention runs in. The base
+moves per machine (a flat image runs where its machine has room); the offsets
+never do. `make check-map` proves the carriers (the map header, the asm `.equ`
+rows, the entry links' symbols) agree on every one.
 
 | offset (from base) | row | content in the smoke |
 |---|---|---|
-| `0x0000` | CONTEXT | `rxf_runtime_context`, 144 bytes, version 2 |
-| `0x0100` | JOURNAL | the journal row (unused: no transactions in the smoke) |
-| `0x0400` | OBJECTS | the object table, 80-byte entries, sorted by id |
-| `0x3100` | PAYLOADS | the payload bump row (the smoke adds none) |
-| `0x4000` | PROGRAM | the program words (MOVE + RETURN), the object's payload |
+| `0x0000` | HEAD | the loader's row: the image's 64 KiB chunk count (u16) and byte count (u32) |
 | `0x5800` | ARGS | one argument word: `"RXFOK"` little-endian |
 | `0x5900` | OUT | 256 bytes: where the answer lands |
-| `0x5A00` | TEXT | 64 bytes of identity |
-| `0x5B00`–`0x5E00` | SET/MAP rows | collection rows the smoke's run never opens (zero) |
-| `0x5E00` | AREA | 272 bytes, the idle live area |
-| `0x5F40` | CAPABILITIES | the Uart capability slot (id, generation, base) |
-| `0x6000` | HEAP | 8 KiB heap row — **here the compared world ends (`0x8000`)** |
-| `0x8000` | FUNCTIONS | the function table row (the smoke calls none) |
-| `0x8600` | HANDLE_COPY | the 3-word handle the glue passes |
-| `0x8800` | FRAME | the 8 KiB run cell (`RXF_GRAPH_CELL_BYTES`) |
-| `0xA800` | FIFO | 576 bytes: the wasm seat's Uart device block |
+| `0x8600` | HANDLE_COPY | the 3-word v7 handle the glue passes |
+| `0x8800` | FRAME | 8 KiB run cell (`RXF_GRAPH_CELL_BYTES`) |
+| `0xA800` | FIFO | 576 bytes of zero row (the glue zeroes it with FRAME) |
 | `0xB000` | ENTRY | the image's entry code (`rxf_graph_run`) |
+| `0x10000` | LINKED | the linked image: tools/native/link.py's runtime context at its byte 0 |
 | `0x8800`–`0xAB00` | BSS rows | FRAME + FIFO: zeroed by the glue before the entry call |
+
+From the LINKED row the image is its own map (docs/32 1): the context's words
+6 and 7 name the capability table, the Channel capability names the live area,
+and the area names the arena — whose superblock sits at its byte 0 and whose
+object index at offset 4096 carries the slot table every handle resolves
+through (docs/32 1 and 4). That walk is `image_stub/entry.c`'s.
 
 Per seat:
 
 | seat | base | who establishes it |
 |---|---|---|
-| x86_64 BIOS | `0x10000` | the sector's INT 13h read of LBA 5 (disk: sector, stage2 LBA 1–4, image LBA 5+) |
-| x86_64 UEFI | `0x10000` | the stub's `AllocatePages(EFI_ALLOCATE_ADDRESS)` + `\RXF.IMG` read |
+| x86_64 BIOS | `0x4000000` | the sector's INT 13h read of LBA 5 (disk: sector, stage2 LBA 1–4, image LBA 5+) |
+| x86_64 UEFI | `0x4000000` | the stub's `AllocatePages(EFI_ALLOCATE_ADDRESS)` + `\RXF.IMG` read (chunked, per the head row) |
 | aarch64 virt | `0x40100000` | the boot ELF carries the image's bytes (`aarch64.ld`); QEMU `-kernel` loads it |
 | wasm32 | `0x10000` (linear memory) | the host writes the image's bytes at the base (like the harness's `emulator.write`) |
 
-Other glue-owned places: x86_64 stack at `0x7C00` growing down (page tables at
-`0x2000`–`0x5000`, GDT in the sector at `0x7C00`, DAP buffer at `0x7000`);
-aarch64 stack in the boot ELF's `.boot.bss` (16 KiB); wasm32 C stack 8 KiB
-below the module's data (`--stack-first`), the world written at `0x10000`.
+The x86_64 base sits above the firmware rooms (OVMF hands its own allocations
+out around and below 16 MiB; the package seat runs at the same base,
+`tests/test_boot_qemu.py`). Other glue-owned places: x86_64 stack at `0x7C00`
+growing down (page tables at `0x2000`–`0x5000`, GDT in the sector, DAP buffer
+at `0x7000`, bounce buffer at `0x10000`); aarch64 stack in the boot ELF's
+`.boot.bss` (16 KiB); wasm32 C stack 8 KiB below the module's data
+(`--stack-first`), the image written at `0x10000`.
+
+On wasm32 the Uart capability is not the carrier's FIFO row but the block of
+two FIFOs the linked image's capability names (`link.LiveSpec`'s "uart"
+region — the same contract `native/uart.c`'s wasm32 fill and
+`tests/test_live_uart.py` pin): the module's `fifo_at` export resolves it and
+the host serves it.
 
 ## Appendix B — Source-object fields (lifted into `pymergetic.rxf.sources` by `tools/native/source_sync.py`, docs/31 §3)
 
@@ -170,23 +160,26 @@ by the lift), and what it `builds` into (Code).
 |---|---|---|---|---|
 | `boot/x86_64.S` | asm | x86_64 | `_start16` (reset), `_start32` | Code: boot sector + stage2 (`build/boot_x86_64.bin`) |
 | `boot/x86_64.ld` | asm (link script) | x86_64 | — | carried with the boot blob above |
-| `boot/aarch64.S` | asm | aarch64 | `_start` (reset) | Code: boot ELF (`build/boot_aarch64.elf`) |
-| `boot/aarch64.ld` | asm (link script) | aarch64 | — | carried with the boot ELF above |
-| `boot/wasm_shim.c` | c | wasm32 | `run`, `map_at` | Code: the wasm module (`build/rxf_boot.wasm`) |
+| `boot/aarch64.S` | asm | aarch64 | `_start` (reset) | Code: the glue bytes (`build/boot_aarch64.bin`) |
+| `boot/aarch64.ld` | asm (link script) | aarch64 | — | carried with the boot ELF (`build/boot_aarch64.elf`) |
+| `boot/wasm_shim.c` | c | wasm32 | `run`, `map_at`, `fifo_at` | Code: the wasm module (`build/rxf_boot.wasm`) |
 | `boot/wasm_shim.js` | js | wasm32 (host) | `main` | host tool (not guest code) |
 | `boot/uefi_stub.c` | c | x86_64 (PE) | `efi_main` | Code: `build/BOOTX64.EFI` |
-| `boot/image_stub/world.h` | c (header) | all | the map's one home | carried by every image |
-| `boot/image_stub/world.c` | c | all (seat via `RXF_BOOT_SEAT_*`) | `rxf_boot_context` | Code: the world rows of every image |
-| `boot/image_stub/entry.c` | c | all | `rxf_graph_run` | Code: the image's entry |
+| `boot/image_stub/world_v7.h` | c (header) | all | the map's one home | carried by every image |
+| `boot/image_stub/entry.c` | c | all | `rxf_graph_run` | Code: the image's entry (`build/entry_v7_*.bin`) |
 | `boot/image_stub/uart_x86_64.c` | c | x86_64 | `rxf_boot_uart_putc` | Code: the Uart fill |
 | `boot/image_stub/uart_aarch64.c` | c | aarch64 | `rxf_boot_uart_putc` | Code: the Uart fill |
 | `boot/image_stub/uart_wasm32.c` | c | wasm32 | `rxf_boot_uart_putc` | Code: the Uart fill |
 | `boot/image_stub/uart.h` | c (header) | all | the fill's face | carried by every image |
-| `boot/image_stub/image.ld` | asm (link script) | all | — | the flat image layout (rows) |
+| `boot/image_stub/entry_v7.ld` | asm (link script) | all | — | the entry code's row layout |
 | `boot/Makefile`, `boot/check_map.sh`, `boot/run_smoke.sh` | make/sh | — | — | build + proof tooling (not guest code) |
 
-The image binaries (`build/image_*.bin`) are **Code** built from the rows above;
-the disk/ELF/module packagings are their containers, not separate sources.
+The pinned bodies in `pymergetic.rxf.boot` are the glue and the entry code —
+the artifacts that carry no part of the starter. The packed images
+(`build/image_*.bin`) carry the linked starter (and hence the pins themselves),
+so no pin of them can exist: `tests/test_image.py` pins their arena byte for
+byte instead. The disk/ELF/module packagings are their containers, not
+separate sources.
 
 ## Appendix C — what each arch still needs for a REAL bootloader
 
@@ -222,7 +215,7 @@ them. Per seat, what is deliberately missing:
   fill has), and whatever sandbox/pagination story the deployment wants.
 
 **x86_64 UEFI**
-- Fixed allocation at `0x10000` and a file named `RXF.IMG` at the volume root
+- Fixed allocation at `0x4000000` and a file named `RXF.IMG` at the volume root
   (QEMU's virtual FAT). Real: ExitBootServices and the boot-services memory
   map handover (the entry must not call boot services), a config-driven path,
   Secure Boot signing of the PE stub, and relocatable images if the fixed map
@@ -230,7 +223,7 @@ them. Per seat, what is deliberately missing:
 
 **Everywhere**
 - The map is fixed. A real loader that wants another base must move the map
-  with it (`image.ld`'s base, `world.h`'s rows, the asm's `.equ` rows --
+  with it (`world_v7.h`'s rows and bases, the asm's `.equ` rows --
   `check-map` is the guard against moving only one of them).
 - The image's entry is the smoke's mini interpreter (`image_stub/entry.c`, the
   MOVE/RETURN/REFUSE subset with the reference interpreter's checks). When

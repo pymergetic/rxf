@@ -1,10 +1,10 @@
 #!/bin/sh
-# boot/check_map.sh -- the maps' carriers must agree, or the smoke proves a map
-# nothing boots with.  The homes are image_stub/world.h (the stub world the
-# aarch64, wasm32 and UEFI seats still carry) and image_stub/world_v7.h (the
-# v7 map the x86_64-bios seat boots the linked image with); the asm files speak
-# them in .equ rows and the linked images in symbols (the ld scripts place the
-# rows).  This script compares each carrier against its map, per row.
+# boot/check_map.sh -- the map's carriers must agree, or the smoke proves a map
+# nothing boots with.  The one home is image_stub/world_v7.h (every seat boots
+# the packed v7 image tools/native/boot_image.py makes); the asm files speak it
+# in .equ rows and the entry links place the entry code at its row
+# (image_stub/entry_v7.ld).  This script compares each carrier against the map,
+# per row.
 set -u
 cd "$(dirname "$0")"
 
@@ -25,7 +25,7 @@ same() {
     fi
 }
 
-# The row of a map header, as written (0x8800u -> 0x8800; trailing comments ignored).
+# The row of the map header, as written (0x8800u -> 0x8800; trailing comments ignored).
 hdr() {
     awk -v n="$2" '$1 == "#define" && $2 == n { v = $3; sub(/[uUlL]+$/, "", v); print v }' \
         "$1"
@@ -41,75 +41,49 @@ equ0() {
     sed -n "s/^[[:space:]]*\\.equ $2, \\([0-9A-Fa-fx]*\\).*/\\1/p" "$1"
 }
 
-# The row as the linked image places it: the symbol's address minus the base.
+# The row as the linked entry places it: the symbol's address minus the base.
 nmsym() {
     addr=$(nm -n "$1" | awk -v s="$2" '$3 == s { print $1; exit }')
     [ -n "$addr" ] || { echo ""; return; }
     printf '0x%x' $((0x$addr - $3))
 }
 
-# The stub map: the aarch64 glue and the three stub worlds (world.h).
-WORLD=image_stub/world.h
-for asm in aarch64.S; do
-    same "$(hdr $WORLD RXF_BOOT_ENTRY)" "$(equ $asm ENTRY)" "$asm ENTRY"
-    same "$(hdr $WORLD RXF_BOOT_CONTEXT)" "$(equ $asm CONTEXT)" "$asm CONTEXT"
-    same "$(hdr $WORLD RXF_BOOT_ARGS)" "$(equ $asm ARGS)" "$asm ARGS"
-    same "$(hdr $WORLD RXF_BOOT_OUT)" "$(equ $asm OUT)" "$asm OUT"
-    same "$(hdr $WORLD RXF_BOOT_HANDLE_COPY)" "$(equ $asm HANDLE)" "$asm HANDLE"
-    same "$(hdr $WORLD RXF_BOOT_FRAME)" "$(equ $asm BSS_START)" "$asm BSS_START"
-    same "$(hdr $WORLD RXF_BOOT_BSS_END)" "$(equ $asm BSS_END)" "$asm BSS_END"
-    same "$(hdr $WORLD RXF_BOOT_ARGC)" "$(equ0 $asm ARGC)" "$asm ARGC"
+# One map (world_v7.h), spoken by both glue files in .equ rows.
+MAP=image_stub/world_v7.h
+for asm in x86_64.S aarch64.S; do
+    same "$(hdr $MAP RXF_BOOT_ENTRY)" "$(equ $asm ENTRY)" "$asm ENTRY"
+    same "$(hdr $MAP RXF_BOOT_CONTEXT)" "$(equ $asm CONTEXT)" "$asm CONTEXT"
+    same "$(hdr $MAP RXF_BOOT_ARGS)" "$(equ $asm ARGS)" "$asm ARGS"
+    same "$(hdr $MAP RXF_BOOT_OUT)" "$(equ $asm OUT)" "$asm OUT"
+    same "$(hdr $MAP RXF_BOOT_HANDLE_COPY)" "$(equ $asm HANDLE)" "$asm HANDLE"
+    same "$(hdr $MAP RXF_BOOT_FRAME)" "$(equ $asm BSS_START)" "$asm BSS_START"
+    same "$(hdr $MAP RXF_BOOT_BSS_END)" "$(equ $asm BSS_END)" "$asm BSS_END"
+    same "$(hdr $MAP RXF_BOOT_ARGC)" "$(equ0 $asm ARGC)" "$asm ARGC"
 done
 
-for seat in x86_64 aarch64 wasm32; do
-    case $seat in
-    x86_64 | wasm32) base=0x10000 ;;
-    aarch64) base=0x40100000 ;;
-    esac
-    elf=build/image_$seat.elf
-    [ -f "$elf" ] || { echo "check-map: FAIL $elf missing"; fail=1; continue; }
-    same "$(hdr $WORLD RXF_BOOT_CONTEXT)" "$(nmsym $elf rxf_boot_context $base)" "$seat rxf_boot_context"
-    same "$(hdr $WORLD RXF_BOOT_PROGRAM)" "$(nmsym $elf rxf_boot_program $base)" "$seat rxf_boot_program"
-    same "$(hdr $WORLD RXF_BOOT_ARGS)" "$(nmsym $elf rxf_boot_args $base)" "$seat rxf_boot_args"
-    same "$(hdr $WORLD RXF_BOOT_OUT)" "$(nmsym $elf rxf_boot_out $base)" "$seat rxf_boot_out"
-    same "$(hdr $WORLD RXF_BOOT_TEXT)" "$(nmsym $elf rxf_boot_text $base)" "$seat rxf_boot_text"
-    same "$(hdr $WORLD RXF_BOOT_AREA)" "$(nmsym $elf rxf_boot_area $base)" "$seat rxf_boot_area"
-    same "$(hdr $WORLD RXF_BOOT_CAPABILITIES)" "$(nmsym $elf rxf_boot_capabilities $base)" "$seat rxf_boot_capabilities"
-    same "$(hdr $WORLD RXF_BOOT_HEAP)" "$(nmsym $elf rxf_boot_heap $base)" "$seat rxf_boot_heap"
-    same "$(hdr $WORLD RXF_BOOT_HANDLE_COPY)" "$(nmsym $elf rxf_boot_handle $base)" "$seat rxf_boot_handle"
-    same "$(hdr $WORLD RXF_BOOT_FIFO)" "$(nmsym $elf rxf_boot_fifo $base)" "$seat rxf_boot_fifo"
-    if [ "$seat" != wasm32 ]; then
-        # the wasm32 world has no entry code row: its entry is the module's
-        same "$(hdr $WORLD RXF_BOOT_ENTRY)" "$(nmsym $elf rxf_graph_run $base)" "$seat rxf_graph_run"
-    fi
-done
-
-# The v7 map: the x86_64 glue (x86_64.S) and the entry code of the linked
-# image (entry_v7.ld places it at the map's ENTRY row).  The loader's chunk is
-# the map's too: the sector reads CHUNK_SECTORS sectors per EDD request, and
-# one chunk is one read (world_v7.h's CHUNK).
-V7=image_stub/world_v7.h
-same "$(hdr $V7 RXF_BOOT_ENTRY)" "$(equ x86_64.S ENTRY)" "x86_64.S ENTRY"
-same "$(hdr $V7 RXF_BOOT_CONTEXT)" "$(equ x86_64.S CONTEXT)" "x86_64.S CONTEXT"
-same "$(hdr $V7 RXF_BOOT_ARGS)" "$(equ x86_64.S ARGS)" "x86_64.S ARGS"
-same "$(hdr $V7 RXF_BOOT_OUT)" "$(equ x86_64.S OUT)" "x86_64.S OUT"
-same "$(hdr $V7 RXF_BOOT_HANDLE_COPY)" "$(equ x86_64.S HANDLE)" "x86_64.S HANDLE"
-same "$(hdr $V7 RXF_BOOT_FRAME)" "$(equ x86_64.S BSS_START)" "x86_64.S BSS_START"
-same "$(hdr $V7 RXF_BOOT_BSS_END)" "$(equ x86_64.S BSS_END)" "x86_64.S BSS_END"
-same "$(hdr $V7 RXF_BOOT_ARGC)" "$(equ0 x86_64.S ARGC)" "x86_64.S ARGC"
+# The loader's chunk is the map's too: the sector reads CHUNK_SECTORS sectors
+# per EDD request, and one chunk is one read (world_v7.h's CHUNK).
 chunk=$(equ0 x86_64.S CHUNK_SECTORS)
 if [ -n "$chunk" ]; then
-    same "$(hdr $V7 RXF_BOOT_CHUNK)" "$((chunk * 512))" "x86_64.S CHUNK_SECTORS * 512"
+    same "$(hdr $MAP RXF_BOOT_CHUNK)" "$((chunk * 512))" "x86_64.S CHUNK_SECTORS * 512"
 fi
-elf=build/entry_v7_x86_64.elf
-if [ -f "$elf" ]; then
-    same "$(hdr $V7 RXF_BOOT_ENTRY)" \
-        "$(nmsym $elf rxf_graph_run "$(hdr $V7 RXF_BOOT_X86_IMAGE_BASE)")" \
-        "v7 entry rxf_graph_run"
-else
-    echo "check-map: FAIL $elf missing"
-    fail=1
-fi
+
+# The entry links place the entry code at the map's ENTRY row (entry_v7.ld):
+# one entry.c per seat, at the base that seat runs the image at.
+for seat in x86_64 aarch64; do
+    case $seat in
+    x86_64) base=$(hdr $MAP RXF_BOOT_X86_IMAGE_BASE) ;;
+    aarch64) base=$(hdr $MAP RXF_BOOT_A64_IMAGE_BASE) ;;
+    esac
+    elf=build/entry_v7_$seat.elf
+    if [ -f "$elf" ]; then
+        same "$(hdr $MAP RXF_BOOT_ENTRY)" "$(nmsym $elf rxf_graph_run "$base")" \
+            "entry_v7_$seat rxf_graph_run"
+    else
+        echo "check-map: FAIL $elf missing"
+        fail=1
+    fi
+done
 
 if [ "$fail" -ne 0 ]; then
     echo "check-map: the map's carriers disagree"

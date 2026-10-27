@@ -9,10 +9,9 @@
  *   wasm32   run(i32, i32, i64, i64, i32): the handle by address
  * -- and the handle resolves to the program words of the object it names, the
  * way native/graph.c's bind() does. The resolve follows the map the image was
- * built for: on the stub map (world.h) the object table of the runtime
- * context, on the v7 map (world_v7.h, RXF_BOOT_V7) the one hop a handle takes
- * through the arena's slot table (docs/32 4) -- the index object at the
- * arena's offset 4096, its 16-byte entries, then the record they name.
+ * built for (world_v7.h): the one hop a handle takes through the arena's slot
+ * table (docs/32 4) -- the index object at the arena's offset 4096, its 16-byte
+ * entries, then the record they name.
  *
  * This is a MINI interpreter on purpose: the smoke's program is a MOVE + RETURN
  * and this runs the subset that program needs (MOVE, RETURN, REFUSE), refusing
@@ -31,19 +30,15 @@
  */
 #include "graph.h"
 #include "uart.h"
-#ifdef RXF_BOOT_V7
 #include "world_v7.h"
-/* The v7 layouts the guest reads: the superblock, the object record and the
- * slot table (ground.h pins every size), and the live area whose arena_base is
- * where the arena starts (core/live/live.h -- the layout tools/native/link.py
- * writes into every linked image). */
+/* The layouts the guest reads out of the linked image: the superblock, the
+ * object record and the slot table (ground.h pins every size), and the live
+ * area whose arena_base is where the arena starts (core/live/live.h -- the
+ * layout tools/native/link.py writes into every linked image). */
 #include <pymergetic/rxftk/core/ground.h>
 #include <pymergetic/rxftk/core/live/live.h>
-#else
-#include "world.h"
-#endif
 
-#define CELL_BYTES RXF_GRAPH_CELL_BYTES /* the run cell: frames are carved from it */
+#define CELL_BYTES RXF_GRAPH_CELL_BYTES   /* the run cell: frames are carved from it */
 #define REFUSE_UNBOUND RXF_REFUSE_UNBOUND /* stdlib_runtime.h's refusal codes */
 #define REFUSE_STALE RXF_REFUSE_STALE_GENERATION
 #define REFUSE_TYPE RXF_REFUSE_TYPE_MISMATCH
@@ -51,17 +46,17 @@
 #define REFUSE_BUDGET RXF_REFUSE_CELL_BUDGET
 
 /* The run cell is the FRAME row of the map, found through the context (the
- * context is the world base on the stub map and the linked image's first row
- * on the v7 map; RXF_BOOT_CONTEXT is its row on either): one map on every
- * seat, no symbol the wasm module would have to link.  The
- * glue zeroes that BSS row before the entry runs, and the run zeroes its
- * frame again per the cell contract (graph.c zeroes the frame). */
+ * context is the linked image's first row; RXF_BOOT_CONTEXT is its row, so the
+ * carrier's rows are one subtraction away): one map on every seat, no symbol
+ * the wasm module would have to link. The glue zeroes that row before the entry
+ * runs, and the run zeroes its frame again per the cell contract (graph.c
+ * zeroes the frame). */
 typedef char frame_row_is_the_cell[(CELL_BYTES == RXF_BOOT_FRAME_SIZE) ? 1 : -1];
 
 typedef struct {
     rxf_runtime_context *c;
     const rxf_u64 *code; /* the program words */
-    rxf_u64 count; /* their number */
+    rxf_u64 count;       /* their number */
     rxf_u8 *frame;
     rxf_u64 frame_bytes;
 } rxf_boot_run;
@@ -97,8 +92,7 @@ static void zero_bytes(void *to, rxf_u64 n) {
 
 /* ---- the object table ---------------------------------------------------- */
 
-#ifdef RXF_BOOT_V7
-/* ---- the v7 slot table (docs/32 1.2 and 4) ------------------------------ */
+/* ---- the slot table of the v7 arena (docs/32 1.2 and 4) ------------------ */
 
 /* The arena of the image, found the way a cold attach finds it (docs/32 1):
  * the context names the capability table, the Channel capability names the
@@ -148,15 +142,16 @@ static rxf_u32 v7_payload(rxf_runtime_context *c, rxf_u64 identity, rxf_u64 offs
     if (slots->count > slots->capacity)
         return REFUSE_UNBOUND;
     const rxf_u32 where = (rxf_u32)identity & PYMERGETIC_RXF_HANDLE32_INDEX_MASK;
-    const rxf_u32 generation =
-        (rxf_u32)((identity >> PYMERGETIC_RXF_HANDLE32_INDEX_BITS) & PYMERGETIC_RXF_HANDLE32_GEN_MASK);
+    const rxf_u32 generation = (rxf_u32)((identity >> PYMERGETIC_RXF_HANDLE32_INDEX_BITS) &
+                                         PYMERGETIC_RXF_HANDLE32_GEN_MASK);
     if (where >= slots->count)
         return REFUSE_UNBOUND;
     const pymergetic_rxf_slot *slot =
         &((const pymergetic_rxf_slot *)(const void *)(slots + 1))[where];
     if (slot->gen != generation)
         return REFUSE_STALE;
-    if (slot->slot < PYMERGETIC_RXF_INDEX_OFFSET || (slot->slot & (PYMERGETIC_RXF_OBJECT_ALIGN - 1)) ||
+    if (slot->slot < PYMERGETIC_RXF_INDEX_OFFSET ||
+        (slot->slot & (PYMERGETIC_RXF_OBJECT_ALIGN - 1)) ||
         slot->slot + sizeof(pymergetic_rxf_object) > committed)
         return REFUSE_UNBOUND;
     const pymergetic_rxf_object *record = (const pymergetic_rxf_object *)(arena + slot->slot);
@@ -170,39 +165,12 @@ static rxf_u32 v7_payload(rxf_runtime_context *c, rxf_u64 identity, rxf_u64 offs
     *room = record->payload - offset;
     return RXF_OK;
 }
-#else
-/* The entry with this id, the table sorted by id (stdlib_runtime.h's halving). */
-static rxf_object_entry *object_entry(rxf_runtime_context *c, rxf_u64 id) {
-    rxf_object_entry *e = (rxf_object_entry *)(unsigned long)c->objects;
-    rxf_u64 low = 0, high = c->object_count;
-    while (low < high) {
-        rxf_u64 middle = low + (high - low) / 2;
-        if (e[middle].id < id)
-            low = middle + 1;
-        else
-            high = middle;
-    }
-    return low < c->object_count && e[low].id == id ? &e[low] : 0;
-}
-#endif
 
 /* The payload of one object identity at `offset`, or why it does not resolve:
- * the object id of the runtime's entries on the stub map, the packed
- * (index, gen) of the arena's slot table on the v7 map (docs/32 4). */
+ * the packed (index, gen) of the arena's slot table (docs/32 4). */
 static rxf_u32 object_payload(rxf_runtime_context *c, rxf_u64 identity, rxf_u64 offset,
                               const rxf_u8 **payload, rxf_u64 *room) {
-#ifdef RXF_BOOT_V7
     return v7_payload(c, identity, offset, payload, room);
-#else
-    rxf_object_entry *e = object_entry(c, identity);
-    if (!e)
-        return REFUSE_UNBOUND;
-    if (offset > e->size)
-        return REFUSE_RANGE;
-    *payload = (const rxf_u8 *)(unsigned long)(e->payload + offset);
-    *room = e->size - offset;
-    return RXF_OK;
-#endif
 }
 
 /* ---- the subset the smoke's program runs --------------------------------- */
@@ -282,12 +250,11 @@ static rxf_u32 op_move(rxf_boot_run *g, rxf_u64 slot, rxf_u64 width, const rxf_u
 
 /* ---- the entry ----------------------------------------------------------- */
 
-/* The program object of a run (graph.c's bind): its words, or why it cannot run. */
+/* The program object of a run (graph.c's bind): its words, or why it cannot run.
+ * The handle is the v7 identity (docs/32 4): word 0 packs the slot's
+ * (index, gen) and the generation word must say the same generation -- the
+ * stale check the slot table and the record repeat (ground.h). */
 static rxf_u32 bind(rxf_boot_run *g, rxf_object_handle program) {
-#ifdef RXF_BOOT_V7
-    /* The handle is the v7 identity (docs/32 4): word 0 packs the slot's
-     * (index, gen) and the generation word must say the same generation -- the
-     * stale check the slot table and the record repeat (ground.h). */
     const rxf_u64 identity = program.object_id;
     if (program.generation !=
         ((identity >> PYMERGETIC_RXF_HANDLE32_INDEX_BITS) & PYMERGETIC_RXF_HANDLE32_GEN_MASK))
@@ -302,20 +269,6 @@ static rxf_u32 bind(rxf_boot_run *g, rxf_object_handle program) {
     g->code = (const rxf_u64 *)(const void *)source;
     g->count = room / 8;
     return RXF_OK;
-#else
-    rxf_object_entry *e = object_entry(g->c, program.object_id);
-    if (!e)
-        return REFUSE_UNBOUND;
-    if (e->generation != program.generation)
-        return REFUSE_STALE;
-    if (e->state != RXF_OBJECT_LIVE)
-        return REFUSE_UNBOUND;
-    if (program.offset > e->size || ((e->payload + program.offset) & 7))
-        return REFUSE_RANGE;
-    g->code = (const rxf_u64 *)(unsigned long)(e->payload + program.offset);
-    g->count = (e->size - program.offset) / 8;
-    return RXF_OK;
-#endif
 }
 
 /* The run: graph.c's rxf_graph_run's checks, then the subset loop. */
@@ -395,7 +348,10 @@ static rxf_u32 execute(rxf_runtime_context *c, rxf_object_handle program, rxf_u6
 
 /* ---- the seat report ----------------------------------------------------- */
 
-static const rxf_native_slot *uart_capability(rxf_runtime_context *c) {
+/* The Uart capability of the world (uart.h's face): the slot the entry reports
+ * through, and the one the wasm32 host serves (wasm_shim.c's map_at resolves
+ * the FIFO block from it). One walk, one capability model. */
+const rxf_native_slot *rxf_boot_uart_capability(rxf_runtime_context *c) {
     const rxf_native_slot *table = (const rxf_native_slot *)(unsigned long)c->capabilities;
     for (rxf_u64 i = 0; i < c->capability_count; i++)
         if (table[i].id == RXF_CAPABILITY_UART)
@@ -419,7 +375,7 @@ static void put_hex(const rxf_native_slot *cap, rxf_u64 value, rxf_u32 digits) {
  * success the magic before it: the answer's bytes as they are -- the program
  * answered "RXFOK", so the UART FIFO says "RXFOK". */
 static void report(rxf_runtime_context *c, rxf_u32 status, rxf_u64 answer) {
-    const rxf_native_slot *cap = uart_capability(c);
+    const rxf_native_slot *cap = rxf_boot_uart_capability(c);
     if (!cap) /* no Uart capability: the run answers, it just cannot say so */
         return;
     if (!status) {
@@ -435,10 +391,11 @@ static void report(rxf_runtime_context *c, rxf_u32 status, rxf_u64 answer) {
 }
 
 /* The entry the glue calls (native/graph.h's declaration is the contract). It
- * lands at the image's entry offset (image.ld, world.h's RXF_BOOT_ENTRY). */
-__attribute__((section(".text.entry"))) rxf_u32
-rxf_graph_run(rxf_runtime_context *c, rxf_object_handle program, rxf_u64 args, rxf_u64 argc,
-              rxf_u64 *out) {
+ * lands at the image's entry row (world_v7.h's RXF_BOOT_ENTRY). */
+__attribute__((section(".text.entry"))) rxf_u32 rxf_graph_run(rxf_runtime_context *c,
+                                                              rxf_object_handle program,
+                                                              rxf_u64 args, rxf_u64 argc,
+                                                              rxf_u64 *out) {
     rxf_u32 status = execute(c, program, args, argc, out);
     report(c, status, out ? word_at(out) : 0);
     return status;

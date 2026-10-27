@@ -4,11 +4,16 @@
  * stub is the firmware contract, not image logic). Everything a firmware
  * loader makes unavoidable lives here: the PE entry point in the Microsoft x64
  * calling convention, the protocols that find the file the image lives in, the
- * fixed-address allocation the memory map (boot/image_stub/world.h) assumes,
- * the seat's growth fill that claims it against the firmware's memory map
- * (docs/32 3.1), and the coarse answer on the magic port. The image's entry is
- * called per System V exactly as the BIOS trampoline calls it -- the convention
- * of tests/graph_world.py, unchanged between firmware and firmware.
+ * fixed-address allocation the memory map (boot/image_stub/world_v7.h)
+ * assumes, the seat's growth fill that claims it against the firmware's memory
+ * map (docs/32 3.1), and the coarse answer on the magic port. The image is the
+ * packed v7 image (tools/native/boot_image.py) and arrives through the file
+ * protocol in 64 KiB chunks -- the streaming limit every loader works under,
+ * with no bounce buffer here because the firmware reads straight into the
+ * image's place; how much arrives is the head row the image carries
+ * (world_v7.h). The image's entry is called per System V exactly as the BIOS
+ * trampoline calls it -- the convention of tests/graph_world.py, unchanged
+ * between firmware and firmware.
  *
  * Build: clang --target=x86_64-windows-msvc -fuse-ld=lld-link -nostdlib
  *              -Wl,/subsystem:efi_application -Wl,/entry:efi_main
@@ -22,7 +27,7 @@
 #include <stdbool.h>
 
 #include "image_stub/uart.h"
-#include "image_stub/world.h"
+#include "image_stub/world_v7.h"
 
 typedef unsigned char u8;
 typedef unsigned short u16;
@@ -46,10 +51,10 @@ typedef struct {
 
 /* The two protocols the stub walks: the loaded image names the volume it came
  * from, the simple file system opens the file on it. */
-static const efi_guid loaded_image_guid = {0x5b1b31a1, 0x9562, 0x11d2,
-                                           {0x8e, 0x3f, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b}};
-static const efi_guid simple_fs_guid = {0x964e5b22, 0x6459, 0x11d2,
-                                        {0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b}};
+static const efi_guid loaded_image_guid = {
+    0x5b1b31a1, 0x9562, 0x11d2, {0x8e, 0x3f, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b}};
+static const efi_guid simple_fs_guid = {
+    0x964e5b22, 0x6459, 0x11d2, {0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b}};
 
 typedef struct {
     u32 revision;
@@ -65,6 +70,8 @@ struct efi_file {
     efi_status(MS *close)(efi_file *);
     void *delete;
     efi_status(MS *read)(efi_file *, u64 *, void *);
+    void *write, *get_position; /* named to keep the offsets honest */
+    efi_status(MS *set_position)(efi_file *, u64);
 };
 
 typedef struct {
@@ -111,8 +118,8 @@ typedef struct {
  * argument, so the call must carry the struct, not its words (three scalars
  * would land in registers and lie about the ABI; tests/emulator.py's call_sysv
  * pins the stack shape). */
-typedef u32(SYSV * graph_run_fn)(void *context, rxf_object_handle program, u64 args, u64 argc,
-                                 void *out);
+typedef u32(SYSV *graph_run_fn)(void *context, rxf_object_handle program, u64 args, u64 argc,
+                                void *out);
 
 /* The one report this file makes itself: the fill of the Uart capability
  * (boot/image_stub/uart_x86_64.c -- the same one the image uses) with the
@@ -160,7 +167,7 @@ static bool efi_commit(void *ctx, u64 committed) {
     efi_growth *growth = (efi_growth *)ctx;
     if (committed <= growth->have)
         return true;
-    if (committed > growth->ceiling)
+    if (growth->base + committed > growth->ceiling)
         return false;
     u64 at = growth->base + growth->have;
     u64 pages = (committed - growth->have + 0xfff) / 0x1000;
@@ -202,21 +209,6 @@ efi_status MS efi_main(efi_handle image, system_table *st) {
         magic_port(RXF_BOOT_MAGIC_FAIL);
         return EFI_SUCCESS;
     }
-
-    /* The fixed-address room the map promises: world, entry code and the zero
-     * rows the glue zeroes. The seat's growth fill claims it, with the ceiling
-     * the firmware's memory map offers above the room for the arena to grow
-     * into. A real boot that wants to live anywhere else must move the map with
-     * it (boot/README.md). */
-    efi_growth growth = {st->boot, RXF_BOOT_X86_IMAGE_BASE, 0, 0};
-    growth.ceiling = growth.base + RXF_BOOT_X86_ROOM +
-                     growth_headroom(st->boot, RXF_BOOT_X86_IMAGE_BASE, RXF_BOOT_X86_ROOM);
-    if (!efi_commit(&growth, RXF_BOOT_X86_ROOM)) {
-        report(st->boot, (const u16 *)L"no room at the map");
-        magic_port(RXF_BOOT_MAGIC_FAIL);
-        return EFI_SUCCESS;
-    }
-
     if (((simple_fs *)fs)->open(fs, &root) != EFI_SUCCESS) {
         report(st->boot, (const u16 *)L"no root");
         magic_port(RXF_BOOT_MAGIC_FAIL);
@@ -227,25 +219,65 @@ efi_status MS efi_main(efi_handle image, system_table *st) {
         magic_port(RXF_BOOT_MAGIC_FAIL);
         return EFI_SUCCESS;
     }
-    u64 size = RXF_BOOT_X86_ROOM; /* the buffer is the whole room; the file is smaller */
-    if (file->read(file, &size, (void *)RXF_BOOT_X86_IMAGE_BASE) != EFI_SUCCESS ||
-        size < RXF_BOOT_ENTRY + 64) {
+
+    /* The room the map promises and the head row that sizes it: the first
+     * eight bytes of the image say how many 64 KiB chunks it is (world_v7.h)
+     * -- the linked world grows with the starter and no row pins its size.
+     * The room is claimed in ONE piece before anything lands in it: the
+     * firmware guards its allocations, so a claim beside an earlier one would
+     * collide with that guard. The file reads are chunk-sized (the streaming
+     * limit every loader works under); there is no bounce buffer here because
+     * the firmware reads straight into the image's place. */
+    u8 head[8];
+    u64 size = 8;
+    if (file->read(file, &size, head) != EFI_SUCCESS || size != 8) {
         report(st->boot, (const u16 *)L"short RXF.IMG");
         magic_port(RXF_BOOT_MAGIC_FAIL);
         return EFI_SUCCESS;
     }
+    const u16 chunks = (u16)(head[0] | ((u16)head[1] << 8));
+    const u64 total =
+        (u64)head[4] | ((u64)head[5] << 8) | ((u64)head[6] << 16) | ((u64)head[7] << 24);
+    if (chunks == 0 || total != (u64)chunks * RXF_BOOT_CHUNK) {
+        report(st->boot, (const u16 *)L"bad RXF.IMG head");
+        magic_port(RXF_BOOT_MAGIC_FAIL);
+        return EFI_SUCCESS;
+    }
+    efi_growth growth = {st->boot, RXF_BOOT_X86_IMAGE_BASE, 0, 0};
+    growth.ceiling =
+        growth.base + total + growth_headroom(st->boot, RXF_BOOT_X86_IMAGE_BASE, total);
+    if (!efi_commit(&growth, total)) {
+        report(st->boot, (const u16 *)L"no room for the image");
+        magic_port(RXF_BOOT_MAGIC_FAIL);
+        return EFI_SUCCESS;
+    }
+    if (file->set_position(file, 0) != EFI_SUCCESS) {
+        report(st->boot, (const u16 *)L"cannot rewind RXF.IMG");
+        magic_port(RXF_BOOT_MAGIC_FAIL);
+        return EFI_SUCCESS;
+    }
+    for (u64 at = 0; at < total; at += RXF_BOOT_CHUNK) {
+        size = RXF_BOOT_CHUNK;
+        if (file->read(file, &size, (void *)(RXF_BOOT_X86_IMAGE_BASE + at)) != EFI_SUCCESS ||
+            size != RXF_BOOT_CHUNK) {
+            report(st->boot, (const u16 *)L"short RXF.IMG");
+            magic_port(RXF_BOOT_MAGIC_FAIL);
+            return EFI_SUCCESS;
+        }
+    }
 
-    /* BSS zeroing, the firmware edition: the image file has no .bss in it. */
+    /* BSS zeroing, the firmware edition: the rows that start zero are zeroed
+     * before the entry runs on every seat (the third of the glue's jobs). */
     for (u64 *p = (u64 *)RXF_BOOT_X86_BSS; p < (u64 *)RXF_BOOT_X86_BSS_END; p++)
         *p = 0;
 
     /* The entry call, per System V -- the same picture the BIOS trampoline and
-     * the aarch64 one build, from the same world words. */
+     * the aarch64 one build, from the same map words: the context is the
+     * linked image's first row, the handle the row boot_image.py filled. */
     u64 *handle = (u64 *)RXF_BOOT_X86_HANDLE; /* the image's HANDLE_COPY row */
     graph_run_fn entry = (graph_run_fn)RXF_BOOT_X86_ENTRY;
-    u32 status = entry((void *)RXF_BOOT_X86_IMAGE_BASE, *(rxf_object_handle *)handle,
-                       RXF_BOOT_X86_IMAGE_BASE + RXF_BOOT_ARGS, RXF_BOOT_ARGC,
-                       (void *)(RXF_BOOT_X86_IMAGE_BASE + RXF_BOOT_OUT));
+    u32 status = entry((void *)RXF_BOOT_X86_CONTEXT, *(rxf_object_handle *)handle,
+                       RXF_BOOT_X86_ARGS, RXF_BOOT_ARGC, (void *)(RXF_BOOT_X86_OUT));
 
     magic_port(status ? RXF_BOOT_MAGIC_FAIL : RXF_BOOT_MAGIC_OK);
     return EFI_SUCCESS;

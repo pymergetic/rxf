@@ -1,18 +1,18 @@
-"""The x86_64-bios boot image: the linked v7 image of the starter, in its carrier.
+"""The boot image of one machine: the linked v7 image of the starter, in its carrier.
 
-The boot smoke's x86_64-bios seat boots the REAL linked image -- the memory
-``tools/native/link.py`` makes of the starter (its CONTEXT/ENTRIES/ARENA rows,
-the v7 one-arena image of docs/32 1) -- instead of the tiny stub world
-``boot/image_stub/world.c`` builds. This tool is the one build step that packs
-those bytes for the seat; it writes bytes and never source.
+Every boot seat boots the REAL linked image -- the memory ``tools/native/link.py``
+makes of the starter (its CONTEXT/ENTRIES/ARENA rows, the v7 one-arena image of
+docs/32 1) -- instead of a stub world. This tool is the one build step that packs
+those bytes for a machine; it writes bytes and never source.
 
 The image it writes follows ``boot/image_stub/world_v7.h`` (the map is the one
 home of the rows, parsed here, never copied):
 
 - the carrier room (the map's rows below LINKED): the loader's head row (the
-  chunk count the sector's read loop takes), the argument word the glue passes
-  (``"RXFOK"``), the answer room, the 24-byte handle of the run, and zeros for
-  the rows the glue owns (the run cell, the entry room);
+  chunk count the sector's read loop and the UEFI file reads take), the
+  argument word the glue passes (``"RXFOK"``), the answer room, the 24-byte
+  handle of the run, and zeros for the rows the glue owns (the run cell, the
+  entry room);
 - from the LINKED row the linked image itself: the runtime context at its byte
   0, the journal, the function slots, the object entries and the arena --
   superblock at its byte 0 (``"RXFA"``, version 1) and the object index as the
@@ -20,20 +20,26 @@ home of the rows, parsed here, never copied):
   16-byte slot entries).
 
 The run's program is the smoke's own -- one MOVE + RETURN that answers the
-argument word, the program ``boot/image_stub/world.c`` carried -- as an object
-of the world (``pymergetic.rxf.boot.smoke``), so the arena export places it
-like any other object and its handle resolves through the arena's slot table
-(the walk ``boot/image_stub/entry.c`` takes under ``RXF_BOOT_V7``). The handle
-words at the map's HANDLE_COPY row are that object's (index, gen), packed the
-way ground.h packs a handle32.
+argument word -- as an object of the world (``pymergetic.rxf.boot.smoke``), so
+the arena export places it like any other object and its handle resolves
+through the arena's slot table (the walk ``boot/image_stub/entry.c`` takes).
+The handle words at the map's HANDLE_COPY row are that object's (index, gen),
+packed the way ground.h packs a handle32.
 
 Usage::
 
-    python tools/native/boot_image.py [--entry ENTRY.BIN] OUT.bin
+    python tools/native/boot_image.py [--machine MACHINE] [--entry ENTRY.BIN] OUT.bin
 
-``--entry`` patches the compiled entry code (``boot/image_stub/entry.c``, built
-by the Makefile) into the map's ENTRY row; without it the row stays zero and
-only the bytes this tool owns are written.
+``--machine`` is the seat's machine (``x86_64``, ``aarch64`` or ``wasm32``):
+where the image sits (the map's per-seat base row), what tools/native/link.py
+links it for, and which UART its live block carries. ``--entry`` patches the
+compiled entry code (``boot/image_stub/entry.c``, built by the Makefile) into
+the map's ENTRY row; without it the row stays zero and only the bytes this tool
+owns are written (the wasm32 seat's entry is its module's ``run``).
+
+No pin of the packed bytes exists in ``boot.rxfd``: the image carries the
+starter and hence the pins themselves, so a pin would be self-referential.
+``tests/test_image.py`` pins the arena byte for byte instead.
 """
 
 from __future__ import annotations
@@ -55,16 +61,28 @@ ROOT = Path(__file__).resolve().parents[2]
 STARTER = ROOT / "starter"
 MAP = ROOT / "boot" / "image_stub" / "world_v7.h"
 
-# The seat's line: COM1, the 16550 behind I/O ports (link.LiveSpec's uart: the
-# second capability of the live block, the one the entry reports through).
+# The seat's line: link.LiveSpec's uart, the second capability of the live
+# block and the one the entry reports through. COM1, the 16550 behind I/O
+# ports, on the x86_64 seats; the PL011 in memory on aarch64 (QEMU virt's
+# UART0); on wasm32 any value asks for the block of two FIFOs in linear memory
+# (link.LiveSpec), which the host serves.
 UART_PORT = 0x3F8
+UART_MMIO = 0x09000000
+
+# The seats, by the machine tools/native/link.py links for: the map row that
+# names where the machine runs the image, and the UART its live block carries.
+SEATS = {
+    "x86_64": ("RXF_BOOT_X86_IMAGE_BASE", UART_PORT),
+    "aarch64": ("RXF_BOOT_A64_IMAGE_BASE", UART_MMIO),
+    "wasm32": ("RXF_BOOT_WASM_IMAGE_BASE", 1),
+}
 
 # The probe's program: one MOVE + RETURN that answers the argument word -- the
-# program boot/image_stub/world.c carried (graph.h: magic, frame bytes,
+# program the smoke has always carried (graph.h: magic, frame bytes,
 # parameters, argument words, entry word, then (slot, width) per parameter and
-# the instructions). It is data, the smoke's program words: the same words the
-# stub world baked in C, now an object of the real world. The magic and the
-# opcodes come from the header that defines them (graph_header.numbers).
+# the instructions). It is data, the smoke's program words: an object of the
+# real world. The magic and the opcodes come from the header that defines them
+# (graph_header.numbers).
 PROGRAM_PARENT = "pymergetic.rxf.boot"
 PROGRAM_NAME = "smoke"
 
@@ -102,7 +120,7 @@ def program() -> bytes:
 # bytes R,X,F,O,K low to high: 0x4B4F465852).
 ARGUMENT = 0x0000004B4F465852
 
-_ROW = re.compile(r"^#define[ \t]+(RXF_\w+)[ \t]+([^ \t\r\n]+)", re.MULTILINE)
+_ROW = re.compile(r"^#define[ \t]+(RXF_\w+)[ \t]+((?:\([^)]*\)|[^ \t\r\n])+)", re.MULTILINE)
 
 
 class BootImageError(Exception):
@@ -119,6 +137,8 @@ def rows(path: Path = MAP) -> dict[str, int]:
             return int(token, 16)
         if token.isdigit():
             return int(token)
+        if "+" in token:  # a sum of rows: (RXF_BOOT_X86_IMAGE_BASE + RXF_BOOT_ENTRY)
+            return sum(number(part.strip(" ()")) for part in token.split("+"))
         return number(token)  # a row that names another row
 
     return {name: number(name) for name in spelled}
@@ -132,13 +152,18 @@ def handle_words(placed: int) -> bytes:
     return struct.pack("<3Q", placed, generation, 0)
 
 
-def build(out: Path, entry: bytes = b"", start: Path = STARTER) -> tuple[int, int]:
+def build(
+    out: Path, entry: bytes = b"", machine: str = "x86_64", start: Path = STARTER
+) -> tuple[int, int]:
     """The seat's image at ``out``: the carrier rows and the linked image.
 
     Returns the packed size and the probe object's handle32 -- the words at the
     map's HANDLE_COPY row. The arena the linker places must be the arena the
     export made, byte for byte: one export, one image, no second link path.
     """
+    if machine not in SEATS:
+        raise BootImageError(f"no seat for the machine {machine}")
+    base_row, uart = SEATS[machine]
     map_rows = rows()
     image = tree.load(start)
     parent = image.handle(PROGRAM_PARENT)
@@ -149,8 +174,8 @@ def build(out: Path, entry: bytes = b"", start: Path = STARTER) -> tuple[int, in
     arena = made.to_bytes()
     identity = placed[probe]
 
-    base = map_rows["RXF_BOOT_X86_IMAGE_BASE"] + map_rows["RXF_BOOT_LINKED"]
-    linked = link.link(image, "x86_64", base, live=link.LiveSpec(uart=UART_PORT))
+    base = map_rows[base_row] + map_rows["RXF_BOOT_LINKED"]
+    linked = link.link(image, machine, base, live=link.LiveSpec(uart=uart))
     if linked.context != base:
         raise BootImageError("the linked image's context is not the map's LINKED row")
     at = linked.data.find(arena[:64])
@@ -180,16 +205,21 @@ def build(out: Path, entry: bytes = b"", start: Path = STARTER) -> tuple[int, in
 def main() -> None:
     arguments = sys.argv[1:]
     entry = b""
-    if arguments and arguments[0] == "--entry":
-        if len(arguments) < 3:
+    machine = "x86_64"
+    while arguments and arguments[0].startswith("--"):
+        if arguments[0] == "--entry" and len(arguments) >= 2:
+            entry = Path(arguments[1]).read_bytes()
+            arguments = arguments[2:]
+        elif arguments[0] == "--machine" and len(arguments) >= 2:
+            machine = arguments[1]
+            arguments = arguments[2:]
+        else:
             raise SystemExit(__doc__)
-        entry = Path(arguments[1]).read_bytes()
-        arguments = arguments[2:]
     if len(arguments) != 1:
         raise SystemExit(__doc__)
     out = Path(arguments[0])
-    size, identity = build(out, entry)
-    print(f"boot image: {out} {size} bytes, probe handle {identity:#x}")
+    size, identity = build(out, entry, machine)
+    print(f"boot image: {out} {size} bytes, {machine}, probe handle {identity:#x}")
 
 
 if __name__ == "__main__":

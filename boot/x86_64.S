@@ -11,8 +11,8 @@
  * the glue passes -- below it.
  *
  * Real mode cannot address the memory the image lives in (it runs to tens of
- * megabytes and must sit above the VGA/ROM hole at 0xA0000), so the image is
- * streamed through a 64 KiB bounce buffer at 0x10000 in the one trick that
+ * megabytes and must sit above the firmware rooms the map names), so the image
+ * is streamed through a 64 KiB bounce buffer at 0x10000 in the one trick that
  * keeps the BIOS disk service available -- big real mode, exactly the loader
  * of native/wrap/wrap_stage2.S: the segments take their 4 GB limits in
  * protected mode and keep them on the way back, and the round trip comes
@@ -29,7 +29,7 @@
  *
  * Memory map: 0x2000..0x5000 the page tables, 0x7C00 the boot sector and the
  * stack below it, 0x8000 this loader, 0x10000..0x20000 the bounce buffer,
- * 0x00100000 upward the image (its map: the carrier rows, then the linked
+ * 0x04000000 upward the image (its map: the carrier rows, then the linked
  * world).
  *
  * Disk layout (the Makefile's build/disk.img):
@@ -40,7 +40,7 @@
 
 /* The constants of world_v7.h's map, in asm. The .equ values must match the
  * #defines there and the ASSERTs of entry_v7.ld; `make check-map` proves it. */
-    .equ IMAGE_BASE, 0x00100000 /* the carrier rows below, the world behind */
+    .equ IMAGE_BASE, 0x04000000 /* the carrier rows below, the world behind */
     .equ ENTRY, IMAGE_BASE + 0xB000     /* rxf_graph_run, in the carrier room */
     .equ CONTEXT, IMAGE_BASE + 0x10000  /* the linked image's context (link.py) */
     .equ ARGS, IMAGE_BASE + 0x5800      /* the argument words the program takes */
@@ -184,7 +184,7 @@ stage_copy:
 staged:
     /* Long mode needs paging, and paging needs tables: one PML4, one PDPT and
      * one page directory of 2 MiB pages identity-mapping the first 1 GiB (the
-     * image sits at 0x00100000 and runs well inside it). They live below the
+     * image sits at 0x04000000 and runs well inside it). They live below the
      * loader (0x2000..) so no load or stack can overwrite them. */
     xorl %eax, %eax
     movl $0x2000, %edi

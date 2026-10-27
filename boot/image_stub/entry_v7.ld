@@ -1,10 +1,12 @@
 /* boot/image_stub/entry_v7.ld -- the entry code of the v7 image, at its row.
  *
- * The x86_64-bios seat's image is tools/native/link.py's linked image (the
+ * Every seat's image is tools/native/link.py's linked image (the
  * CONTEXT/ENTRIES/ARENA rows of docs/32 1) with the entry code in the carrier
  * room below it: this script links that code where the map says it lands
  * (world_v7.h, image_stub/entry.c), and the glue calls it there. The base
- * moves with --defsym=IMAGE_BASE (0x10000 on x86_64); the rows never do.
+ * moves with --defsym=IMAGE_BASE per seat (0x100000 on the x86_64 seats,
+ * 0x40100000 on QEMU virt); the rows never do. The wasm32 seat needs no link
+ * of its own: its entry is the module's `run` (wasm_shim.c) beside this code.
  *
  * The .bss below is zero because the carrier row starts zero (the glue also
  * zeroes the FRAME and FIFO rows, the third of its four jobs): a static of the
@@ -24,6 +26,8 @@ SECTIONS
 
     /DISCARD/ : { *(.comment) *(.note*) *(.eh_frame*) *(.ARM.attributes) }
 }
+
+ENTRY(rxf_graph_run) /* the face the glue calls; the bins are what the seats pack */
 
 /* The entry sits at its row and stays clear of the linked image behind it
  * (world_v7.h: ENTRY 0xB000, LINKED 0x10000). */

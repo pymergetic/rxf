@@ -30,9 +30,10 @@ import graph_sync
 ROOT = HERE.parents[1]
 RXF = "{urn:pymergetic:rxf}"
 NO_CODE = "no code for"
-# The entry code of a seat is one machine's by construction: `start_aarch64` boots
-# aarch64 and nothing else, `world_wasm32` is the wasm32 glue. These functions are
-# listed and resolved like any other, but a target that lacks them has no gap.
+# The entry code of a seat is one machine's by construction: `start_aarch64`
+# boots aarch64 and nothing else, `start_wasm32` is the wasm32 glue. These
+# functions are listed and resolved like any other, but a target that lacks
+# them has no gap.
 SEAT_ENTRIES = "pymergetic.rxf.boot."
 
 

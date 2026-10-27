@@ -1,13 +1,14 @@
 """The glue of ``boot/`` as code objects of the starter (docs/31 §4).
 
-One built code object per arch: the glue that hands control to the image is
-defined by one file of ``boot/`` (its link script rides with it), and the image
-carries that fact with the same provenance as everything else -- the code names
-its source (``Code.source``, the edge the source side computes the other
-direction of), and the pin says what the build makes: the byte count and the
-``sha256`` of the artifact. The bytes themselves are derived data like every
-other body: ``make -C boot`` builds them from the source and the recipe the
-image carries, so the starter keeps source, recipe and pin and not the artifact.
+One built code object per artifact: the glue that hands control to the image
+and the entry code it calls are defined by the files of ``boot/`` their family
+names (its link script rides with them), and the image carries that fact with
+the same provenance as everything else -- the code names its source
+(``Code.source``, the edge the source side computes the other direction of),
+and the pin says what the build makes: the byte count and the ``sha256`` of the
+artifact. The bytes themselves are derived data like every other body: ``make
+-C boot`` builds them from the source and the recipe the image carries, so the
+starter keeps source, recipe and pin and not the artifact.
 
 The glue is the platform's fill of the startup seam (docs/28's glue rule), not a
 library function that runs everywhere: ``implementation=Capability`` is the
@@ -46,26 +47,70 @@ MODULE = Path("pymergetic/rxf/boot.rxfd")
 
 # The glue of each family: the Function it is, the files that define it (its
 # meaning, as ``live_sync.semantic_digest`` spells it), and the Code objects it
-# builds -- one per seat, each naming its source and the body the build makes.
-# One seat per family because the build makes one artifact per family: the
-# aarch64 ELF is the seat qemu -kernel boots (its ``aarch64_uefi`` seat would be
-# a PE stub the build does not make), and the x86_64 machine boots its sector
-# and its UEFI stub as two different artifacts. The x86_64-bios seat boots the
-# linked v7 image (world_v7.h, docs/32 1) while the other three seats still
-# carry the stub world of the world.h map: the four-seat cutover moves them in
-# one change and folds the two x86_64 worlds back into one family.
+# builds -- one per artifact, each code naming its source and the body the
+# build makes. One artifact per family because the build makes one: the x86_64
+# machine boots its sector and its UEFI stub as two different artifacts.
+#
+# What may be pinned is everything that carries no part of the starter. The
+# packed images (build/image_*.bin) are the linked v7 image of the starter
+# (world_v7.h, docs/32 1) with the carrier and the entry code -- they carry the
+# starter, hence these pins, so a pin of them (or of a container that carries
+# them, like the aarch64 seat's boot ELF) would name itself and
+# ``boot_sync.py build`` could never settle. That is the linked image's one pin
+# story: none in here, ``tests/test_image.py`` pins the arena byte for byte.
+# What the image pins instead is each machine's glue and entry code: the glue
+# without the image it runs (``body_aarch64`` is the bytes boot_aarch64.elf
+# carries at 0x40080000 beside the image), and the entry code of the seats
+# (the two x86_64 seats run one entry, so their families fold).
 FAMILIES = (
+    {
+        "function": "entry_aarch64",
+        "sources": (
+            "boot/image_stub/entry.c",
+            "boot/image_stub/entry_v7.ld",
+            "boot/image_stub/uart_aarch64.c",
+            "boot/image_stub/uart.h",
+            "boot/image_stub/world_v7.h",
+        ),
+        "codes": ("aarch64_linux",),
+        "body": "body_entry_aarch64",
+        "artifact": "build/entry_v7_aarch64.bin",
+        "format": "Machine",
+        "signature": "run",
+    },
+    {
+        "function": "entry_x86_64",
+        "sources": (
+            "boot/image_stub/entry.c",
+            "boot/image_stub/entry_v7.ld",
+            "boot/image_stub/uart_x86_64.c",
+            "boot/image_stub/uart.h",
+            "boot/image_stub/world_v7.h",
+        ),
+        # one entry for both x86_64 seats: the BIOS and the UEFI seat load the
+        # same packed image and call the same rxf_graph_run at the map's row
+        "codes": ("x86_64_bios", "x86_64_uefi"),
+        "body": "body_entry_x86_64",
+        "artifact": "build/entry_v7_x86_64.bin",
+        "format": "Machine",
+        "signature": "run",
+    },
     {
         "function": "start_aarch64",
         "sources": ("boot/aarch64.S", "boot/aarch64.ld"),
         "codes": ("aarch64_linux",),
         "body": "body_aarch64",
-        "artifact": "build/boot_aarch64.elf",
+        "artifact": "build/boot_aarch64.bin",
         "format": "Machine",
     },
     {
         "function": "start_uefi",
-        "sources": ("boot/uefi_stub.c",),
+        "sources": (
+            "boot/uefi_stub.c",
+            "boot/image_stub/uart_x86_64.c",
+            "boot/image_stub/uart.h",
+            "boot/image_stub/world_v7.h",
+        ),
         "codes": ("x86_64_uefi",),
         "body": "body_uefi",
         "artifact": "build/BOOTX64.EFI",
@@ -73,7 +118,15 @@ FAMILIES = (
     },
     {
         "function": "start_wasm32",
-        "sources": ("boot/wasm_shim.c",),
+        "sources": (
+            "boot/wasm_shim.c",
+            "boot/image_stub/entry.c",
+            "boot/image_stub/uart_wasm32.c",
+            "boot/image_stub/uart.h",
+            "boot/image_stub/world_v7.h",
+        ),
+        # the wasm32 module is its glue AND its entry (its `run` is the face),
+        # so the entry's code on this seat is this body, not a family of its own
         "codes": ("wasm32",),
         "body": "body_wasm32",
         "artifact": "build/rxf_boot.wasm",
@@ -86,65 +139,6 @@ FAMILIES = (
         "body": "body_bios",
         "artifact": "build/boot_x86_64.bin",
         "format": "Machine",
-    },
-    # The image the glue runs (docs/31 §1's RXFB box): the map rows
-    # ``make -C boot`` links from ``image_stub`` and the seat loads. The glue
-    # runs it through the entry convention below, so that convention is the
-    # signature of these families (``boot/README.md`` pins it per ABI).
-    {
-        "function": "world_aarch64",
-        "sources": (
-            "boot/image_stub/world.c",
-            "boot/image_stub/entry.c",
-            "boot/image_stub/uart_aarch64.c",
-            "boot/image_stub/uart.h",
-            "boot/image_stub/world.h",
-            "boot/image_stub/image.ld",
-        ),
-        "codes": ("aarch64_linux",),
-        "body": "body_world_aarch64",
-        "artifact": "build/image_aarch64.bin",
-        "format": "Machine",
-        "signature": "run",
-    },
-    {
-        "function": "world_wasm32",
-        "sources": (
-            "boot/image_stub/world.c",
-            "boot/image_stub/entry.c",
-            "boot/image_stub/uart_wasm32.c",
-            "boot/image_stub/uart.h",
-            "boot/image_stub/world.h",
-            "boot/image_stub/image.ld",
-        ),
-        "codes": ("wasm32",),
-        "body": "body_world_wasm32",
-        "artifact": "build/image_wasm32.bin",
-        "format": "Machine",
-        "signature": "run",
-    },
-    {
-        "function": "world_x86_64",
-        "sources": (
-            "boot/image_stub/world.c",
-            "boot/image_stub/entry.c",
-            "boot/image_stub/uart_x86_64.c",
-            "boot/image_stub/uart.h",
-            "boot/image_stub/world.h",
-            "boot/image_stub/image.ld",
-        ),
-        # the UEFI seat still loads the stub world; the BIOS seat moved to the
-        # linked v7 image (world_v7.h) in the one-seat probe. That image is NOT
-        # a family here on purpose: its bytes are the starter's own derived data
-        # -- the arena the linker places, which carries these pins -- so a pin
-        # of it would name itself and `boot_sync.py build` could never settle.
-        # tests/test_image.py pins that arena byte for byte; the four-seat
-        # cutover settles where the linked image's pin story lives.
-        "codes": ("x86_64_uefi",),
-        "body": "body_world_x86_64",
-        "artifact": "build/image_x86_64.bin",
-        "format": "Machine",
-        "signature": "run",
     },
 )
 

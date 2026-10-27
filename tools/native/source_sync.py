@@ -64,14 +64,11 @@ BOOT_ARCH = {
     "boot/aarch64.ld": "Aarch64",
     "boot/check_map.sh": "Any",
     "boot/image_stub/entry.c": "Any",
-    "boot/image_stub/entry_v7.ld": "X8664",
-    "boot/image_stub/image.ld": "Any",
+    "boot/image_stub/entry_v7.ld": "Any",
     "boot/image_stub/uart.h": "Any",
     "boot/image_stub/uart_aarch64.c": "Aarch64",
     "boot/image_stub/uart_wasm32.c": "Wasm32",
     "boot/image_stub/uart_x86_64.c": "X8664",
-    "boot/image_stub/world.c": "Any",
-    "boot/image_stub/world.h": "Any",
     "boot/image_stub/world_v7.h": "Any",
     "boot/run_smoke.sh": "Any",
     "boot/uefi_stub.c": "X8664",
@@ -133,7 +130,7 @@ def name_of(source: str) -> str:
 
 
 def boot_name_of(source: str) -> str:
-    """``boot/image_stub/world.c`` is ``boot_image_stub_world_c`` (the suffix is a
+    """``boot/image_stub/entry.c`` is ``boot_image_stub_entry_c`` (the suffix is a
     part of the name: ``boot/`` carries source and link script of one name)."""
     path = Path(source)
     tail = [*path.parts[1:-1], path.stem]

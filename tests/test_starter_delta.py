@@ -13,9 +13,9 @@ from .support import resolved
 STARTER = Path(__file__).parents[1] / "starter"
 
 # Bump these three together with the files in starter/, never one alone.
-DIGEST = "902e0f2b2b33b1abbe2b4cc5bc7cf707a98e0c2d4ca6e7a775e76a16fa31623e"
-DELTA_DIGEST = "201c21ad27a07a993f1e11987d9403cd2dd297cafad5b09fe11d93977312784c"
-OBJECTS = 18980
+DIGEST = "480c15af457f6aefe49076f4b5590236d8aa81180edcc56757970f7db4a8e9c1"
+DELTA_DIGEST = "9124336f4d6dbc8ecf0ea13b07d404545953a03149d9688667f960d6c0144460"
+OBJECTS = 18969
 
 
 def test_the_starter_replays_and_checks_clean(capsys):

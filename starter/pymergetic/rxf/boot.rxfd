@@ -6,40 +6,11 @@
     <Alias name="kinds" target="pymergetic.rxf.kinds" />
     <Alias name="sources" target="pymergetic.rxf.sources" />
     <Alias name="targets" target="pymergetic.rxf.targets" />
-    <CompilerProvenance name="recipe" compiler_major="1" recipe_digest="13cadcea68b31754c78bf79e5f6dd3410380228d42c00a8293a9be201471ee4c" />
-    <Function name="start_aarch64" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.start_aarch64.signature" semantic_digest="884bd4aad1d5d45797ca7c96beea73425dd9edd04011cf172789e5cc89e8a323">
-      <Code name="aarch64_linux" owner_function="@boot.start_aarch64" runtime_target="@targets.aarch64_linux_aapcs64" signature="@boot.start_aarch64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="181624" semantic_digest="884bd4aad1d5d45797ca7c96beea73425dd9edd04011cf172789e5cc89e8a323" source="@sources.boot_aarch64_S" body="@boot.start_aarch64.body_aarch64">
+    <Function name="entry_aarch64" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.entry_aarch64.signature" semantic_digest="f2d02f7283e018409475e25883de5682a05fbbdfe3c20dbc18d75d6924496b53">
+      <Code name="aarch64_linux" owner_function="@boot.entry_aarch64" runtime_target="@targets.aarch64_linux_aapcs64" signature="@boot.entry_aarch64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="3580" semantic_digest="f2d02f7283e018409475e25883de5682a05fbbdfe3c20dbc18d75d6924496b53" source="@sources.boot_image_stub_entry_c" body="@boot.entry_aarch64.body_entry_aarch64">
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="181624" content_digest="c2b216eb45553c6a2946cae5b65ddbfffc982de0fdd66bd4300dde921f17738e" />
-      <Signature name="signature" return_type="void" />
-    </Function>
-    <Function name="start_uefi" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.start_uefi.signature" semantic_digest="524a30d1fa75618bb47b675719fed5197a34583150ba3318f21b45b21313cbff">
-      <CodeBlob name="body_uefi" byte_count="2560" content_digest="d63d794f4dee3271d6da7d99d8958933746b92ef9abdab169c317f7ba8afb62c" />
-      <Signature name="signature" return_type="void" />
-      <Code name="x86_64_uefi" owner_function="@boot.start_uefi" runtime_target="@targets.x86_64_uefi_sysv" signature="@boot.start_uefi.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="2560" semantic_digest="524a30d1fa75618bb47b675719fed5197a34583150ba3318f21b45b21313cbff" source="@sources.boot_uefi_stub_c" body="@boot.start_uefi.body_uefi">
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
-      </Code>
-    </Function>
-    <Function name="start_wasm32" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.start_wasm32.signature" semantic_digest="10d71991d680e2b2a28e033c1846dd34b0b53b62993048699af4cad53a230673">
-      <CodeBlob name="body_wasm32" byte_count="2961" content_digest="db8cc1e7e499b55ee299517fad3e806eb9d71865ff7b862292742493d5eb3480" />
-      <Signature name="signature" return_type="void" />
-      <Code name="wasm32" owner_function="@boot.start_wasm32" runtime_target="@targets.wasm32_wasm_c" signature="@boot.start_wasm32.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="2961" semantic_digest="10d71991d680e2b2a28e033c1846dd34b0b53b62993048699af4cad53a230673" source="@sources.boot_wasm_shim_c" body="@boot.start_wasm32.body_wasm32">
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
-      </Code>
-    </Function>
-    <Function name="start_x86_64" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.start_x86_64.signature" semantic_digest="0cfa4c4a4214bddb49c0d8280ad2d9c34b94072b32ea835d58bcc40dc3f67606">
-      <CodeBlob name="body_bios" byte_count="1518" content_digest="05abd66307dc289754cb5876fa7b4d1948887e4678cb5b58fd5909be5d70153b" />
-      <Signature name="signature" return_type="void" />
-      <Code name="x86_64_bios" owner_function="@boot.start_x86_64" runtime_target="@targets.x86_64_bios_sysv" signature="@boot.start_x86_64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="1518" semantic_digest="0cfa4c4a4214bddb49c0d8280ad2d9c34b94072b32ea835d58bcc40dc3f67606" source="@sources.boot_x86_64_S" body="@boot.start_x86_64.body_bios">
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
-      </Code>
-    </Function>
-    <Function name="world_aarch64" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.world_aarch64.signature" semantic_digest="0a5a9363aeb6bcb1290227e7c7778b8002453d3fe61294dff2889d77a34919a6">
-      <Code name="aarch64_linux" owner_function="@boot.world_aarch64" runtime_target="@targets.aarch64_linux_aapcs64" signature="@boot.world_aarch64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="48268" semantic_digest="0a5a9363aeb6bcb1290227e7c7778b8002453d3fe61294dff2889d77a34919a6" source="@sources.boot_image_stub_world_c" body="@boot.world_aarch64.body_world_aarch64">
-        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
-      </Code>
-      <CodeBlob name="body_world_aarch64" byte_count="48268" content_digest="ec3298f3d7cdba85def3256fbf5f06769baf1792c1ff1938f2d1d6b20720e258" />
+      <CodeBlob name="body_entry_aarch64" byte_count="3580" content_digest="4ab2c4abbe8f52f2f4face13571ffa3896866ed930bbf876037f6084da16b9ae" />
       <Signature name="signature" return_type="uint64_t" parameter_count="5">
         <Parameter name="argc" value_type="uint64_t" index="4" />
         <Parameter name="args" value_type="uint64_t" index="3" />
@@ -48,8 +19,8 @@
         <Parameter name="out" value_type="uint64_t" index="5" />
       </Signature>
     </Function>
-    <Function name="world_wasm32" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.world_wasm32.signature" semantic_digest="438c83b40e0be64ea43b5cca4abc8659a285cd8ebf88a946af55bbf164aa6e59">
-      <CodeBlob name="body_world_wasm32" byte_count="43584" content_digest="d56f497cac28ecee72110127d0db06c8fc06291790da82e07acc541f43a844ff" />
+    <Function name="entry_x86_64" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.entry_x86_64.signature" semantic_digest="d69d96c0f4880e95f35a347ee6ac42cb0ecf800e4c2eb24ecf10bf7397eeabdb">
+      <CodeBlob name="body_entry_x86_64" byte_count="5164" content_digest="943b5d01a9a0e8fc0772d8590804f0302672440e9d556de9dbf8f67e9fd5029c" />
       <Signature name="signature" return_type="uint64_t" parameter_count="5">
         <Parameter name="argc" value_type="uint64_t" index="4" />
         <Parameter name="args" value_type="uint64_t" index="3" />
@@ -57,20 +28,39 @@
         <Parameter name="handle" value_type="uint64_t" index="2" />
         <Parameter name="out" value_type="uint64_t" index="5" />
       </Signature>
-      <Code name="wasm32" owner_function="@boot.world_wasm32" runtime_target="@targets.wasm32_wasm_c" signature="@boot.world_wasm32.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="43584" semantic_digest="438c83b40e0be64ea43b5cca4abc8659a285cd8ebf88a946af55bbf164aa6e59" source="@sources.boot_image_stub_world_c" body="@boot.world_wasm32.body_world_wasm32">
+      <Code name="x86_64_bios" owner_function="@boot.entry_x86_64" runtime_target="@targets.x86_64_bios_sysv" signature="@boot.entry_x86_64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="5164" semantic_digest="d69d96c0f4880e95f35a347ee6ac42cb0ecf800e4c2eb24ecf10bf7397eeabdb" source="@sources.boot_image_stub_entry_c" body="@boot.entry_x86_64.body_entry_x86_64">
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
+      </Code>
+      <Code name="x86_64_uefi" owner_function="@boot.entry_x86_64" runtime_target="@targets.x86_64_uefi_sysv" signature="@boot.entry_x86_64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="5164" semantic_digest="d69d96c0f4880e95f35a347ee6ac42cb0ecf800e4c2eb24ecf10bf7397eeabdb" source="@sources.boot_image_stub_entry_c" body="@boot.entry_x86_64.body_entry_x86_64">
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
       </Code>
     </Function>
-    <Function name="world_x86_64" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.world_x86_64.signature" semantic_digest="243898ea596462b973c1509d8fb884c63bb9ef4a5ee5029b897ec049c37cd610">
-      <CodeBlob name="body_world_x86_64" byte_count="49868" content_digest="66a3f3d1c979a7a2dbfdeea74a1b828f7973845e4b2aa693d1c1b53271c885f3" />
-      <Signature name="signature" return_type="uint64_t" parameter_count="5">
-        <Parameter name="argc" value_type="uint64_t" index="4" />
-        <Parameter name="args" value_type="uint64_t" index="3" />
-        <Parameter name="context" value_type="uint64_t" index="1" />
-        <Parameter name="handle" value_type="uint64_t" index="2" />
-        <Parameter name="out" value_type="uint64_t" index="5" />
-      </Signature>
-      <Code name="x86_64_uefi" owner_function="@boot.world_x86_64" runtime_target="@targets.x86_64_uefi_sysv" signature="@boot.world_x86_64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="49868" semantic_digest="243898ea596462b973c1509d8fb884c63bb9ef4a5ee5029b897ec049c37cd610" source="@sources.boot_image_stub_world_c" body="@boot.world_x86_64.body_world_x86_64">
+    <CompilerProvenance name="recipe" compiler_major="1" recipe_digest="f05494176d92d2d767bdfd9ec1c8249aa4f0bd48feed04c7200f755bcea96b9d" />
+    <Function name="start_aarch64" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.start_aarch64.signature" semantic_digest="ab98686fd4cc3be7fb2b384574b82e212649ea2ca8cdede30c0c65d6cca7bd74">
+      <Code name="aarch64_linux" owner_function="@boot.start_aarch64" runtime_target="@targets.aarch64_linux_aapcs64" signature="@boot.start_aarch64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="2264" semantic_digest="ab98686fd4cc3be7fb2b384574b82e212649ea2ca8cdede30c0c65d6cca7bd74" source="@sources.boot_aarch64_S" body="@boot.start_aarch64.body_aarch64">
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
+      </Code>
+      <CodeBlob name="body_aarch64" byte_count="2264" content_digest="258f2bb95f054bee2318f07c8d91d521eb1e37750bd4d3d0dfbefb41a7bebcaf" />
+      <Signature name="signature" return_type="void" />
+    </Function>
+    <Function name="start_uefi" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.start_uefi.signature" semantic_digest="59529449b5ea482892735f0558b07aa0ab827f93aa5d7651ae846374706b8365">
+      <CodeBlob name="body_uefi" byte_count="3072" content_digest="9757931662d993a818b9225223462686d90874d7df8afc7f1d9057b1fad4c1ce" />
+      <Signature name="signature" return_type="void" />
+      <Code name="x86_64_uefi" owner_function="@boot.start_uefi" runtime_target="@targets.x86_64_uefi_sysv" signature="@boot.start_uefi.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="3072" semantic_digest="59529449b5ea482892735f0558b07aa0ab827f93aa5d7651ae846374706b8365" source="@sources.boot_uefi_stub_c" body="@boot.start_uefi.body_uefi">
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
+      </Code>
+    </Function>
+    <Function name="start_wasm32" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.start_wasm32.signature" semantic_digest="9df68d0b643d6367de6e9ea3882412b1f77b32c8f37ec7600d162c1b7407bfff">
+      <CodeBlob name="body_wasm32" byte_count="3427" content_digest="cf6baa982b976f86a75c134b760619225fdbe69e3ce12355a63a035def509d8a" />
+      <Signature name="signature" return_type="void" />
+      <Code name="wasm32" owner_function="@boot.start_wasm32" runtime_target="@targets.wasm32_wasm_c" signature="@boot.start_wasm32.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="3427" semantic_digest="9df68d0b643d6367de6e9ea3882412b1f77b32c8f37ec7600d162c1b7407bfff" source="@sources.boot_wasm_shim_c" body="@boot.start_wasm32.body_wasm32">
+        <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
+      </Code>
+    </Function>
+    <Function name="start_x86_64" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.start_x86_64.signature" semantic_digest="045c5041e41a3bd823ea32f786f6084eaeb2930884a5b17dd00742c5cc54760f">
+      <CodeBlob name="body_bios" byte_count="1518" content_digest="6ec49fbb6497bb655a381a3f382fe25994bf7aa279f80d7c70c14019b5bba937" />
+      <Signature name="signature" return_type="void" />
+      <Code name="x86_64_bios" owner_function="@boot.start_x86_64" runtime_target="@targets.x86_64_bios_sysv" signature="@boot.start_x86_64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="1518" semantic_digest="045c5041e41a3bd823ea32f786f6084eaeb2930884a5b17dd00742c5cc54760f" source="@sources.boot_x86_64_S" body="@boot.start_x86_64.body_bios">
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
       </Code>
     </Function>
