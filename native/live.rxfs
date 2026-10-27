@@ -1524,38 +1524,34 @@ macro m_rollback() {
     }
 }
 
-# cell_w / payload_w / refs_w: the writable accessors; 0 when the log says no.
-sub s_cell_w(Zh_cell_w) {
-    callsub s_cell(Zh_cell_w);
-    cw_r = 0;
-    if (ce_r != 0) {
-        callsub s_before_write(ce_r - ab, 64);
-        if (bw_r == 0) {
-            cw_r = ce_r;
-        }
-    }
-}
-
+# payload_w / refs_w: the writable value and reference rows; 0 when the log says
+# no. The record itself is never written through these - its fields have their own
+# setters, because what a reader calls the cell is the record and a spec row
+# (docs/32 5.3) and only the value bytes and the rows live in one place.
 sub s_payload_w(Zh_payload_w) {
-    callsub s_cell(Zh_payload_w);
+    var pw_rec;
+    callsub s_rec(Zh_payload_w);
     pw_r = 0;
     if (ce_r != 0) {
-        callsub s_before_write(ce_r + 64 - ab, load64(ce_r + 16));
+        pw_rec = ce_r;
+        callsub s_before_write(pw_rec + 24 - ab, load32(pw_rec + 20));
         if (bw_r == 0) {
-            pw_r = ce_r + 64;
+            pw_r = pw_rec + 24;
         }
     }
 }
 
 sub s_refs_w(Zh_refs_w) {
-    var rw_p;
-    callsub s_cell(Zh_refs_w);
+    var rw_rec;
+    var rw_room;
+    callsub s_rel_rows(Zh_refs_w);
     rw_r = 0;
-    if (ce_r != 0) {
-        rw_p = ce_r + 64 + ((load64(ce_r + 16) + 15) & ~15);
-        callsub s_before_write(rw_p - ab, 24 * load32(ce_r + 44));
+    if (rt_at != 0) {
+        rw_rec = rt_at - 24;
+        rw_room = load32(rw_rec + 20) / 24;
+        callsub s_before_write(rt_at - ab, 24 * rw_room);
         if (bw_r == 0) {
-            rw_r = rw_p;
+            rw_r = rt_at;
         }
     }
 }
@@ -4070,14 +4066,19 @@ macro m_apply_replay() {
                         }
                     }
                     if (ar_ok == 1) {
-                        callsub s_cell_w(ar_h);
-                        if (cw_r == 0) {
+                        # The semantic face of the object (docs/32 5): the flags,
+                        # the sibling index and the generation of a delta are the
+                        # words of its row in sys/specs, not of the record.
+                        callsub s_set_field(ar_h, 4, load32(ar_d + ar_opos + 12));
+                        if (sf_r == 0) {
+                            callsub s_set_field(ar_h, 8, load32(ar_d + ar_opos + 16));
+                        }
+                        if (sf_r == 0) {
+                            callsub s_set_field(ar_h, 16, load64(ar_d + ar_opos + 24));
+                        }
+                        if (sf_r != 0) {
                             jb_reason = 7;
                             ar_ok = 0;
-                        } else {
-                            store32(cw_r + 40, load32(ar_d + ar_opos + 12));
-                            store64(cw_r + 24, load64(ar_d + ar_opos + 24));
-                            store32(cw_r + 56, load32(ar_d + ar_opos + 16));
                         }
                     }
                 }
@@ -4101,12 +4102,10 @@ macro m_apply_replay() {
                         store32(ar_pend + 20 * ar_npend + 16, ar_i);
                         ar_npend = ar_npend + 1;
                     } else {
-                        callsub s_cell_w(ar_h);
-                        if (cw_r == 0) {
+                        callsub s_set_field(ar_h, 0, 0xFFFFFFFF);
+                        if (sf_r != 0) {
                             jb_reason = 7;
                             ar_ok = 0;
-                        } else {
-                            store64(cw_r, 0xFFFFFFFFFFFFFFFF);
                         }
                     }
                 }
@@ -4241,11 +4240,9 @@ macro m_apply_replay() {
                 ar_ok = 0;
             } else {
                 if (load32(ar_pend + 20 * ar_k + 4) == 0) {
-                    callsub s_cell_w(load32(ar_pend + 20 * ar_k));
-                    if (cw_r == 0) {
+                    callsub s_set_field(load32(ar_pend + 20 * ar_k), 0, ar_t);
+                    if (sf_r != 0) {
                         ar_ok = 0;
-                    } else {
-                        store64(cw_r, ar_t);
                     }
                 } else {
                     if (load32(ar_pend + 20 * ar_k + 4) == 1) {
