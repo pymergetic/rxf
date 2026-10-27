@@ -662,7 +662,10 @@ macro m_cb(Zp) {
 
 # kind_of(cell) -> kd_r: the node kind of the world's flags word.
 sub s_kd(Zc_kd) {
-    kd_r = load32(Zc_kd + 40) & 0xFF;
+    kd_r = 0;
+    if (Zc_kd != 0) {
+        kd_r = load32(Zc_kd + 40) & 0xFF;
+    }
 }
 
 # payload(handle) -> pa_r: the value bytes of an object, inline behind the record.
@@ -2853,7 +2856,10 @@ sub s_prep_types() {
 # ---- state words of a cell (live.cpp:46) and the literals the linker names ---------------------
 
 sub s_state_of(Zc_state_of) {
-    so_r = (load32(Zc_state_of + 40) >> 8) & 63;
+    so_r = 0;
+    if (Zc_state_of != 0) {
+        so_r = (load32(Zc_state_of + 40) >> 8) & 63;
+    }
 }
 
 macro m_disp_of(Zc) {
@@ -3451,7 +3457,13 @@ macro m_emit() {
             em_rp = rr_r;
             em_nref = 0;
             em_k = 0;
-            while (em_k < load32(em_c + 44)) {
+            em_nrw = 0;
+            if (em_c != 0) {
+                if (em_rp != 0) {
+                    em_nrw = load32(em_c + 44);
+                }
+            }
+            while (em_k < em_nrw) {
                 em_t = load64(em_rp + 24 * em_k);
                 if (em_t == 0xFFFFFFFFFFFFFFFF) {
                     em_nref = em_nref + 1;
@@ -3488,7 +3500,10 @@ macro m_emit() {
             cs_name = nm_r;
             callsub s_len(nm_r);
             cs_name_len = len_r;
-            cs_flags = (load32(em_c + 40) & 0xFFFFC0FF) | (em_state << 8);
+            cs_flags = 0;
+            if (em_c != 0) {
+                cs_flags = (load32(em_c + 40) & 0xFFFFC0FF) | (em_state << 8);
+            }
             cs_generation = load64(em_c + 24);
             cs_index = load32(em_c + 56);
             cs_payload = load64(em_c + 16);
@@ -5492,7 +5507,7 @@ fn live_pump(context, area) {
     var crc_r, crc_i, crc_k, cmp_r, len_r;
     var cr_h, cr_r, cs2_r, ck_r, cn_r, cc_r;
     var cl_mod, cl_head, cl_walk, cl_next, cl_stop;
-    var em_name, em_nlen;
+    var em_name, em_nlen, em_nrw;
     var cs_type, cs_parent, cs_generation, cs_flags, cs_index, cs_name, cs_name_len, cs_payload, cs_refs, cs_kind;
     var ce_r, sp_r, lv_r, pa_r, rr_r, kd_r, nm_r, fc_r;
     var ne_r, nh_r, hm_r, tin_r, it_r, tk_r, pw_r, rw_r, lss_r;
