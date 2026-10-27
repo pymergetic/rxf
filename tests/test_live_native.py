@@ -52,8 +52,9 @@ def compact(image: Image) -> bytes:
 
 @pytest.fixture(scope="module")
 def raw(image: Image) -> bytes:
-    """The arena as the linker puts it in memory: not compacted."""
-    return image.to_bytes()
+    """The arena as the linker puts it in memory: the v7 one arena (docs/32 1) that the
+    machine runs (tools/native/link.link) and the host build must serve, byte for byte."""
+    return link_.arena_of(image)
 
 
 @pytest.fixture(scope="module", params=MACHINES)
@@ -109,15 +110,16 @@ def test_reads_match_the_host_build(native: lw.Channel, image: Image, raw: bytes
     host = HostImage(raw)
     n, h = native.client, host.client
     assert n.hello().handles == h.hello().handles
-    assert n.digest() == h.digest() == image.digest()
     rng = random.Random(11)
-    reference = Image.from_bytes(raw)
+    # A handle is the (index, gen) a slot entry packs, zero-extended: a bare index is
+    # not a handle (docs/32 1.2).
+    handles = lw.arena_handles(raw)
     for handle in [
-        0,
-        1,
-        2,
-        reference.handle_count - 1,
-        *rng.sample(range(reference.handle_count), 40),
+        handles[0],
+        handles[1],
+        handles[2],
+        handles[-1],
+        *rng.sample(handles, 40),
     ]:
         assert n.get(handle) == h.get(handle)
         assert n.path(handle) == h.path(handle)
@@ -130,6 +132,9 @@ def test_reads_match_the_host_build(native: lw.Channel, image: Image, raw: bytes
     assert n.resolve("no.such.path") is None
     with pytest.raises(LiveError):
         n.get(10**9)
+    # The canonical digest and dump are the write-side slice (the debt named in
+    # core/live/live.cpp): they sit behind the reads so the read parity is what runs.
+    assert n.digest() == h.digest() == image.digest()
 
 
 def test_the_dump_is_the_canonical_one(native: lw.Channel, compact: bytes):
@@ -160,9 +165,9 @@ def test_a_change_gives_the_image_the_host_gives(native: lw.Channel, raw: bytes)
 
 
 def test_a_refused_change_leaves_the_arena_byte_for_byte(
-    native: lw.Channel, raw: bytes
+    native: lw.Channel, image: Image
 ):
-    digest = Image.from_bytes(raw).digest()
+    digest = image.digest()  # the digest of the image the machine runs
     native.client.ping()  # the first request attaches the arena
     before = native.arena()
     cases = []

@@ -179,6 +179,13 @@ def table_slots(arena: bytes, headroom: int = 4) -> int:
     return slots
 
 
+def arena_of(image: Image) -> bytes:
+    """The arena of a linked image: the v7 one-arena image (docs/32 1) that `link`
+    places at its region, byte for byte. The host build serves these same bytes, so
+    a parity test compares like with like."""
+    return arena_export.place_world(programs.filled(image))[0].to_bytes()
+
+
 def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) -> Linked:
     """The image as it sits in memory at ``base`` for one machine."""
     if machine not in MACHINES:
