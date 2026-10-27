@@ -1212,6 +1212,16 @@
         }
       },
       {
+        "type": "HostKind",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
+        "flags": false,
+        "enumerators": {
+          "BareMetalOs": 2,
+          "UnixProgram": 1,
+          "Wasm": 3
+        }
+      },
+      {
         "type": "Intrinsic",
         "source": "starter/pymergetic/rxf/kinds.rxfd",
         "flags": false,
@@ -1376,6 +1386,30 @@
         "flags": false,
         "enumerators": {
           "Fixed": 1
+        }
+      },
+      {
+        "type": "SourceArch",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
+        "flags": false,
+        "enumerators": {
+          "Aarch64": 2,
+          "Any": 4,
+          "Wasm32": 3,
+          "X8664": 1
+        }
+      },
+      {
+        "type": "SourceLang",
+        "source": "starter/pymergetic/rxf/kinds.rxfd",
+        "flags": false,
+        "enumerators": {
+          "Asm": 2,
+          "C": 3,
+          "Js": 4,
+          "Make": 5,
+          "Rxfs": 1,
+          "Sh": 6
         }
       },
       {
