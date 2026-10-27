@@ -36,8 +36,11 @@ X86_CC  := $(CLANG) --target=x86_64-unknown-none-elf
 A64_CC  := $(CLANG) --target=aarch64-none-elf
 WASM_CC := $(CLANG) --target=wasm32
 
-# The bases: where each machine runs the world (world.h's per-seat notes).
+# The bases: where each machine runs the world (world.h's per-seat notes). The
+# v7 image of the x86_64-bios seat sits above the VGA/ROM hole (world_v7.h);
+# `make check-map` pins it against the map.
 X86_BASE  := 0x10000
+X86_V7_BASE := 0x100000
 A64_BASE  := 0x40100000
 WASM_BASE := 0x10000
 
@@ -67,7 +70,7 @@ $(BUILD)/entry_v7_x86_64.o: $(ENTRY) $(MAP_V7) | $(BUILD)
 	$(X86_CC) $(CFLAGS) -DRXF_BOOT_V7 -I../src -c $< -o $@
 
 $(BUILD)/entry_v7_x86_64.elf: $(BUILD)/entry_v7_x86_64.o $(BUILD)/uart_x86.o image_stub/entry_v7.ld
-	$(LD) -T image_stub/entry_v7.ld --defsym=IMAGE_BASE=$(X86_BASE) -o $@ \
+	$(LD) -T image_stub/entry_v7.ld --defsym=IMAGE_BASE=$(X86_V7_BASE) -o $@ \
 	    $(BUILD)/entry_v7_x86_64.o $(BUILD)/uart_x86.o
 
 $(BUILD)/entry_v7_x86_64.bin: $(BUILD)/entry_v7_x86_64.elf

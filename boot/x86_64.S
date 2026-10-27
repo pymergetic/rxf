@@ -1,30 +1,46 @@
-/* boot/x86_64.S -- the BIOS boot sector and the 32/64-bit trampoline.
+/* boot/x86_64.S -- the BIOS boot sector and the streaming loader (stage2).
  *
  * The glue's four jobs (docs/115): reset vector with stack and BSS, exception
  * vectors (the GDT/IDT era on x86_64: the GDT is what protected and long mode
  * are built on), and the entry trampoline that hands control to the image's
- * rxf_graph_run per System V. The image is a separate flat binary this sector
- * loads from a fixed LBA: the object world is payload, not glue. The world is
- * the REAL linked image (image_stub/world_v7.h: the CONTEXT/ENTRIES/ARENA rows
- * tools/native/link.py makes of the starter, the v7 arena of docs/32 1), with
- * the carrier room -- the entry code and the rows the glue passes -- below it.
+ * rxf_graph_run per System V. The image is a separate flat binary this loader
+ * streams in from a fixed LBA: the object world is payload, not glue. The
+ * world is the REAL linked image (image_stub/world_v7.h: the
+ * CONTEXT/ENTRIES/ARENA rows tools/native/link.py makes of the starter, the
+ * v7 arena of docs/32 1), with the carrier room -- the entry code and the rows
+ * the glue passes -- below it.
+ *
+ * Real mode cannot address the memory the image lives in (it runs to tens of
+ * megabytes and must sit above the VGA/ROM hole at 0xA0000), so the image is
+ * streamed through a 64 KiB bounce buffer at 0x10000 in the one trick that
+ * keeps the BIOS disk service available -- big real mode, exactly the loader
+ * of native/wrap/wrap_stage2.S: the segments take their 4 GB limits in
+ * protected mode and keep them on the way back, and the round trip comes
+ * before every copy because the disk service restores the segments as real
+ * mode knows them when it answers. How much arrives is the head row of the
+ * image (world_v7.h): its 64 KiB chunk count, peeked in the bounce buffer
+ * before the first copy. Then the machine goes to long mode for good and the
+ * entry is called per System V.
  *
  * The memory map is boot/image_stub/world_v7.h's (commented at each use). The
  * carriers of it are this file, image_stub/entry_v7.ld and the rows
  * tools/native/boot_image.py writes; `make check-map` compares them, so they
  * cannot drift.
  *
+ * Memory map: 0x2000..0x5000 the page tables, 0x7C00 the boot sector and the
+ * stack below it, 0x8000 this loader, 0x10000..0x20000 the bounce buffer,
+ * 0x00100000 upward the image (its map: the carrier rows, then the linked
+ * world).
+ *
  * Disk layout (the Makefile's build/disk.img):
  *   LBA 0        this sector (512 bytes)
- *   LBA 1..4     stage2 (the 32/64-bit trampoline, loaded at 0x8000)
- *   LBA 5..      the image (the carrier at its head, the linked image behind
- *                it, loaded at 0x10000): as many 64 KiB chunks as its head
- *                row carries (world_v7.h), read one EDD request each
+ *   LBA 1..4     stage2 (the loader above, loaded at 0x8000)
+ *   LBA 5..      the image: as many 64 KiB chunks as its head row carries
  */
 
 /* The constants of world_v7.h's map, in asm. The .equ values must match the
  * #defines there and the ASSERTs of entry_v7.ld; `make check-map` proves it. */
-    .equ IMAGE_BASE, 0x10000    /* the carrier rows below, the world behind */
+    .equ IMAGE_BASE, 0x00100000 /* the carrier rows below, the world behind */
     .equ ENTRY, IMAGE_BASE + 0xB000     /* rxf_graph_run, in the carrier room */
     .equ CONTEXT, IMAGE_BASE + 0x10000  /* the linked image's context (link.py) */
     .equ ARGS, IMAGE_BASE + 0x5800      /* the argument words the program takes */
@@ -34,10 +50,12 @@
     .equ BSS_END, IMAGE_BASE + 0xAB00
     .equ ARGC, 1                /* the smoke's program takes one word */
     .equ IMAGE_LBA, 5           /* after the sector and the 4-sector stage2 */
-    .equ CHUNK_SECTORS, 128     /* one EDD read: 64 KiB, never crossing one */
+    .equ CHUNK_BYTES, 0x10000   /* one read and one copy: 64 KiB (world_v7.h) */
+    .equ CHUNK_SECTORS, 128     /* the same chunk in sectors */
     .equ CHUNK_SEG, 0x1000      /* 64 KiB in real-mode paragraphs */
+    .equ BOUNCE, 0x10000        /* the bounce buffer the chunks land in */
     .equ STAGE2, 0x8000
-    .equ STACK_TOP, 0x7c00      /* below the sector: the loader's and entry's stack */
+    .equ STACK_TOP, 0x7C00      /* below the sector: the loader's and entry's stack */
     .equ MAGIC_PORT, 0xF4       /* wrap.h: the coarse answer QEMU turns into an exit */
     .equ MAGIC_OK, 0x10
     .equ MAGIC_FAIL, 0x11
@@ -61,36 +79,7 @@ _start16:
 
     movw $dap_stage2, %si       /* INT 13h AH=42h takes its request in DS:SI */
     call read
-    movw $dap_image, %si
-    call read                   /* the image's first 64 KiB chunk: the head row */
-
-    /* The head row (world_v7.h) says how many 64 KiB chunks the image is: the
-     * linked world grows with the starter and the sector carries no count to
-     * keep in step with it. Each chunk is one EDD read (a transfer must not
-     * cross a 64 KiB boundary), and the buffer and the LBA move one chunk on. */
-    pushw %ds
-    movw $0x1000, %ax
-    movw %ax, %ds
-    movw 0x0000, %cx            /* the head's chunk count; the chunk read counts */
-    popw %ds
-1:
-    subw $1, %cx
-    jz 2f
-    addw $CHUNK_SEG, dap_image+6        /* one chunk further up in memory */
-    addl $CHUNK_SECTORS, dap_image+8    /* and one chunk on disk */
-    pushw %cx
-    movw $dap_image, %si
-    call read
-    popw %cx
-    jmp 1b
-2:
-
-    cli                         /* the mode change must not be interrupted */
-    lgdt gdt_desc               /* long mode needs descriptors before it needs paging */
-    movl %cr0, %eax
-    orl $1, %eax                /* CR0.PE: protected mode */
-    movl %eax, %cr0
-    ljmp $0x08, $STAGE2         /* reload CS in the 32-bit code segment, land in stage2 */
+    jmp STAGE2                  /* the loader: real mode first, long mode after */
 
 /* One EDD read of the request at DS:SI. The BIOS is the only disk driver the
  * smoke needs; a real bootloader may want retry/CHS fallback (boot/README.md). */
@@ -115,45 +104,88 @@ dap_stage2:
     .word 4                     /* sectors: stage2's 4 */
     .word 0x0000, 0x0800        /* segment:offset -> 0x8000 */
     .quad 1                     /* LBA 1 */
-dap_image:
-    .byte 0x10, 0
-    .word CHUNK_SECTORS         /* sectors: one 64 KiB chunk of the image */
-    .word 0x0000, 0x1000        /* -> 0x10000 */
-    .quad IMAGE_LBA             /* LBA 5: past the sector and stage2 */
 drive:
     .byte 0
-
-/* The GDT: null, 32-bit code, data (also long mode's), 64-bit code. Flat 0-4G
- * because the world's addresses are physical ones and the smoke identity-maps
- * only what it uses. */
-gdt:
-    .quad 0x0000000000000000
-    .quad 0x00CF9A000000FFFF    /* 0x08: code, 32-bit, ring 0 */
-    .quad 0x00CF92000000FFFF    /* 0x10: data, ring 0 */
-    .quad 0x00AF9A000000FFFF    /* 0x18: code, 64-bit, ring 0 */
-gdt_end:
-gdt_desc:
-    .word gdt_end - gdt - 1     /* the descriptor register wants size minus one */
-    .long gdt                   /* and the linear address of the table */
 
     .org 510                    /* pad the sector to its last two bytes */
     .word 0xaa55                /* the boot signature the BIOS checks */
 
-/* ---- stage2: protected mode to long mode, then the entry call ------------- */
+/* ---- stage2: the streaming loader, then protected and long mode ---------- */
 
     .section .stage2, "ax"
-    .code32
+    .code16
     .globl _start32
 _start32:
-    movw $0x10, %ax             /* the data segments the mode change left stale */
+    cli
+    xorw %ax, %ax
     movw %ax, %ds
     movw %ax, %es
     movw %ax, %ss
-    movl $STACK_TOP, %esp
+    movw $STACK_TOP, %sp
 
+    /* The image streams through the bounce buffer: one chunk read, one copy
+     * into the image's place. Chunk 0 arrives first -- the head row in it says
+     * how many chunks the image is (world_v7.h), peeked before it is copied. */
+    movw $dap_image, %si
+    call read
+    pushw %ds
+    movw $CHUNK_SEG, %ax
+    movw %ax, %ds
+    movw 0x0000, %cx            /* the head's chunk count; the chunk read counts */
+    popw %ds
+    movw %cx, chunks
+    xorl %ebp, %ebp             /* the bytes staged so far */
+
+stage_loop:
+    /* Big real mode for the copy: the segments take their 4 GB limits in
+     * protected mode and keep them on the way back (wrap_stage2.S). */
+    lgdt gdt_desc
+    movl %cr0, %eax
+    orl $1, %eax                /* CR0.PE */
+    movl %eax, %cr0
+    ljmp $0x08, $stage_copy_pm
+
+    .code16
+stage_copy_pm:
+    movw $0x10, %ax
+    movw %ax, %ds
+    movw %ax, %es
+    movw %ax, %fs
+    movw %ax, %gs
+    movl %cr0, %eax
+    andl $~1, %eax
+    movl %eax, %cr0
+    ljmp $0x0000, $stage_copy
+
+    .code16
+stage_copy:
+    /* Bounce buffer to the image's place: a32 rep movsd (the operand and
+     * address size prefixes the assembler does not spell in 16-bit mode). */
+    movl $CHUNK_BYTES, %ecx
+    shrl $2, %ecx
+    movl $BOUNCE, %esi
+    movl %ebp, %edi
+    addl $IMAGE_BASE, %edi
+    cld
+    .byte 0x67, 0x66, 0xF3, 0xA5
+    /* Back to the segments the disk service expects to restore: base 0. */
+    xorw %ax, %ax
+    movw %ax, %ds
+    movw %ax, %es
+    addl $CHUNK_BYTES, %ebp
+    subw $1, chunks             /* the head's count, one chunk at a time */
+    jz staged
+    addl $CHUNK_SECTORS, dap_image+8    /* the next chunk on disk; the bounce
+                                         * buffer stays where it is */
+    movw $dap_image, %si
+    call read
+    jmp stage_loop
+
+staged:
     /* Long mode needs paging, and paging needs tables: one PML4, one PDPT and
-     * one page directory of 2 MiB pages identity-mapping the first 1 GiB. They
-     * live below the loader (0x2000..) so no load or stack can overwrite them. */
+     * one page directory of 2 MiB pages identity-mapping the first 1 GiB (the
+     * image sits at 0x00100000 and runs well inside it). They live below the
+     * loader (0x2000..) so no load or stack can overwrite them. */
     xorl %eax, %eax
     movl $0x2000, %edi
     movl $(0x3000 / 4), %ecx    /* the three pages must start zero */
@@ -177,10 +209,14 @@ _start32:
     rdmsr                       /* EFER is a model-specific register, not a control one */
     orl $(1 << 8), %eax         /* EFER.LME: the mode long mode runs in */
     wrmsr
+    lgdt gdt_desc               /* the big real mode round trip left it loaded;
+                                 * the loader says so again before the last jump */
     movl %cr0, %eax
-    orl $(1 << 31), %eax        /* CR0.PG: paging on -- with LME set, this is long mode */
+    orl $0x80000001, %eax       /* CR0.PG | CR0.PE together (wrap_stage2.S): the
+                                 * loop leaves real mode behind here -- with LME
+                                 * set this is long mode */
     movl %eax, %cr0
-    ljmp $0x18, $start64        /* reload CS as 64-bit code */
+    ljmp $0x18, $start64        /* reload CS in the 64-bit code segment */
 
     .code64
 start64:
@@ -203,8 +239,8 @@ start64:
     movq %rax, %cr4
 
     /* BSS zeroing: the run cell and the entry's statics are never in the disk
-     * image (image.ld marks .bss NOLOAD), so the glue is what makes them zero.
-     * C statics are only honest if this happens before the first call. */
+     * image (entry_v7.ld marks .bss NOLOAD), so the glue is what makes them
+     * zero. C statics are only honest if this happens before the first call. */
     movq $BSS_START, %rdi
     movq $((BSS_END - BSS_START) / 8), %rcx
     xorq %rax, %rax
@@ -223,7 +259,7 @@ start64:
     movq %rdx, 0x08(%rsp)
     movq 0x10(%rax), %rdx
     movq %rdx, 0x10(%rsp)
-    movq $CONTEXT, %rdi         /* the world's runtime context */
+    movq $CONTEXT, %rdi         /* the linked image's runtime context */
     movq $ARGS, %rsi            /* what the program reads */
     movq $ARGC, %rdx            /* and how many words of it */
     movq $OUT, %rcx             /* where the answer lands */
@@ -242,3 +278,33 @@ start64:
     outb %al, %dx
 1:  hlt                         /* a finished machine waits here */
     jmp 1b
+
+    .code16
+/* The chunk count of the image (the head row's), kept across the int 13h dance
+ * and the copies: one word the loader counts down. */
+chunks:
+    .word 0
+
+/* The disk address packet of the streaming read: one 64 KiB chunk of the image
+ * to the bounce buffer (world_v7.h's CHUNK). */
+    .align 4
+dap_image:
+    .byte 0x10, 0
+    .word CHUNK_SECTORS         /* sectors: one chunk */
+    .word 0x0000, 0x1000        /* -> the bounce buffer at 0x10000 */
+    .quad IMAGE_LBA             /* LBA 5: past the sector and stage2 */
+
+/* The GDT: null, 16-bit code (the big real mode round trip), data with a 4 GB
+ * limit (the copy's segments and long mode's), 64-bit code. Flat 0-4G because
+ * the world's addresses are physical ones and the smoke identity-maps only
+ * what it uses. */
+    .align 8
+gdt:
+    .quad 0x0000000000000000
+    .quad 0x00009A000000FFFF    /* 0x08: code, 16-bit, ring 0 */
+    .quad 0x00CF92000000FFFF    /* 0x10: data, 4 GB (ring 0) */
+    .quad 0x00209A0000000000    /* 0x18: code, 64-bit, ring 0 */
+gdt_end:
+gdt_desc:
+    .word gdt_end - gdt - 1     /* the descriptor register wants size minus one */
+    .long gdt                   /* and the linear address of the table */

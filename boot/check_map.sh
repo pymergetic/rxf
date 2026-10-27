@@ -27,7 +27,7 @@ same() {
 
 # The row of a map header, as written (0x8800u -> 0x8800; trailing comments ignored).
 hdr() {
-    awk -v n="$2" '$1 == "#define" && $2 == n { v = $3; sub(/[uU]$/, "", v); print v }' \
+    awk -v n="$2" '$1 == "#define" && $2 == n { v = $3; sub(/[uUlL]+$/, "", v); print v }' \
         "$1"
 }
 
@@ -103,7 +103,9 @@ if [ -n "$chunk" ]; then
 fi
 elf=build/entry_v7_x86_64.elf
 if [ -f "$elf" ]; then
-    same "$(hdr $V7 RXF_BOOT_ENTRY)" "$(nmsym $elf rxf_graph_run 0x10000)" "v7 entry rxf_graph_run"
+    same "$(hdr $V7 RXF_BOOT_ENTRY)" \
+        "$(nmsym $elf rxf_graph_run "$(hdr $V7 RXF_BOOT_X86_IMAGE_BASE)")" \
+        "v7 entry rxf_graph_run"
 else
     echo "check-map: FAIL $elf missing"
     fail=1

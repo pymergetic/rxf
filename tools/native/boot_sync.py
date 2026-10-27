@@ -134,27 +134,15 @@ FAMILIES = (
             "boot/image_stub/image.ld",
         ),
         # the UEFI seat still loads the stub world; the BIOS seat moved to the
-        # linked v7 image below (world_x86_64_bios) in the one-seat probe
+        # linked v7 image (world_v7.h) in the one-seat probe. That image is NOT
+        # a family here on purpose: its bytes are the starter's own derived data
+        # -- the arena the linker places, which carries these pins -- so a pin
+        # of it would name itself and `boot_sync.py build` could never settle.
+        # tests/test_image.py pins that arena byte for byte; the four-seat
+        # cutover settles where the linked image's pin story lives.
         "codes": ("x86_64_uefi",),
         "body": "body_world_x86_64",
         "artifact": "build/image_x86_64.bin",
-        "format": "Machine",
-        "signature": "run",
-    },
-    {
-        "function": "world_x86_64_bios",
-        "sources": (
-            "boot/image_stub/entry.c",
-            "boot/image_stub/entry_v7.ld",
-            "boot/image_stub/uart_x86_64.c",
-            "boot/image_stub/uart.h",
-            "boot/image_stub/world_v7.h",
-        ),
-        # the real linked image: tools/native/link.py's v7 arena of the starter
-        # (docs/32 1), packed with the carrier rows and this entry code
-        "codes": ("x86_64_bios",),
-        "body": "body_world_x86_64_bios",
-        "artifact": "build/image_x86_64_bios.bin",
         "format": "Machine",
         "signature": "run",
     },
