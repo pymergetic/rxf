@@ -352,10 +352,15 @@ def snippets() -> list[dict]:
             if "wasm32" not in codes:
                 continue
             signature = next(
-                s
-                for s in function
-                if s.tag == "ABISignature" and s.get("name") == "wasm_c_status_out"
+                (
+                    s
+                    for s in function
+                    if s.tag == "ABISignature" and s.get("name") == "wasm_c_status_out"
+                ),
+                None,
             )
+            if signature is None or "x86_64_linux" not in codes:
+                continue  # a seat entry (docs/32 boot) carries wasm code, not a numeric snippet
             locations = sync.order(
                 [loc for loc in signature if loc.tag == "ABIValueLocation"]
             )
