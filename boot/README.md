@@ -22,10 +22,22 @@ All four seats pass on this machine (QEMU 8.2, clang 18, gas, wasm-ld, node):
 
 | seat | what runs the glue | coarse exit |
 |---|---|---|
-| `x86_64-bios` | sector → stage2 (real → protected → long mode) → image | magic port 0xF4, QEMU exit 33 |
+| `x86_64-bios` | sector → stage2 (real → protected → long mode) → the linked v7 image | magic port 0xF4, QEMU exit 33 |
 | `aarch64-virt` | EL2→EL1 drop, VBAR_EL1, MMU off → image | PSCI SYSTEM_OFF (QEMU exit 0) |
 | `wasm32-node` | JS host: map → handle copy → `run` → FIFO drain | node exit 0 |
 | `x86_64-uefi` | OVMF → PE stub → EFI file protocol → image | magic port 0xF4, QEMU exit 33 |
+
+The `x86_64-bios` seat boots the **real linked image**: the memory
+`tools/native/link.py` makes of the starter (its CONTEXT/ENTRIES/ARENA rows),
+whose arena is the v7 one-arena image of [docs/32](../docs/32-ONE-ARENA-OBJECT-MODEL.md)
+— superblock ("RXFA", version 1) at its byte 0, the object index as the first
+object at offset 4096, every handle one hop through its slot table. That is
+the one-seat probe: the other three seats still carry the tiny stub world
+(`image_stub/world.c`) on the `world.h` map until the four-seat cutover moves
+them in one change. The probe's run resolves its handle through the v7 slot
+table (`image_stub/entry.c`, `RXF_BOOT_V7`): the map rows of the linked image
+are the image's own — the guest walks context → capabilities → the Channel's
+live area → the arena, and nothing pins a row the linker does not put there.
 
 The run is the whole convention on the path of the magic bytes: the glue
 resolves the handle (3 words) to the program object, passes `args`/`argc`/`out`
@@ -47,12 +59,18 @@ on wasm32).
 | `uefi_stub.c` | minimal UEFI PE entry (the firmware contract, in C) |
 | `image_stub/world.h` | the map: every row offset, per-seat bases, magic port |
 | `image_stub/world.c` | the smoke's world: context, object, program, handle, capabilities |
+| `image_stub/world_v7.h` | the v7 map (`x86_64-bios`): the carrier rows and the walk into the linked image |
 | `image_stub/entry.c` | the image's `rxf_graph_run`: the subset the program needs |
+| `image_stub/entry_v7.ld` | the entry code at its carrier row of the v7 image |
 | `image_stub/uart_*.c` | the Uart capability's fill, one per machine |
 | `image_stub/image.ld` | the flat image: the rows at their map offsets |
 | `Makefile` | builds every seat; `check-map` proves the carriers agree |
-| `check_map.sh` | the map's carriers compared: world.h vs asm vs linked images |
+| `check_map.sh` | the maps' carriers compared: world.h / world_v7.h vs asm vs linked images |
 | `run_smoke.sh` | boots every seat, asserts the serial bytes and the exit |
+
+Beside this tree, `tools/native/boot_image.py` packs the `x86_64-bios` image:
+the linked v7 image of the starter (tools/native/link.py) with the carrier
+rows of `world_v7.h` and the compiled entry code — bytes, never source.
 
 ## Build and run
 
@@ -65,7 +83,9 @@ make -C boot smoke        # build + boot every seat, assert the magic
 Tools: `as` + `ld` (the x86_64 asm, gas as preferred), `clang` (C; its
 integrated assembler is the aarch64 gas since no cross GNU binutils is here),
 `wasm-ld` + `node`, `lld-link` (UEFI PE), `qemu-system-x86_64` +
-`qemu-system-aarch64`, OVMF (`/usr/share/OVMF/OVMF_CODE_4M.fd`). A seat whose
+`qemu-system-aarch64`, OVMF (`/usr/share/OVMF/OVMF_CODE_4M.fd`), and `python`
+(the tree's `.venv`, else `python3`: packing the linked v7 image needs the
+image model, `pymergetic`). A seat whose
 tool is missing is skipped loudly, never silently.
 
 ## The entry convention (tests/graph_world.py's `run`, per ABI)
@@ -90,8 +110,20 @@ then the handle's three words at `[rsp+8..32)`); `tests/graph_world.py`'s
 
 Every row is `tests/graph_world.py`'s row, offset for offset. The base moves
 per machine (a flat image runs where its machine has room); the offsets never
-do. `make check-map` proves the three carriers (world.h, the asm `.equ` rows,
-the linked images' symbols) agree on every one.
+do. `make check-map` proves the carriers (the map headers, the asm `.equ`
+rows, the linked images' symbols) agree on every one.
+
+The `x86_64-bios` seat runs the v7 map (`image_stub/world_v7.h`) instead: the
+carrier keeps these rows (the entry convention does not move), and the
+CONTEXT row is the linked image's first bytes — `tools/native/link.py`'s
+runtime context, with the journal, the function slots, the object entries and
+the v7 arena behind it. The guest walks that image (entry.c, `RXF_BOOT_V7`):
+context → the capability table → the Channel's live area → the arena, whose
+superblock sits at its byte 0 and whose object index at offset 4096 carries
+the slot table every handle resolves through (docs/32 1 and 4). The loader
+reads the image in 64 KiB chunks, as many as the head row at offset 0 of the
+carrier carries — the linked world grows with the starter and no row pins its
+size.
 
 | offset (from base) | row | content in the smoke |
 |---|---|---|

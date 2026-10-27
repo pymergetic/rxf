@@ -7,8 +7,12 @@
  *   aarch64  AAPCS64: the context in x0, the handle as a copy whose address
  *            takes x1, args in x2, argc in x3, out in x4
  *   wasm32   run(i32, i32, i64, i64, i32): the handle by address
- * -- and the handle resolves to the program words in the object table, the way
- * native/graph.c's bind() does.
+ * -- and the handle resolves to the program words of the object it names, the
+ * way native/graph.c's bind() does. The resolve follows the map the image was
+ * built for: on the stub map (world.h) the object table of the runtime
+ * context, on the v7 map (world_v7.h, RXF_BOOT_V7) the one hop a handle takes
+ * through the arena's slot table (docs/32 4) -- the index object at the
+ * arena's offset 4096, its 16-byte entries, then the record they name.
  *
  * This is a MINI interpreter on purpose: the smoke's program is a MOVE + RETURN
  * and this runs the subset that program needs (MOVE, RETURN, REFUSE), refusing
@@ -27,7 +31,17 @@
  */
 #include "graph.h"
 #include "uart.h"
+#ifdef RXF_BOOT_V7
+#include "world_v7.h"
+/* The v7 layouts the guest reads: the superblock, the object record and the
+ * slot table (ground.h pins every size), and the live area whose arena_base is
+ * where the arena starts (core/live/live.h -- the layout tools/native/link.py
+ * writes into every linked image). */
+#include <pymergetic/rxftk/core/ground.h>
+#include <pymergetic/rxftk/core/live/live.h>
+#else
 #include "world.h"
+#endif
 
 #define CELL_BYTES RXF_GRAPH_CELL_BYTES /* the run cell: frames are carved from it */
 #define REFUSE_UNBOUND RXF_REFUSE_UNBOUND /* stdlib_runtime.h's refusal codes */
@@ -37,8 +51,9 @@
 #define REFUSE_BUDGET RXF_REFUSE_CELL_BUDGET
 
 /* The run cell is the FRAME row of the map, found through the context (the
- * world base is where the context lives, and world.h says the row's offset):
- * one map on every seat, no symbol the wasm module would have to link.  The
+ * context is the world base on the stub map and the linked image's first row
+ * on the v7 map; RXF_BOOT_CONTEXT is its row on either): one map on every
+ * seat, no symbol the wasm module would have to link.  The
  * glue zeroes that BSS row before the entry runs, and the run zeroes its
  * frame again per the cell contract (graph.c zeroes the frame). */
 typedef char frame_row_is_the_cell[(CELL_BYTES == RXF_BOOT_FRAME_SIZE) ? 1 : -1];
@@ -82,6 +97,80 @@ static void zero_bytes(void *to, rxf_u64 n) {
 
 /* ---- the object table ---------------------------------------------------- */
 
+#ifdef RXF_BOOT_V7
+/* ---- the v7 slot table (docs/32 1.2 and 4) ------------------------------ */
+
+/* The arena of the image, found the way a cold attach finds it (docs/32 1):
+ * the context names the capability table, the Channel capability names the
+ * live area, and the area names the arena -- whose superblock ("RXFA",
+ * version 1) is the one anchor a cold attach needs. */
+static const rxf_u8 *v7_arena(const rxf_runtime_context *c) {
+    const rxf_native_slot *table = (const rxf_native_slot *)(unsigned long)c->capabilities;
+    for (rxf_u64 i = 0; i < c->capability_count; i++) {
+        if (table[i].id != RXF_CAPABILITY_CHANNEL)
+            continue;
+        const pymergetic_rxf_live_area *area =
+            (const pymergetic_rxf_live_area *)(unsigned long)table[i].address;
+        if (area->magic != PYMERGETIC_RXF_LIVE_MAGIC ||
+            area->version != PYMERGETIC_RXF_LIVE_VERSION)
+            return 0;
+        return (const rxf_u8 *)(unsigned long)area->arena_base;
+    }
+    return 0;
+}
+
+/* The payload one v7 handle names at `offset`, or why it does not resolve.
+ * The handle is the slot table's (index, gen) packed in one word (ground.h's
+ * handle32), and the identity is checked against BOTH the slot entry and the
+ * record it names before a payload byte is touched (ground.h: a stale handle
+ * fails its check instead of resolving). */
+static rxf_u32 v7_payload(rxf_runtime_context *c, rxf_u64 identity, rxf_u64 offset,
+                          const rxf_u8 **payload, rxf_u64 *room) {
+    const rxf_u8 *arena = v7_arena(c);
+    if (!arena)
+        return REFUSE_UNBOUND;
+    const pymergetic_rxf_superblock *super = (const pymergetic_rxf_superblock *)arena;
+    if (super->magic[0] != 'R' || super->magic[1] != 'X' || super->magic[2] != 'F' ||
+        super->magic[3] != 'A' || super->version != PYMERGETIC_RXF_SUPER_VERSION)
+        return REFUSE_UNBOUND;
+    const rxf_u64 committed = super->committed;
+    if (committed < PYMERGETIC_RXF_INDEX_OFFSET + sizeof(pymergetic_rxf_object) ||
+        committed > super->limit)
+        return REFUSE_UNBOUND;
+    /* the index object: the first object of the arena, the table every handle
+     * takes its one hop through (docs/32 4) */
+    const rxf_u8 *at = arena + PYMERGETIC_RXF_INDEX_OFFSET;
+    const pymergetic_rxf_object *index = (const pymergetic_rxf_object *)at;
+    if (pymergetic_rxf_object_size(index) > committed - PYMERGETIC_RXF_INDEX_OFFSET)
+        return REFUSE_UNBOUND;
+    const pymergetic_rxf_slots *slots =
+        (const pymergetic_rxf_slots *)(at + sizeof(pymergetic_rxf_object));
+    if (slots->count > slots->capacity)
+        return REFUSE_UNBOUND;
+    const rxf_u32 where = (rxf_u32)identity & PYMERGETIC_RXF_HANDLE32_INDEX_MASK;
+    const rxf_u32 generation =
+        (rxf_u32)((identity >> PYMERGETIC_RXF_HANDLE32_INDEX_BITS) & PYMERGETIC_RXF_HANDLE32_GEN_MASK);
+    if (where >= slots->count)
+        return REFUSE_UNBOUND;
+    const pymergetic_rxf_slot *slot =
+        &((const pymergetic_rxf_slot *)(const void *)(slots + 1))[where];
+    if (slot->gen != generation)
+        return REFUSE_STALE;
+    if (slot->slot < PYMERGETIC_RXF_INDEX_OFFSET || (slot->slot & (PYMERGETIC_RXF_OBJECT_ALIGN - 1)) ||
+        slot->slot + sizeof(pymergetic_rxf_object) > committed)
+        return REFUSE_UNBOUND;
+    const pymergetic_rxf_object *record = (const pymergetic_rxf_object *)(arena + slot->slot);
+    if (record->gen != generation)
+        return REFUSE_STALE;
+    if (record->kind != slot->kind || pymergetic_rxf_object_size(record) > committed - slot->slot)
+        return REFUSE_UNBOUND;
+    if (offset > record->payload)
+        return REFUSE_RANGE;
+    *payload = (const rxf_u8 *)record + sizeof(pymergetic_rxf_object) + offset;
+    *room = record->payload - offset;
+    return RXF_OK;
+}
+#else
 /* The entry with this id, the table sorted by id (stdlib_runtime.h's halving). */
 static rxf_object_entry *object_entry(rxf_runtime_context *c, rxf_u64 id) {
     rxf_object_entry *e = (rxf_object_entry *)(unsigned long)c->objects;
@@ -94,6 +183,26 @@ static rxf_object_entry *object_entry(rxf_runtime_context *c, rxf_u64 id) {
             high = middle;
     }
     return low < c->object_count && e[low].id == id ? &e[low] : 0;
+}
+#endif
+
+/* The payload of one object identity at `offset`, or why it does not resolve:
+ * the object id of the runtime's entries on the stub map, the packed
+ * (index, gen) of the arena's slot table on the v7 map (docs/32 4). */
+static rxf_u32 object_payload(rxf_runtime_context *c, rxf_u64 identity, rxf_u64 offset,
+                              const rxf_u8 **payload, rxf_u64 *room) {
+#ifdef RXF_BOOT_V7
+    return v7_payload(c, identity, offset, payload, room);
+#else
+    rxf_object_entry *e = object_entry(c, identity);
+    if (!e)
+        return REFUSE_UNBOUND;
+    if (offset > e->size)
+        return REFUSE_RANGE;
+    *payload = (const rxf_u8 *)(unsigned long)(e->payload + offset);
+    *room = e->size - offset;
+    return RXF_OK;
+#endif
 }
 
 /* ---- the subset the smoke's program runs --------------------------------- */
@@ -122,12 +231,14 @@ static rxf_u32 read_operand(rxf_boot_run *g, const rxf_u64 *op, rxf_u64 size, rx
         return RXF_OK;
     }
     if (kind == RXF_OPERAND_OBJECT) {
-        rxf_object_entry *e = object_entry(g->c, a);
-        if (!e)
-            return REFUSE_UNBOUND;
-        if (size > e->size)
+        const rxf_u8 *source;
+        rxf_u64 room;
+        rxf_u32 found = object_payload(g->c, a, 0, &source, &room);
+        if (found)
+            return found;
+        if (size > room)
             return REFUSE_RANGE;
-        copy_bytes(to, (const void *)(unsigned long)e->payload, size);
+        copy_bytes(to, source, size);
         return RXF_OK;
     }
     return REFUSE_RANGE;
@@ -138,12 +249,10 @@ static rxf_u32 read_operand(rxf_boot_run *g, const rxf_u64 *op, rxf_u64 size, rx
 static rxf_u64 operand_value(rxf_boot_run *g, const rxf_u64 *op, rxf_u32 *status) {
     rxf_u64 kind = op[0], a = op[1], b = op[2];
     if (kind == RXF_OPERAND_OBJECT) {
-        rxf_object_entry *e = object_entry(g->c, a);
-        if (!e) {
-            *status = REFUSE_UNBOUND;
-            return 0;
-        }
-        return e->payload;
+        const rxf_u8 *source;
+        rxf_u64 room;
+        *status = object_payload(g->c, a, 0, &source, &room);
+        return *status ? 0 : (rxf_u64)(unsigned long)source;
     }
     if (kind == RXF_OPERAND_LITERAL) {
         if (b > 8)
@@ -175,6 +284,25 @@ static rxf_u32 op_move(rxf_boot_run *g, rxf_u64 slot, rxf_u64 width, const rxf_u
 
 /* The program object of a run (graph.c's bind): its words, or why it cannot run. */
 static rxf_u32 bind(rxf_boot_run *g, rxf_object_handle program) {
+#ifdef RXF_BOOT_V7
+    /* The handle is the v7 identity (docs/32 4): word 0 packs the slot's
+     * (index, gen) and the generation word must say the same generation -- the
+     * stale check the slot table and the record repeat (ground.h). */
+    const rxf_u64 identity = program.object_id;
+    if (program.generation !=
+        ((identity >> PYMERGETIC_RXF_HANDLE32_INDEX_BITS) & PYMERGETIC_RXF_HANDLE32_GEN_MASK))
+        return REFUSE_STALE;
+    const rxf_u8 *source;
+    rxf_u64 room;
+    rxf_u32 status = object_payload(g->c, identity, program.offset, &source, &room);
+    if (status)
+        return status;
+    if ((unsigned long)source & (PYMERGETIC_RXF_OBJECT_ALIGN - 1))
+        return REFUSE_RANGE;
+    g->code = (const rxf_u64 *)(const void *)source;
+    g->count = room / 8;
+    return RXF_OK;
+#else
     rxf_object_entry *e = object_entry(g->c, program.object_id);
     if (!e)
         return REFUSE_UNBOUND;
@@ -187,6 +315,7 @@ static rxf_u32 bind(rxf_boot_run *g, rxf_object_handle program) {
     g->code = (const rxf_u64 *)(unsigned long)(e->payload + program.offset);
     g->count = (e->size - program.offset) / 8;
     return RXF_OK;
+#endif
 }
 
 /* The run: graph.c's rxf_graph_run's checks, then the subset loop. */
@@ -196,7 +325,7 @@ static rxf_u32 execute(rxf_runtime_context *c, rxf_object_handle program, rxf_u6
     if (!c || c->version != RXF_RUNTIME_ABI_VERSION || c->size < sizeof(*c) || !out)
         return REFUSE_UNBOUND;
     g.c = c;
-    g.frame = (rxf_u8 *)c + RXF_BOOT_FRAME;
+    g.frame = (rxf_u8 *)c - RXF_BOOT_CONTEXT + RXF_BOOT_FRAME;
     g.frame_bytes = 0;
     rxf_u32 status = bind(&g, program);
     if (status)

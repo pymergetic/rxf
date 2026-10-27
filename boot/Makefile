@@ -1,4 +1,4 @@
-# boot/Makefile -- the boot glue per seat, one map (image_stub/world.h).
+# boot/Makefile -- the boot glue per seat, one map per image (world.h, world_v7.h).
 #
 #   make              build every seat (x86_64 BIOS, aarch64 virt, wasm32, UEFI)
 #   make check-map    prove the map's carriers agree (world.h vs asm vs images)
@@ -8,7 +8,10 @@
 # preference); clang compiles C and assembles aarch64 (no cross GNU aarch64
 # binutils is installed, its integrated assembler is the gas there); wasm-ld +
 # node are the wasm32 seat; clang + lld-link make the UEFI PE stub. The three
-# image links all run boot/image_stub/image.ld, one row map for every seat.
+# stub image links all run boot/image_stub/image.ld, one row map for every seat.
+# The x86_64 BIOS seat boots the real linked image instead (world_v7.h): python
+# packs the image tools/native/link.py makes of the starter -- the v7 arena of
+# docs/32 -- and the entry code lands in its carrier room (boot_image.py).
 
 CLANG   := clang
 AS      := as
@@ -16,11 +19,15 @@ LD      := ld
 OBJCOPY := objcopy
 NODE    := node
 OVMF    := /usr/share/OVMF/OVMF_CODE_4M.fd
+# The packer needs the image model (pymergetic): the tree's own venv when there
+# is one, else the python that has it installed (CI's).
+PYTHON  ?= $(shell test -x ../.venv/bin/python && echo $(abspath ../.venv/bin/python) || echo python3)
 
 BUILD   := build
 WORLD   := image_stub/world.c
 ENTRY   := image_stub/entry.c
 MAP     := image_stub/world.h image_stub/image.ld
+MAP_V7  := image_stub/world_v7.h image_stub/entry_v7.ld
 INC     := -I. -Iimage_stub -I../native
 CFLAGS  := -Os -ffreestanding -fno-builtin -fno-stack-protector -fno-pic \
            -fno-asynchronous-unwind-tables -Wall -Wextra $(INC)
@@ -40,9 +47,9 @@ all: x86 aarch64 wasm uefi
 $(BUILD):
 	mkdir -p $(BUILD)
 
-# ---- x86_64: a BIOS disk (sector + stage2 + the flat image) -----------------
+# ---- x86_64 BIOS: a disk (sector + stage2) carrying the linked v7 image -----
 
-x86: $(BUILD)/disk.img $(BUILD)/image_x86_64.bin
+x86: $(BUILD)/disk.img
 
 $(BUILD)/world_x86.o: $(WORLD) $(MAP) | $(BUILD)
 	$(X86_CC) $(CFLAGS) -DRXF_BOOT_SEAT_X86 -c $< -o $@
@@ -53,14 +60,38 @@ $(BUILD)/entry_x86.o: $(ENTRY) $(MAP) | $(BUILD)
 $(BUILD)/uart_x86.o: image_stub/uart_x86_64.c image_stub/uart.h $(MAP) | $(BUILD)
 	$(X86_CC) $(CFLAGS) -DRXF_BOOT_SEAT_X86 -c $< -o $@
 
+# The entry of the v7 image: the same entry.c on the v7 map (RXF_BOOT_V7), its
+# code in the carrier room the map names. ground.h and live.h are the layouts
+# it reads out of the linked image (docs/32 1), so ../src joins the includes.
+$(BUILD)/entry_v7_x86_64.o: $(ENTRY) $(MAP_V7) | $(BUILD)
+	$(X86_CC) $(CFLAGS) -DRXF_BOOT_V7 -I../src -c $< -o $@
+
+$(BUILD)/entry_v7_x86_64.elf: $(BUILD)/entry_v7_x86_64.o $(BUILD)/uart_x86.o image_stub/entry_v7.ld
+	$(LD) -T image_stub/entry_v7.ld --defsym=IMAGE_BASE=$(X86_BASE) -o $@ \
+	    $(BUILD)/entry_v7_x86_64.o $(BUILD)/uart_x86.o
+
+$(BUILD)/entry_v7_x86_64.bin: $(BUILD)/entry_v7_x86_64.elf
+	$(OBJCOPY) -O binary $< $@
+
+# The image the BIOS seat boots: tools/native/boot_image.py packs the linked
+# image (tools/native/link.py over the starter, the v7 arena of docs/32) with
+# the carrier rows and this entry code. It is derived from the world and the
+# tools that link it: a change under starter/ or native/ repacks it.
+V7_INPUTS := $(shell find ../starter ../native -type f) \
+    ../tools/native/boot_image.py ../tools/native/link.py \
+    ../tools/native/arena_export.py ../tools/native/programs.py \
+    ../tools/native/graph_header.py
+$(BUILD)/image_x86_64_bios.bin: $(BUILD)/entry_v7_x86_64.bin $(MAP_V7) $(V7_INPUTS) | $(BUILD)
+	$(PYTHON) ../tools/native/boot_image.py --entry $(BUILD)/entry_v7_x86_64.bin $@
+
+# The stub world of the x86_64 machine: the UEFI seat still boots it (its
+# world.h map) until the four-seat cutover moves every seat to the v7 image.
 $(BUILD)/image_x86_64.elf: $(BUILD)/world_x86.o $(BUILD)/entry_x86.o $(BUILD)/uart_x86.o image_stub/image.ld
 	$(LD) -T image_stub/image.ld --defsym=IMAGE_BASE=$(X86_BASE) -o $@ \
 	    $(BUILD)/world_x86.o $(BUILD)/entry_x86.o $(BUILD)/uart_x86.o
 
 $(BUILD)/image_x86_64.bin: $(BUILD)/image_x86_64.elf
 	$(OBJCOPY) -O binary $< $@
-	@test $$(stat -c%s $@) -le $$((104 * 512)) || \
-	    { echo "image does not fit the sector count x86_64.S reads"; exit 1; }
 
 # The boot sector and stage2: pure gas (x86_64.S has no includes).
 $(BUILD)/boot_x86_64.o: x86_64.S | $(BUILD)
@@ -73,12 +104,16 @@ $(BUILD)/boot_x86_64.bin: $(BUILD)/boot_x86_64.elf
 	$(OBJCOPY) -O binary $< $@
 
 # The disk the BIOS sees (x86_64.S's DAPs): sector at LBA 0, stage2 at
-# LBA 1..4 (the boot blob has a zero gap the DAPs do not read), image at LBA 5.
-$(BUILD)/disk.img: $(BUILD)/boot_x86_64.bin $(BUILD)/image_x86_64.bin
-	dd if=/dev/zero of=$@ bs=512 count=112 status=none
+# LBA 1..4 (the boot blob has a zero gap the DAPs do not read), the image at
+# LBA 5 -- as many 64 KiB chunks as its head row carries, whole chunks, so the
+# disk is exactly big enough (boot_image.py pads the image to them).
+$(BUILD)/disk.img: $(BUILD)/boot_x86_64.bin $(BUILD)/image_x86_64_bios.bin
+	dd if=/dev/zero of=$@ bs=512 \
+	    count=$$((5 + $$(stat -c%s $(BUILD)/image_x86_64_bios.bin) / 512)) \
+	    conv=sparse status=none
 	dd if=$(BUILD)/boot_x86_64.bin of=$@ bs=512 count=1 conv=notrunc status=none
 	dd if=$(BUILD)/boot_x86_64.bin of=$@ bs=1 skip=1024 seek=512 conv=notrunc status=none
-	dd if=$(BUILD)/image_x86_64.bin of=$@ bs=512 seek=5 conv=notrunc status=none
+	dd if=$(BUILD)/image_x86_64_bios.bin of=$@ bs=512 seek=5 conv=notrunc status=none
 
 # ---- aarch64: one ELF for qemu -kernel (glue + the flat image's bytes) ------
 
@@ -160,7 +195,8 @@ $(BUILD)/uefi_root/EFI/BOOT/BOOTX64.EFI: $(BUILD)/BOOTX64.EFI $(BUILD)/image_x86
 
 # ---- the map's carriers, compared ------------------------------------------
 
-check-map: $(BUILD)/image_x86_64.elf $(BUILD)/image_aarch64.elf $(BUILD)/image_wasm32.elf
+check-map: $(BUILD)/image_x86_64.elf $(BUILD)/image_aarch64.elf $(BUILD)/image_wasm32.elf \
+		$(BUILD)/entry_v7_x86_64.elf
 	sh check_map.sh
 
 # ---- the smoke: boot every seat, assert the magic ---------------------------

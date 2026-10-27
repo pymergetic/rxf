@@ -275,271 +275,556 @@ sub s_sha_finish(Zs_sha_finish, Zout_sha_finish) {
     }
 }
 
-# ---- the arena (core/arena/arena.cpp): allocator, index, journal over one region -----------------
-# The session arena's state is the `var` words of the fn: ab = memory base, acomm = committed,
-# alim = limit, ah = the header at ab, aj = journaling, amark/aused/abitmap = the undo log,
-# aneed = the end the last allocation asked for, saved = the header at begin(). Status words are
-# the arena::Status numbers: Ok 0, OutOfMemory 1, BadHandle 2, BadImage 3, IndexFull 4,
-# TooLarge 5, Protected 6, NameTaken 7, BadName 8, HasChildren 9, Dangling 10, BadPath 11,
-# JournalFull 12, NoJournal 13.
+# ---- the arena (core/arena/object_arena.cpp): allocator, index and records over one region ------
+# The session arena's state is the `var` words of the fn: ab = memory base, acomm = committed
+# bytes of the region, alim = limit, ah = the superblock at ab, aj = journaling, amark/aused/
+# abitmap = the undo log, aneed = the end the last allocation asked for, saved = the superblock
+# at begin(). Status words are the arena::Status numbers: Ok 0, OutOfMemory 1, BadHandle 2,
+# BadImage 3, IndexFull 4, TooLarge 5, Protected 6, NameTaken 7, BadName 8, HasChildren 9,
+# Dangling 10, BadPath 11, JournalFull 12, NoJournal 13.
+#
+# The model is the v7 one arena (docs/32 1). The superblock is 4096 bytes at the arena start:
+# "RXFA", version 1, committed u64 @8 (the first free offset), limit u64 @16, root u32 @24,
+# entry u32 @28. The object index is the first object at offset 4096 - its 24-byte record -
+# then the slot head (count u32 @4120, capacity u32 @4124) and the 16-byte entries
+# {kind u16, gen u16, reserved u32, slot u64} at 4128. A handle32 packs the index (20 bits)
+# and the generation (12 bits). A record is 24 bytes - kind u16, gen u16, flags u16, name u16,
+# parent u32, link u32, refs u32, payload u32 - and its payload follows inline in 8-byte
+# slots. Names live in sys/syms, the semantic face is one row of sys/specs per index
+# (docs/32 5), and the refs of an object are the rows of sys/relations/<path> (docs/32 5.2).
+#
+# What the rest of the pump calls "a cell" is the world cell: the record and its spec row
+# together, materialized into one of the three 64-byte views cva/cvb/cvc (docs/32 5.3). A view
+# holds until the next call of the accessor that filled it, so a call that keeps two cells
+# takes the second accessor. A payload or a reference row is never copied: those stay real
+# pointers into the arena.
+#
+# The FREE ring (docs/32 3): a free span is a record with kind OBJ_FREE and 16 link bytes
+# behind its header (prev at +24, next at +32). The end marker sits at the committed boundary
+# and covers the tail; it is the ring anchor and is never taken whole.
 
-# cell_bytes(payload, refs) -> cb_r
-sub s_cb(Zp_cb, Zr_cb) {
-    cb_r = (64 + ((Zp_cb + 15) & ~15) + 24 * Zr_cb + 15) & ~15;
+# entry(index) -> sp_r: the address of the slot entry of this index.
+macro m_entry(Zi) {
+    sp_r = ab + 4128 + 16 * (Zi & 1048575);
 }
 
-# kind_of(cell) -> kd_r
-sub s_kd(Zc_kd) {
-    kd_r = load32(Zc_kd + 40) & 0xFF;
-}
-
-sub s_set_kind(Zc_set_kind, Zk_set_kind) {
-    store32(Zc_set_kind + 40, (load32(Zc_set_kind + 40) & ~0xFF) | Zk_set_kind);
-}
-
-# ensure(end) -> en_r: a region committed whole (PYMERGETIC_RXF_FIXED_REGION): no callback.
-sub s_ensure(Zend_ensure) {
-    if (Zend_ensure <= acomm) {
-        en_r = 0;
-    } else {
-        aneed = Zend_ensure;
-        en_r = 1;
-    }
-}
-
-# slot(handle) -> sp_r: the address of the index entry. The directory of chunk offsets is an
-# arena block at `index_off` (arena header word at 48), not the header word itself
-# (core/arena/arena.cpp `Arena::slot`).
-sub s_slot(Zh_slot) {
-    sp_r = ab + load64(ab + load64(ah + 48) + 8 * (Zh_slot / 4096)) + 64 + 8 * (Zh_slot % 4096);
+# slot(handle) -> sp_r: the index entry this handle names.
+macro m_slot(Zh) {
+    m_entry(Zh & 1048575);
 }
 
 # live(handle) -> lv_r (1/0)
 macro m_live(Zh) {
-    var sp_v;
+    var lv_ix, lv_gn, lv_off, lv_gen;
     lv_r = 0;
-    if (Zh < load64(ah + 88)) {
-        callsub s_slot(Zh);
-        sp_v = load64(sp_r);
-        if ((sp_v & 1) == 0) {
-            if (sp_v >= load64(ah + 56)) {
-                if (sp_v < load64(ah + 56) + load64(ah + 40)) {
-                    lv_r = 1;
+    lv_ix = Zh & 1048575;
+    lv_gn = (Zh >> 20) & 4095;
+    if (lv_ix < load32(ab + 4120)) {
+        m_entry(lv_ix);
+        lv_off = load64(sp_r + 8);
+        lv_gen = load16(sp_r + 2);
+        if (lv_off != 0) {
+            if (lv_gen == lv_gn) {
+                if (load16(ab + lv_off + 2) == lv_gen) {
+                    if (load16(ab + lv_off) == load16(sp_r)) {
+                        lv_r = 1;
+                    }
                 }
             }
         }
     }
 }
 
-# cell(handle) -> ce_r: the cell header address, or 0.
-sub s_cell(Zh_cell) {
-    m_live(Zh_cell);
+# ensure(end) -> en_r: a region committed whole (PYMERGETIC_RXF_FIXED_REGION): no callback.
+macro m_ensure(Zend) {
+    if (Zend <= acomm) {
+        en_r = 0;
+    } else {
+        aneed = Zend;
+        en_r = 1;
+    }
+}
+
+# record(handle) -> ce_r: the 24-byte record of this handle, or 0.
+sub s_rec(Zh_rec) {
+    m_live(Zh_rec);
     if (lv_r == 0) {
         ce_r = 0;
     } else {
-        callsub s_slot(Zh_cell);
-        ce_r = ab + load64(sp_r);
+        m_entry(Zh_rec & 1048575);
+        ce_r = ab + load64(sp_r + 8);
     }
 }
 
-# payload(handle) -> pa_r
+# sym_addr(id) -> sa_r: the string of a symbol id, or 0 for the anonymous id 0.
+sub s_sym_addr(Zid_sym) {
+    var sa_head;
+    sa_head = asyms;
+    if (Zid_sym == 0) {
+        sa_r = 0;
+    } else {
+        if (sa_head == 0) {
+            sa_r = 0;
+        } else {
+            if (Zid_sym >= load32(sa_head)) {
+                sa_r = 0;
+            } else {
+                sa_r = sa_head + load32(sa_head + 8 + 4 * Zid_sym);
+            }
+        }
+    }
+}
+
+# spec_row(index) -> sr_at: the semantic row of this index (docs/32 5).
+macro m_spec_row(Zindex) {
+    sr_at = aspec + 24 * (Zindex & 1048575);
+}
+
+# row_count(handle) -> rc_r, rel_at(handle) -> rt_at: the reference rows of an object.
+sub s_rel_rows(Zh_rr) {
+    var rr_mod;
+    var rr_walk;
+    var rr_rec;
+    var rr_name;
+    var rr_len;
+    rt_at = 0;
+    rc_r = 0;
+    if (arel != 0) {
+        callsub s_rec(arel);
+        rr_mod = ce_r;
+        if (rr_mod != 0) {
+            rr_walk = load32(rr_mod + 24);
+            while (rr_walk != 4294967295 & rc_r == 0) {
+                callsub s_rec(rr_walk);
+                rr_rec = ce_r;
+                if (rr_rec == 0) {
+                    rr_walk = 4294967295;
+                } else {
+                    callsub s_sym_addr(load16(rr_rec + 6));
+                    rr_name = sa_r;
+                    rr_len = 0;
+                    if (rr_name != 0) {
+                        while (rr_len < 4096 & load8(rr_name + rr_len) != 0) {
+                            rr_len = rr_len + 1;
+                        }
+                    }
+                    callsub s_path_is(Zh_rr, rr_name, rr_len);
+                    if (pi_r == 1) {
+                        rt_at = rr_rec + 24;
+                        rc_r = load32(rr_rec + 20) / 24;
+                    }
+                    rr_walk = load32(rr_rec + 12);
+                }
+            }
+        }
+    }
+}
+
+# path_is(handle, name, len) -> pi_r (1/0): does `name` spell the path of this object?
+# Compared from the object up, so the path is never materialized (docs/32 5.2).
+sub s_path_is(Zh_pi, Zp_pi, Zn_pi) {
+    var pi_end;
+    var pi_seg;
+    var pi_size;
+    var pi_walk;
+    var pi_rec;
+    var pi_name;
+    var pi_i;
+    var pi_ok;
+    pi_r = 0;
+    if (Zn_pi != 0) {
+        pi_end = Zn_pi;
+        pi_walk = Zh_pi;
+        pi_ok = 1;
+        while (pi_end != 0 & pi_ok == 1) {
+            pi_seg = pi_end;
+            if (pi_seg != 0) {
+                pi_seg = pi_seg - 1;
+            }
+            while (pi_seg != 0 & load8(Zp_pi + pi_seg - 1) != 46) {
+                pi_seg = pi_seg - 1;
+            }
+            pi_size = pi_end - pi_seg;
+            callsub s_rec(pi_walk);
+            pi_rec = ce_r;
+            if (pi_rec == 0) {
+                pi_ok = 0;
+            } else {
+                callsub s_sym_addr(load16(pi_rec + 6));
+                pi_name = sa_r;
+                if (pi_name == 0) {
+                    pi_ok = 0;
+                } else {
+                    pi_i = 0;
+                    while (pi_i < pi_size & pi_ok == 1) {
+                        if (load8(pi_name + pi_i) != load8(Zp_pi + pi_seg + pi_i)) {
+                            pi_ok = 0;
+                        }
+                        pi_i = pi_i + 1;
+                    }
+                    if (load8(pi_name + pi_size) != 0) {
+                        pi_ok = 0;
+                    }
+                    if (pi_ok == 1) {
+                        pi_walk = load32(pi_rec + 8);
+                        if (pi_seg == 0) {
+                            pi_end = 0;
+                        } else {
+                            pi_end = pi_seg - 1;
+                        }
+                    }
+                }
+            }
+        }
+        if (pi_ok == 1) {
+            if (pi_walk == load32(ab + 24)) {
+                pi_r = 1;
+            }
+        }
+    }
+}
+
+# fill(handle, view) -> fv_r: the world cell of an object in 64 bytes (docs/32 5.3).
+sub s_fill(Zh_fill, Zw_fill) {
+    var f_rec;
+    var f_spc;
+    var f_name;
+    var f_rows;
+    callsub s_rec(Zh_fill);
+    f_rec = ce_r;
+    fv_r = 0;
+    if (f_rec != 0) {
+        m_spec_row(Zh_fill & 1048575);
+        f_spc = sr_at;
+        callsub s_rel_rows(Zh_fill);
+        f_rows = rc_r;
+        callsub s_sym_addr(load16(f_rec + 6));
+        f_name = sa_r;
+        if (f_name == 0) {
+            f_name = ab + 32;
+        }
+        store64(Zw_fill + 0, load32(f_spc + 0));
+        store64(Zw_fill + 8, load32(f_rec + 8));
+        store64(Zw_fill + 16, load32(f_rec + 20));
+        store64(Zw_fill + 24, load64(f_spc + 16));
+        store64(Zw_fill + 32, f_name - ab);
+        store32(Zw_fill + 40, load32(f_spc + 4));
+        store32(Zw_fill + 44, f_rows);
+        store64(Zw_fill + 48, 0);
+        store32(Zw_fill + 56, load32(f_spc + 8));
+        store32(Zw_fill + 60, 0);
+        fv_r = Zw_fill;
+    }
+}
+
+# cell(handle) -> ce_r: the world cell, view A (good until the next s_cell).
+sub s_cell(Zh_cell) {
+    callsub s_fill(Zh_cell, cva);
+    ce_r = fv_r;
+}
+
+# cell_b / cell_c: the same in the second and third view.
+macro m_cell_b(Zh) {
+    callsub s_fill(Zh, cvb);
+    ce_r = fv_r;
+}
+
+macro m_cell_c(Zh) {
+    callsub s_fill(Zh, cvc);
+    ce_r = fv_r;
+}
+
+# cb(payload, refs) -> cb_r: the room an object of this payload takes, record included.
+# A reference row is never inline (docs/32 5.2): the third argument is kept for the
+# callers that carry it and does not add room.
+macro m_cb(Zp) {
+    cb_r = 24 + ((Zp + 7) & ~7);
+}
+
+# kind_of(cell) -> kd_r: the node kind of the world's flags word.
+sub s_kd(Zc_kd) {
+    kd_r = load32(Zc_kd + 40) & 0xFF;
+}
+
+# payload(handle) -> pa_r: the value bytes of an object, inline behind the record.
 sub s_payload(Zh_payload) {
-    callsub s_cell(Zh_payload);
+    callsub s_rec(Zh_payload);
     if (ce_r == 0) {
         pa_r = 0;
     } else {
-        pa_r = ce_r + 64;
+        pa_r = ce_r + 24;
     }
 }
 
-# refs(handle) -> rr_r
+# refs(handle) -> rr_r: the reference rows of an object, or 0.
 sub s_refs(Zh_refs) {
-    callsub s_cell(Zh_refs);
-    if (ce_r == 0) {
-        rr_r = 0;
-    } else {
-        rr_r = ce_r + 64 + ((load64(ce_r + 16) + 15) & ~15);
-    }
+    callsub s_rel_rows(Zh_refs);
+    rr_r = rt_at;
 }
 
-# name(handle) -> nm_r: "" is the first reserved byte of the header (must be zero).
+# name(handle) -> nm_r: the name string, or the empty string of an anonymous object.
 sub s_name(Zh_name) {
-    callsub s_cell(Zh_name);
+    callsub s_rec(Zh_name);
     if (ce_r == 0) {
-        nm_r = ab + 128;
+        nm_r = ab + 32;
     } else {
-        if (load64(ce_r + 32) == 0) {
-            nm_r = ab + 128;
+        callsub s_sym_addr(load16(ce_r + 6));
+        if (sa_r == 0) {
+            nm_r = ab + 32;
         } else {
-            nm_r = ab + load64(ce_r + 32);
+            nm_r = sa_r;
         }
     }
 }
 
-# write_slot(handle, value) -> ws_r
+# write_slot(handle, value) -> ws_r: the record offset of a handle.
 sub s_write_slot(Zh_write_slot, Zv_write_slot) {
-    callsub s_slot(Zh_write_slot);
-    callsub s_before_write(sp_r - ab, 8);
+    m_entry(Zh_write_slot & 1048575);
+    callsub s_before_write(sp_r - ab + 8, 8);
     ws_r = bw_r;
     if (bw_r == 0) {
-        store64(sp_r, Zv_write_slot);
+        store64(sp_r + 8, Zv_write_slot);
     }
 }
 
-# init(base, committed, limit, index_capacity) -> in_r: a fresh arena in a region.
-macro m_init(Zbase, Zcomm, Zlim, Zcap) {
-    var in_chunks;
-    var in_dir;
-    var in_cells;
-    ab = Zbase;
-    acomm = Zcomm;
-    alim = Zlim;
-    ah = Zbase;
-    in_chunks = (Zcap + 4095) / 4096;
-    if (in_chunks == 0) {
-        in_chunks = 1;
+# ---- the semantic face of an object (docs/32 5): what a delta writes ---------------------
+
+# set_field(handle, word, value) -> sf_r: one word of the semantic row.
+# word 0 = type, 4 = flags, 8 = index, 16 = generation (docs/32 5).
+sub s_set_field(Zh_sf, Zw_sf, Zv_sf) {
+    var sf_len;
+    sf_len = 4;
+    if (Zw_sf == 16) {
+        sf_len = 8;
     }
-    in_r = 5;
-    if (in_chunks <= 16777216) {
-        in_dir = (in_chunks + 7) & ~7;
-        in_cells = 192 + in_dir * 8;
-        callsub s_ensure(in_cells);
-        if (en_r == 0) {
-            callsub s_zero(ab, in_cells);
-            store8(ab, 82); store8(ab + 1, 88); store8(ab + 2, 70); store8(ab + 3, 66);
-            store32(ab + 4, 6);
-            store32(ab + 8, 192);
-            store64(ab + 16, in_cells);
-            store64(ab + 24, acomm);
-            store64(ab + 32, alim);
-            store64(ab + 48, 192);
-            store64(ab + 56, in_cells);
-            store64(ab + 96, 0xFFFFFFFFFFFFFFFF);
-            store64(ab + 104, 0xFFFFFFFFFFFFFFFF);
-            store64(ab + 112, 0xFFFFFFFFFFFFFFFF);
-            store32(ab + 120, 16);
-            store32(ab + 124, 4096);
-            in_r = 0;
+    m_spec_row(Zh_sf & 1048575);
+    callsub s_before_write(sr_at - ab + Zw_sf, sf_len);
+    sf_r = bw_r;
+    if (bw_r == 0) {
+        if (sf_len == 8) {
+            store64(sr_at + Zw_sf, Zv_sf);
+        } else {
+            store32(sr_at + Zw_sf, Zv_sf);
         }
     }
 }
 
-# attach() -> at_r: the arena that is in the region already (checks the header only).
-sub s_attach() {
-    at_r = 3;
-    if (ab != 0) {
-        if (acomm >= 192) {
-            if (load8(ab) == 82 & load8(ab + 1) == 88 & load8(ab + 2) == 70 & load8(ab + 3) == 66) {
-                if (load32(ab + 4) == 6) {
-                    if (load32(ab + 8) == 192) {
-                        if (load64(ab + 16) <= acomm) {
-                        if (load64(ab + 56) <= load64(ab + 16)) {
-                            store64(ab + 24, acomm);
-                            store64(ab + 32, alim);
-                            ah = ab;
-                            at_r = 0;
-                        }
-                        }
-                    }
-                }
-            }
+# set_forward(handle, value) -> sk_r: the compaction home is the record's link word.
+sub s_set_forward(Zh_sk, Zv_sk) {
+    callsub s_rec(Zh_sk);
+    sk_r = 2;
+    if (ce_r != 0) {
+        callsub s_before_write(ce_r - ab + 12, 4);
+        sk_r = bw_r;
+        if (bw_r == 0) {
+            store32(ce_r + 12, Zv_sk);
         }
     }
 }
 
-# allocate(bytes) -> al_r (status), al_at (offset)
-sub s_allocate(Zbytes_allocate) {
-    al_at = load64(ah + 56) + load64(ah + 40);
-    al_r = 5;
-    if (Zbytes_allocate <= 4611686018427387904) {
-        if (al_at + Zbytes_allocate >= al_at) {
-            callsub s_ensure(al_at + Zbytes_allocate);
-            if (en_r == 0) {
-                callsub s_zero(ab + al_at, Zbytes_allocate);
-                store64(ah + 40, load64(ah + 40) + Zbytes_allocate);
-                store64(ah + 16, load64(ah + 56) + load64(ah + 40));
-                al_r = 0;
-            } else {
-                al_r = 1;
-            }
-        }
-    }
-}
-
-# make_block(kind, payload) -> mb_r (status), mb_at (offset)
-sub s_make_block(Zkind_make_block, Zpay_make_block) {
-    callsub s_cb(Zpay_make_block, 0);
-    callsub s_allocate(cb_r);
-    mb_r = al_r;
-    mb_at = al_at;
-    if (al_r == 0) {
-        store64(ab + al_at, Zkind_make_block);
-        store64(ab + al_at + 8, 0xFFFFFFFFFFFFFFFF);
-        store64(ab + al_at + 16, Zpay_make_block);
-        store32(ab + al_at + 40, 255);
-    }
-}
-
-# intern(text, n) -> it_r (status), it_at (offset)
-macro m_intern(Ztext, Zn) {
-    var it_need;
-    var it_fit;
-    var it_pay;
-    it_r = 0;
-    it_at = 0;
-    if (Zn != 0) {
-        it_need = Zn + 1;
-        it_fit = 0;
-        if (load64(ah + 64) != 0) {
-            if (load64(ah + 72) + it_need <= load64(ab + load64(ah + 64) + 16)) {
-                it_fit = 1;
-            }
-        }
-        if (it_fit == 0) {
-            it_pay = 4096;
-            if (it_need > 4096) {
-                it_pay = (it_need + 15) & ~15;
-            }
-            callsub s_make_block(2, it_pay);
-            it_r = mb_r;
-            if (mb_r == 0) {
-                store64(ah + 64, mb_at);
-                store64(ah + 72, 0);
-            }
-        }
-        if (it_r == 0) {
-            it_at = load64(ah + 64) + 64 + load64(ah + 72);
-            callsub s_before_write(it_at, it_need);
-            it_r = bw_r;
+# set_kind(handle, value) -> sr_r: the storage role of the record.
+sub s_set_kind(Zh_sr, Zv_sr) {
+    callsub s_rec(Zh_sr);
+    sr_r = 2;
+    if (ce_r != 0) {
+        callsub s_before_write(ce_r - ab, 2);
+        sr_r = bw_r;
+        if (bw_r == 0) {
+            store16(ce_r, Zv_sr);
+            m_entry(Zh_sr & 1048575);
+            callsub s_before_write(sp_r - ab, 2);
             if (bw_r == 0) {
-                callsub s_cpy(ab + it_at, Ztext, Zn);
-                store8(ab + it_at + Zn, 0);
-                store64(ah + 72, load64(ah + 72) + it_need);
+                store16(sp_r, Zv_sr);
             }
         }
     }
 }
 
-# slot_for_new() -> sn_r (status), sn_h (handle)
-macro m_slot_new() {
-    var sn_chunk;
-    sn_r = 0;
-    if (load64(ah + 96) != 0xFFFFFFFFFFFFFFFF) {
-        sn_h = load64(ah + 96);
-    } else {
-        sn_h = load64(ah + 88);
-        sn_chunk = sn_h / 4096;
-        if (sn_chunk >= load64(ah + 80)) {
-            sn_r = 4;
-            if (sn_chunk < (load64(ah + 56) - load64(ah + 48)) / 8) {
-                callsub s_make_block(1, 32768);
-                sn_r = mb_r;
-                if (mb_r == 0) {
-                    callsub s_before_write(load64(ah + 48) + sn_chunk * 8, 8);
-                    sn_r = bw_r;
+# ---- the allocator (docs/32 3): best fit over the FREE ring --------------------------------
+
+# span_of(offset) -> sn2_r: 24 bytes of header plus the payload in 8-byte slots.
+macro m_span_of(Zoff) {
+    sn2_r = 24 + ((load32(ab + Zoff + 20) + 7) & ~7);
+}
+
+# link_at(offset) -> la_r: the 16 link bytes behind a free span's header.
+macro m_link_at(Zoff) {
+    la_r = ab + Zoff + 24;
+}
+
+# ring_unlink(offset) -> ru_r
+sub s_ring_unlink(Zoff_ru) {
+    var ru_prev;
+    var ru_next;
+    m_link_at(Zoff_ru);
+    ru_prev = load64(la_r);
+    ru_next = load64(la_r + 8);
+    m_link_at(ru_prev);
+    callsub s_before_write(la_r - ab + 8, 8);
+    ru_r = bw_r;
+    if (bw_r == 0) {
+        store64(la_r + 8, ru_next);
+        m_link_at(ru_next);
+        callsub s_before_write(la_r - ab, 8);
+        ru_r = bw_r;
+        if (bw_r == 0) {
+            store64(la_r, ru_prev);
+        }
+    }
+}
+
+# ring_insert_after(anchor, offset) -> ri_r
+sub s_ring_insert_after(Zanchor_ri, Zoff_ri) {
+    var ri_next;
+    m_link_at(Zanchor_ri);
+    ri_next = load64(la_r + 8);
+    m_link_at(Zoff_ri);
+    callsub s_before_write(la_r - ab, 16);
+    ri_r = bw_r;
+    if (bw_r == 0) {
+        store64(la_r, Zanchor_ri);
+        store64(la_r + 8, ri_next);
+        m_link_at(ri_next);
+        callsub s_before_write(la_r - ab, 8);
+        ri_r = bw_r;
+        if (bw_r == 0) {
+            store64(la_r, Zoff_ri);
+            m_link_at(Zanchor_ri);
+            callsub s_before_write(la_r - ab + 8, 8);
+            ri_r = bw_r;
+            if (bw_r == 0) {
+                store64(la_r + 8, Zoff_ri);
+            }
+        }
+    }
+}
+
+# allocate(room) -> al_r (status), al_at (offset)
+sub s_allocate(Zbytes_allocate) {
+    var al_room;
+    var al_total;
+    var al_anchor;
+    var al_walk;
+    var al_guard;
+    var al_span;
+    var al_best;
+    var al_best_span;
+    var al_best_mark;
+    var al_found;
+    var al_mark;
+    var al_next;
+    var al_split;
+    var al_rest;
+    var al_prev;
+    var al_keep;
+    al_r = 5;
+    al_at = 0;
+    if (Zbytes_allocate <= 281474976710655) {
+        al_room = (Zbytes_allocate + 7) & ~7;
+        al_total = 24 + al_room;
+        al_anchor = load64(ab + 8);
+        al_best = 0;
+        al_best_span = 0;
+        al_best_mark = 0;
+        al_found = 0;
+        al_walk = al_anchor;
+        al_guard = (load64(ab + 16) / 40) + 2;
+        while (al_guard > 0) {
+            al_guard = al_guard - 1;
+            m_span_of(al_walk);
+            al_span = sn2_r;
+            al_mark = 0;
+            if (al_walk == al_anchor) {
+                al_mark = 1;
+            }
+            if (al_span >= al_total) {
+                if (al_mark == 0 | al_span >= al_total + 40) {
+                    if (al_found == 0 | al_span < al_best_span) {
+                        al_best = al_walk;
+                        al_best_span = al_span;
+                        al_best_mark = al_mark;
+                        al_found = 1;
+                    }
+                }
+            }
+            m_link_at(al_walk);
+            al_next = load64(la_r + 8);
+            if (al_next == al_anchor) {
+                al_guard = 0;
+            } else {
+                al_walk = al_next;
+            }
+        }
+        if (al_found == 0) {
+            aneed = al_anchor + al_total;
+            al_r = 1;
+        } else {
+            al_split = 0;
+            if (al_best_span - al_total >= 40) {
+                al_split = 1;
+            }
+            al_keep = al_total;
+            if (al_split == 1) {
+                al_keep = al_total + 40;
+            }
+            m_ensure(al_best + al_keep);
+            al_r = en_r;
+            if (en_r == 0) {
+                if (al_split == 1) {
+                    al_rest = al_best + al_total;
+                    m_link_at(al_best);
+                    al_prev = load64(la_r);
+                    al_next = load64(la_r + 8);
+                    callsub s_before_write(al_rest - ab, 40);
+                    al_r = bw_r;
                     if (bw_r == 0) {
-                        store64(ab + load64(ah + 48) + sn_chunk * 8, mb_at);
-                        store64(ah + 80, sn_chunk + 1);
+                        callsub s_zero(ab + al_rest, 40);
+                        store16(ab + al_rest, 65535);
+                        store32(ab + al_rest + 20, al_best_span - al_total - 24);
+                        m_link_at(al_rest);
+                        store64(la_r, al_prev);
+                        store64(la_r + 8, al_next);
+                        if (al_prev != al_rest) {
+                            m_link_at(al_prev);
+                            callsub s_before_write(la_r - ab + 8, 8);
+                            al_r = bw_r;
+                            if (bw_r == 0) {
+                                store64(la_r + 8, al_rest);
+                            }
+                        }
+                        if (al_next != al_rest & al_r == 0) {
+                            m_link_at(al_next);
+                            callsub s_before_write(la_r - ab, 8);
+                            al_r = bw_r;
+                            if (bw_r == 0) {
+                                store64(la_r, al_rest);
+                            }
+                        }
+                        if (al_best_mark == 1 & al_r == 0) {
+                            callsub s_before_write(8, 8);
+                            al_r = bw_r;
+                            if (bw_r == 0) {
+                                store64(ab + 8, al_rest);
+                            }
+                        }
+                    }
+                } else {
+                    if (al_best_mark == 1) {
+                        al_r = 3;
+                    } else {
+                        callsub s_ring_unlink(al_best);
+                        al_r = ru_r;
+                        al_room = al_best_span - 24;
+                    }
+                }
+                if (al_r == 0) {
+                    callsub s_before_write(al_best - ab, 24);
+                    al_r = bw_r;
+                    if (bw_r == 0) {
+                        callsub s_zero(ab + al_best, 24);
+                        callsub s_zero(ab + al_best + 24, al_room);
+                        store32(ab + al_best + 20, al_room);
+                        al_at = al_best;
                     }
                 }
             }
@@ -547,45 +832,81 @@ macro m_slot_new() {
     }
 }
 
-# create() from the cs_* spec words -> cr_r (status), cr_h (handle)
-sub s_create() {
-    var cr_before;
-    cr_r = 5;
-    cr_h = 0;
-    if (cs_payload <= 281474976710656) {
-        if (cs_refs <= 16777216) {
-            m_slot_new();
-            cr_r = sn_r;
-            cr_h = sn_h;
-            if (sn_r == 0) {
-                m_intern(cs_name, cs_name_len);
-                cr_r = it_r;
-                if (it_r == 0) {
-                    callsub s_cb(cs_payload, cs_refs);
-                    callsub s_allocate(cb_r);
-                    cr_r = al_r;
-                    if (al_r == 0) {
-                        store64(ab + al_at, cs_type);
-                        store64(ab + al_at + 8, cs_parent);
-                        store64(ab + al_at + 16, cs_payload);
-                        store64(ab + al_at + 24, cs_generation);
-                        store64(ab + al_at + 32, it_at);
-                        store32(ab + al_at + 40, cs_flags);
-                        store32(ab + al_at + 44, cs_refs);
-                        store32(ab + al_at + 56, cs_index);
-                        callsub s_slot(cr_h);
-                        cr_before = load64(sp_r);
-                        callsub s_write_slot(cr_h, al_at);
-                        cr_r = ws_r;
-                        if (ws_r == 0) {
-                            if (load64(ah + 96) == cr_h) {
-                                if (cr_before == 0xFFFFFFFFFFFFFFFF) {
-                                    store64(ah + 96, 0xFFFFFFFFFFFFFFFF);
-                                } else {
-                                    store64(ah + 96, cr_before >> 1);
+# release(offset) -> rl2_r: the span returns to the FREE ring.
+sub s_release(Zoff_rel) {
+    var rel_span;
+    var rel_gen;
+    var rel_marker;
+    var rel_mspan;
+    var rel_prev;
+    var rel_next;
+    var rel_room;
+    rl2_r = 3;
+    if (Zoff_rel >= 4096) {
+        if (Zoff_rel < load64(ab + 8)) {
+            if ((Zoff_rel & 7) == 0) {
+                m_span_of(Zoff_rel);
+                rel_span = sn2_r;
+                if (load16(ab + Zoff_rel) != 65535) {
+                    if (Zoff_rel + rel_span <= load64(ab + 8)) {
+                        rel_gen = load16(ab + Zoff_rel + 2);
+                        rl2_r = 0;
+                        if (Zoff_rel + rel_span == load64(ab + 8)) {
+                            rel_marker = load64(ab + 8);
+                            m_span_of(rel_marker);
+                            rel_mspan = sn2_r;
+                            m_link_at(rel_marker);
+                            rel_prev = load64(la_r);
+                            rel_next = load64(la_r + 8);
+                            callsub s_before_write(8, 8);
+                            rl2_r = bw_r;
+                            if (bw_r == 0) {
+                                store64(ab + 8, Zoff_rel);
+                                callsub s_before_write(Zoff_rel - ab, 40);
+                                rl2_r = bw_r;
+                                if (bw_r == 0) {
+                                    callsub s_zero(ab + Zoff_rel, 40);
+                                    store16(ab + Zoff_rel, 65535);
+                                    store16(ab + Zoff_rel + 2, rel_gen);
+                                    store32(ab + Zoff_rel + 20, rel_span + rel_mspan - 24);
+                                    m_link_at(Zoff_rel);
+                                    if (rel_prev == rel_marker) {
+                                        store64(la_r, Zoff_rel);
+                                        store64(la_r + 8, Zoff_rel);
+                                    } else {
+                                        store64(la_r, rel_prev);
+                                        store64(la_r + 8, rel_next);
+                                        m_link_at(rel_prev);
+                                        callsub s_before_write(la_r - ab + 8, 8);
+                                        rl2_r = bw_r;
+                                        if (bw_r == 0) {
+                                            store64(la_r + 8, Zoff_rel);
+                                            m_link_at(rel_next);
+                                            callsub s_before_write(la_r - ab, 8);
+                                            rl2_r = bw_r;
+                                            if (bw_r == 0) {
+                                                store64(la_r, Zoff_rel);
+                                            }
+                                        }
+                                    }
                                 }
-                            } else {
-                                store64(ah + 88, cr_h + 1);
+                            }
+                        } else {
+                            rel_room = rel_span - 24;
+                            callsub s_before_write(Zoff_rel - ab + 24, 16);
+                            rl2_r = bw_r;
+                            if (bw_r == 0) {
+                                callsub s_zero(ab + Zoff_rel + 24, 16);
+                                callsub s_before_write(Zoff_rel - ab, 4);
+                                rl2_r = bw_r;
+                                if (bw_r == 0) {
+                                    store16(ab + Zoff_rel, 65535);
+                                    store16(ab + Zoff_rel + 2, rel_gen);
+                                    if (rel_span >= 40) {
+                                        callsub s_ring_insert_after(load64(ab + 8), Zoff_rel);
+                                        rl2_r = ri_r;
+                                    }
+                                }
                             }
                         }
                     }
@@ -595,79 +916,414 @@ sub s_create() {
     }
 }
 
-# destroy(handle) -> de_r
-macro m_destroy(Zh) {
-    var de_c;
-    var de_next;
-    callsub s_cell(Zh);
-    de_r = 2;
-    if (ce_r != 0) {
-        de_r = 6;
-        if (Zh > 2) {
-            callsub s_cell_w(Zh);
-            de_r = 12;
-            if (cw_r != 0) {
-                de_c = cw_r;
-                if (load64(ah + 96) == 0xFFFFFFFFFFFFFFFF) {
-                    de_next = 0xFFFFFFFFFFFFFFFF;
-                } else {
-                    de_next = (load64(ah + 96) << 1) | 1;
+# ---- the skeleton: a fresh arena, a cold attach ------------------------------------------
+
+# init(base, committed, limit, capacity) -> in_r: a fresh arena in a region.
+# The model is laid out whole: the superblock, the object index at 4096, sys/syms and
+# sys/specs, and the end marker that is the FREE ring anchor (docs/32 1).
+macro m_init(Zbase, Zcomm, Zlim, Zcap) {
+    var in_slots;
+    var in_syms;
+    var in_specs;
+    var in_at;
+    ab = Zbase;
+    acomm = Zcomm;
+    alim = Zlim;
+    ah = Zbase;
+    in_r = 5;
+    in_slots = Zcap;
+    if (in_slots < 4) {
+        in_slots = 4;
+    }
+    if (in_slots <= 1048576) {
+        m_ensure(4096 + 24 + 8 + 16 * in_slots + 24 + 8 + 4 * 32 + 256 + 24 + 24 * in_slots + 40);
+        in_r = en_r;
+        if (en_r == 0) {
+            callsub s_zero(ab, 4096 + 24 + 8 + 16 * in_slots + 24 + 8 + 4 * 32 + 256 + 24 + 24 * in_slots);
+            store8(ab, 82); store8(ab + 1, 88); store8(ab + 2, 70); store8(ab + 3, 65);
+            store32(ab + 4, 1);
+            store64(ab + 8, 4096 + 24 + 8 + 16 * in_slots + 24 + 8 + 4 * 32 + 256 + 24 + 24 * in_slots);
+            store64(ab + 16, alim);
+            store32(ab + 24, 0);
+            store32(ab + 28, 4294967295);
+
+            # The object index: the first object at 4096, published at its own entry.
+            store16(ab + 4096, 1);
+            store16(ab + 4098, 1);
+            store32(ab + 4104, 4294967295);
+            store32(ab + 4108, 4294967295);
+            store32(ab + 4112, 1);
+            store32(ab + 4116, 8 + 16 * in_slots);
+            store32(ab + 4120, 2);
+            store32(ab + 4124, in_slots);
+            store16(ab + 4128, 1);
+            store16(ab + 4130, 1);
+            store64(ab + 4136, 4096);
+
+            # sys/syms: the names the tree is walked by. It is entry 1.
+            in_syms = 4096 + 24 + 8 + 16 * in_slots;
+            store16(ab + in_syms, 5);
+            store16(ab + in_syms + 2, 1);
+            store32(ab + in_syms + 8, 1);
+            store32(ab + in_syms + 20, 8 + 4 * 32 + 256);
+            store32(ab + in_syms + 24, 1);
+            store32(ab + in_syms + 28, 32);
+            store16(ab + 4128 + 16, 5);
+            store16(ab + 4128 + 18, 1);
+            store64(ab + 4128 + 24, in_syms);
+            asyms = in_syms + 24;
+
+            # sys/specs: one semantic row per index (docs/32 5). It is entry 2.
+            in_specs = in_syms + 24 + 8 + 4 * 32 + 256;
+            store16(ab + in_specs, 4);
+            store16(ab + in_specs + 2, 1);
+            store32(ab + in_specs + 20, 24 * in_slots);
+            store16(ab + 4128 + 32, 4);
+            store16(ab + 4128 + 34, 1);
+            store64(ab + 4128 + 40, in_specs);
+            aspec = in_specs + 24;
+            in_at = 0;
+            while (in_at < in_slots) {
+                store32(aspec + 24 * in_at, 4294967295);
+                in_at = in_at + 1;
+            }
+            arel = 0;
+
+            # The end marker: the FREE ring anchor covering the tail.
+            in_at = load64(ab + 8);
+            callsub s_zero(ab + in_at, 40);
+            store16(ab + in_at, 65535);
+            store32(ab + in_at + 20, alim - in_at - 24);
+            store64(ab + in_at + 24, in_at);
+            store64(ab + in_at + 32, in_at);
+            in_r = 0;
+        }
+    }
+}
+
+# attach() -> at_r: the arena that is in the region already (docs/32 5.3: the gate).
+sub s_attach() {
+    var at_slots;
+    var at_sys;
+    at_r = 3;
+    if (ab != 0) {
+        if (acomm >= 4096) {
+            if (load8(ab) == 82 & load8(ab + 1) == 88 & load8(ab + 2) == 70 & load8(ab + 3) == 65) {
+                if (load32(ab + 4) == 1) {
+                    if (load64(ab + 8) <= load64(ab + 16)) {
+                        if (load64(ab + 8) + 40 <= acomm) {
+                            ah = ab;
+                            m_entry(0);
+                            at_slots = load32(ab + 4124);
+                            if (load32(ab + 4120) > 0) {
+                                if (load32(ab + 4120) <= at_slots) {
+                                    if (load64(sp_r + 8) == 4096) {
+                                        if (load16(ab + 4096) == load16(sp_r)) {
+                                            m_entry(1);
+                                            asyms = load64(sp_r + 8) + 24;
+                                            m_entry(2);
+                                            aspec = load64(sp_r + 8) + 24;
+                                            at_r = 0;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-                callsub s_write_slot(Zh, de_next);
-                de_r = ws_r;
-                if (ws_r == 0) {
-                    callsub s_set_kind(de_c, 254);
-                    store64(ah + 96, Zh);
+            }
+        }
+    }
+    if (at_r == 0) {
+        arel = 0;
+        m_lit_sys();
+        callsub s_named_child(load32(ab + 24), lit, 3);
+        if (cn_at != 4294967295) {
+            m_lit_relations();
+            callsub s_named_child(cn_at, lit, 9);
+            arel = cn_at;
+        }
+    }
+}
+
+# named_child(parent, text, len) -> cn_at: the handle32 of that child, or 0xFFFFFFFF.
+sub s_named_child(Zparent_cn, Zp_cn, Zn_cn) {
+    var cn_mod;
+    var cn_walk;
+    var cn_rec;
+    var cn_name;
+    var cn_i;
+    var cn_ok;
+    cn_at = 4294967295;
+    callsub s_rec(Zparent_cn);
+    cn_mod = ce_r;
+    if (cn_mod != 0) {
+        if (load16(cn_mod) == 1) {
+            cn_walk = load32(cn_mod + 24);
+            while (cn_walk != 4294967295 & cn_at == 4294967295) {
+                callsub s_rec(cn_walk);
+                cn_rec = ce_r;
+                if (cn_rec == 0) {
+                    cn_walk = 4294967295;
+                } else {
+                    callsub s_sym_addr(load16(cn_rec + 6));
+                    cn_name = sa_r;
+                    cn_ok = 0;
+                    if (cn_name != 0) {
+                        cn_ok = 1;
+                        cn_i = 0;
+                        while (cn_i < Zn_cn & cn_ok == 1) {
+                            if (load8(cn_name + cn_i) != load8(Zp_cn + cn_i)) {
+                                cn_ok = 0;
+                            }
+                            cn_i = cn_i + 1;
+                        }
+                        if (load8(cn_name + Zn_cn) != 0) {
+                            cn_ok = 0;
+                        }
+                    }
+                    if (cn_ok == 1) {
+                        cn_at = cn_walk;
+                    } else {
+                        cn_walk = load32(cn_rec + 12);
+                    }
                 }
             }
         }
     }
 }
 
-# resize(handle, payload, refs) -> rz_r
+# The names this model looks up by (docs/32 2): the system namespace and its relation tables.
+macro m_lit_sys() {
+    store8(lit, 115); store8(lit + 1, 121); store8(lit + 2, 115);
+}
+
+macro m_lit_relations() {
+    store8(lit, 114); store8(lit + 1, 101); store8(lit + 2, 108); store8(lit + 3, 97);
+    store8(lit + 4, 116); store8(lit + 5, 105); store8(lit + 6, 111); store8(lit + 7, 110);
+    store8(lit + 8, 115);
+}
+
+# ---- the symbol table (sys/syms, docs/32 2) ---------------------------------------------
+
+# intern(text, n) -> it_r (status), it_id (the symbol id)
+macro m_intern(Ztext, Zn) {
+    var it_head;
+    var it_count;
+    var it_need;
+    var it_used;
+    var it_off;
+    var it_i;
+    it_r = 0;
+    it_id = 0;
+    if (Zn != 0) {
+        it_head = asyms;
+        it_count = load32(it_head);
+        it_i = 1;
+        while (it_i < it_count & it_id == 0) {
+            it_off = load32(it_head + 8 + 4 * it_i);
+            if (load8(it_head + it_off + Zn) == 0) {
+                callsub s_cmp(it_head + it_off, Ztext, Zn);
+                if (cmp_r == 0) {
+                    it_id = it_i;
+                }
+            }
+            it_i = it_i + 1;
+        }
+        if (it_id == 0) {
+            it_need = Zn + 1;
+            it_used = 8 + 4 * load32(it_head + 4);
+            it_i = 1;
+            while (it_i < it_count) {
+                it_off = load32(it_head + 8 + 4 * it_i);
+                it_used = it_off;
+                it_i = it_i + 1;
+            }
+            it_off = load32(it_head + 8 + 4 * (it_count - 1));
+            it_used = it_off;
+            it_i = 0;
+            while (it_i < 65536 & load8(it_head + it_used + it_i) != 0) {
+                it_i = it_i + 1;
+            }
+            it_used = it_used + it_i + 1;
+            if (it_count < load32(it_head + 4)) {
+                if (it_used + it_need <= load32(ce_r + 20)) {
+                    callsub s_before_write(it_head + it_used - ab, it_need);
+                    it_r = bw_r;
+                    if (bw_r == 0) {
+                        callsub s_cpy(it_head + it_used, Ztext, Zn);
+                        store8(it_head + it_used + Zn, 0);
+                        callsub s_before_write(it_head + 8 + 4 * it_count - ab, 4);
+                        it_r = bw_r;
+                        if (bw_r == 0) {
+                            store32(it_head + 8 + 4 * it_count, it_used);
+                            callsub s_before_write(it_head - ab, 4);
+                            it_r = bw_r;
+                            if (bw_r == 0) {
+                                store32(it_head, it_count + 1);
+                                it_id = it_count;
+                            }
+                        }
+                    }
+                } else {
+                    it_r = 4;
+                }
+            } else {
+                it_r = 4;
+            }
+        }
+    }
+}
+
+# ---- the object life cycle: create, destroy, resize --------------------------------------
+
+# create() from the cs_* words -> cr_r (status), cr_h (handle32)
+sub s_create() {
+    var cr_at;
+    var cr_ix;
+    var cr_gen;
+    var cr_free;
+    var cr_spc;
+    cr_r = 5;
+    cr_h = 4294967295;
+    if (cs_payload <= 281474976710655) {
+        cr_ix = load32(ab + 4120);
+        cr_free = 0;
+        cr_at = 0;
+        while (cr_at < cr_ix & cr_free == 0) {
+            m_entry(cr_at);
+            if (load64(sp_r + 8) == 0) {
+                cr_free = 1;
+            } else {
+                cr_at = cr_at + 1;
+            }
+        }
+        if (cr_free == 1 | cr_ix < load32(ab + 4124)) {
+            m_intern(cs_name, cs_name_len);
+            cr_r = it_r;
+            if (it_r == 0) {
+                callsub s_allocate(24 + ((cs_payload + 7) & ~7) - 24 + 24);
+                cr_r = al_r;
+                if (al_r == 0) {
+                    cr_gen = 1;
+                    callsub s_before_write(al_at - ab, 24);
+                    cr_r = bw_r;
+                    if (bw_r == 0) {
+                        callsub s_zero(ab + al_at, 24);
+                        store16(ab + al_at, 1);
+                        store16(ab + al_at + 2, cr_gen);
+                        store16(ab + al_at + 6, it_id);
+                        store32(ab + al_at + 8, cs_parent);
+                        store32(ab + al_at + 12, 4294967295);
+                        store32(ab + al_at + 20, cs_payload);
+                        if (cr_free == 1) {
+                            cr_ix = cr_at;
+                        }
+                        m_entry(cr_ix);
+                        callsub s_before_write(sp_r - ab, 16);
+                        cr_r = bw_r;
+                        if (bw_r == 0) {
+                            store16(sp_r, 1);
+                            store16(sp_r + 2, cr_gen);
+                            store32(sp_r + 4, 0);
+                            store64(sp_r + 8, al_at);
+                            if (cr_free == 0) {
+                                callsub s_before_write(ab + 4120 - ab, 4);
+                                cr_r = bw_r;
+                                if (bw_r == 0) {
+                                    store32(ab + 4120, cr_ix + 1);
+                                }
+                            }
+                            if (cr_r == 0) {
+                                cr_spc = aspec + 24 * cr_ix;
+                                callsub s_before_write(cr_spc - ab, 24);
+                                cr_r = bw_r;
+                                if (bw_r == 0) {
+                                    store32(cr_spc, 4294967295);
+                                    store32(cr_spc + 4, cs_flags);
+                                    store32(cr_spc + 8, cs_index);
+                                    store32(cr_spc + 12, 0);
+                                    store64(cr_spc + 16, cs_generation);
+                                    cr_h = ((cr_gen & 4095) << 20) | (cr_ix & 1048575);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+# destroy(handle) -> de_r: the span frees, the index entry dies, the spec row resets.
+macro m_destroy(Zh) {
+    var de_off;
+    var de_ix;
+    var de_spc;
+    callsub s_rec(Zh);
+    de_r = 2;
+    if (ce_r != 0) {
+        de_off = ce_r - ab;
+        de_ix = Zh & 1048575;
+        m_entry(de_ix);
+        callsub s_before_write(sp_r - ab, 16);
+        de_r = bw_r;
+        if (bw_r == 0) {
+            store16(sp_r, 0);
+            store16(sp_r + 2, 0);
+            store64(sp_r + 8, 0);
+            de_spc = aspec + 24 * de_ix;
+            callsub s_before_write(de_spc - ab, 24);
+            de_r = bw_r;
+            if (bw_r == 0) {
+                store32(de_spc, 4294967295);
+                store32(de_spc + 4, 0);
+                store32(de_spc + 8, 0);
+                store32(de_spc + 12, 0);
+                store64(de_spc + 16, 0);
+                callsub s_release(de_off);
+                de_r = rl2_r;
+            }
+        }
+    }
+}
+
+# resize(handle, payload, refs) -> rz_r: the value grows or shrinks, the refs follow the
+# relation tables (docs/32 5.2) and this only re-rooms the payload.
 sub s_resize(Zh_resize, Zp_resize, Zr_resize) {
-    var rz_old_off;
-    var rz_new;
-    var rz_old;
+    var rz_off;
     var rz_keep;
-    var rz_kr;
-    callsub s_cell(Zh_resize);
+    var rz_new;
+    var rz_gen;
+    callsub s_rec(Zh_resize);
     rz_r = 2;
     if (ce_r != 0) {
         rz_r = 5;
-        if (Zp_resize <= 281474976710656) {
-            if (Zr_resize <= 16777216) {
-                callsub s_slot(Zh_resize);
-                rz_old_off = load64(sp_r);
-                callsub s_cb(Zp_resize, Zr_resize);
-                callsub s_allocate(cb_r);
-                rz_r = al_r;
-                if (al_r == 0) {
-                    rz_new = ab + al_at;
-                    rz_old = ab + rz_old_off;
-                    callsub s_cpy(rz_new, rz_old, 64);
-                    store64(rz_new + 16, Zp_resize);
-                    store32(rz_new + 44, Zr_resize);
-                    store64(rz_new + 48, 0);
-                    rz_keep = load64(rz_old + 16);
+        if (Zp_resize <= 281474976710655) {
+            rz_off = ce_r - ab;
+            rz_keep = load32(ce_r + 20);
+            rz_gen = load16(ce_r + 2);
+            callsub s_allocate(24 + ((Zp_resize + 7) & ~7) - 24 + 24);
+            rz_r = al_r;
+            if (al_r == 0) {
+                rz_new = al_at;
+                callsub s_before_write(rz_new - ab, 24);
+                rz_r = bw_r;
+                if (bw_r == 0) {
+                    callsub s_cpy(ab + rz_new, ab + rz_off, 24);
+                    store32(ab + rz_new + 20, Zp_resize);
                     if (rz_keep > Zp_resize) {
                         rz_keep = Zp_resize;
                     }
-                    callsub s_cpy(rz_new + 64, rz_old + 64, rz_keep);
-                    rz_kr = load32(rz_old + 44);
-                    if (rz_kr > Zr_resize) {
-                        rz_kr = Zr_resize;
-                    }
-                    callsub s_cpy(rz_new + 64 + ((Zp_resize + 15) & ~15), rz_old + 64 + ((load64(rz_old + 16) + 15) & ~15), 24 * rz_kr);
-                    callsub s_cell_w(Zh_resize);
-                    rz_r = 12;
-                    if (cw_r != 0) {
-                        rz_old = cw_r;
-                        callsub s_write_slot(Zh_resize, al_at);
+                    callsub s_before_write(rz_new + 24 - ab, rz_keep);
+                    rz_r = bw_r;
+                    if (bw_r == 0) {
+                        callsub s_cpy(ab + rz_new + 24, ab + rz_off + 24, rz_keep);
+                        callsub s_write_slot(Zh_resize, rz_new);
                         rz_r = ws_r;
                         if (ws_r == 0) {
-                            callsub s_set_kind(rz_old, 254);
-                            store64(rz_old + 48, al_at);
+                            callsub s_release(rz_off);
+                            rz_r = rl2_r;
                         }
                     }
                 }
@@ -696,7 +1352,7 @@ macro m_begin(Zlb, Zlc, Zll) {
             alog_base = Zlb;
             alog_comm = Zlc;
             alog_lim = Zll;
-            amark = load64(ah + 56) + load64(ah + 40);
+            amark = alim;
             abitmap = ((amark / 512 + 1) + 7) & ~7;
             callsub s_ensure_log(abitmap);
             bg_r = el_r;
@@ -728,8 +1384,8 @@ sub s_before_write(Zoff_before_write, Zlen_before_write) {
                 bw_end = amark;
             }
             bw_off = Zoff_before_write;
-            if (bw_off < 192) {
-                bw_off = 192;
+            if (bw_off < 32) {
+                bw_off = 32;
             }
             if (bw_end > bw_off) {
                 bw_g = bw_off / 64;
@@ -792,11 +1448,11 @@ macro m_rollback() {
             callsub s_cpy(ab + rb_from, alog_base + rb_at + 8, rb_size);
             rb_at = rb_at + 72;
         }
-        rb_comm = load64(ah + 24);
-        rb_lim = load64(ah + 32);
+        # The limit is the seat's region and is not undoable arena state; the
+        # committed boundary is, and comes back with the saved superblock.
+        rb_lim = load64(ah + 16);
         callsub s_cpy(ah, saved, 192);
-        store64(ah + 24, rb_comm);
-        store64(ah + 32, rb_lim);
+        store64(ah + 16, rb_lim);
         aj = 0;
         rb_r = 0;
     }
@@ -899,7 +1555,7 @@ macro m_verify() {
     if (load64(ah + 80) > (load64(ah + 56) - load64(ah + 48)) / 8) {
         vf_ok = 0;
     }
-    if (load64(ah + 88) > load64(ah + 80) * 4096) {
+    if (load32(ab + 4120) > load64(ah + 80) * 4096) {
         vf_ok = 0;
     }
     if (vf_ok == 1) {
@@ -922,7 +1578,7 @@ macro m_verify() {
                 if (load64(v_c + 16) > 281474976710656 | load32(v_c + 44) > 16777216) {
                     vf_ok = 0;
                 }
-                callsub s_cb(load64(v_c + 16), load32(v_c + 44));
+                m_cb(load64(v_c + 16));
                 v_size = cb_r;
                 if (v_size > v_end - v_at) {
                     vf_ok = 0;
@@ -976,8 +1632,8 @@ macro m_verify() {
         v_live = 0;
         v_end = load64(ah + 56) + load64(ah + 40);
         v_i = 0;
-        while (v_i < load64(ah + 88) & vf_ok == 1) {
-            callsub s_slot(v_i);
+        while (v_i < load32(ab + 4120) & vf_ok == 1) {
+            m_slot(v_i);
             v_e = load64(sp_r);
             if ((v_e & 1) != 0) {
                 v_free = v_free + 1;
@@ -992,12 +1648,12 @@ macro m_verify() {
                         vf_ok = 0;
                     } else {
                         if (load64(v_c) != 0xFFFFFFFFFFFFFFFF) {
-                            if (load64(v_c) >= load64(ah + 88)) {
+                            if (load64(v_c) >= load32(ab + 4120)) {
                                 vf_ok = 0;
                             }
                         }
                         if (load64(v_c + 8) != 0xFFFFFFFFFFFFFFFF) {
-                            if (load64(v_c + 8) >= load64(ah + 88)) {
+                            if (load64(v_c + 8) >= load32(ab + 4120)) {
                                 vf_ok = 0;
                             }
                         }
@@ -1019,12 +1675,12 @@ macro m_verify() {
                             v_k = 0;
                             while (v_k < load32(v_c + 44) & vf_ok == 1) {
                                 if (load64(v_r + 24 * v_k) != 0xFFFFFFFFFFFFFFFF) {
-                                    if (load64(v_r + 24 * v_k) >= load64(ah + 88)) {
+                                    if (load64(v_r + 24 * v_k) >= load32(ab + 4120)) {
                                         vf_ok = 0;
                                     }
                                 }
                                 if (load64(v_r + 24 * v_k + 8) != 0xFFFFFFFFFFFFFFFF) {
-                                    if (load64(v_r + 24 * v_k + 8) >= load64(ah + 88)) {
+                                    if (load64(v_r + 24 * v_k + 8) >= load32(ab + 4120)) {
                                         vf_ok = 0;
                                     }
                                 }
@@ -1051,14 +1707,14 @@ macro m_verify() {
             if (v_next == 0xFFFFFFFFFFFFFFFF) {
                 v_go = 0;
             } else {
-                if (v_next >= load64(ah + 88)) {
+                if (v_next >= load32(ab + 4120)) {
                     vf_ok = 0;
                 } else {
                     v_chain = v_chain + 1;
                     if (v_chain > v_free) {
                         vf_ok = 0;
                     } else {
-                        callsub s_slot(v_next);
+                        m_slot(v_next);
                         v_e = load64(sp_r);
                         if ((v_e & 1) == 0) {
                             vf_ok = 0;
@@ -1190,7 +1846,7 @@ sub s_table_ins(Zh_table_ins) {
     if (Zh_table_ins >= 0xFFFFFFF0) {
         tin_r = 0;
     }
-    if (load64(ah + 88) * 2 > slts) {
+    if (load32(ab + 4120) * 2 > slts) {
         tin_r = 0;
     }
     if (tin_r == 1) {
@@ -1268,7 +1924,7 @@ sub s_build_table() {
     var bt_n;
     callsub s_zero(taddr, 4 * slts);
     bt_r = 1;
-    bt_n = load64(ah + 88);
+    bt_n = load32(ab + 4120);
     bt_h = 0;
     while (bt_h < bt_n & bt_r == 1) {
         callsub s_cell(bt_h);
@@ -1287,7 +1943,7 @@ sub s_resolve(Zp_resolve, Zn_resolve) {
     var rv_start;
     var rv_end;
     var rv_go;
-    rv_r = load64(ah + 112);
+    rv_r = load32(ab + 24);
     if (rv_r != 0xFFFFFFFFFFFFFFFF) {
         if (Zn_resolve != 0) {
             rv_start = 0;
@@ -1470,7 +2126,7 @@ sub s_build_kids(Zsorted_build_kids) {
     var bk_s;
     var bk_e;
     var bk_t;
-    n_kids = load64(ah + 88);
+    n_kids = load32(ab + 4120);
     bk_r = 1;
     callsub s_take(4 * (n_kids + 1));
     kstart = tk_r;
@@ -2178,7 +2834,7 @@ macro m_compact_scan() {
     var cs2_n;
     var cs2_h;
     cs2_r = 1;
-    cs2_n = load64(ah + 88);
+    cs2_n = load32(ab + 4120);
     cs2_h = 0;
     while (cs2_h < cs2_n) {
         if (cs2_r == 1) {
@@ -2276,7 +2932,7 @@ macro m_emit() {
     em_r = 0;
     em_rsn = 8;
     callsub s_scratch_reset();
-    em_n = load64(ah + 88);
+    em_n = load32(ab + 4120);
     em_go = 0;
     if (em_n < 0xFFFFFFF0) {
         callsub s_take(em_n + 1);
@@ -2621,7 +3277,7 @@ macro m_emit() {
     if (em_go == 1) {
         store32(jemit_base + 12, load32(ah + 12));
         store64(jemit_base + 112, 0);
-        em_entry = load64(ah + 104);
+        em_entry = load32(ab + 28);
         if (em_entry != 0xFFFFFFFFFFFFFFFF) {
             if (em_entry >= em_n) {
                 em_rsn = 9;
@@ -2854,7 +3510,7 @@ macro m_relink() {
                 rl_addressed = 0;
             }
             if (rl_addressed == 1) {
-                rl_run = load64(ah + 112);
+                rl_run = load32(ab + 24);
                 m_lit_pymergetic();
                 callsub s_child_named(rl_run, 10);
                 rl_run = cn_r;
@@ -3343,7 +3999,7 @@ macro m_apply_replay() {
                     }
                     ar_name = ar_p + ar_cut;
                     ar_name_len = ar_n - ar_cut;
-                    ar_parent = load64(ah + 112);
+                    ar_parent = load32(ab + 24);
                     if (ar_cut > 0) {
                         callsub s_resolve(ar_p, ar_cut - 1);
                         ar_parent = rv_r;
@@ -3571,7 +4227,7 @@ macro m_apply_replay() {
                         }
                     }
                     if (ar_ok == 1) {
-                        store64(ah + 104, ar_h);
+                        store32(ab + 28, ar_h);
                     }
                 }
             }
@@ -3648,7 +4304,7 @@ macro m_check_all() {
     var ck_off;
     var ck_val;
     callsub s_scratch_reset();
-    ck_n = load64(ah + 88);
+    ck_n = load32(ab + 4120);
     jb_reason = 8;
     ck_r = 0;
     callsub s_build_kids(0);
@@ -3657,8 +4313,8 @@ macro m_check_all() {
         if (pt_r == 1) {
             jb_reason = 9;
             ck_r = 1;
-            if (load64(ah + 104) != 0xFFFFFFFFFFFFFFFF) {
-                callsub s_cell(load64(ah + 104));
+            if (load32(ab + 28) != 4294967295) {
+                callsub s_cell(load32(ab + 28));
                 if (ce_r == 0) {
                     ck_r = 0;
                 }
@@ -3947,7 +4603,7 @@ macro m_serve(Zop, Zarg, Zrq, Zrl, Zrs) {
         if (Zop == 2) {
             store32(Zrs, 1);
             store32(Zrs + 4, 0);
-            store64(Zrs + 8, load64(ah + 88));
+            store64(Zrs + 8, load32(ab + 4120));
             store64(Zrs + 16, load64(ah + 16));
             store64(Zrs + 24, load64(ar + 16));
             store64(Zrs + 32, load64(ar + 48));
@@ -4063,7 +4719,7 @@ macro m_serve(Zop, Zarg, Zrq, Zrl, Zrs) {
             } else {
                 se_at = load32(Zrq + 8);
                 se_count = 0;
-                while (se_at < load64(ah + 88) & se_count < 120) {
+                while (se_at < load32(ab + 4120) & se_count < 120) {
                     callsub s_cell(se_at);
                     se_c = ce_r;
                     if (se_c != 0) {
@@ -4075,7 +4731,7 @@ macro m_serve(Zop, Zarg, Zrq, Zrl, Zrs) {
                     se_at = se_at + 1;
                 }
                 store32(Zrs, se_count);
-                if (se_at >= load64(ah + 88)) {
+                if (se_at >= load32(ab + 4120)) {
                     store32(Zrs + 4, 0xFFFFFFFF);
                 } else {
                     store32(Zrs + 4, se_at);
@@ -4264,7 +4920,7 @@ macro m_serve(Zop, Zarg, Zrq, Zrl, Zrs) {
                             sv_rsl = 8;
                             sv_status = 9;
                         } else {
-                            store64(Zrs, load64(ah + 88));
+                            store64(Zrs, load32(ab + 4120));
                             store64(Zrs + 8, load64(ah + 16));
                             callsub s_cpy(Zrs + 16, ar + 192, 32);
                             store64(Zrs + 48, jb_reclaimed);
@@ -4498,6 +5154,9 @@ fn live_pump(context, area) {
     var ap_i, ap_k, ap_d, ap_ab, ap_ah, ap_alim, ap_acomm, ap_aneed, ap_aj;
     var ap_alb, ap_alc, ap_all, ap_amark, ap_abitmap, ap_aused, ap_fixups, ap_pos, ap_size, ap_go, ap_tail, ap_padded;
     var gn_r, ar_r, ws_r, bw_r, mb_r2, tmp8_r, tmp32_r;
+    var cva, cvb, cvc, asyms, aspec, arel, fv_r, rc_r, rt_at, rt_n;
+    var cn_at, it_id, sr_at, sf_r, sg_r, si_r, st_r, sk_r, sr2_r, sn2_r;
+    var la_r, ru_r, ri_r, rl2_r, pk_r, pi_r, pi2_r;
     var cb_r, en_r, disp_r, mob_r, so_r, pi_r, pi_id, pt_r;
     var rqbuf[1044], rsbuf[1044];
     var shk[256], shw[256], shh[128], shd[32];

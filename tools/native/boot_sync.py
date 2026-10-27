@@ -50,7 +50,10 @@ MODULE = Path("pymergetic/rxf/boot.rxfd")
 # One seat per family because the build makes one artifact per family: the
 # aarch64 ELF is the seat qemu -kernel boots (its ``aarch64_uefi`` seat would be
 # a PE stub the build does not make), and the x86_64 machine boots its sector
-# and its UEFI stub as two different artifacts.
+# and its UEFI stub as two different artifacts. The x86_64-bios seat boots the
+# linked v7 image (world_v7.h, docs/32 1) while the other three seats still
+# carry the stub world of the world.h map: the four-seat cutover moves them in
+# one change and folds the two x86_64 worlds back into one family.
 FAMILIES = (
     {
         "function": "start_aarch64",
@@ -84,10 +87,10 @@ FAMILIES = (
         "artifact": "build/boot_x86_64.bin",
         "format": "Machine",
     },
-    # The image the glue runs (docs/31 §1's RXFB box, the smoke's world): the
-    # map rows ``make -C boot`` links from ``image_stub`` and every seat loads.
-    # The glue runs it through the entry convention below, so that convention
-    # is the signature of these families (``boot/README.md`` pins it per ABI).
+    # The image the glue runs (docs/31 §1's RXFB box): the map rows
+    # ``make -C boot`` links from ``image_stub`` and the seat loads. The glue
+    # runs it through the entry convention below, so that convention is the
+    # signature of these families (``boot/README.md`` pins it per ABI).
     {
         "function": "world_aarch64",
         "sources": (
@@ -130,10 +133,28 @@ FAMILIES = (
             "boot/image_stub/world.h",
             "boot/image_stub/image.ld",
         ),
-        # one blob per machine: the BIOS and the UEFI seat load the same world
-        "codes": ("x86_64_bios", "x86_64_uefi"),
+        # the UEFI seat still loads the stub world; the BIOS seat moved to the
+        # linked v7 image below (world_x86_64_bios) in the one-seat probe
+        "codes": ("x86_64_uefi",),
         "body": "body_world_x86_64",
         "artifact": "build/image_x86_64.bin",
+        "format": "Machine",
+        "signature": "run",
+    },
+    {
+        "function": "world_x86_64_bios",
+        "sources": (
+            "boot/image_stub/entry.c",
+            "boot/image_stub/entry_v7.ld",
+            "boot/image_stub/uart_x86_64.c",
+            "boot/image_stub/uart.h",
+            "boot/image_stub/world_v7.h",
+        ),
+        # the real linked image: tools/native/link.py's v7 arena of the starter
+        # (docs/32 1), packed with the carrier rows and this entry code
+        "codes": ("x86_64_bios",),
+        "body": "body_world_x86_64_bios",
+        "artifact": "build/image_x86_64_bios.bin",
         "format": "Machine",
         "signature": "run",
     },

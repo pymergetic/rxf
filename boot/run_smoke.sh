@@ -53,13 +53,16 @@ seat() {
     fi
 }
 
-echo "== x86_64 BIOS (disk boot: sector -> stage2 -> long mode -> image) =="
+echo "== x86_64 BIOS (disk boot: sector -> stage2 -> long mode -> the linked v7 image) =="
 if command -v qemu-system-x86_64 >/dev/null 2>&1; then
     # 33 = (MAGIC_OK 0x10 << 1) | 1: the guest's magic-port answer.
     # kvm first, tcg second (the guest is our own kernel either way).
+    # -m: the linked image (the starter's v7 arena, world_v7.h) sits at 0x10000
+    # and runs to tens of megabytes -- the machine is sized past the block.
     seat "x86_64-bios" "$LOG.x86" 33 \
         qemu-system-x86_64 -machine pc \
         -accel kvm -accel tcg \
+        -m 128M \
         -drive format=raw,file=build/disk.img \
         -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
         -serial stdio -display none

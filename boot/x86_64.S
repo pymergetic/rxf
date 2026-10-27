@@ -4,23 +4,29 @@
  * vectors (the GDT/IDT era on x86_64: the GDT is what protected and long mode
  * are built on), and the entry trampoline that hands control to the image's
  * rxf_graph_run per System V. The image is a separate flat binary this sector
- * loads from a fixed LBA: the object world is payload, not glue.
+ * loads from a fixed LBA: the object world is payload, not glue. The world is
+ * the REAL linked image (image_stub/world_v7.h: the CONTEXT/ENTRIES/ARENA rows
+ * tools/native/link.py makes of the starter, the v7 arena of docs/32 1), with
+ * the carrier room -- the entry code and the rows the glue passes -- below it.
  *
- * The memory map is boot/image_stub/world.h's (commented at each use). Two
- * languages carry it -- this file and image.ld -- and the Makefile's check-map
- * compares the linked image against these constants, so they cannot drift.
+ * The memory map is boot/image_stub/world_v7.h's (commented at each use). The
+ * carriers of it are this file, image_stub/entry_v7.ld and the rows
+ * tools/native/boot_image.py writes; `make check-map` compares them, so they
+ * cannot drift.
  *
  * Disk layout (the Makefile's build/disk.img):
  *   LBA 0        this sector (512 bytes)
  *   LBA 1..4     stage2 (the 32/64-bit trampoline, loaded at 0x8000)
- *   LBA 5..108   the image (104 sectors, loaded at 0x10000)
+ *   LBA 5..      the image (the carrier at its head, the linked image behind
+ *                it, loaded at 0x10000): as many 64 KiB chunks as its head
+ *                row carries (world_v7.h), read one EDD request each
  */
 
-/* The constants of world.h's map, in asm. The .equ values must match the
- * #defines there and the ASSERTs of image.ld; `make check-map` proves it. */
-    .equ IMAGE_BASE, 0x10000    /* the world: scenario.BASE of tests/graph_world.py */
-    .equ ENTRY, IMAGE_BASE + 0xB000     /* rxf_graph_run, past the mapped rows */
-    .equ CONTEXT, IMAGE_BASE + 0x0000   /* struct rxf_runtime_context (144 bytes) */
+/* The constants of world_v7.h's map, in asm. The .equ values must match the
+ * #defines there and the ASSERTs of entry_v7.ld; `make check-map` proves it. */
+    .equ IMAGE_BASE, 0x10000    /* the carrier rows below, the world behind */
+    .equ ENTRY, IMAGE_BASE + 0xB000     /* rxf_graph_run, in the carrier room */
+    .equ CONTEXT, IMAGE_BASE + 0x10000  /* the linked image's context (link.py) */
     .equ ARGS, IMAGE_BASE + 0x5800      /* the argument words the program takes */
     .equ OUT, IMAGE_BASE + 0x5900       /* where the answer lands */
     .equ HANDLE, IMAGE_BASE + 0x8600    /* the 3-word handle, passed by value */
@@ -28,7 +34,8 @@
     .equ BSS_END, IMAGE_BASE + 0xAB00
     .equ ARGC, 1                /* the smoke's program takes one word */
     .equ IMAGE_LBA, 5           /* after the sector and the 4-sector stage2 */
-    .equ IMAGE_SECTORS, 104     /* 52KB: world rows + entry code + slack */
+    .equ CHUNK_SECTORS, 128     /* one EDD read: 64 KiB, never crossing one */
+    .equ CHUNK_SEG, 0x1000      /* 64 KiB in real-mode paragraphs */
     .equ STAGE2, 0x8000
     .equ STACK_TOP, 0x7c00      /* below the sector: the loader's and entry's stack */
     .equ MAGIC_PORT, 0xF4       /* wrap.h: the coarse answer QEMU turns into an exit */
@@ -55,7 +62,28 @@ _start16:
     movw $dap_stage2, %si       /* INT 13h AH=42h takes its request in DS:SI */
     call read
     movw $dap_image, %si
+    call read                   /* the image's first 64 KiB chunk: the head row */
+
+    /* The head row (world_v7.h) says how many 64 KiB chunks the image is: the
+     * linked world grows with the starter and the sector carries no count to
+     * keep in step with it. Each chunk is one EDD read (a transfer must not
+     * cross a 64 KiB boundary), and the buffer and the LBA move one chunk on. */
+    pushw %ds
+    movw $0x1000, %ax
+    movw %ax, %ds
+    movw 0x0000, %cx            /* the head's chunk count; the chunk read counts */
+    popw %ds
+1:
+    subw $1, %cx
+    jz 2f
+    addw $CHUNK_SEG, dap_image+6        /* one chunk further up in memory */
+    addl $CHUNK_SECTORS, dap_image+8    /* and one chunk on disk */
+    pushw %cx
+    movw $dap_image, %si
     call read
+    popw %cx
+    jmp 1b
+2:
 
     cli                         /* the mode change must not be interrupted */
     lgdt gdt_desc               /* long mode needs descriptors before it needs paging */
@@ -89,7 +117,7 @@ dap_stage2:
     .quad 1                     /* LBA 1 */
 dap_image:
     .byte 0x10, 0
-    .word IMAGE_SECTORS         /* sectors: the image's (the Makefile checks it fits) */
+    .word CHUNK_SECTORS         /* sectors: one 64 KiB chunk of the image */
     .word 0x0000, 0x1000        /* -> 0x10000 */
     .quad IMAGE_LBA             /* LBA 5: past the sector and stage2 */
 drive:
