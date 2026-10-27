@@ -9,7 +9,7 @@
     <Alias name="sources" target="pymergetic.rxf.sources" />
     <Alias name="stdlib" target="pymergetic.rxf.roles.stdlib" />
     <Alias name="targets" target="pymergetic.rxf.targets" />
-    <Function name="pump" implementation="@kinds.FunctionImplementation.Native" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@live.pump.signature" semantic_digest="289987f592b068551980643a6d14c1583e98e0473b7a6142a0cc64b6452a4ec2">
+    <Function name="pump" implementation="@kinds.FunctionImplementation.Native" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@live.pump.signature" semantic_digest="7fcee542d4ccbb3d671c87621dc2cbc8cdfa45089178f996827b2b16fe7eef99">
       <ABISignature name="aapcs64_linux_status_out" target="@targets.aarch64_linux_aapcs64" kind="@kinds.AbiKind.Aapcs64" class_count="2" output_class="3" location_count="3" rxf:data="0301">
         <ABIValueLocation name="argument[1]" rxf:index="1" association="@live.pump.signature.argument[1]" semantic_index="1" value_role="@kinds.AbiValueRole.Argument" passing="@kinds.AbiPassing.Mutable" value_class="@kinds.AbiValueClass.Pointer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" pointee_type="@foundation.NativeTransaction" rxf:data="000000000000000001000000" />
         <ABIValueLocation name="hidden_context" association="@live.pump.signature.argument[0]" value_role="@kinds.AbiValueRole.HiddenContext" passing="@kinds.AbiPassing.Pointer" value_class="@kinds.AbiValueClass.Pointer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" flags="@kinds.AbiValueFlags.Synthetic" pointee_type="@model.Ref" rxf:data="000000000000000000000000" />
@@ -20,17 +20,17 @@
         <ABIValueLocation name="hidden_context" association="@live.pump.signature.argument[0]" value_role="@kinds.AbiValueRole.HiddenContext" passing="@kinds.AbiPassing.Pointer" value_class="@kinds.AbiValueClass.Pointer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" flags="@kinds.AbiValueFlags.Synthetic" pointee_type="@model.Ref" rxf:data="000000000000000000000000" />
         <ABIValueLocation name="status" rxf:index="2" value_role="@kinds.AbiValueRole.Status" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Return" register_count="1" flags="@kinds.AbiValueFlags.Synthetic" pointee_type="uint32_t" rxf:data="000000000000000000000000" />
       </ABISignature>
-      <Code name="aarch64_linux" owner_function="@live.pump" runtime_target="@targets.aarch64_linux_aapcs64" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="116656" semantic_digest="289987f592b068551980643a6d14c1583e98e0473b7a6142a0cc64b6452a4ec2" source="@sources.live" body="@live.pump.body_aarch64">
+      <Code name="aarch64_linux" owner_function="@live.pump" runtime_target="@targets.aarch64_linux_aapcs64" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="116592" semantic_digest="7fcee542d4ccbb3d671c87621dc2cbc8cdfa45089178f996827b2b16fe7eef99" source="@sources.live" body="@live.pump.body_aarch64">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@live.pump.aapcs64_linux_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <Code name="aarch64_uefi" owner_function="@live.pump" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="116656" semantic_digest="289987f592b068551980643a6d14c1583e98e0473b7a6142a0cc64b6452a4ec2" source="@sources.live" body="@live.pump.body_aarch64">
+      <Code name="aarch64_uefi" owner_function="@live.pump" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="116592" semantic_digest="7fcee542d4ccbb3d671c87621dc2cbc8cdfa45089178f996827b2b16fe7eef99" source="@sources.live" body="@live.pump.body_aarch64">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@live.pump.aapcs64_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="116656" content_digest="40964bde31267aec0f9326f9c14a56778f3cfacdc647c1494aa5fb2498e3eefc" />
-      <CodeBlob name="body_wasm32" byte_count="354086" content_digest="10b16bd42e0cc56eac08efd46f03d78743fcc775c7a4ebe65838ddb4bb4dc48e" />
-      <CodeBlob name="body_x86_64" byte_count="136752" content_digest="840666b94a0df9419564c1b21b8d83532a69e76dceff6f3e5345e2f502101008" />
+      <CodeBlob name="body_aarch64" byte_count="116592" content_digest="56ed9290a4c3c89c6455c8ca8db23b83f5681ab2547d820f86b1002cf0568812" />
+      <CodeBlob name="body_wasm32" byte_count="354069" content_digest="bbacf159db780d34588e34af37a9b4b82aeef2b9324ada44abc16846856e060a" />
+      <CodeBlob name="body_x86_64" byte_count="136691" content_digest="1f3dd648c54e70f712423c33390ad85a5b76407ea56e7d6943aa5c7f6ce54424" />
       <Signature name="signature" return_type="void" parameter_count="2" result_count="1" refusal_set="@foundation.StdlibRefusals">
         <Parameter name="argument[0]" value_type="@model.Ref" />
         <Parameter name="argument[1]" value_type="@foundation.NativeTransaction" index="1" />
@@ -51,7 +51,7 @@
         <ABIValueLocation name="hidden_context" association="@live.pump.signature.argument[0]" value_role="@kinds.AbiValueRole.HiddenContext" passing="@kinds.AbiPassing.Pointer" value_class="@kinds.AbiValueClass.Pointer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" flags="@kinds.AbiValueFlags.Synthetic" pointee_type="@model.Ref" rxf:data="000000000000000000000000" />
         <ABIValueLocation name="status" rxf:index="2" value_role="@kinds.AbiValueRole.Status" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Return" register_count="1" flags="@kinds.AbiValueFlags.Synthetic" pointee_type="uint32_t" rxf:data="000000000000000000000000" />
       </ABISignature>
-      <Code name="wasm32" owner_function="@live.pump" runtime_target="@targets.wasm32_wasm_c" signature="@live.pump.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="354086" semantic_digest="289987f592b068551980643a6d14c1583e98e0473b7a6142a0cc64b6452a4ec2" source="@sources.live" body="@live.pump.body_wasm32">
+      <Code name="wasm32" owner_function="@live.pump" runtime_target="@targets.wasm32_wasm_c" signature="@live.pump.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="354069" semantic_digest="7fcee542d4ccbb3d671c87621dc2cbc8cdfa45089178f996827b2b16fe7eef99" source="@sources.live" body="@live.pump.body_wasm32">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@live.pump.wasm_c_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
@@ -60,15 +60,15 @@
         <ABIValueLocation name="hidden_context" association="@live.pump.signature.argument[0]" value_role="@kinds.AbiValueRole.HiddenContext" passing="@kinds.AbiPassing.Pointer" value_class="@kinds.AbiValueClass.Pointer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" flags="@kinds.AbiValueFlags.Synthetic" pointee_type="@model.Ref" rxf:data="000000000000000000000000" />
         <ABIValueLocation name="status" rxf:index="2" value_role="@kinds.AbiValueRole.Status" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Return" register_count="1" flags="@kinds.AbiValueFlags.Synthetic" pointee_type="uint32_t" rxf:data="000000000000000000000000" />
       </ABISignature>
-      <Code name="x86_64_bios" owner_function="@live.pump" runtime_target="@targets.x86_64_bios_sysv" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="136752" semantic_digest="289987f592b068551980643a6d14c1583e98e0473b7a6142a0cc64b6452a4ec2" source="@sources.live" body="@live.pump.body_x86_64">
+      <Code name="x86_64_bios" owner_function="@live.pump" runtime_target="@targets.x86_64_bios_sysv" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="136691" semantic_digest="7fcee542d4ccbb3d671c87621dc2cbc8cdfa45089178f996827b2b16fe7eef99" source="@sources.live" body="@live.pump.body_x86_64">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@live.pump.sysv_bios_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
-      <Code name="x86_64_linux" owner_function="@live.pump" runtime_target="@targets.x86_64_linux_sysv" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="136752" semantic_digest="289987f592b068551980643a6d14c1583e98e0473b7a6142a0cc64b6452a4ec2" source="@sources.live" body="@live.pump.body_x86_64">
+      <Code name="x86_64_linux" owner_function="@live.pump" runtime_target="@targets.x86_64_linux_sysv" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="136691" semantic_digest="7fcee542d4ccbb3d671c87621dc2cbc8cdfa45089178f996827b2b16fe7eef99" source="@sources.live" body="@live.pump.body_x86_64">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@live.pump.sysv_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
-      <Code name="x86_64_uefi" owner_function="@live.pump" runtime_target="@targets.x86_64_uefi_sysv" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="136752" semantic_digest="289987f592b068551980643a6d14c1583e98e0473b7a6142a0cc64b6452a4ec2" source="@sources.live" body="@live.pump.body_x86_64">
+      <Code name="x86_64_uefi" owner_function="@live.pump" runtime_target="@targets.x86_64_uefi_sysv" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="136691" semantic_digest="7fcee542d4ccbb3d671c87621dc2cbc8cdfa45089178f996827b2b16fe7eef99" source="@sources.live" body="@live.pump.body_x86_64">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@live.pump.sysv_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
