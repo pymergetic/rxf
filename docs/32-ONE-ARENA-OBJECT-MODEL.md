@@ -382,6 +382,40 @@ span, and the generation of a reused span bumped so a stale handle keeps failing
 Its undo is the granule log of docs/19, which covers the arena bytes above the
 superblock; the superblock's own words are saved and restored by `begin`.
 
+### 5.4 The canonical form of an image
+
+A live image is asked for *the* bytes of itself: the dump, and the digest over
+them. "Canonical" has to mean one thing, and in this model it does:
+
+> The canonical bytes of an image are the bytes of the one-arena image obtained by
+> walking the world in tree order and placing every object into a fresh arena -
+> `tools/native/arena_export.py`'s `place_world`. Two images that carry the same
+> world answer the same bytes.
+
+So a canonical arena is one that a tree walk would have produced: objects in tree
+order, no free span between them, the `sys` skeleton first, and the semantic rows
+and relation tables in the order the walk writes them. The allocator's history
+does not show: a freed and re-grown object does not make an image non-canonical,
+the walk simply would not have placed it where it sits, so the image is
+*compacted* before it is dumped - the pass that slides records down to a frontier,
+which is what `docs/20` S7/S8 describe and what the compaction proof holds to.
+
+The digest is the digest of those bytes. It is therefore the digest of the world
+and nothing else, which is what makes a founding commit able to pin it.
+
+Two consequences worth naming:
+
+- The dump of a live image is a *rebuild*, not a copy. It is the same shape the
+  writer used, which is why the reader and the writer can be the same walk.
+- A canonical image has no `FREE` span in its stream at all, and its end marker is
+  the whole tail. `verify` accepts more than that, because a running image is not
+  canonical between dumps.
+
+The superseded model reached the same place by hashing compacted cells
+(`Image.digest()`); this one hashes the compacted arena. The parity contract of
+`tests/test_live_native.py` - the native pump, the host engine and the image all
+answer one digest - is the same sentence in both.
+
 ---
 
 ## 6. Related
