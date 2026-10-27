@@ -3530,6 +3530,12 @@ macro m_emit() {
                 }
             }
             if (em_go == 1) {
+                # The value of the source object is in the source arena: its
+                # address has to be taken before the arena is swapped for the
+                # output, because a payload is the record's own room (docs/32 1.2)
+                # and not a slot of the world-cell view.
+                callsub s_payload(em_old);
+                em_src = pa_r;
                 callsub s_arena_push();
                 m_arena_load_out();
                 callsub s_create();
@@ -3541,7 +3547,7 @@ macro m_emit() {
                     if (cs_payload != 0) {
                         callsub s_payload(em_made);
                         em_payload = pa_r;
-                        callsub s_cpy(em_payload, em_c + 64, cs_payload);
+                        callsub s_cpy(em_payload, em_src, cs_payload);
                         em_k = 0;
                         while (em_k < load32(em_words) & em_go == 1) {
                             em_offset = load32(em_words + 4 + 4 * em_k) & 0x7FFFFFFF;
@@ -5518,7 +5524,7 @@ fn live_pump(context, area) {
     var crc_r, crc_i, crc_k, cmp_r, len_r;
     var cr_h, cr_r, cs2_r, ck_r, cn_r, cc_r;
     var cl_mod, cl_head, cl_walk, cl_next, cl_stop;
-    var em_name, em_nlen, em_nrw;
+    var em_name, em_nlen, em_nrw, em_src;
     var cs_type, cs_parent, cs_generation, cs_flags, cs_index, cs_name, cs_name_len, cs_payload, cs_refs, cs_kind;
     var ce_r, sp_r, lv_r, pa_r, rr_r, kd_r, nm_r, fc_r;
     var ne_r, nh_r, hm_r, tin_r, it_r, tk_r, pw_r, rw_r, lss_r;
