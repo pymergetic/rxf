@@ -78,6 +78,22 @@ def test_the_starter_has_no_gaps_for_any_target():
         assert arch_proxy.gaps(STARTER, target) == []
 
 
+def test_a_seat_entry_is_one_architectures_code_and_never_a_gap():
+    """`start_aarch64` boots aarch64 and nothing else: the proxy lists it and resolves
+    it (a target without its code is still refused in the words of the checker), and
+    a target that lacks it has no gap."""
+    every = arch_proxy.functions(STARTER)
+    entries = [label for label in every if label.startswith(arch_proxy.SEAT_ENTRIES)]
+    assert len(entries) == 7, entries  # four starts and three worlds
+    for label in entries:
+        assert not [g for g in arch_proxy.gaps(STARTER) if g[0] == label]
+        assert len(every[label]) < len(MAP)  # never the code of every target
+    aarch64 = "pymergetic.rxf.boot.start_aarch64"
+    assert arch_proxy.resolve(STARTER, aarch64, "x86_64_linux_sysv") == {
+        "x86_64_linux_sysv": {"refusal": "no code for x86_64_linux_sysv"}
+    }
+
+
 def test_a_program_of_the_interpreter_is_never_a_gap():
     """A function whose only Code has no runtime_target runs everywhere; the proxy leaves it out."""
     programs = set()

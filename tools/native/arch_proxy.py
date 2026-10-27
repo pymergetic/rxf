@@ -30,6 +30,10 @@ import graph_sync
 ROOT = HERE.parents[1]
 RXF = "{urn:pymergetic:rxf}"
 NO_CODE = "no code for"
+# The entry code of a seat is one machine's by construction: `start_aarch64` boots
+# aarch64 and nothing else, `world_wasm32` is the wasm32 glue. These functions are
+# listed and resolved like any other, but a target that lacks them has no gap.
+SEAT_ENTRIES = "pymergetic.rxf.boot."
 
 
 def word(value: str | None) -> str:
@@ -112,13 +116,19 @@ def resolve(
 
 
 def gaps(starter: Path, target: str | None = None) -> list[tuple[str, str]]:
-    """The ``(function, target)`` pairs that have no code: a target's work list."""
+    """The ``(function, target)`` pairs that have no code: a target's work list.
+
+    The seat entries of `pymergetic.rxf.boot` are not part of it: each of them is the
+    code of exactly one machine (``SEAT_ENTRIES``).
+    """
     known = targets(starter)
     if target is not None and target not in known:
         raise SystemExit(f"{target}: not a target of the starter")
     wanted = set(known) if target is None else {target}
     missing: list[tuple[str, str]] = []
     for label, codes in functions(starter).items():
+        if label.startswith(SEAT_ENTRIES):
+            continue
         missing.extend((label, name) for name in sorted(wanted - set(codes)))
     return missing
 
