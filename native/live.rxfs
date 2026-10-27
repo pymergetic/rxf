@@ -1458,6 +1458,7 @@ sub s_create() {
                         store16(ab + al_at + 6, it_id);
                         store32(ab + al_at + 8, cs_parent);
                         store32(ab + al_at + 12, 4294967295);
+                        store32(ab + al_at + 16, cs_refc);
                         store32(ab + al_at + 20, cs_payload);
                         if (cr_free == 1) {
                             cr_ix = cr_at;
@@ -1478,6 +1479,17 @@ sub s_create() {
                                 }
                             }
                             cr_h = ((cr_gen & 4095) << 20) | (cr_ix & 1048575);
+                            if (cs_kind == 1) {
+                                # A module's chain head is the empty chain
+                                # (HANDLE32_NONE), not a zeroed payload: 0 is the
+                                # handle of the object at index 0 and would put the
+                                # first child behind that.
+                                callsub s_before_write(al_at + 24 - ab, 8);
+                                if (bw_r == 0) {
+                                    store32(ab + al_at + 24, 4294967295);
+                                    store32(ab + al_at + 28, 0);
+                                }
+                            }
                             # The child goes at the end of its parent's chain
                             # (docs/32 1.2): that chain is what find and children
                             # walk, and a child that is not on it does not exist to
@@ -1907,7 +1919,8 @@ sub s_init(Zbase, Zcomm, Zlim, Zcap, Zname, Znlen) {
                 cs_type = 4294967295;
                 cs_flags = 0;
                 cs_index = 0;
-                cs_generation = 0;
+                cs_refc = 1;
+            cs_generation = 0;
                 callsub s_create();
                 in_r = cr_r;
                 if (cr_r == 0) {
@@ -3635,6 +3648,11 @@ macro m_emit() {
             cs_flags = 0;
             if (em_c != 0) {
                 cs_flags = (load32(em_c + 40) & 0xFFFFC0FF) | (em_state << 8);
+            }
+            cs_refc = 1;
+            callsub s_rec(em_hnd);
+            if (ce_r != 0) {
+                cs_refc = load32(ce_r + 16);
             }
             cs_generation = load64(em_c + 24);
             cs_index = load32(em_c + 56);
@@ -5658,7 +5676,7 @@ fn live_pump(context, area) {
     var pu_limit, pu_stop_after, pu_clear_reloc, pu_phase, pu_again;
     var crc_r, crc_i, crc_k, cmp_r, len_r;
     var cr_h, cr_r, cs2_r, ck_r, cn_r, cc_r;
-    var cl_mod, cl_head, cl_walk, cl_next, cl_stop;
+    var cl_mod, cl_head, cl_walk, cl_next, cl_stop, cs_refc;
     var em_name, em_nlen, em_nrw, em_src, em_hnd, sg_r, acursor, em_slots, em_claim, em_cmt;
     var cs_type, cs_parent, cs_generation, cs_flags, cs_index, cs_name, cs_name_len, cs_payload, cs_refs, cs_kind;
     var ce_r, sp_r, lv_r, pa_r, rr_r, kd_r, nm_r, fc_r;
