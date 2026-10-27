@@ -12,10 +12,10 @@ from .support import resolved
 
 STARTER = Path(__file__).parents[1] / "starter"
 
-# Bump these two together with the files in starter/, never one alone.
-DIGEST = "d71555385ad887cb39e03f946e56dba6d6ab8982f4ee1a6b2ad3454ddf9efc04"
-DELTA_DIGEST = "18449ba81457ad6b1078bc9be91b3ce396d841c6efe76e12ce7043c06fc8c16e"
-OBJECTS = 18979
+# Bump these three together with the files in starter/, never one alone.
+DIGEST = "902e0f2b2b33b1abbe2b4cc5bc7cf707a98e0c2d4ca6e7a775e76a16fa31623e"
+DELTA_DIGEST = "201c21ad27a07a993f1e11987d9403cd2dd297cafad5b09fe11d93977312784c"
+OBJECTS = 18980
 
 
 def test_the_starter_replays_and_checks_clean(capsys):
