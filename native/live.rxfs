@@ -84,6 +84,18 @@ sub s_len(Zp_len) {
     }
 }
 
+# take(bytes) -> tk_r: 16-aligned bytes of the work region, or 0.
+sub s_take(Zbytes_take) {
+    var tk_n;
+    tk_n = (Zbytes_take + 15) & ~15;
+    if (send - sat < tk_n) {
+        tk_r = 0;
+    } else {
+        tk_r = sat;
+        sat = sat + tk_n;
+    }
+}
+
 # ---- CRC-32 (IEEE, reflected, polynomial 0xEDB88320) --------------------------------------------
 
 # crc_update(crc, p, n) -> crc_r
@@ -447,7 +459,7 @@ sub s_rel_rows(Zh_rr) {
 # dotted path of an object, written into a buffer the caller owns. Written
 # backwards from the end so the segments land in tree order (the same walk
 # ObjectArena::path_of does).
-sub s_path_write(Zh_pw, Zb_pw, Zc_pw) {
+macro m_path_write(Zh_pw, Zb_pw, Zc_pw) {
     var pw_w;
     var pw_rec;
     var pw_at;
@@ -716,36 +728,7 @@ sub s_set_field(Zh_sf, Zw_sf, Zv_sf) {
     }
 }
 
-# set_forward(handle, value) -> sk_r: the compaction home is the record's link word.
-sub s_set_forward(Zh_sk, Zv_sk) {
-    callsub s_rec(Zh_sk);
-    sk_r = 2;
-    if (ce_r != 0) {
-        callsub s_before_write(ce_r - ab + 12, 4);
-        sk_r = bw_r;
-        if (bw_r == 0) {
-            store32(ce_r + 12, Zv_sk);
-        }
-    }
-}
 
-# set_kind(handle, value) -> sr_r: the storage role of the record.
-sub s_set_kind(Zh_sr, Zv_sr) {
-    callsub s_rec(Zh_sr);
-    sr_r = 2;
-    if (ce_r != 0) {
-        callsub s_before_write(ce_r - ab, 2);
-        sr_r = bw_r;
-        if (bw_r == 0) {
-            store16(ce_r, Zv_sr);
-            m_entry(Zh_sr & 1048575);
-            callsub s_before_write(sp_r - ab, 2);
-            if (bw_r == 0) {
-                store16(sp_r, Zv_sr);
-            }
-        }
-    }
-}
 
 # ---- the allocator (docs/32 3): best fit over the FREE ring --------------------------------
 
@@ -1025,88 +1008,6 @@ sub s_release(Zoff_rel) {
 
 # ---- the skeleton: a fresh arena, a cold attach ------------------------------------------
 
-# init(base, committed, limit, capacity) -> in_r: a fresh arena in a region.
-# The model is laid out whole: the superblock, the object index at 4096, sys/syms and
-# sys/specs, and the end marker that is the FREE ring anchor (docs/32 1).
-macro m_init(Zbase, Zcomm, Zlim, Zcap) {
-    var in_slots;
-    var in_syms;
-    var in_specs;
-    var in_at;
-    ab = Zbase;
-    acomm = Zcomm;
-    alim = Zlim;
-    ah = Zbase;
-    in_r = 5;
-    in_slots = Zcap;
-    if (in_slots < 4) {
-        in_slots = 4;
-    }
-    if (in_slots <= 1048576) {
-        m_ensure(4096 + 24 + 8 + 16 * in_slots + 24 + 8 + 4 * 32 + 256 + 24 + 24 * in_slots + 40);
-        in_r = en_r;
-        if (en_r == 0) {
-            callsub s_zero(ab, 4096 + 24 + 8 + 16 * in_slots + 24 + 8 + 4 * 32 + 256 + 24 + 24 * in_slots);
-            store8(ab, 82); store8(ab + 1, 88); store8(ab + 2, 70); store8(ab + 3, 65);
-            store32(ab + 4, 1);
-            store64(ab + 8, 4096 + 24 + 8 + 16 * in_slots + 24 + 8 + 4 * 32 + 256 + 24 + 24 * in_slots);
-            store64(ab + 16, alim);
-            store32(ab + 24, 0);
-            store32(ab + 28, 4294967295);
-
-            # The object index: the first object at 4096, published at its own entry.
-            store16(ab + 4096, 1);
-            store16(ab + 4098, 1);
-            store32(ab + 4104, 4294967295);
-            store32(ab + 4108, 4294967295);
-            store32(ab + 4112, 1);
-            store32(ab + 4116, 8 + 16 * in_slots);
-            store32(ab + 4120, 2);
-            store32(ab + 4124, in_slots);
-            store16(ab + 4128, 1);
-            store16(ab + 4130, 1);
-            store64(ab + 4136, 4096);
-
-            # sys/syms: the names the tree is walked by. It is entry 1.
-            in_syms = 4096 + 24 + 8 + 16 * in_slots;
-            store16(ab + in_syms, 5);
-            store16(ab + in_syms + 2, 1);
-            store32(ab + in_syms + 8, 1);
-            store32(ab + in_syms + 20, 8 + 4 * 32 + 256);
-            store32(ab + in_syms + 24, 1);
-            store32(ab + in_syms + 28, 32);
-            store16(ab + 4128 + 16, 5);
-            store16(ab + 4128 + 18, 1);
-            store64(ab + 4128 + 24, in_syms);
-            asyms = ab + in_syms + 24;
-
-            # sys/specs: one semantic row per index (docs/32 5). It is entry 2.
-            in_specs = in_syms + 24 + 8 + 4 * 32 + 256;
-            store16(ab + in_specs, 4);
-            store16(ab + in_specs + 2, 1);
-            store32(ab + in_specs + 20, 24 * in_slots);
-            store16(ab + 4128 + 32, 4);
-            store16(ab + 4128 + 34, 1);
-            store64(ab + 4128 + 40, in_specs);
-            aspec = ab + in_specs + 24;
-            in_at = 0;
-            while (in_at < in_slots) {
-                store32(aspec + 24 * in_at, 4294967295);
-                in_at = in_at + 1;
-            }
-            arel = 0;
-
-            # The end marker: the FREE ring anchor covering the tail.
-            in_at = load64(ab + 8);
-            callsub s_zero(ab + in_at, 40);
-            store16(ab + in_at, 65535);
-            store32(ab + in_at + 20, alim - in_at - 24);
-            store64(ab + in_at + 24, in_at);
-            store64(ab + in_at + 32, in_at);
-            in_r = 0;
-        }
-    }
-}
 
 # attach() -> at_r: the arena that is in the region already (docs/32 5.3: the gate).
 sub s_attach() {
@@ -1213,6 +1114,36 @@ macro m_lit_sys() {
     store8(lit, 115); store8(lit + 1, 121); store8(lit + 2, 115);
 }
 
+# The names the bootstrap lays down, in the order it interns them (docs/32 5.4):
+# the symbol ids are part of the bytes, so this order is not free.
+macro m_lit_objects() {
+    store8(lit, 111); store8(lit + 1, 98); store8(lit + 2, 106); store8(lit + 3, 101);
+    store8(lit + 4, 99); store8(lit + 5, 116); store8(lit + 6, 115);
+}
+
+macro m_lit_functions() {
+    store8(lit, 102); store8(lit + 1, 117); store8(lit + 2, 110); store8(lit + 3, 99);
+    store8(lit + 4, 116); store8(lit + 5, 105); store8(lit + 6, 111); store8(lit + 7, 110);
+    store8(lit + 8, 115);
+}
+
+macro m_lit_journal() {
+    store8(lit, 106); store8(lit + 1, 111); store8(lit + 2, 117); store8(lit + 3, 114);
+    store8(lit + 4, 110); store8(lit + 5, 97); store8(lit + 6, 108);
+}
+
+macro m_lit_caps() {
+    store8(lit, 99); store8(lit + 1, 97); store8(lit + 2, 112); store8(lit + 3, 115);
+}
+
+macro m_lit_free() {
+    store8(lit, 102); store8(lit + 1, 114); store8(lit + 2, 101); store8(lit + 3, 101);
+}
+
+macro m_lit_syms() {
+    store8(lit, 115); store8(lit + 1, 121); store8(lit + 2, 109); store8(lit + 3, 115);
+}
+
 macro m_lit_specs() {
     store8(lit, 115); store8(lit + 1, 112); store8(lit + 2, 101); store8(lit + 3, 99);
     store8(lit + 4, 115);
@@ -1227,7 +1158,7 @@ macro m_lit_relations() {
 # ---- the symbol table (sys/syms, docs/32 2) ---------------------------------------------
 
 # intern(text, n) -> it_r (status), it_id (the symbol id)
-macro m_intern(Ztext, Zn) {
+sub s_intern(Ztext, Zn) {
     var it_head;
     var it_count;
     var it_need;
@@ -1252,22 +1183,21 @@ macro m_intern(Ztext, Zn) {
         }
         if (it_id == 0) {
             it_need = Zn + 1;
+            # Where the strings begin - and, once there are any, just past the last
+            # one. Id 0 is anonymous and stores nothing, so the first name starts at
+            # the end of the offset table (docs/32 2) and not at whatever offsets[0]
+            # happens to hold.
             it_used = 8 + 4 * load32(it_head + 4);
-            it_i = 1;
-            while (it_i < it_count) {
-                it_off = load32(it_head + 8 + 4 * it_i);
-                it_used = it_off;
-                it_i = it_i + 1;
+            if (it_count > 1) {
+                it_off = load32(it_head + 8 + 4 * (it_count - 1));
+                it_i = 0;
+                while (it_i < 65536 & load8(it_head + it_off + it_i) != 0) {
+                    it_i = it_i + 1;
+                }
+                it_used = it_off + it_i + 1;
             }
-            it_off = load32(it_head + 8 + 4 * (it_count - 1));
-            it_used = it_off;
-            it_i = 0;
-            while (it_i < 65536 & load8(it_head + it_used + it_i) != 0) {
-                it_i = it_i + 1;
-            }
-            it_used = it_used + it_i + 1;
             if (it_count < load32(it_head + 4)) {
-                if (it_used + it_need <= load32(ce_r + 20)) {
+                if (it_used + it_need <= load32(asyms - 24 + 20)) {
                     callsub s_before_write(it_head + it_used - ab, it_need);
                     it_r = bw_r;
                     if (bw_r == 0) {
@@ -1290,6 +1220,77 @@ macro m_intern(Ztext, Zn) {
                 }
             } else {
                 it_r = 4;
+            }
+        }
+    }
+}
+
+# rel_table_make(handle, rows) -> rm_r (status), rm_h (the table): the relation
+# table of an object, created when a delta names refs an object did not have. The
+# table is named by the object's path (docs/32 5.2), which is why the path writer
+# runs first; the derived index gets the word so the next lookup is one read.
+sub s_rel_table_make(Zh_rm, Zrows_rm) {
+    var rm_buf;
+    var rm_len;
+    var rm_at;
+    var rm_ix;
+    var rm_gen;
+    rm_r = 0;
+    rm_h = 0;
+    if (arel != 0) {
+        callsub s_take(512);
+        rm_buf = tk_r;
+        if (rm_buf != 0) {
+            m_path_write(Zh_rm, rm_buf, 512);
+            rm_len = pw2_r;
+            if (rm_len != 0) {
+                callsub s_named_child(arel, rm_buf, rm_len);
+                if (cn_at != 4294967295) {
+                    rm_h = cn_at;
+                } else {
+                    rm_ix = load32(ab + 4120);
+                    if (rm_ix >= load32(ab + 4124)) {
+                        rm_r = 4;
+                    } else {
+                        callsub s_allocate(24 * Zrows_rm);
+                        rm_r = al_r;
+                        if (al_r == 0) {
+                            rm_at = al_at;
+                            rm_gen = 1;
+                            callsub s_before_write(rm_at - ab, 24);
+                            rm_r = bw_r;
+                            if (bw_r == 0) {
+                                callsub s_zero(ab + rm_at, 24);
+                                callsub s_intern(rm_buf, rm_len);
+                                rm_r = it_r;
+                                store16(ab + rm_at, 4);
+                                store16(ab + rm_at + 2, rm_gen);
+                                store16(ab + rm_at + 6, it_id);
+                                store32(ab + rm_at + 8, arel);
+                                store32(ab + rm_at + 12, 4294967295);
+                                store32(ab + rm_at + 20, 24 * Zrows_rm);
+                                m_entry(rm_ix);
+                                callsub s_before_write(sp_r - ab, 16);
+                                rm_r = bw_r;
+                                if (bw_r == 0) {
+                                    store16(sp_r, 4);
+                                    store16(sp_r + 2, rm_gen);
+                                    store32(sp_r + 4, 0);
+                                    store64(sp_r + 8, rm_at);
+                                    callsub s_before_write(4120, 4);
+                                    rm_r = bw_r;
+                                    if (bw_r == 0) {
+                                        store32(ab + 4120, rm_ix + 1);
+                                        rm_h = ((rm_gen & 4095) << 20) | (rm_ix & 1048575);
+                                        if (rm_ix < slts) {
+                                            store32(raddr + 4 * rm_ix, rm_h);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1319,7 +1320,7 @@ sub s_create() {
             }
         }
         if (cr_free == 1 | cr_ix < load32(ab + 4124)) {
-            m_intern(cs_name, cs_name_len);
+            callsub s_intern(cs_name, cs_name_len);
             cr_r = it_r;
             if (it_r == 0) {
                 callsub s_allocate(24 + ((cs_payload + 7) & ~7) - 24 + 24);
@@ -1330,7 +1331,7 @@ sub s_create() {
                     cr_r = bw_r;
                     if (bw_r == 0) {
                         callsub s_zero(ab + al_at, 24);
-                        store16(ab + al_at, 1);
+                        store16(ab + al_at, cs_kind);
                         store16(ab + al_at + 2, cr_gen);
                         store16(ab + al_at + 6, it_id);
                         store32(ab + al_at + 8, cs_parent);
@@ -1354,7 +1355,50 @@ sub s_create() {
                                     store32(ab + 4120, cr_ix + 1);
                                 }
                             }
-                            if (cr_r == 0) {
+                            cr_h = ((cr_gen & 4095) << 20) | (cr_ix & 1048575);
+                            # The child goes at the end of its parent's chain
+                            # (docs/32 1.2): that chain is what find and children
+                            # walk, and a child that is not on it does not exist to
+                            # them. Modules only - a leaf has no chain head.
+                            if (cs_parent != 4294967295) {
+                                callsub s_rec(cs_parent);
+                                cl_mod = ce_r;
+                                if (cl_mod != 0) {
+                                    if (load16(cl_mod) == 1) {
+                                        cl_head = cl_mod + 24;
+                                        cl_walk = load32(cl_head);
+                                        if (cl_walk == 4294967295) {
+                                            callsub s_before_write(cl_head - ab, 4);
+                                            if (bw_r == 0) {
+                                                store32(cl_head, cr_h);
+                                            }
+                                        } else {
+                                            cl_stop = 0;
+                                            while (cl_stop == 0) {
+                                                callsub s_rec(cl_walk);
+                                                cl_next = ce_r;
+                                                if (cl_next == 0) {
+                                                    cl_stop = 1;
+                                                } else {
+                                                    if (load32(cl_next + 12) == 4294967295) {
+                                                        callsub s_before_write(cl_next + 12 - ab, 4);
+                                                        if (bw_r == 0) {
+                                                            store32(cl_next + 12, cr_h);
+                                                        }
+                                                        cl_stop = 1;
+                                                    } else {
+                                                        cl_walk = load32(cl_next + 12);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            # A semantic row can only be written where sys/specs is;
+                            # the bootstrap makes objects before that table exists
+                            # (docs/32 5.4) and fills their rows afterwards.
+                            if (cr_r == 0 & aspec != 0) {
                                 cr_spc = aspec + 24 * cr_ix;
                                 callsub s_before_write(cr_spc - ab, 24);
                                 cr_r = bw_r;
@@ -1364,7 +1408,6 @@ sub s_create() {
                                     store32(cr_spc + 8, cs_index);
                                     store32(cr_spc + 12, 0);
                                     store64(cr_spc + 16, cs_generation);
-                                    cr_h = ((cr_gen & 4095) << 20) | (cr_ix & 1048575);
                                 }
                             }
                             if (cr_r == 0 & cs_refs != 0) {
@@ -1560,7 +1603,6 @@ macro m_rollback() {
     var rb_g;
     var rb_from;
     var rb_size;
-    var rb_comm;
     var rb_lim;
     rb_r = 13;
     if (aj != 0) {
@@ -1613,6 +1655,235 @@ sub s_refs_w(Zh_refs_w) {
         callsub s_before_write(rt_at - ab, 24 * rw_room);
         if (bw_r == 0) {
             rw_r = rt_at;
+        }
+    }
+}
+
+# init(base, committed, limit, capacity, name, name_len) -> in_r: a fresh arena.
+# This is ObjectArena::bootstrap replayed whole (docs/32 5.4): the object index at
+# byte 4096, sys/syms, the root image, sys and its leaves in their order. The
+# symbol ids are part of the bytes, so the interning order is not free - the index
+# object is named `objects` third and `syms` is named last - and s_create interns
+# a name as it makes the object, which is what puts the order back.
+sub s_init(Zbase, Zcomm, Zlim, Zcap, Zname, Znlen) {
+    var in_slots;
+    var in_syms_at;
+    var in_at;
+    var in_need;
+    var in_root;
+    var in_sys;
+    ab = Zbase;
+    acomm = Zcomm;
+    alim = Zlim;
+    ah = Zbase;
+    aneed = 0;
+    # The new arena is being built, not journaled: the undo log of the source it
+    # is being built from must not cover these writes, and s_before_write would
+    # otherwise record them there and refuse once it is full.
+    aj = 0;
+    asyms = 0;
+    aspec = 0;
+    arel = 0;
+    raddr = 0;
+    in_r = 5;
+    in_slots = Zcap;
+    if (in_slots < 4) {
+        in_slots = 4;
+    }
+    if (in_slots <= 1048576) {
+        in_need = 4096 + 24 + 8 + 16 * in_slots + 24 + 8 + 4 * 32 + 256 + 40;
+        m_ensure(in_need);
+        in_r = en_r;
+        if (en_r == 0) {
+            callsub s_zero(ab, in_need);
+            store8(ab, 82); store8(ab + 1, 88); store8(ab + 2, 70); store8(ab + 3, 65);
+            store32(ab + 4, 1);
+            store64(ab + 8, 4096);
+            store64(ab + 16, alim);
+            store32(ab + 24, 4294967295);
+            store32(ab + 28, 4294967295);
+
+            # The end marker: the FREE ring anchor that covers the tail.
+            in_at = 4096;
+            store16(ab + in_at, 65535);
+            store32(ab + in_at + 20, alim - in_at - 24);
+            store64(ab + in_at + 24, in_at);
+            store64(ab + in_at + 32, in_at);
+
+            # The object index: the first object of the arena, at its own entry.
+            callsub s_allocate(8 + 16 * in_slots);
+            in_r = al_r;
+            if (al_r == 0) {
+                if (al_at != 4096) {
+                    in_r = 3;
+                }
+            }
+            if (in_r == 0) {
+                callsub s_before_write(al_at - ab, 24);
+                in_r = bw_r;
+                if (bw_r == 0) {
+                    store16(ab + al_at, 1);
+                    store16(ab + al_at + 2, 1);
+                    store32(ab + al_at + 8, 4294967295);
+                    store32(ab + al_at + 12, 4294967295);
+                    store32(ab + al_at + 16, 1);
+                    store32(ab + al_at + 20, 8 + 16 * in_slots);
+                    store32(ab + al_at + 24, 1);
+                    store32(ab + al_at + 28, in_slots);
+                    store16(ab + 4128, 1);
+                    store16(ab + 4130, 1);
+                    store64(ab + 4136, 4096);
+                    store32(ab + 4120, 1);
+                }
+            }
+
+            # sys/syms: the names the tree is walked by. Entry 1.
+            if (in_r == 0) {
+                callsub s_allocate(8 + 4 * 32 + 256);
+                in_r = al_r;
+                if (al_r == 0) {
+                    in_syms_at = al_at;
+                    callsub s_before_write(in_syms_at - ab, 24);
+                    in_r = bw_r;
+                    if (bw_r == 0) {
+                        store16(ab + in_syms_at, 5);
+                        store16(ab + in_syms_at + 2, 1);
+                        store32(ab + in_syms_at + 8, 4294967295);
+                        store32(ab + in_syms_at + 12, 4294967295);
+                        store32(ab + in_syms_at + 16, 1);
+                        store32(ab + in_syms_at + 20, 8 + 4 * 32 + 256);
+                        store32(ab + in_syms_at + 24, 1);
+                        store32(ab + in_syms_at + 28, 32);
+                        store16(ab + 4128 + 16, 5);
+                        store16(ab + 4128 + 18, 1);
+                        store64(ab + 4128 + 24, in_syms_at);
+                        store32(ab + 4120, 2);
+                        asyms = ab + in_syms_at + 24;
+                    }
+                }
+            }
+
+            # The tree: the root image first (its name is the image's), then sys.
+            if (in_r == 0) {
+                cs_parent = 4294967295;
+                cs_name = Zname;
+                cs_name_len = Znlen;
+                cs_kind = 1;
+                cs_payload = 8;
+                cs_refs = 0;
+                cs_type = 4294967295;
+                cs_flags = 0;
+                cs_index = 0;
+                cs_generation = 0;
+                callsub s_create();
+                in_r = cr_r;
+                if (cr_r == 0) {
+                    in_root = cr_h;
+                    store32(ab + 24, cr_h);
+                    callsub s_rec(cr_h);
+                    callsub s_before_write(ce_r - ab + 4, 2);
+                    if (bw_r == 0) {
+                        store16(ce_r + 4, 2);
+                    }
+                }
+            }
+            if (in_r == 0) {
+                m_lit_sys();
+                cs_parent = in_root;
+                cs_name = lit;
+                cs_name_len = 3;
+                callsub s_create();
+                in_r = cr_r;
+                if (cr_r == 0) {
+                    in_sys = cr_h;
+                }
+            }
+
+            # `objects` is the name of the index object, interned third.
+            if (in_r == 0) {
+                m_lit_objects();
+                callsub s_intern(lit, 7);
+                in_r = it_r;
+                if (it_r == 0) {
+                    m_entry(0);
+                    in_at = load64(sp_r + 8);
+                    callsub s_before_write(in_at - ab + 6, 2);
+                    in_r = bw_r;
+                    if (bw_r == 0) {
+                        store16(ab + in_at + 6, it_id);
+                    }
+                }
+            }
+
+            # The leaves of sys, in the order bootstrap makes them.
+            if (in_r == 0) {
+                m_lit_functions();
+                cs_parent = in_sys;
+                cs_name = lit;
+                cs_name_len = 9;
+                callsub s_create();
+                in_r = cr_r;
+            }
+            if (in_r == 0) {
+                m_lit_specs();
+                cs_parent = in_sys;
+                cs_kind = 4;
+                cs_payload = 24 * in_slots;
+                cs_name = lit;
+                cs_name_len = 5;
+                callsub s_create();
+                in_r = cr_r;
+                if (cr_r == 0) {
+                    callsub s_rec(cr_h);
+                    aspec = ce_r + 24;
+                }
+            }
+            if (in_r == 0) {
+                m_lit_journal();
+                cs_parent = in_sys;
+                cs_kind = 6;
+                cs_payload = 24 + 256 * 16;
+                cs_name = lit;
+                cs_name_len = 7;
+                callsub s_create();
+                in_r = cr_r;
+            }
+            if (in_r == 0) {
+                m_lit_caps();
+                cs_parent = in_sys;
+                cs_kind = 1;
+                cs_payload = 8;
+                cs_name = lit;
+                cs_name_len = 4;
+                callsub s_create();
+                in_r = cr_r;
+            }
+            if (in_r == 0) {
+                m_lit_free();
+                cs_parent = in_sys;
+                cs_kind = 6;
+                cs_payload = 8;
+                cs_name = lit;
+                cs_name_len = 4;
+                callsub s_create();
+                in_r = cr_r;
+            }
+
+            # `syms` is the name of the symbol table, interned last.
+            if (in_r == 0) {
+                m_lit_syms();
+                callsub s_intern(lit, 4);
+                in_r = it_r;
+                if (it_r == 0) {
+                    m_entry(1);
+                    in_at = load64(sp_r + 8);
+                    callsub s_before_write(in_at - ab + 6, 2);
+                    in_r = bw_r;
+                    if (bw_r == 0) {
+                        store16(ab + in_at + 6, it_id);
+                    }
+                }
+            }
         }
     }
 }
@@ -1784,89 +2055,8 @@ sub s_scratch_reset() {
     sat = sbase;
 }
 
-# take(bytes) -> tk_r: 16-aligned bytes of the work region, or 0.
-sub s_take(Zbytes_take) {
-    var tk_n;
-    tk_n = (Zbytes_take + 15) & ~15;
-    if (send - sat < tk_n) {
-        tk_r = 0;
-    } else {
-        tk_r = sat;
-        sat = sat + tk_n;
-    }
-}
 
 # name_hash(parent, p, n) -> nh_r (wrapping 64-bit arithmetic, as in the C++)
-# rel_table_make(handle, rows) -> rm_r (status), rm_h (the table): the relation
-# table of an object, created when a delta names refs an object did not have. The
-# table is named by the object's path (docs/32 5.2), which is why the path writer
-# runs first; the derived index gets the word so the next lookup is one read.
-sub s_rel_table_make(Zh_rm, Zrows_rm) {
-    var rm_buf;
-    var rm_len;
-    var rm_at;
-    var rm_ix;
-    var rm_gen;
-    rm_r = 0;
-    rm_h = 0;
-    if (arel != 0) {
-        callsub s_take(512);
-        rm_buf = tk_r;
-        if (rm_buf != 0) {
-            callsub s_path_write(Zh_rm, rm_buf, 512);
-            rm_len = pw2_r;
-            if (rm_len != 0) {
-                callsub s_named_child(arel, rm_buf, rm_len);
-                if (cn_at != 4294967295) {
-                    rm_h = cn_at;
-                } else {
-                    rm_ix = load32(ab + 4120);
-                    if (rm_ix >= load32(ab + 4124)) {
-                        rm_r = 4;
-                    } else {
-                        callsub s_allocate(24 * Zrows_rm);
-                        rm_r = al_r;
-                        if (al_r == 0) {
-                            rm_at = al_at;
-                            rm_gen = 1;
-                            callsub s_before_write(rm_at - ab, 24);
-                            rm_r = bw_r;
-                            if (bw_r == 0) {
-                                callsub s_zero(ab + rm_at, 24);
-                                m_intern(rm_buf, rm_len);
-                                rm_r = it_r;
-                                store16(ab + rm_at, 4);
-                                store16(ab + rm_at + 2, rm_gen);
-                                store16(ab + rm_at + 6, it_id);
-                                store32(ab + rm_at + 8, arel);
-                                store32(ab + rm_at + 12, 4294967295);
-                                store32(ab + rm_at + 20, 24 * Zrows_rm);
-                                m_entry(rm_ix);
-                                callsub s_before_write(sp_r - ab, 16);
-                                rm_r = bw_r;
-                                if (bw_r == 0) {
-                                    store16(sp_r, 4);
-                                    store16(sp_r + 2, rm_gen);
-                                    store32(sp_r + 4, 0);
-                                    store64(sp_r + 8, rm_at);
-                                    callsub s_before_write(4120, 4);
-                                    rm_r = bw_r;
-                                    if (bw_r == 0) {
-                                        store32(ab + 4120, rm_ix + 1);
-                                        rm_h = ((rm_gen & 4095) << 20) | (rm_ix & 1048575);
-                                        if (rm_ix < slts) {
-                                            store32(raddr + 4 * rm_ix, rm_h);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 sub s_name_hash(Zparent_name_hash, Zp_name_hash, Zn_name_hash) {
     var nh_i;
@@ -2392,7 +2582,6 @@ sub s_refs_of(Ztype_refs_of) {
     var ro_x;
     var ro_y;
     var ro_k;
-    var ro_it;
     var ro_skip;
     var ro_go_extent;
     ro_r = 1;
@@ -2824,7 +3013,6 @@ sub s_path_id(Zh_path_id, Zbuf_path_id) {
 sub s_sift_rows(Za_sift_rows, Zroot_sift_rows, Zend_sift_rows) {
     var sr_root;
     var sr_child;
-    var sr_t;
     var sr_go;
     sr_root = Zroot_sift_rows;
     sr_go = 1;
@@ -3179,20 +3367,19 @@ macro m_emit() {
         if (em_order == 0 | em_remap == 0 | em_stack == 0) {
             em_go = 0;
         } else {
+            # The order is the index order (docs/32 5.4): the bootstrap lays down
+            # the first objects and the walk replays the rest, so the output lands
+            # in the same order the writer did and the handles come out identical -
+            # no remap, and the symbol ids follow because the names are interned in
+            # the same order.
             em_count = 0;
-            store32(em_order + 4 * em_count, 0);
-            em_count = em_count + 1;
-            store32(em_order + 4 * em_count, 1);
-            em_count = em_count + 1;
-            store32(em_order + 4 * em_count, 2);
-            em_count = em_count + 1;
-            em_sp = 0;
-            store32(em_stack, 0);
-            em_sp = 1;
-            while (em_sp > 0 & em_go == 1) {
-                em_sp = em_sp - 1;
-                em_at = load32(em_stack + 4 * em_sp);
-                if (em_at > 2) {
+            while (em_count < 9 & em_count < em_n) {
+                store32(em_order + 4 * em_count, em_count);
+                em_count = em_count + 1;
+            }
+            em_at = 9;
+            while (em_at < em_n & em_go == 1) {
+                if (load8(em_keep + em_at) == 1) {
                     if (em_count >= em_kept) {
                         em_rsn = 11;
                         em_go = 0;
@@ -3201,23 +3388,7 @@ macro m_emit() {
                         em_count = em_count + 1;
                     }
                 }
-                if (em_go == 1) {
-                    em_b = load32(kstart + 4 * em_at);
-                    em_e = load32(kstart + 4 * (em_at + 1));
-                    em_k = em_e;
-                    while (em_k > em_b & em_go == 1) {
-                        em_child = load32(klist + 4 * (em_k - 1));
-                        if (load8(em_keep + em_child) == 1) {
-                            if (em_sp >= em_n) {
-                                em_go = 0;
-                            } else {
-                                store32(em_stack + 4 * em_sp, em_child);
-                                em_sp = em_sp + 1;
-                            }
-                        }
-                        em_k = em_k - 1;
-                    }
-                }
+                em_at = em_at + 1;
             }
         }
     }
@@ -3242,7 +3413,13 @@ macro m_emit() {
     if (em_go == 1) {
         em_rsn = 6;
         callsub s_arena_push();
-        m_init(jemit_base, jemit_cap, jemit_cap, em_kept);
+        # The image name is the source root's, and its symbol must be interned
+        # first in the new arena too (docs/32 5.4).
+        callsub s_name(load32(ab + 24));
+        callsub s_len(nm_r);
+        em_name = nm_r;
+        em_nlen = len_r;
+        callsub s_init(jemit_base, jemit_cap, jemit_cap, em_kept, em_name, em_nlen);
         em_init_r = in_r;
         callsub s_arena_pop();
         if (em_init_r != 0) {
@@ -4561,7 +4738,6 @@ macro m_run_job(Zjob) {
     rj_loop = 1;
     while (rj_loop == 1) {
         if (rj_ph == 0) {
-            m_emit();
             if (em_r == 1) {
                 jb_emitted = em_len;
                 rj_ph = jemit_next;
@@ -5286,19 +5462,21 @@ macro m_own_body() {
 fn live_pump(context, area) {
     var at, caps, capc, cap_i, cap_go, ctx;
     var ab, acomm, alim, at_r, op_r, slts, taddr, sbase, send, sat;
-    var aneed, acache, ar, ah, aj, amark, aused, abitmap, al_at, al_r;
+    var aneed, ar, ah, aj, amark, aused, abitmap, al_at, al_r;
     var alog_base, alog_comm, alog_lim;
-    var mb_at, mb_r, in_r, bg_r, cm_r, rb_r, rz_r, de_r, cw_r, el_r;
+    var in_r, bg_r, cm_r, rb_r, rz_r, de_r, el_r;
     var ob_slots, ob_entries, ob_pc, ob_k, ob_i, ob_done, ob_self, ob_size, ob_ground, ob_copy_i;
     var pu_served, pu_rx, pu_tx, pu_rx_mask, pu_tx_mask, pu_go, pu_stop;
     var pu_head, pu_tail, pu_available, pu_i, pu_len, pu_total, pu_tx_used, pu_out_total, pu_out_head;
     var pu_limit, pu_stop_after, pu_clear_reloc, pu_phase, pu_again;
     var crc_r, crc_i, crc_k, cmp_r, len_r;
-    var cq_r, cr_h, cr_r, cs2_r, ck_r, cn_r, cc_r;
-    var cs_type, cs_parent, cs_generation, cs_flags, cs_index, cs_name, cs_name_len, cs_payload, cs_refs;
-    var sn_r, sn_h, ce_r, sp_r, lv_r, pa_r, rr_r, kd_r, nm_r, fc_r, in_free, in_cells, in_dir, in_chunks;
-    var ne_r, nh_r, hm_r, tin_r, it_r, it_at, tk_r, pw_r, rw_r, lss_r;
-    var bk_r, bt_r, rv_r, vf_r, vf_ok, po_n, po_r, cn_r2, tif_r, fif_r, hf_r, bk_par;
+    var cr_h, cr_r, cs2_r, ck_r, cn_r, cc_r;
+    var cl_mod, cl_head, cl_walk, cl_next, cl_stop;
+    var em_name, em_nlen;
+    var cs_type, cs_parent, cs_generation, cs_flags, cs_index, cs_name, cs_name_len, cs_payload, cs_refs, cs_kind;
+    var ce_r, sp_r, lv_r, pa_r, rr_r, kd_r, nm_r, fc_r;
+    var ne_r, nh_r, hm_r, tin_r, it_r, tk_r, pw_r, rw_r, lss_r;
+    var bk_r, bt_r, rv_r, vf_r, po_n, po_r, tif_r, fif_r, hf_r, bk_par;
     var n_kids, kstart, klist, kmemo, kpool, kpfx, pool_len;
     var ro_r, ro_words, ro2_r, sa_r, sa_p, sa_n, ni_r, em_r, em_rsn, em_len, em_state;
     var lk_r, ca_r, ca_at, ca_rng0, ca_rng1, rl_r, rl_entries, rl_slots;
@@ -5307,10 +5485,10 @@ fn live_pump(context, area) {
     var jguard, jdry, jops_start, ap_r, ap_len, ap_s, ap_op, ap_ops_start, ap_strings_end;
     var ap_i, ap_k, ap_d, ap_ab, ap_ah, ap_alim, ap_acomm, ap_aneed, ap_aj;
     var ap_alb, ap_alc, ap_all, ap_amark, ap_abitmap, ap_aused, ap_fixups, ap_pos, ap_size, ap_go, ap_tail, ap_padded;
-    var gn_r, ar_r, ws_r, bw_r, mb_r2, tmp8_r, tmp32_r;
-    var cva, cvb, cvc, asyms, aspec, arel, fv_r, rc_r, rt_at, rt_n, hx_r, raddr, rp_r, at_sys, pw2_r, rm_r, rm_h;
-    var cn_at, it_id, sr_at, sf_r, sg_r, si_r, st_r, sk_r, sr2_r, sn2_r;
-    var la_r, ru_r, ri_r, rl2_r, pk_r, pi_r, pi2_r;
+    var gn_r, ar_r, ws_r, bw_r;
+    var cva, cvb, cvc, asyms, aspec, arel, fv_r, rc_r, rt_at, hx_r, raddr, rp_r, at_sys, pw2_r, rm_r, rm_h;
+    var cn_at, it_id, sr_at, sf_r, sk_r, sn2_r;
+    var la_r, ru_r, ri_r, rl2_r, pi_r;
     var cb_r, en_r, disp_r, mob_r, so_r, pi_r, pi_id, pt_r;
     var rqbuf[1044], rsbuf[1044];
     var shk[256], shw[256], shh[128], shd[32];
