@@ -31,9 +31,13 @@
 sub s_cpy(Zd_cpy, Zs_cpy, Zn_cpy) {
     var cpy_i;
     cpy_i = 0;
-    while (cpy_i < Zn_cpy) {
-        store8(Zd_cpy + cpy_i, load8(Zs_cpy + cpy_i));
-        cpy_i = cpy_i + 1;
+    # A null end is a caller that has nothing to copy into or out of; it must not
+    # turn into a read or a write at address 0.
+    if (Zd_cpy != 0 & Zs_cpy != 0) {
+        while (cpy_i < Zn_cpy) {
+            store8(Zd_cpy + cpy_i, load8(Zs_cpy + cpy_i));
+            cpy_i = cpy_i + 1;
+        }
     }
 }
 
@@ -57,9 +61,11 @@ macro m_mv(Zd, Zs, Zn) {
 sub s_zero(Zd_zero, Zn_zero) {
     var zero_i;
     zero_i = 0;
-    while (zero_i < Zn_zero) {
-        store8(Zd_zero + zero_i, 0);
-        zero_i = zero_i + 1;
+    if (Zd_zero != 0) {
+        while (zero_i < Zn_zero) {
+            store8(Zd_zero + zero_i, 0);
+            zero_i = zero_i + 1;
+        }
     }
 }
 
