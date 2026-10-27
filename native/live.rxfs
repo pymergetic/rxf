@@ -807,6 +807,8 @@ sub s_allocate(Zbytes_allocate) {
     var al_rest;
     var al_prev;
     var al_keep;
+    var al_ph;
+    var al_nh;
     al_r = 5;
     al_at = 0;
     if (Zbytes_allocate <= 281474976710655) {
@@ -865,6 +867,18 @@ sub s_allocate(Zbytes_allocate) {
                     m_link_at(al_best);
                     al_prev = load64(la_r);
                     al_next = load64(la_r + 8);
+                    # A span that links to itself (the ring anchor, or a lone free
+                    # span) has to point at the remainder instead: the taken span
+                    # stops being a ring member, and copying the old links would
+                    # leave the ring walking into the object that replaced it.
+                    al_ph = al_prev;
+                    al_nh = al_next;
+                    if (al_prev == al_best) {
+                        al_ph = al_rest;
+                    }
+                    if (al_next == al_best) {
+                        al_nh = al_rest;
+                    }
                     callsub s_before_write(al_rest - ab, 40);
                     al_r = bw_r;
                     if (bw_r == 0) {
@@ -872,9 +886,9 @@ sub s_allocate(Zbytes_allocate) {
                         store16(ab + al_rest, 65535);
                         store32(ab + al_rest + 20, al_best_span - al_total - 24);
                         m_link_at(al_rest);
-                        store64(la_r, al_prev);
-                        store64(la_r + 8, al_next);
-                        if (al_prev != al_rest) {
+                        store64(la_r, al_ph);
+                        store64(la_r + 8, al_nh);
+                        if (al_ph != al_rest) {
                             m_link_at(al_prev);
                             callsub s_before_write(la_r - ab + 8, 8);
                             al_r = bw_r;
@@ -882,8 +896,8 @@ sub s_allocate(Zbytes_allocate) {
                                 store64(la_r + 8, al_rest);
                             }
                         }
-                        if (al_next != al_rest & al_r == 0) {
-                            m_link_at(al_next);
+                        if (al_nh != al_rest & al_r == 0) {
+                            m_link_at(al_nh);
                             callsub s_before_write(la_r - ab, 8);
                             al_r = bw_r;
                             if (bw_r == 0) {
@@ -1398,7 +1412,10 @@ sub s_create() {
                             # A semantic row can only be written where sys/specs is;
                             # the bootstrap makes objects before that table exists
                             # (docs/32 5.4) and fills their rows afterwards.
-                            if (cr_r == 0 & aspec != 0) {
+                            # A semantic row only exists where sys/specs does; the
+                            # bootstrap makes objects before that table and a later
+                            # pass fills their rows (docs/32 5.4).
+                            if ((cr_r == 0) & (aspec != 0)) {
                                 cr_spc = aspec + 24 * cr_ix;
                                 callsub s_before_write(cr_spc - ab, 24);
                                 cr_r = bw_r;
@@ -1410,7 +1427,7 @@ sub s_create() {
                                     store64(cr_spc + 16, cs_generation);
                                 }
                             }
-                            if (cr_r == 0 & cs_refs != 0) {
+                            if ((cr_r == 0) & (cs_refs != 0)) {
                                 # The refs of an object live in a table named after
                                 # its path (docs/32 5.2); an object a delta makes
                                 # with refs needs that table made with it.
@@ -1834,8 +1851,8 @@ sub s_init(Zbase, Zcomm, Zlim, Zcap, Zname, Znlen) {
                 callsub s_create();
                 in_r = cr_r;
                 if (cr_r == 0) {
-                    callsub s_rec(cr_h);
-                    aspec = ce_r + 24;
+                    m_entry(cr_h & 1048575);
+                    aspec = ab + load64(sp_r + 8) + 24;
                 }
             }
             if (in_r == 0) {
