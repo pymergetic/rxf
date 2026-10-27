@@ -395,104 +395,131 @@ macro m_spec_row(Zindex) {
 }
 
 # row_count(handle) -> rc_r, rel_at(handle) -> rt_at: the reference rows of an object.
+# The lookup is one word of the derived index (docs/32 5.2): the live layer builds
+# object -> relation table once, the way it builds its name table. A table is named
+# by the object's path, so matching that per call would walk every table for every
+# object; the index makes it one word.
 sub s_rel_rows(Zh_rr) {
-    var rr_mod;
-    var rr_walk;
+    var rr_tbl;
     var rr_rec;
-    var rr_name;
-    var rr_len;
+    var rr_n;
+    var rr_at;
+    var rr_keep;
+    var rr_done;
     rt_at = 0;
     rc_r = 0;
-    if (arel != 0) {
-        callsub s_rec(arel);
-        rr_mod = ce_r;
-        if (rr_mod != 0) {
-            rr_walk = load32(rr_mod + 24);
-            while (rr_walk != 4294967295 & rc_r == 0) {
-                callsub s_rec(rr_walk);
+    if (raddr != 0) {
+        callsub s_rec(Zh_rr);
+        if (ce_r != 0) {
+            rr_tbl = load32(raddr + 4 * (Zh_rr & 1048575));
+            if (rr_tbl != 0) {
+                callsub s_rec(rr_tbl);
                 rr_rec = ce_r;
-                if (rr_rec == 0) {
-                    rr_walk = 4294967295;
-                } else {
-                    callsub s_sym_addr(load16(rr_rec + 6));
-                    rr_name = sa_r;
-                    rr_len = 0;
-                    if (rr_name != 0) {
-                        while (rr_len < 4096 & load8(rr_name + rr_len) != 0) {
-                            rr_len = rr_len + 1;
+                if (rr_rec != 0) {
+                    rt_at = rr_rec + 24;
+                    rr_n = load32(rr_rec + 20) / 24;
+                    # The room of a table is a whole number of rows and may carry the
+                    # zero padding of an 8-byte slot. A real row names a target and a
+                    # live handle32 is never 0, so an all-zero row is padding.
+                    rr_keep = 0;
+                    rr_done = 0;
+                    while (rr_keep < rr_n & rr_done == 0) {
+                        rr_at = rt_at + 24 * rr_keep;
+                        if (load64(rr_at) == 0) {
+                            if (load64(rr_at + 8) == 0) {
+                                if (load32(rr_at + 20) == 0) {
+                                    rr_done = 1;
+                                }
+                            }
+                        }
+                        if (rr_done == 0) {
+                            rr_keep = rr_keep + 1;
                         }
                     }
-                    callsub s_path_is(Zh_rr, rr_name, rr_len);
-                    if (pi_r == 1) {
-                        rt_at = rr_rec + 24;
-                        rc_r = load32(rr_rec + 20) / 24;
-                    }
-                    rr_walk = load32(rr_rec + 12);
+                    rc_r = rr_keep;
                 }
             }
         }
     }
 }
 
-# path_is(handle, name, len) -> pi_r (1/0): does `name` spell the path of this object?
-# Compared from the object up, so the path is never materialized (docs/32 5.2).
-sub s_path_is(Zh_pi, Zp_pi, Zn_pi) {
-    var pi_end;
-    var pi_seg;
-    var pi_size;
-    var pi_walk;
-    var pi_rec;
-    var pi_name;
-    var pi_i;
-    var pi_ok;
-    pi_r = 0;
-    if (Zn_pi != 0) {
-        pi_end = Zn_pi;
-        pi_walk = Zh_pi;
-        pi_ok = 1;
-        while (pi_end != 0 & pi_ok == 1) {
-            pi_seg = pi_end;
-            if (pi_seg != 0) {
-                pi_seg = pi_seg - 1;
-            }
-            while (pi_seg != 0 & load8(Zp_pi + pi_seg - 1) != 46) {
-                pi_seg = pi_seg - 1;
-            }
-            pi_size = pi_end - pi_seg;
-            callsub s_rec(pi_walk);
-            pi_rec = ce_r;
-            if (pi_rec == 0) {
-                pi_ok = 0;
+# resolve_path(p, n) -> rp_r: the handle32 a dotted path names, 0 when it names none.
+sub s_resolve_path(Zp_rp, Zn_rp) {
+    var rp_at;
+    var rp_seg;
+    var rp_h;
+    var rp_ok;
+    var rp_dot;
+    rp_r = 0;
+    rp_at = 0;
+    rp_h = load32(ab + 24);
+    rp_ok = 1;
+    while (rp_at < Zn_rp & rp_ok == 1) {
+        # The segment is [rp_at, rp_seg): rp_seg stops on the dot, or on the end.
+        rp_seg = rp_at;
+        rp_dot = 0;
+        while (rp_seg < Zn_rp & rp_dot == 0) {
+            if (load8(Zp_rp + rp_seg) == 46) {
+                rp_dot = 1;
             } else {
-                callsub s_sym_addr(load16(pi_rec + 6));
-                pi_name = sa_r;
-                if (pi_name == 0) {
-                    pi_ok = 0;
-                } else {
-                    pi_i = 0;
-                    while (pi_i < pi_size & pi_ok == 1) {
-                        if (load8(pi_name + pi_i) != load8(Zp_pi + pi_seg + pi_i)) {
-                            pi_ok = 0;
-                        }
-                        pi_i = pi_i + 1;
-                    }
-                    if (load8(pi_name + pi_size) != 0) {
-                        pi_ok = 0;
-                    }
-                    if (pi_ok == 1) {
-                        pi_walk = load32(pi_rec + 8);
-                        if (pi_seg == 0) {
-                            pi_end = 0;
-                        } else {
-                            pi_end = pi_seg - 1;
-                        }
-                    }
-                }
+                rp_seg = rp_seg + 1;
             }
         }
-        if (pi_ok == 1) {
-            if (pi_walk == load32(ab + 24)) {
-                pi_r = 1;
+        if (rp_seg == rp_at) {
+            rp_ok = 0;
+        } else {
+            callsub s_find_child(rp_h, Zp_rp + rp_at, rp_seg - rp_at);
+            if (fc_r == 0xFFFFFFFFFFFFFFFF) {
+                rp_ok = 0;
+            } else {
+                rp_h = fc_r;
+                rp_at = rp_seg + 1;
+            }
+        }
+    }
+    if (rp_ok == 1) {
+        if (rp_h != load32(ab + 24)) {
+            rp_r = rp_h;
+        }
+    }
+}
+
+# build_rels(): the derived index of docs/32 5.2 - one word per object index holding
+# the relation table that carries its refs. Built after the name table, because a
+# table's name is a path and a path resolves through the names.
+macro m_build_rels() {
+    var br_mod;
+    var br_walk;
+    var br_rec;
+    var br_name;
+    var br_len;
+    callsub s_zero(raddr, 4 * slts);
+    if (arel != 0) {
+        callsub s_rec(arel);
+        br_mod = ce_r;
+        if (br_mod != 0) {
+            br_walk = load32(br_mod + 24);
+            while (br_walk != 4294967295) {
+                callsub s_rec(br_walk);
+                br_rec = ce_r;
+                if (br_rec == 0) {
+                    br_walk = 4294967295;
+                } else {
+                    callsub s_sym_addr(load16(br_rec + 6));
+                    br_name = sa_r;
+                    br_len = 0;
+                    if (br_name != 0) {
+                        callsub s_len(br_name);
+                        br_len = len_r;
+                        callsub s_resolve_path(br_name, br_len);
+                        if (rp_r != 0) {
+                            if ((rp_r & 1048575) < slts) {
+                                store32(raddr + 4 * (rp_r & 1048575), br_walk);
+                            }
+                        }
+                    }
+                    br_walk = load32(br_rec + 12);
+                }
             }
         }
     }
@@ -1030,7 +1057,6 @@ macro m_init(Zbase, Zcomm, Zlim, Zcap) {
 # attach() -> at_r: the arena that is in the region already (docs/32 5.3: the gate).
 sub s_attach() {
     var at_slots;
-    var at_sys;
     at_r = 3;
     if (ab != 0) {
         if (acomm >= 4096) {
@@ -1064,9 +1090,10 @@ sub s_attach() {
         aspec = 0;
         m_lit_sys();
         callsub s_named_child(load32(ab + 24), lit, 3);
-        if (cn_at != 4294967295) {
+        at_sys = cn_at;
+        if (at_sys != 4294967295) {
             m_lit_specs();
-            callsub s_named_child(cn_at, lit, 5);
+            callsub s_named_child(at_sys, lit, 5);
             if (cn_at != 4294967295) {
                 callsub s_rec(cn_at);
                 if (ce_r != 0) {
@@ -1074,7 +1101,7 @@ sub s_attach() {
                 }
             }
             m_lit_relations();
-            callsub s_named_child(cn_at, lit, 9);
+            callsub s_named_child(at_sys, lit, 9);
             arel = cn_at;
         }
     }
@@ -5035,6 +5062,8 @@ macro m_open() {
                                 # lookup table and below the scratch a request takes from,
                                 # so they hold for the whole run and never alias a scratch
                                 # allocation.
+                                raddr = sbase;
+                                sbase = sbase + ((slts * 4 + 15) & ~15);
                                 cva = sbase;
                                 cvb = sbase + 64;
                                 cvc = sbase + 128;
@@ -5046,6 +5075,7 @@ macro m_open() {
                                 } else {
                                     callsub s_build_table();
                                     if (bt_r == 1) {
+                                        m_build_rels();
                                         store32(ar + 140, 1);
                                         op_r = 1;
                                     }
@@ -5211,7 +5241,7 @@ fn live_pump(context, area) {
     var ap_i, ap_k, ap_d, ap_ab, ap_ah, ap_alim, ap_acomm, ap_aneed, ap_aj;
     var ap_alb, ap_alc, ap_all, ap_amark, ap_abitmap, ap_aused, ap_fixups, ap_pos, ap_size, ap_go, ap_tail, ap_padded;
     var gn_r, ar_r, ws_r, bw_r, mb_r2, tmp8_r, tmp32_r;
-    var cva, cvb, cvc, asyms, aspec, arel, fv_r, rc_r, rt_at, rt_n, hx_r;
+    var cva, cvb, cvc, asyms, aspec, arel, fv_r, rc_r, rt_at, rt_n, hx_r, raddr, rp_r, at_sys;
     var cn_at, it_id, sr_at, sf_r, sg_r, si_r, st_r, sk_r, sr2_r, sn2_r;
     var la_r, ru_r, ri_r, rl2_r, pk_r, pi_r, pi2_r;
     var cb_r, en_r, disp_r, mob_r, so_r, pi_r, pi_id, pt_r;
