@@ -79,8 +79,12 @@ sub s_cmp(Za_cmp, Zb_cmp, Zn_cmp) {
 # mem::length -> `len_r`: the bytes up to the NUL.
 sub s_len(Zp_len) {
     len_r = 0;
-    while (load8(Zp_len + len_r) != 0) {
-        len_r = len_r + 1;
+    if (Zp_len != 0) {
+        # Bounded: a name is interned with its terminator, and a pointer that
+        # carries none would otherwise walk the whole address space.
+        while (len_r < 65536 & load8(Zp_len + len_r) != 0) {
+            len_r = len_r + 1;
+        }
     }
 }
 
@@ -3457,14 +3461,17 @@ macro m_emit() {
         em_i = 0;
         while (em_i < em_count & em_go == 1) {
             em_old = load32(em_order + 4 * em_i);
-            callsub s_cell(em_old);
+            # The order holds indices; an accessor takes a handle (index, gen).
+            m_pack_i(em_old);
+            em_hnd = hx_r;
+            callsub s_cell(em_hnd);
             em_c = ce_r;
             # A dead object has no view: read it as the empty cell rather than
             # through a null pointer.
             if (em_c == 0) {
                 em_c = empty0;
             }
-            callsub s_refs(em_old);
+            callsub s_refs(em_hnd);
             em_rp = rr_r;
             em_nref = 0;
             em_k = 0;
@@ -3534,7 +3541,7 @@ macro m_emit() {
                 # address has to be taken before the arena is swapped for the
                 # output, because a payload is the record's own room (docs/32 1.2)
                 # and not a slot of the world-cell view.
-                callsub s_payload(em_old);
+                callsub s_payload(em_hnd);
                 em_src = pa_r;
                 callsub s_arena_push();
                 m_arena_load_out();
@@ -5524,7 +5531,7 @@ fn live_pump(context, area) {
     var crc_r, crc_i, crc_k, cmp_r, len_r;
     var cr_h, cr_r, cs2_r, ck_r, cn_r, cc_r;
     var cl_mod, cl_head, cl_walk, cl_next, cl_stop;
-    var em_name, em_nlen, em_nrw, em_src;
+    var em_name, em_nlen, em_nrw, em_src, em_hnd;
     var cs_type, cs_parent, cs_generation, cs_flags, cs_index, cs_name, cs_name_len, cs_payload, cs_refs, cs_kind;
     var ce_r, sp_r, lv_r, pa_r, rr_r, kd_r, nm_r, fc_r;
     var ne_r, nh_r, hm_r, tin_r, it_r, tk_r, pw_r, rw_r, lss_r;
