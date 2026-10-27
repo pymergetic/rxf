@@ -252,9 +252,12 @@ The semantic fields are one row per object in a table object, `sys/specs`, keyed
 by the same index as the slot table. The options that were weighed - a prefix in
 every payload, the fields as relations, and packing them into the spare bits of
 the record and the slot entry - lost to this one for the same reason: the value
-bytes of an object stay what the world says they are, which is the property every
-reader, the linker and the digests lean on, and the table is the pattern the model
-already has (`sys/objects`, `sys/relations`: a table is an object).
+bytes of an object stay what the world says they are - the one amendment: the
+declared reference slots hold handles, and in the arena a handle is an arena
+handle, remapped like the relation rows' `target`/`role` so a reader resolves
+them - which is the property every reader, the linker and the digests lean on,
+and the table is the pattern the model already has (`sys/objects`,
+`sys/relations`: a table is an object).
 
 ```
 pymergetic_rxf_spec - 24 bytes, ground.h

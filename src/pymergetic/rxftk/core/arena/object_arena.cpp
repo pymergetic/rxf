@@ -803,9 +803,9 @@ bool ObjectArena::path_matches(uint32_t handle, const char *name, uint32_t lengt
 /* The rows of `sys/relations/<path>` (docs/32 2), found by matching the table's
  * name against the object's own path - a comparison that walks the tree instead
  * of building the path first. */
-Status ObjectArena::relation_rows(uint32_t handle, const pymergetic_rxf_ref **rows,
+Status ObjectArena::relation_rows(uint32_t handle, const pymergetic_rxf_ref **rows_out,
                                   uint32_t *count) {
-    *rows = nullptr;
+    *rows_out = nullptr;
     *count = 0;
     uint32_t sys = PYMERGETIC_RXF_HANDLE32_NONE;
     uint32_t relations = PYMERGETIC_RXF_HANDLE32_NONE;
@@ -836,9 +836,18 @@ Status ObjectArena::relation_rows(uint32_t handle, const pymergetic_rxf_ref **ro
             if (st != Status::Ok)
                 return st;
             if (path_matches(handle, name, size)) {
-                *rows = reinterpret_cast<const pymergetic_rxf_ref *>(
+                const auto *rows = reinterpret_cast<const pymergetic_rxf_ref *>(
                     reinterpret_cast<const uint8_t *>(table) + sizeof(pymergetic_rxf_object));
-                *count = table->payload / sizeof(pymergetic_rxf_ref);
+                /* The room of a table is a whole number of rows and may carry the
+                 * zero padding of an 8-byte slot; a real row always names a target,
+                 * and a live handle32 is never 0, so an all-zero row is padding. */
+                uint32_t held = table->payload / sizeof(pymergetic_rxf_ref);
+                while (held > 0 && rows[held - 1].target == 0 && rows[held - 1].role == 0 &&
+                       rows[held - 1].kind == 0 && rows[held - 1].binding == 0 &&
+                       rows[held - 1].index == 0)
+                    --held;
+                *rows_out = rows;
+                *count = held;
                 return Status::Ok;
             }
         }

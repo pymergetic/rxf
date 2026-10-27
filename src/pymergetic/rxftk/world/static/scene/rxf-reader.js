@@ -58,6 +58,24 @@ const REF_BYTES = 24;
 const INDEX_CHUNK_ENTRIES = 4096;
 const INDEX_FREE = 1n;
 
+// The v7 one-arena image (docs/32 1, ground.h): the 4 KiB superblock, the object record
+// (24 header bytes + the payload in 8-byte slots), and a handle32 = (gen << 20) | index.
+const SUPER_BYTES = 4096;
+const SUPER_VERSION = 1;
+const OBJECT_BYTES = 24;
+const OBJECT_ALIGN = 8;
+const SLOT_BYTES = 16;
+const SLOTS_HEAD_BYTES = 8;
+const HANDLE32_NONE = 0xffffffff;
+const OBJ_MODULE_REC = 1;
+const OBJ_FREE_REC = 0xffff;
+const MODULE_HEAD = 8;
+const SPEC_BYTES = 24;
+const HEADER_WORDS_V7 = [
+    ["kind", 2], ["gen", 2], ["flags", 2], ["name", 2],
+    ["parent", 4], ["link", 4], ["refs", 4], ["payload", 4],
+];
+
 const KIND_BLOCK = 255;
 const KIND_DEAD = 254;
 const FLAG_KIND_MASK = 0xff;
@@ -206,6 +224,12 @@ export class RxfReader {
             : bytes;
         this.bytes = new Uint8Array(buffer);
         this.view = new DataView(buffer);
+        this.open(); // the format layer: the ground constants, the stream, the handles
+    }
+
+    // -- the v6 cell format: the header, the stream, the handle index --------------------------------
+
+    open() {
         if (this.bytes.length < 192) throw new Error("BadImage: not an rxfb arena");
         const magic = this.bytes.subarray(HDR_MAGIC, HDR_MAGIC + 4);
         if (!(magic[0] === 0x52 && magic[1] === 0x58 && magic[2] === 0x46 && magic[3] === 0x42)) {
@@ -224,6 +248,11 @@ export class RxfReader {
         this.handleCount = Number(this.view.getBigUint64(HDR_HANDLE_COUNT, true));
         this.entry = this.view.getBigUint64(HDR_ENTRY, true);
         this.root = this.view.getBigUint64(HDR_ROOT, true);
+        // the handle words of this format (v6: u64 handles; the v7 arena packs (index, gen))
+        this.none = HANDLE_NONE;
+        this.noneValue = HANDLE_NONE; // the unset word of a payload value or a ref row
+        this.handleType = 1n;
+        this.handleField = 2n;
         this.stream = [];
         this.recordAt = new Map(); // arena offset -> record
         this.byHandle = new Map(); // handle -> record
@@ -303,6 +332,16 @@ export class RxfReader {
             && Number(entry) < this.cellsOff + this.frontier;
     }
 
+    // The handle of one index of the handle table (v6: the index is the handle).
+    handleAt(index) {
+        return BigInt(index);
+    }
+
+    // Where an object's value starts in its payload (v6: the payload is the value).
+    valueSize(record) {
+        return record.payloadSize;
+    }
+
     cell(handle) {
         if (!this.live(handle)) return null;
         return this.recordAt.get(Number(this.slot(handle))) ?? null;
@@ -324,10 +363,10 @@ export class RxfReader {
 
     path(handle) {
         const parts = [];
-        for (let at = handle; at !== HANDLE_NONE && parts.length < 4096;) {
+        for (let at = handle; at !== this.none && parts.length < 4096;) {
             const record = this.cell(at);
             if (record === null) return "";
-            if (record.parent === HANDLE_NONE) break;
+            if (record.parent === this.none) break;
             parts.push(this.name(at));
             at = record.parent;
         }
@@ -345,7 +384,7 @@ export class RxfReader {
             // ground.h: kind u16@16, binding u16@18, index u32@20 (pinned).
             out.push({
                 target: this.view.getBigUint64(base, true),
-                role: role === HANDLE_NONE ? null : role,
+                role: role === this.none ? null : role,
                 index: this.view.getUint32(base + 20, true),
                 kind: this.view.getUint16(base + 16, true),
                 binding: this.view.getUint16(base + 18, true),
@@ -385,6 +424,11 @@ export class RxfReader {
         };
     }
 
+    // The block-stack floors of one cell (the v6 cell layout).
+    anatomy(record, family, poisoned) {
+        return anatomy(record.size, record.payloadSize, record.refCount, family, poisoned);
+    }
+
     children(handle) {
         if (this._children === undefined) this._children = new Map();
         const cached = this._children.get(handle);
@@ -409,8 +453,8 @@ export class RxfReader {
         if (cached !== undefined) return cached;
         const record = this.cell(type);
         if (record === null
-            || record.type !== 1n // HANDLE_TYPE
-            || record.payloadSize !== TYPE_BYTES
+            || record.type !== this.handleType
+            || record.payloadSize < TYPE_BYTES
             || this.payloadUint(record, 0, 4) !== BigInt(TYPE_TAG)) {
             this._types.set(type, null);
             return null;
@@ -419,7 +463,7 @@ export class RxfReader {
         const members = [];
         for (const child of this.children(type)) {
             const f = this.cell(child);
-            if (f === null || f.type !== 2n || f.payloadSize !== TYPE_BYTES) continue; // HANDLE_FIELD
+            if (f === null || f.type !== this.handleField || f.payloadSize < TYPE_BYTES) continue;
             if (this.payloadUint(f, 0, 4) !== BigInt(FIELD_TAG)) continue;
             const flags = Number(this.payloadUint(f, 4, 4));
             const info = {
@@ -534,8 +578,8 @@ export class RxfReader {
         // Written by the machine, never by an author: the tags, the number of Field children,
         // and the owner of a Field (its parent).
         const derived = topLevelOfType
-            && ((owner === 1n && (field.name === "field_count" || field.name === "descriptor_tag"))
-                || (owner === 2n && (field.name === "descriptor_tag" || field.name === "owner_type")));
+            && ((owner === this.handleType && (field.name === "field_count" || field.name === "descriptor_tag"))
+                || (owner === this.handleField && (field.name === "descriptor_tag" || field.name === "owner_type")));
         if ((field.flags & FIELD_FLAG_REF) !== 0) {
             if (v.form !== 3 /* uint */ || v.size !== 8 || field.count !== 1) {
                 built.error = "reference field " + prefix + field.name + " must be one uint64";
@@ -607,7 +651,7 @@ export class RxfReader {
                 optional: false,
                 derived,
                 enumeration: kind === "enum" ? v.id : null,
-                def: topLevelOfType && owner === 2n && field.name === "count" ? 1 : 0,
+                def: topLevelOfType && owner === this.handleField && field.name === "count" ? 1 : 0,
             });
         }
         return true;
@@ -627,21 +671,21 @@ export class RxfReader {
 
     isGround(handle) {
         const record = this.cell(handle);
-        if (record === null || handle === 0n) return false;
-        if (handle <= 2n) return true; // the root's three fixed objects save the root itself
+        if (record === null || handle === this.root) return false;
+        if (handle === this.handleType || handle === this.handleField) return true;
         let top = handle;
         while (true) {
             const c = this.cell(top);
             if (c === null) return false;
-            if (c.parent === HANDLE_NONE) return false;
-            if (c.parent === 0n) break;
+            if (c.parent === this.none) return false;
+            if (c.parent === this.root) break;
             top = c.parent;
         }
-        return top <= 2n || isGroundName(this.name(top));
+        return top === this.handleType || top === this.handleField || isGroundName(this.name(top));
     }
 
     scopeOf(handle) {
-        for (let at = handle; at !== HANDLE_NONE;) {
+        for (let at = handle; at !== this.none;) {
             const record = this.cell(at);
             if (record === null) return null;
             if ((record.flags & FLAG_KIND_MASK) === NODE_MODULE) return at;
@@ -652,13 +696,13 @@ export class RxfReader {
 
     aliasTarget(alias) {
         const record = this.cell(alias);
-        if (record === null || record.type === HANDLE_NONE) return null;
+        if (record === null || record.type === this.none) return null;
         const layout = this.layout(record.type);
         if (layout.error || layout.raw) return null;
         for (const leaf of layout.leaves) {
-            if (leaf.reference && leaf.name === "target" && leaf.offset + 8 <= record.payloadSize) {
+            if (leaf.reference && leaf.name === "target" && leaf.offset + 8 <= this.valueSize(record)) {
                 const h = this.payloadUint(record, leaf.offset, 8);
-                return h !== HANDLE_NONE && this.cell(h) !== null ? h : null;
+                return h !== this.noneValue && this.cell(h) !== null ? h : null;
             }
         }
         return null;
@@ -684,7 +728,7 @@ export class RxfReader {
         if (record === null) return out;
         for (const attr of this.decodePaths(handle)) out.push(attr);
         for (const row of this.refsOf(record)) {
-            if (row.target !== HANDLE_NONE && this.cell(row.target) !== null) out.push(this.path(row.target));
+            if (row.target !== this.noneValue && this.cell(row.target) !== null) out.push(this.path(row.target));
             if (row.role !== null && this.cell(row.role) !== null) out.push(this.path(row.role));
         }
         return out;
@@ -695,11 +739,12 @@ export class RxfReader {
     decodePaths(handle) {
         const record = this.cell(handle);
         const out = [];
-        if (record === null || record.type === HANDLE_NONE) return out;
+        if (record === null || record.type === this.none) return out;
         const layout = this.layout(record.type);
         if (layout.error) return out;
         if (layout.raw) return out; // one hex value, never a path
-        if (layout.fixed ? record.payloadSize !== layout.prefix : record.payloadSize < layout.prefix) return out;
+        const value = this.valueSize(record);
+        if (layout.fixed ? value !== layout.prefix : value < layout.prefix) return out;
         const payload = this.payloadBytes(record);
         let at = 0;
         for (const leaf of layout.leaves) {
@@ -711,7 +756,7 @@ export class RxfReader {
             if (leaf.derived) continue;
             if (leaf.reference) {
                 const h = this.payloadUint(record, leaf.offset, 8);
-                if (h === HANDLE_NONE) continue;
+                if (h === this.noneValue) continue;
                 if (this.cell(h) === null) return out; // a dead handle: the codec refuses it
                 out.push(this.path(h));
             } else if (leaf.enumeration !== null) {
@@ -731,7 +776,7 @@ export class RxfReader {
         const items = [];
         for (const child of this.children(enumType)) {
             const c = this.cell(child);
-            if (c === null || (c.flags & FLAG_KIND_MASK) !== NODE_ENUMERATOR || c.payloadSize !== 8) continue;
+            if (c === null || (c.flags & FLAG_KIND_MASK) !== NODE_ENUMERATOR || c.payloadSize < 8) continue;
             items.push([this.name(child), this.payloadUint(c, 0, 8)]);
         }
         items.sort((a, b) => (a[1] !== b[1] ? (a[1] < b[1] ? -1 : 1) : (a[0] < b[0] ? -1 : 1)));
@@ -769,7 +814,9 @@ export class RxfReader {
     aliasUses() {
         const out = [];
         const scopes = new Map();
-        for (let h = 1n; h < BigInt(this.handleCount); h++) {
+        for (let index = 1; index < this.handleCount; index++) {
+            const h = this.handleAt(index);
+            if (h === null) continue;
             const record = this.cell(h);
             if (record === null || this.isAlias(h) || this.isGround(h)) continue;
             if (this.typeInfo(record.type) === null) continue;
@@ -941,12 +988,12 @@ export class RxfReader {
             let payload;
             let identifier;
             if (handle === null) {
-                family = familyOf(kind, null, -1n);
+                family = familyOf(kind, null, -1n, this.root);
                 payload = new Uint8Array(0);
                 identifier = "c" + offset;
             } else {
                 const got = this.get(handle);
-                family = familyOf(kind, handle, got.parent);
+                family = familyOf(kind, handle, got.parent, this.root);
                 name = got.name === "" ? null : got.name;
                 path = got.path;
                 state = stateWord(record.flags);
@@ -992,7 +1039,7 @@ export class RxfReader {
                 forward: record.forward,
                 index: record.index,
                 ref_count: record.refCount,
-                anatomy: anatomy(record.size, record.payloadSize, record.refCount, family, poisoned),
+                anatomy: this.anatomy(record, family, poisoned),
             });
         }
         const cellByOffset = new Map(cells.map((cell) => [cell.offset, cell]));
@@ -1073,13 +1120,13 @@ export class RxfReader {
     }
 
     edgesPass(byHandle) {
-        const fresh = (target) => target < BigInt(this.handleCount) && this.live(target);
+        const fresh = (target) => this.live(target);
         const found = [];
         const handles = [...byHandle.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
         for (const handle of handles) {
             const got = this.get(handle);
             for (const row of got.refs) {
-                if (row.target !== HANDLE_NONE) {
+                if (row.target !== this.noneValue) {
                     found.push({
                         from: handle, to: row.target, how: "ref",
                         kind: word(REF_KINDS, row.kind), binding: word(BINDINGS, row.binding),
@@ -1097,8 +1144,8 @@ export class RxfReader {
             for (const leaf of referenceSlots(this, got.type)) {
                 if (leaf.offset + 8 > got.payload.length) continue;
                 const record = this.cell(handle);
-                const target = this.view.getBigUint64(record.offset + CELL_BYTES + leaf.offset, true);
-                if (target === HANDLE_NONE) continue;
+                const target = this.payloadUint(record, leaf.offset, 8);
+                if (target === this.noneValue) continue;
                 found.push({
                     from: handle, to: target, how: "field",
                     kind: null, binding: null,
@@ -1371,6 +1418,282 @@ export class RxfReader {
     }
 }
 
+// ---- the v7 one-arena image (docs/32 1): the superblock, the records, the semantic face ----
+
+// The same scene document as the v6 face, read from the NEW storage: the 4 KiB superblock,
+// the slot table at its anchor, the 24-byte records, the interned names (sys/syms), the
+// semantic rows (sys/specs, docs/32 5 — the kind word, the state word and the type come
+// from the row, not the record's storage role) and the relation tables (sys/relations).
+export class RxfArena extends RxfReader {
+    open() {
+        if (this.bytes.length < SUPER_BYTES) throw new Error("BadImage: not a v7 arena");
+        const magic = this.bytes.subarray(0, 4);
+        if (magic[0] !== 0x52 || magic[1] !== 0x58 || magic[2] !== 0x46 || magic[3] !== 0x41) {
+            throw new Error("BadImage: not a v7 arena (magic is not RXFA)");
+        }
+        this.version = this.view.getUint32(4, true);
+        if (this.version !== SUPER_VERSION) {
+            throw new Error("BadImage: arena version " + this.version + " is not supported");
+        }
+        this.committed = Number(this.view.getBigUint64(8, true));
+        this.limit = Number(this.view.getBigUint64(16, true));
+        this.root = BigInt(this.view.getUint32(24, true));
+        this.entry = BigInt(this.view.getUint32(28, true));
+        this.none = BigInt(HANDLE32_NONE);
+        this.noneValue = HANDLE_NONE; // the unset word of a payload value or a ref row
+        this.readSlots();
+        this.readStream();
+        this.readNames();
+        this.readSpecs();
+        // the arena header words the scene documents (the superblock, decoded)
+        this.headerSize = SUPER_BYTES;
+        this.indexOff = SUPER_BYTES;
+        this.cellsOff = SUPER_BYTES + this.stream[0].size;
+        this.bodySize = this.committed;
+        this.frontier = this.committed - this.cellsOff;
+        this.indexChunks = 1;
+        this.namesSize = this.symsRecord === null ? 0 : this.symsRecord.payloadSize;
+        this.handleCount = this.slotCount;
+        this.handleType = this.findNamed(this.root, "Type");
+        this.handleField = this.findNamed(this.root, "Field");
+        if (this.handleType === null || this.handleField === null) {
+            throw new Error("BadImage: the arena has no ground Type/Field");
+        }
+    }
+
+    // -- the anchors: the slot table and the record stream -----------------------------------------
+
+    readSlots() {
+        const head = SUPER_BYTES + OBJECT_BYTES;
+        this.slotCount = this.view.getUint32(head, true);
+        const capacity = this.view.getUint32(head + 4, true);
+        if (this.slotCount > capacity) throw new Error("BadImage: the slot table overflows");
+        this.entries = [];
+        this.bySlot = new Map(); // record offset -> index
+        for (let index = 0; index < this.slotCount; index++) {
+            const at = head + SLOTS_HEAD_BYTES + index * SLOT_BYTES;
+            const kind = this.view.getUint16(at, true);
+            const gen = this.view.getUint16(at + 2, true);
+            const slot = Number(this.view.getBigUint64(at + 8, true));
+            this.entries.push({ kind, gen, slot });
+            if (slot !== 0) this.bySlot.set(slot, index);
+        }
+    }
+
+    readStream() {
+        this.stream = [];
+        this.recordAt = new Map();
+        this.byHandle = new Map();
+        let at = SUPER_BYTES;
+        while (at < this.committed) {
+            const role = this.view.getUint16(at, true);
+            const gen = this.view.getUint16(at + 2, true);
+            const nameOff = this.view.getUint16(at + 6, true);
+            const parent = this.view.getUint32(at + 8, true);
+            const link = this.view.getUint32(at + 12, true);
+            const refCount = this.view.getUint32(at + 16, true);
+            const payloadSize = this.view.getUint32(at + 20, true);
+            const size = OBJECT_BYTES + ((payloadSize + 7) & ~7);
+            if (size < OBJECT_BYTES || at + size > this.committed) {
+                throw new Error("BadImage: malformed record at " + at);
+            }
+            const identity = this.bySlot.get(at);
+            let handle = null;
+            if (identity !== undefined) {
+                const entry = this.entries[identity];
+                if (entry.gen === gen && entry.kind === role) handle = BigInt((gen << 20) | identity);
+            }
+            const record = {
+                offset: at,
+                size,
+                role,
+                gen,
+                kind: role === OBJ_FREE_REC ? KIND_DEAD : role,
+                blockKind: 0,
+                handle,
+                type: this.none,
+                parent: parent === HANDLE32_NONE ? this.none : BigInt(parent),
+                payloadSize,
+                refCount,
+                flags: 0,
+                generation: 0,
+                nameOff,
+                linkRaw: link,
+                forward: link === HANDLE32_NONE ? 0 : link,
+                index: 0,
+                head: role === OBJ_MODULE_REC ? MODULE_HEAD : 0,
+            };
+            this.stream.push(record);
+            this.recordAt.set(at, record);
+            if (handle !== null) this.byHandle.set(handle, record);
+            at += size;
+        }
+        if (at !== this.committed) throw new Error("BadImage: the record stream misses the marker");
+        // the two blocks of the v6 vocabulary: the object index and the names table
+        this.stream[0].blockKind = 1;
+        const syms = this.entries.length > 1 ? this.entries[1].slot : 0;
+        if (this.recordAt.has(syms)) this.recordAt.get(syms).blockKind = 2;
+        this.symsRecord = this.recordAt.get(syms) ?? null;
+    }
+
+    // -- the names (sys/syms): the interned strings behind the symbol ids ---------------------------
+
+    readNames() {
+        this.names = [""];
+        if (this.symsRecord === null) return;
+        const base = this.symsRecord.offset + OBJECT_BYTES;
+        const count = this.view.getUint32(base, true);
+        for (let id = 1; id < count; id++) {
+            const at = base + this.view.getUint32(base + SLOTS_HEAD_BYTES + id * 4, true);
+            this.names.push(this.stringAt(at));
+        }
+    }
+
+    name(handle) {
+        const record = this.cell(handle);
+        return record === null || record.nameOff === 0 ? "" : this.names[record.nameOff] ?? "";
+    }
+
+    // -- the semantic face (sys/specs, docs/32 5): one row per object index -------------------------
+
+    readSpecs() {
+        const found = this.findNamed(this.root, "specs", this.findNamed(this.root, "sys"));
+        const specs = found === null ? null : this.byHandle.get(found);
+        for (const record of this.stream) {
+            if (record.handle === null) continue;
+            const index = Number(record.handle & 0xfffffn);
+            const row = specs === null ? -1 : specs.offset + OBJECT_BYTES + index * SPEC_BYTES;
+            if (row < 0 || row + SPEC_BYTES > specs.offset + specs.size) continue;
+            record.type = this.view.getUint32(row, true) === HANDLE32_NONE
+                ? this.none
+                : BigInt(this.view.getUint32(row, true));
+            record.flags = this.view.getUint32(row + 4, true);
+            record.index = this.view.getUint32(row + 8, true);
+            record.generation = Number(this.view.getBigUint64(row + 16, true));
+            // the semantic kind word is the spec row's; the record's kind is the storage role
+            record.kind = record.blockKind !== 0
+                ? KIND_BLOCK
+                : record.role === OBJ_FREE_REC ? KIND_DEAD : record.flags & FLAG_KIND_MASK;
+        }
+    }
+
+    // -- the tree: names, children, paths, relation tables ------------------------------------------
+
+    childrenChain(handle) {
+        const out = [];
+        const record = this.cell(handle);
+        if (record === null || record.role !== OBJ_MODULE_REC) return out;
+        let walk = this.view.getUint32(record.offset + OBJECT_BYTES, true);
+        const guard = this.slotCount + 2;
+        for (let n = 0; n < guard && walk !== HANDLE32_NONE; n++) {
+            const child = this.live(BigInt(walk)) ? BigInt(walk) : null;
+            if (child === null) break;
+            out.push(child);
+            const c = this.byHandle.get(child);
+            walk = c === undefined ? HANDLE32_NONE : c.linkRaw;
+        }
+        return out;
+    }
+
+    findNamed(parent, name, start) {
+        const from = start === undefined ? parent : start;
+        if (from === null) return null;
+        for (const child of this.childrenChain(from)) {
+            if (this.name(child) === name) return child;
+        }
+        return null;
+    }
+
+    path(handle) {
+        const parts = [];
+        for (let at = handle; at !== this.none && at !== this.root && parts.length < 4096;) {
+            const record = this.cell(at);
+            if (record === null) return "";
+            const name = this.name(at);
+            if (name !== "") parts.push(name); // an anonymous object has no path segment
+            at = record.parent;
+        }
+        return parts.reverse().join(".");
+    }
+
+    refsOf(record) {
+        const out = [];
+        if (record.handle === null) return out;
+        const relations = this.findNamed(this.root, "relations", this.findNamed(this.root, "sys"));
+        if (relations === null) return out;
+        const path = this.path(record.handle);
+        for (const table of this.childrenChain(relations)) {
+            if (this.name(table) !== path) continue;
+            const t = this.byHandle.get(table);
+            const base = t.offset + OBJECT_BYTES;
+            for (let at = 0; at + REF_BYTES <= t.payloadSize; at += REF_BYTES) {
+                const target = this.view.getBigUint64(base + at, true);
+                const role = this.view.getBigUint64(base + at + 8, true);
+                const kind = this.view.getUint16(base + at + 16, true);
+                const binding = this.view.getUint16(base + at + 18, true);
+                const index = this.view.getUint32(base + at + 20, true);
+                // the granted room's zero tail is not data: a real row's target is never 0
+                if (target === 0n && role === 0n && kind === 0 && binding === 0 && index === 0) break;
+                out.push({
+                    target,
+                    role: role === this.none ? null : role,
+                    index,
+                    kind,
+                    binding,
+                });
+            }
+            break;
+        }
+        return out;
+    }
+
+    // -- the record words (the format layer the shared document code reads) -------------------------
+
+    handleAt(index) {
+        const entry = this.entries[index];
+        if (entry === undefined || entry.slot === 0) return null;
+        const handle = BigInt((entry.gen << 20) | index);
+        return this.live(handle) ? handle : null;
+    }
+
+    live(handle) {
+        if (handle === this.none) return false;
+        const index = Number(handle & 0xfffffn);
+        const gen = Number((handle >> 20n) & 0xfffn);
+        if (index >= this.slotCount) return false;
+        const entry = this.entries[index];
+        if (entry.slot === 0 || entry.gen !== gen) return false;
+        const record = this.recordAt.get(entry.slot);
+        return record !== undefined && record.gen === gen && record.role === entry.kind;
+    }
+
+    cell(handle) {
+        return this.live(handle) ? this.byHandle.get(handle) ?? null : null;
+    }
+
+    valueSize(record) {
+        return record.payloadSize - record.head;
+    }
+
+    payloadBytes(record) {
+        const at = record.offset + OBJECT_BYTES + record.head;
+        return this.bytes.subarray(at, record.offset + OBJECT_BYTES + record.payloadSize);
+    }
+
+    payloadUint(record, offset, size) {
+        const base = record.offset + OBJECT_BYTES + record.head + offset;
+        if (size === 8) return this.view.getBigUint64(base, true);
+        if (size === 4) return BigInt(this.view.getUint32(base, true));
+        if (size === 2) return BigInt(this.view.getUint16(base, true));
+        return BigInt(this.bytes[base]);
+    }
+
+    // The block-stack floors of one cell (the v7 record layout).
+    anatomy(record, family, poisoned) {
+        return anatomyRecord(record.size, record.payloadSize, family, poisoned);
+    }
+}
+
 // ---- the layout law as pure functions (world/export.py) ------------------------------------------------
 
 function districtCols(count) {
@@ -1438,12 +1761,12 @@ function regionOf(regions, offset) {
     return regions[regions.length - 1];
 }
 
-function familyOf(kind, handle, parent) {
+function familyOf(kind, handle, parent, root) {
     if (kind === KIND_DEAD) return "rubble";
     if (kind === KIND_BLOCK) return "utility";
     const name = word(NODE_KINDS, kind);
     if (name === "Fn" || name === "Code") return "tower";
-    if (handle === 0n || parent === 0n || name === "Module" || name === "Namespace") return "monument";
+    if (handle === root || parent === root || name === "Module" || name === "Namespace") return "monument";
     return "block";
 }
 
@@ -1497,6 +1820,41 @@ function splitRegions(offset, size) {
     return zipOffsets(RUN_PAYLOAD_REGIONS.map(([name], i) => [name, parts[i]]), offset)
         .filter(([, size]) => size > 0)
         .map(([role, size, at]) => ({ role, offset: at, size }));
+}
+
+// The floors of one v7 object record (docs/32 1.2): the 24 header bytes word for word,
+// the payload split by the regions of S1 when it is a run cell (or one band, or one
+// poison band), and the 8-byte slot padding. The bands are contiguous and sum to the
+// record's span.
+function anatomyRecord(cellSize, payloadSize, family, poisoned) {
+    const payloadBand = OBJECT_ALIGN * Math.ceil(payloadSize / OBJECT_ALIGN);
+    const payloadOffset = OBJECT_BYTES;
+    const rows = zipOffsets(HEADER_WORDS_V7, 0).map(([name, size, at]) => ({ role: name, offset: at, size }));
+    let at = payloadOffset;
+    if (poisoned) {
+        rows.push({ role: "poison", offset: at, size: payloadSize });
+    } else if (family === "tower" && payloadSize >= 32) {
+        rows.push(...splitRegions(at, payloadSize));
+    } else if (payloadSize) {
+        rows.push({ role: "payload", offset: at, size: payloadSize });
+    }
+    at += payloadSize;
+    if (payloadBand > payloadSize) {
+        rows.push({ role: "pad", offset: at, size: payloadBand - payloadSize });
+    }
+    let end = rows[rows.length - 1].offset + rows[rows.length - 1].size;
+    if (end < cellSize) {
+        rows.push({ role: "pad", offset: end, size: cellSize - end });
+    } else if (end > cellSize) {
+        let overflow = end - cellSize;
+        for (let i = rows.length - 1; i >= 0 && overflow > 0; i--) {
+            const take = Math.min(rows[i].size, overflow);
+            rows[i].size -= take;
+            overflow -= take;
+        }
+        return rows.filter((band) => band.size > 0);
+    }
+    return rows;
 }
 
 function anatomy(cellSize, payloadSize, refCount, family, poisoned) {
@@ -2117,9 +2475,14 @@ function nearRails(rails, grid, x, z) {
 // ---- the one face the page calls ---------------------------------------------------------------------
 
 // The world of one arena's bytes: the same scene document `export_world` writes — minus the
-// duct packing the reader never does (``bundles: []``, every edge's ``stubs: []``).
+// duct packing the reader never does (``bundles: []``, every edge's ``stubs: []``). The magic
+// picks the storage face: ``RXFB`` the superseded cell format, ``RXFA`` the v7 one-arena
+// image (docs/32 1) — one document, whichever arena carries the world.
 export function readWorld(bytes) {
-    return new RxfReader(bytes).document();
+    const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    const v7 = view.length > 3 && view[0] === 0x52 && view[1] === 0x58
+        && view[2] === 0x46 && view[3] === 0x41;
+    return (v7 ? new RxfArena(bytes) : new RxfReader(bytes)).document();
 }
 
 

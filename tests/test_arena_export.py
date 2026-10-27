@@ -68,13 +68,30 @@ def test_the_paths_survive_the_export(arena):
         assert down(arena, *ALGORITHMS[:length]) != HANDLE32_NONE
 
 
-def test_a_leaf_payload_lands_byte_for_byte(world, arena):
+def test_a_leaf_payload_lands_byte_for_byte(world, placed):
+    """The value bytes of a leaf land as the world wrote them (docs/32 5) — one amendment:
+    the declared reference slots hold handles, and in the arena a handle is an arena
+    handle (docs/32 2), zero-extended like the relation rows' `target`/`role`. Every
+    other byte is compared word for word."""
+    arena, handles = placed
     source = source_of(world, *ALGORITHMS)
-    payload = world.get(source)["payload"]
+    payload = bytearray(world.get(source)["payload"])
     assert payload, "the pinned leaf has bytes to compare"
+    placed_map = {0: arena.root_handle, **handles}
+    slots = [
+        int(leaf["offset"])
+        for leaf in world.layout(world.get(source)["type"])["leaves"]
+        if leaf["reference"]
+    ]
+    for offset in sorted(slots):
+        if offset + 8 > len(payload):
+            continue
+        (was,) = struct.unpack_from("<Q", payload, offset)
+        want = (1 << 64) - 1 if was == (1 << 64) - 1 else placed_map[was]
+        struct.pack_into("<Q", payload, offset, want)
     handle = down(arena, *ALGORITHMS)
     room = arena.load(handle)[7]
-    assert arena.payload(handle) == payload.ljust(room, b"\0")
+    assert arena.payload(handle) == bytes(payload).ljust(room, b"\0")
 
 
 def test_a_modules_own_bytes_follow_the_chain_head(world, arena):
@@ -141,6 +158,9 @@ def test_a_dangling_ref_refuses_the_export():
     class TinyWorld:
         def children(self, handle):
             return [1] if handle == 0 else []
+
+        def layout(self, type):
+            return {"leaves": []}  # a tiny world writes no handles into payloads
 
         def get(self, handle):
             if handle == 0:
@@ -259,6 +279,9 @@ def test_a_dangling_type_refuses_the_export():
     class TinyWorld:
         def children(self, handle):
             return [1] if handle == 0 else []
+
+        def layout(self, type):
+            return {"leaves": []}  # a tiny world writes no handles into payloads
 
         def get(self, handle):
             if handle == 0:

@@ -17,12 +17,21 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import arena_export
 import pytest
 
 from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.kinds import NodeKind
+from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.server.inspector import Inspector
-from pymergetic.rxftk.world.demo import demo_image, demo_inspector
-from pymergetic.rxftk.world.export import export_world, validate_scene
+from pymergetic.rxftk.world.demo import (
+    DELTA_FILE,
+    RUNS,
+    demo_image,
+    demo_inspector,
+    run_payload,
+)
+from pymergetic.rxftk.world.export import ArenaScene, export_world, validate_scene
 
 HERE = Path(__file__).resolve().parent
 STARTER = HERE.parent / "starter"
@@ -87,6 +96,55 @@ def test_reader_js_survives_the_poison_and_the_stale(tmp_path: Path) -> None:
         cell["id"] for cell in expected["cells"]
     ]
     assert document["counts"] == expected["counts"]
+
+
+def _demo_v7_arena(tmp_path: Path) -> Path:
+    """The demo world as the v7 one-arena image (docs/32): the delta and the run payloads,
+    written by the world->arena writer (tools/native/arena_export.py). The demo's v6-only
+    traces — a dead cell of poison and a dangling ref — have no v7 form yet (the writer
+    refuses a dangling target, and a free span carries no payload), so they stay pinned on
+    the v6 face above; the Genesis names its inventor under `pymergetic`, which the demo
+    scene itself does not carry (docs/36)."""
+    image = Image.empty()
+    image.apply(DELTA_FILE.read_text(encoding="utf-8"))
+    for index, (path, state) in enumerate(sorted(RUNS.items())):
+        image.set_payload(image.handle(path), run_payload(state, 3 + 4 * index))
+    image.add(0, "pymergetic", kind=int(NodeKind.Namespace))
+    out = tmp_path / "demo-v7.rxfa"
+    out.write_bytes(arena_export.export_world(image).to_bytes())
+    return out
+
+
+def test_reader_js_reads_the_v7_arena_like_the_exporter(tmp_path: Path) -> None:
+    """The one-arena image (docs/32), read by both languages from the same bytes: the
+    superblock, the slot table, the records, the interned names (sys/syms), the semantic
+    rows (sys/specs) and the relation tables (sys/relations/<path>) — one document."""
+    image = _demo_v7_arena(tmp_path)
+    document = _read_in_js(image, tmp_path)
+
+    assert document == export_world(ArenaScene(image.read_bytes()), packing=False)
+    validate_scene(document)
+
+
+def test_reader_js_surfaces_the_spec_row_on_v7(tmp_path: Path) -> None:
+    """The four words the semantic face must answer (docs/32 5): the kind word and the
+    state word come from the spec row — the record's kind is only the storage role — the
+    field edges are derived from the type's layout, and the anatomy bands are the v7
+    object record's own words."""
+    image = _demo_v7_arena(tmp_path)
+    document = _read_in_js(image, tmp_path)
+
+    kinds = {cell["kind"] for cell in document["cells"]}
+    assert {"Fn", "Code", "Type"} <= kinds  # the kind word, from the rows
+    assert any(cell["state"]["provenance"] == "Image" for cell in document["cells"])
+    fields = [edge for edge in document["edges"] if edge["how"] == "field"]
+    assert fields and all(edge["field"] for edge in fields)
+    assert all(edge["fresh"] for edge in fields)  # the export carries live arena handles
+    roles = {band["role"] for cell in document["cells"] for band in cell["anatomy"]}
+    assert {"kind", "gen", "flags", "name", "parent", "link", "refs", "payload"} <= roles
+    # the run words the towers carry survive the export: the trams and the checksum census
+    assert document["ring"]["occupied"] == 2
+    assert document["metrics"]["checksum_status"] == "3 ok"
 
 
 @pytest.mark.slow

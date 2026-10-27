@@ -294,12 +294,27 @@ import math
 import struct
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from itertools import pairwise
-from typing import Any
+from typing import Any, Protocol
 
-from pymergetic.rxftk.core.arena import HANDLE_NONE, KIND_BLOCK, KIND_DEAD
+from pymergetic.rxftk.core.arena import (
+    FLAG_KIND_MASK,
+    FLAG_OWNER_SHIFT,
+    FLAG_STATE_MASK,
+    FLAG_STATE_SHIFT,
+    HANDLE32_NONE,
+    HANDLE_NONE,
+    INDEX_OFFSET,
+    KIND_BLOCK,
+    KIND_DEAD,
+    MODULE_SIZE,
+    OBJ_FREE,
+    SLOT_SIZE,
+    SLOTS_HEAD_SIZE,
+    SUPERBLOCK_SIZE,
+    SUPERBLOCK_VERSION,
+    ObjectArena,
+)
 from pymergetic.rxftk.core.kinds import Binding, Mobility, NodeKind, RefKind
-from pymergetic.rxftk.core.object import Image
-from pymergetic.rxftk.server.inspector import Inspector
 
 SCHEMA = "rxf-world-3"
 
@@ -353,6 +368,21 @@ HEADER_WORDS = (
     ("reserved", 4),
 )
 
+# The v7 object record (docs/32 1.2, ground.h pymergetic_rxf_object): 24 header bytes
+# word for word, then the payload inline in 8-byte slots.
+OBJECT_BYTES = 24
+OBJECT_ALIGN = 8
+HEADER_WORDS_V7 = (
+    ("kind", 2),
+    ("gen", 2),
+    ("flags", 2),
+    ("name", 2),
+    ("parent", 4),
+    ("link", 4),
+    ("refs", 4),
+    ("payload", 4),
+)
+
 # The run-cell payload (docs/20, S1): three regions whose boundary is the law, then the FNV-1a
 # checksum over the program state. The weights are the real byte counts of smp_run_payload.
 RUN_PAYLOAD_REGIONS = (
@@ -372,7 +402,9 @@ ON_ROAD = ("READY", "RUNNING")  # docs/23 §4.5: a tram is one run cell in a rin
 FNV_PRIME = 0x100000001B3
 FNV_BASIS = 0xCBF29CE484222325
 
-ANATOMY_ROLES = tuple(word for word, _ in HEADER_WORDS) + (
+ANATOMY_ROLES = tuple(word for word, _ in HEADER_WORDS) + tuple(
+    word for word, _ in HEADER_WORDS_V7
+) + (
     "payload",
     "concurrent",
     "handoff",
@@ -391,6 +423,29 @@ STREET_KINDS = ("avenue", "cross", "lane", "branch")
 
 class SchemaError(ValueError):
     """A scene document does not match the schema this module documents."""
+
+
+class SceneImage(Protocol):
+    """The image face the scene passes read: the world image (``Image``) or the v7 arena
+    (``ArenaScene``) — one scene, two storages."""
+
+    @property
+    def handle_count(self) -> int: ...
+    def to_bytes(self) -> bytes: ...
+    def get(self, handle: int, /) -> Any: ...
+    def type_name(self, handle: int, /) -> str | None: ...
+    def layout(self, type: int, /) -> Any: ...
+    def alias_uses(self) -> Any: ...
+    def live(self, handle: int, /) -> bool: ...
+
+
+class SceneSource(Protocol):
+    """What every layer reads: the arena header, the cell stream, and the image behind."""
+
+    @property
+    def image(self) -> SceneImage: ...
+    def header(self) -> dict[str, Any]: ...
+    def cells(self) -> list[dict[str, Any]]: ...
 
 
 def _word(words: type[enum.IntEnum], value: int) -> str:
@@ -498,7 +553,7 @@ def _region_of(regions: Sequence[dict[str, Any]], offset: int) -> dict[str, Any]
 # ---- cells: buildings ------------------------------------------------------------------------------
 
 
-def _family(kind: int, handle: int | None, parent: int) -> str:
+def _family(kind: int, handle: int | None, parent: int, root: int = 0) -> str:
     if kind == KIND_DEAD:
         return "rubble"
     if kind == KIND_BLOCK:
@@ -506,7 +561,7 @@ def _family(kind: int, handle: int | None, parent: int) -> str:
     name = _word(NodeKind, kind)
     if name in ("Fn", "Code"):
         return "tower"
-    if handle == 0 or parent == 0 or name in ("Module", "Namespace"):
+    if handle == root or parent == root or name in ("Module", "Namespace"):
         return "monument"
     return "block"
 
@@ -643,6 +698,67 @@ def _anatomy(
                 break
         rows = [band for band in rows if int(band["size"]) > 0]
     return rows
+
+
+def _anatomy_record(
+    cell_size: int,
+    payload_size: int,
+    family: str,
+    poisoned: bool,
+) -> list[dict[str, Any]]:
+    """One floor per band of the v7 object record (docs/32 1.2): the 24 header bytes word
+    for word, the payload split by the regions of S1 when it is a run cell (or one band,
+    or one poison band), and the 8-byte slot padding. The bands are contiguous and sum to
+    the record's span."""
+    payload_band = OBJECT_ALIGN * math.ceil(payload_size / OBJECT_ALIGN)
+    payload_offset = OBJECT_BYTES
+
+    def bands() -> list[dict[str, Any]]:
+        out = [
+            {"role": word, "offset": offset, "size": size}
+            for (word, size), offset in _zip_offsets(HEADER_WORDS_V7, 0)
+        ]
+        at = payload_offset
+        if poisoned:
+            out.append({"role": "poison", "offset": at, "size": payload_size})
+        elif family == "tower" and payload_size >= 32:
+            out.extend(_split_regions(at, payload_size))
+        elif payload_size:
+            out.append({"role": "payload", "offset": at, "size": payload_size})
+        at += payload_size
+        if payload_band > payload_size:  # the 8-byte slots the payload sits in
+            out.append({"role": "pad", "offset": at, "size": payload_band - payload_size})
+        return out
+
+    rows = bands()
+    end = rows[-1]["offset"] + rows[-1]["size"]
+    if end < cell_size:
+        rows.append({"role": "pad", "offset": end, "size": cell_size - end})
+    elif end > cell_size:
+        overflow = end - cell_size
+        for band in reversed(rows):
+            take = min(int(band["size"]), overflow)
+            band["size"] = int(band["size"]) - take
+            overflow -= take
+            if overflow == 0:
+                break
+        rows = [band for band in rows if int(band["size"]) > 0]
+    return rows
+
+
+def _anatomy_for(
+    header: Mapping[str, Any],
+    cell_size: int,
+    payload_size: int,
+    ref_count: int,
+    family: str,
+    poisoned: bool,
+) -> list[dict[str, Any]]:
+    """The floors of one cell: the v6 64-byte cell words, or the v7 24-byte record words —
+    whichever arena the header names."""
+    if str(header.get("magic")) == "RXFA":
+        return _anatomy_record(cell_size, payload_size, family, poisoned)
+    return _anatomy(cell_size, payload_size, ref_count, family, poisoned)
 
 
 def _zip_offsets(
@@ -1257,7 +1373,7 @@ def _poison_hosts(stream: Sequence[Mapping[str, Any]], runs: Sequence[tuple[int,
 # ---- edges: handle references ------------------------------------------------------------------------
 
 
-def _reference_slots(image: Image, type_handle: int) -> list[dict[str, Any]]:
+def _reference_slots(image: SceneImage, type_handle: int) -> list[dict[str, Any]]:
     """The declared reference slots of a type's payload layout (the same walk the inspector's
     `used_by` card makes): a slot holds one handle, 8 bytes."""
     if type_handle == HANDLE_NONE or image.type_name(type_handle) != "Type":
@@ -1265,13 +1381,15 @@ def _reference_slots(image: Image, type_handle: int) -> list[dict[str, Any]]:
     return [leaf for leaf in image.layout(type_handle)["leaves"] if leaf["reference"]]
 
 
-def _edges(image: Image, cells_by_handle: Mapping[int, Mapping[str, Any]]) -> list[dict[str, Any]]:
+def _edges(
+    image: SceneImage, cells_by_handle: Mapping[int, Mapping[str, Any]]
+) -> list[dict[str, Any]]:
     """Every handle reference of the image as cables: reference rows, the Role handle of each row,
     declared reference slots in payloads, and objects written through an Alias. A handle the image
     no longer resolves (dead slot or out of range) makes a stale edge — the red ghost cable."""
 
     def fresh(target: int) -> bool:
-        return target < image.handle_count and image.live(target)
+        return image.live(target)
 
     found: list[dict[str, Any]] = []
     for handle in sorted(cells_by_handle):
@@ -1843,7 +1961,7 @@ def _say(report: Report | None, stage: str, done: int, total: int) -> None:
         report(stage, done, total)
 
 
-def _base_pass(inspector: Inspector, report: Report | None) -> dict[str, Any]:
+def _base_pass(inspector: SceneSource, report: Report | None) -> dict[str, Any]:
     """The cheap ground of every layer: the districts and their tile rasters, the stream's
     buckets, the poison runs, and where every cell stands (the placement raster)."""
     image = inspector.image
@@ -1921,7 +2039,7 @@ def _buildings_pass(
         kind = int(cell["kind"])
         payload_size = int(cell["payload_size"])
         if handle is None:
-            family = _family(kind, None, -1)
+            family = _family(kind, None, -1, int(base["header"]["root"]))
             name = path = None
             state = None
             payload_bytes = b""
@@ -1929,7 +2047,7 @@ def _buildings_pass(
         else:
             handle = int(handle)
             got = image.get(handle)
-            family = _family(kind, handle, int(got["parent"]))
+            family = _family(kind, handle, int(got["parent"]), int(base["header"]["root"]))
             name = got["name"] or None
             path = got["path"]
             state = _state(int(cell["flags"]))
@@ -1973,8 +2091,13 @@ def _buildings_pass(
                 "forward": int(cell["forward"]),
                 "index": int(cell["index"]),
                 "ref_count": int(cell["ref_count"]),
-                "anatomy": _anatomy(
-                    size, payload_size, int(cell["ref_count"]), family, poisoned
+                "anatomy": _anatomy_for(
+                    base["header"],
+                    size,
+                    payload_size,
+                    int(cell["ref_count"]),
+                    family,
+                    poisoned,
                 ),
             }
         )
@@ -2123,6 +2246,828 @@ def _city_pass(
     }
 
 
+# ---- the v7 scene reader (docs/32): the one-arena image as the scene source -------------------------
+
+# The words of the ground enumerations, in value order (core/kinds.pyi), for the kind word.
+_NODE_KINDS = tuple(kind.name for kind in NodeKind)
+
+# The Type and Field payloads (48 bytes each, tags "TYPE" / "FLD "), as the world writes them.
+TYPE_BYTES = 48
+TYPE_TAG = 0x54595045
+FIELD_TAG = 0x464C4420
+FIELD_FLAG_OPTIONAL = 0x2
+FIELD_FLAG_REF = 0x8
+FIELD_FLAG_CHILDREN = 0x10
+FIELD_FLAG_INVERSE = 0x20
+TYPE_FLAG_VARIABLE = 0x1
+TYPE_FLAG_BITSET = 0x8
+FORM_STRUCT = 7
+FORM_UNION = 8
+FORM_ENUM = 9
+
+NODE_ALIAS = 21
+NODE_MODULE = 19
+NODE_ENUMERATOR = 20
+
+
+def _scalar_kind(form: int) -> str:
+    return {FORM_ENUM: "enum", 3: "uint", 4: "sint", 2: "bool", 5: "float"}.get(
+        form, "hex"
+    )
+
+
+def _is_ground_name(name: str) -> bool:
+    return name in {
+        "uint32_t",
+        "uint64_t",
+        "Enumerator",
+        "Doc",
+        "Form",
+        "TypeFlags",
+        "FieldFlags",
+        "NodeKind",
+        "RefKind",
+        "Binding",
+        "OwnerKind",
+        "Mobility",
+        "DocKind",
+        "DocStatus",
+        "DocCodec",
+        "DocRole",
+    }
+
+
+class ArenaScene:
+    """The v7 one-arena image (docs/32) as a scene source: the reader's side of the format.
+
+    The same facts ``Inspector`` answers from the world image, read from the arena bytes
+    alone: the superblock, the slot table, the 24-byte records, the interned names
+    (``sys/syms``), the semantic rows (``sys/specs``, docs/32 5) and the relation tables
+    (``sys/relations/<path>``, docs/32 2). The record's ``kind`` is the storage role
+    (``OBJ_*``); the kind word, the state word and the type come from the spec row — the
+    scene surfaces the spec, not just the record. This is the golden face of the same
+    document ``rxf-reader.js`` computes from the same bytes (tests/test_reader_js.py)."""
+
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+        self._arena = ObjectArena.attach(data)  # the defining reader for the object model
+        if len(data) < SUPERBLOCK_SIZE:
+            raise SchemaError("scene: not a v7 arena (truncated superblock)")
+        magic = bytes(data[0:4])
+        if magic != b"RXFA":
+            raise SchemaError("scene: not a v7 arena (magic is not RXFA)")
+        self.version = struct.unpack_from("<I", data, 4)[0]
+        if self.version != SUPERBLOCK_VERSION:
+            raise SchemaError(f"scene: arena version {self.version} is not supported")
+        self._committed = struct.unpack_from("<Q", data, 8)[0]
+        self._limit = struct.unpack_from("<Q", data, 16)[0]
+        self._root = struct.unpack_from("<I", data, 24)[0]
+        self._entry = struct.unpack_from("<I", data, 28)[0]
+        self._read_slots()
+        self._walk()
+        self._specs()
+        self.handle_type = self._find(self._root, "Type")
+        self.handle_field = self._find(self._root, "Field")
+        self._types: dict[int, dict[str, Any] | None] = {}
+        self._layouts: dict[int, dict[str, Any]] = {}
+        self._children_cache: dict[int, list[int]] = {}
+        self._alias_scopes: dict[int, dict[str, Any]] = {}
+
+    # -- the anchors: the slot table and the record stream -------------------------------------------
+
+    def _read_slots(self) -> None:
+        """The slot table: the index object's payload, at the anchor a cold attach needs."""
+        head = INDEX_OFFSET + OBJECT_BYTES
+        count, capacity = struct.unpack_from("<II", self._data, head)
+        if count > capacity:
+            raise SchemaError("scene: the slot table publishes past its capacity")
+        self._slot_count = count
+        self._slot_capacity = capacity
+        self._slots: dict[int, tuple[int, int, int]] = {}  # offset -> (index, gen, kind)
+        self._entries: list[tuple[int, int, int]] = []  # index -> (kind, gen, slot)
+        for index in range(count):
+            at = head + SLOTS_HEAD_SIZE + index * SLOT_SIZE
+            kind, gen = struct.unpack_from("<HH", self._data, at)
+            (slot,) = struct.unpack_from("<Q", self._data, at + 8)
+            self._entries.append((kind, gen, slot))
+            if slot != 0:
+                self._slots[slot] = (index, gen, kind)
+
+    def _walk(self) -> None:
+        """The record stream: every span of the arena from the index object to the marker."""
+        self.stream: list[dict[str, Any]] = []
+        self._record_at: dict[int, dict[str, Any]] = {}
+        self._by_handle: dict[int, dict[str, Any]] = {}
+        at = INDEX_OFFSET
+        while at < self._committed:
+            kind, gen, flags, name, parent, link, refs, payload = self._arena.record(at)
+            size = OBJECT_BYTES + ((payload + 7) & ~7)
+            if size < OBJECT_BYTES or at + size > self._committed:
+                raise SchemaError(f"scene: malformed record at {at}")
+            identity = self._slots.get(at)
+            handle = None
+            if identity is not None:
+                index, slot_gen, slot_kind = identity
+                if slot_gen == gen and slot_kind == kind:
+                    handle = (slot_gen << 20) | index
+            record = {
+                "offset": at,
+                "size": size,
+                "kind": kind,
+                "gen": gen,
+                "flags": flags,
+                "name_off": name,
+                "parent": parent,
+                "link": link,
+                "ref_count": refs,
+                "payload_size": payload,
+                "handle": handle,
+                "block_kind": 0,
+            }
+            self.stream.append(record)
+            self._record_at[at] = record
+            if handle is not None:
+                self._by_handle[handle] = record
+            at += size
+        if at != self._committed:
+            raise SchemaError("scene: the record stream does not end at the marker")
+        # The index object and the names table are the two blocks of the v6 vocabulary.
+        self.stream[0]["block_kind"] = 1
+        syms = self._entries[1][2]
+        if syms in self._record_at:
+            self._record_at[syms]["block_kind"] = 2
+
+    def _specs(self) -> None:
+        """The semantic face (docs/32 5): one sys/specs row per object index."""
+        self._spec: dict[int, tuple[int, int, int, int]] = {}
+        for handle, record in self._by_handle.items():
+            self._spec[handle] = self._arena.spec(handle)
+
+    def _find(self, parent: int, name: str) -> int:
+        return int(self._arena.find(parent, name))
+
+    # -- the scene source surface (the shape Inspector/Image answer) ----------------------------------
+
+    @property
+    def image(self) -> "ArenaScene":
+        return self
+
+    def to_bytes(self) -> bytes:
+        return self._data
+
+    @property
+    def handle_count(self) -> int:
+        return self._slot_count
+
+    def header(self) -> dict[str, Any]:
+        """The superblock decoded (docs/32 1.1) in the words the scene documents."""
+        index_span = self.stream[0]["size"]
+        cells_off = INDEX_OFFSET + index_span
+        return {
+            "magic": "RXFA",
+            "version": self.version,
+            "header_size": SUPERBLOCK_SIZE,
+            "flags": 0,
+            "body_size": self._committed,
+            "committed_size": self._committed + OBJECT_BYTES + 16,
+            "limit": self._limit,
+            "frontier": self._committed - cells_off,
+            "index_off": INDEX_OFFSET,
+            "cells_off": cells_off,
+            "names_off": self._entries[1][2],
+            "names_size": self._record_at[self._entries[1][2]]["payload_size"],
+            "index_chunks": 1,
+            "handle_count": self._slot_count,
+            "free_head": 0,
+            "entry": self._entry,
+            "root": self._root,
+            "cell_align": OBJECT_ALIGN,
+            "page_size": SUPERBLOCK_SIZE,
+        }
+
+    def cells(self) -> list[dict[str, Any]]:
+        """Every record of the stream in order: offset, size, decoded header, and the live
+        handle it holds (none for a free span). The kind, state and type words come from
+        the record's spec row (docs/32 5), not from the storage role."""
+        out: list[dict[str, Any]] = []
+        for record in self.stream:
+            handle = record["handle"]
+            if handle is None:
+                out.append(
+                    {
+                        "offset": record["offset"],
+                        "size": record["size"],
+                        "kind": KIND_DEAD if record["kind"] == OBJ_FREE else record["kind"],
+                        "block_kind": 0,
+                        "handle": None,
+                        "type": HANDLE32_NONE,
+                        "parent": HANDLE32_NONE,
+                        "payload_size": record["payload_size"],
+                        "ref_count": record["ref_count"],
+                        "flags": 0,
+                        "generation": 0,
+                        "name_off": 0,
+                        "forward": 0,
+                        "index": 0,
+                    }
+                )
+                continue
+            spec_type, spec_flags, spec_index, spec_generation = self._spec[handle]
+            if record["block_kind"]:
+                kind = KIND_BLOCK
+            else:
+                kind = spec_flags & FLAG_KIND_MASK
+            out.append(
+                {
+                    "offset": record["offset"],
+                    "size": record["size"],
+                    "kind": kind,
+                    "block_kind": record["block_kind"],
+                    "handle": handle,
+                    "type": spec_type,
+                    "parent": record["parent"],
+                    "payload_size": record["payload_size"],
+                    "ref_count": record["ref_count"],
+                    "flags": spec_flags,
+                    "generation": spec_generation,
+                    "name_off": record["name_off"],
+                    "forward": 0 if record["link"] == HANDLE32_NONE else record["link"],
+                    "index": spec_index,
+                }
+            )
+        return out
+
+    def live(self, handle: int) -> bool:
+        if handle == HANDLE32_NONE:
+            return False
+        index = handle & 0xFFFFF
+        gen = (handle >> 20) & 0xFFF
+        if index >= self._slot_count:
+            return False
+        kind, slot_gen, slot = self._entries[index]
+        if slot == 0 or slot_gen != gen:
+            return False
+        record = self._record_at.get(slot)
+        return record is not None and record["gen"] == gen and record["kind"] == kind
+
+    def name_of(self, handle: int) -> str:
+        record = self._by_handle.get(handle)
+        if record is None or record["name_off"] == 0:
+            return ""
+        return str(self._arena.symbol(record["name_off"]))
+
+    def path_of(self, handle: int) -> str:
+        return str(self._arena.path_of(handle))
+
+    def get(self, handle: int) -> dict[str, Any]:
+        record = self._by_handle.get(handle)
+        if record is None:
+            raise KeyError(f"no live object for handle {handle:#x}")
+        spec_type, spec_flags, spec_index, spec_generation = self._spec[handle]
+        return {
+            "handle": handle,
+            "type": spec_type,
+            "parent": record["parent"],
+            "name": self.name_of(handle),
+            "path": self.path_of(handle),
+            "kind": spec_flags & FLAG_KIND_MASK,
+            "state": (spec_flags >> FLAG_STATE_SHIFT) & FLAG_STATE_MASK,
+            "owner_kind": (spec_flags >> FLAG_OWNER_SHIFT) & 0xF,
+            "generation": spec_generation,
+            "index": spec_index,
+            "payload": self._payload_of(handle),
+            "refs": self._refs_of(handle),
+        }
+
+    def _payload_of(self, handle: int) -> bytes:
+        """The object's value bytes: the record's payload, past the chain head a module
+        owns first (docs/32 1.2). The granted room may overshoot the written data (the
+        allocator takes a span whole), so the value is everything behind the head."""
+        record = self._by_handle[handle]
+        at = record["offset"] + OBJECT_BYTES
+        head = MODULE_SIZE if record["kind"] == 1 else 0  # OBJ_MODULE owns the chain head
+        return bytes(self._data[at + head : at + record["payload_size"]])
+
+    def _refs_of(self, handle: int) -> list[tuple[int, int | None, int, int, int]]:
+        """The relation rows (docs/32 2) as the world spells them: (target, role, index,
+        kind, binding); a target or role the row does not carry is the all-ones handle.
+        The rows end where the granted room's zero tail begins: the allocator zeroes a
+        fresh payload, and a real row's target is never handle 0."""
+        out: list[tuple[int, int | None, int, int, int]] = []
+        for target, role, kind, binding, index in self._arena.refs_of(handle):
+            if target == 0 and role == 0 and kind == 0 and binding == 0 and index == 0:
+                break
+            out.append(
+                (
+                    int(target),
+                    None if int(role) == HANDLE_NONE else int(role),
+                    int(index),
+                    int(kind),
+                    int(binding),
+                )
+            )
+        return out
+
+    def type_name(self, handle: int) -> str | None:
+        record = self._by_handle.get(handle)
+        if record is None:
+            return None
+        if record["block_kind"]:
+            return {1: "Index", 2: "Names"}.get(record["block_kind"], "Block")
+        if record["kind"] == OBJ_FREE:
+            return "Dead"
+        _, spec_flags, _, _ = self._spec[handle]
+        return _word(NodeKind, spec_flags & FLAG_KIND_MASK)
+
+    # -- the tree -----------------------------------------------------------------------------------
+
+    def children(self, handle: int) -> list[int]:
+        cached = self._children_cache.get(handle)
+        if cached is not None:
+            return cached
+        names: list[tuple[str, int]] = []
+        for record in self.stream:
+            here = record["handle"]
+            if here is not None and record["parent"] == handle:
+                names.append((self.name_of(here), here))
+        names.sort(key=lambda entry: entry[0])
+        out = [entry[1] for entry in names]
+        self._children_cache[handle] = out
+        return out
+
+    def is_alias(self, handle: int) -> bool:
+        return self._kind_word(handle) == NODE_ALIAS
+
+    def is_module(self, handle: int) -> bool:
+        return self._kind_word(handle) == NODE_MODULE
+
+    def _kind_word(self, handle: int) -> int:
+        record = self._by_handle.get(handle)
+        if record is None or record["block_kind"] or record["kind"] == OBJ_FREE:
+            return -1
+        _, spec_flags, _, _ = self._spec[handle]
+        return spec_flags & FLAG_KIND_MASK
+
+    def is_ground(self, handle: int) -> bool:
+        record = self._by_handle.get(handle)
+        if record is None or handle == self._root:
+            return False
+        if handle in (self.handle_type, self.handle_field):
+            return True
+        top = handle
+        while True:
+            here = self._by_handle.get(top)
+            if here is None:
+                return False
+            if here["parent"] == HANDLE32_NONE:
+                return False
+            if here["parent"] == self._root:
+                break
+            top = here["parent"]
+        return top in (self.handle_type, self.handle_field) or _is_ground_name(
+            self.name_of(top)
+        )
+
+    def scope_of(self, handle: int) -> int | None:
+        at = handle
+        while at != HANDLE32_NONE:
+            record = self._by_handle.get(at)
+            if record is None:
+                return None
+            if self.is_module(at):
+                return at
+            at = record["parent"]
+        return None
+
+    # -- the self-describing types (the world's 48-byte TYPE / FLD payloads) -------------------------
+
+    def type_info(self, type_handle: int) -> dict[str, Any] | None:
+        cached = self._types.get(type_handle)
+        if cached is not None or type_handle in self._types:
+            return cached
+        record = self._by_handle.get(type_handle)
+        payload = self._payload_of(type_handle) if record is not None else b""
+        if (
+            record is None
+            or self._spec[type_handle][0] != self.handle_type
+            or record["payload_size"] < TYPE_BYTES
+            or struct.unpack_from("<I", payload, 0)[0] != TYPE_TAG
+        ):
+            self._types[type_handle] = None
+            return None
+        fields: list[dict[str, Any]] = []
+        members: list[dict[str, Any]] = []
+        for child in self.children(type_handle):
+            f = self._by_handle.get(child)
+            if f is None or self._spec[child][0] != self.handle_field:
+                continue
+            if f["payload_size"] < TYPE_BYTES:
+                continue
+            fp = self._payload_of(child)
+            if struct.unpack_from("<I", fp, 0)[0] != FIELD_TAG:
+                continue
+            flags = struct.unpack_from("<I", fp, 4)[0]
+            info = {
+                "id": child,
+                "name": self.name_of(child),
+                "value_type": struct.unpack_from("<Q", fp, 16)[0],
+                "offset": struct.unpack_from("<Q", fp, 24)[0],
+                "count": struct.unpack_from("<Q", fp, 32)[0],
+                "flags": flags,
+                "via": struct.unpack_from("<Q", fp, 40)[0],
+                "member": (flags & (FIELD_FLAG_CHILDREN | FIELD_FLAG_INVERSE)) != 0,
+            }
+            (members if info["member"] else fields).append(info)
+        fields.sort(key=lambda f: (f["offset"], f["name"]))
+        members.sort(key=lambda f: f["name"])
+        info = {
+            "id": type_handle,
+            "name": self.name_of(type_handle),
+            "form": struct.unpack_from("<I", payload, 4)[0],
+            "size": struct.unpack_from("<Q", payload, 8)[0],
+            "inner": struct.unpack_from("<Q", payload, 16)[0],
+            "ret": struct.unpack_from("<Q", payload, 24)[0],
+            "align": struct.unpack_from("<I", payload, 32)[0],
+            "flags": struct.unpack_from("<I", payload, 36)[0],
+            "field_count": struct.unpack_from("<I", payload, 40)[0],
+            "node_kind": struct.unpack_from("<I", payload, 44)[0],
+            "fields": fields,
+            "members": members,
+        }
+        info["variable"] = (info["flags"] & TYPE_FLAG_VARIABLE) != 0
+        info["bitset"] = (info["flags"] & TYPE_FLAG_BITSET) != 0
+        self._types[type_handle] = info
+        return info
+
+    def layout(self, type_handle: int) -> dict[str, Any]:
+        cached = self._layouts.get(type_handle)
+        if cached is not None:
+            return cached
+        info = self.type_info(type_handle)
+        built: dict[str, Any] = {
+            "leaves": [],
+            "raw": False,
+            "fixed": False,
+            "prefix": 0,
+            "error": "",
+        }
+        if info is None:
+            built["error"] = "not a Type object"
+            self._layouts[type_handle] = built
+            return built
+        fixed_size = info["size"] if info["size"] != 0 and not info["variable"] else 0
+        if info["form"] == FORM_UNION or not info["fields"]:
+            built["raw"] = True
+            built["fixed"] = fixed_size != 0
+            built["prefix"] = fixed_size
+            self._layouts[type_handle] = built
+            return built
+        for field in info["fields"]:
+            if not self._add_leaves(field, "", 0, built, 0, True, type_handle):
+                built["leaves"] = []
+                self._layouts[type_handle] = built
+                return built
+        built["leaves"].sort(key=lambda leaf: leaf["offset"])
+        end = 0
+        for leaf in built["leaves"]:
+            if leaf["offset"] < end:
+                built["leaves"] = []
+                built["raw"] = True
+                built["fixed"] = fixed_size != 0
+                built["prefix"] = fixed_size
+                self._layouts[type_handle] = built
+                return built
+            end = leaf["offset"] + leaf["size"]
+        built["prefix"] = max(fixed_size, end)
+        if info["size"] != 0 and end > info["size"] and not info["variable"]:
+            built["leaves"] = []
+            built["error"] = "fields exceed the size of the type"
+            self._layouts[type_handle] = built
+            return built
+        built["fixed"] = not info["variable"]
+        self._layouts[type_handle] = built
+        return built
+
+    def _add_leaves(
+        self,
+        field: dict[str, Any],
+        prefix: str,
+        base: int,
+        built: dict[str, Any],
+        depth: int,
+        top_level: bool,
+        owner: int,
+    ) -> bool:
+        value = self.type_info(int(field["value_type"]))
+        out: list[dict[str, Any]] = built["leaves"]
+        if value is None:
+            built["error"] = f"field {prefix}{field['name']} has an unknown value type"
+            return False
+        if field["count"] == 0:
+            built["error"] = f"field {prefix}{field['name']} has a zero count"
+            return False
+        if (
+            field["offset"] > 0x7FFFFFFF
+            or field["count"] > 0x7FFFFFFF
+            or value["size"] > 0x7FFFFFFF
+        ):
+            built["error"] = f"field {prefix}{field['name']} is out of range"
+            return False
+        if len(out) >= 1 << 16:
+            built["error"] = f"field {prefix}{field['name']}: the type has too many values"
+            return False
+        derived = top_level and (
+            (
+                owner == self.handle_type
+                and field["name"] in ("field_count", "descriptor_tag")
+            )
+            or (
+                owner == self.handle_field
+                and field["name"] in ("descriptor_tag", "owner_type")
+            )
+        )
+        if field["flags"] & FIELD_FLAG_REF:
+            if value["form"] != 3 or value["size"] != 8 or field["count"] != 1:
+                built["error"] = (
+                    f"reference field {prefix}{field['name']} must be one uint64"
+                )
+                return False
+            out.append(
+                {
+                    "name": prefix + field["name"],
+                    "offset": base + field["offset"],
+                    "size": 8,
+                    "reference": True,
+                    "optional": (field["flags"] & FIELD_FLAG_OPTIONAL) != 0,
+                    "derived": derived,
+                    "enumeration": None,
+                    "def": 0,
+                }
+            )
+            return True
+        nested = value["form"] == FORM_STRUCT and bool(value["fields"])
+        if nested:
+            if depth >= 6:
+                built["error"] = f"field {prefix}{field['name']} nests too deeply"
+                return False
+            for i in range(field["count"]):
+                if len(out) >= 1 << 16:
+                    built["error"] = (
+                        f"field {prefix}{field['name']}: the type has too many values"
+                    )
+                    return False
+                name = prefix + field["name"] + (f".{i}" if field["count"] > 1 else "")
+                name += "."
+                for member in value["fields"]:
+                    if not self._add_leaves(
+                        member,
+                        name,
+                        base + field["offset"] + i * value["size"],
+                        built,
+                        depth + 1,
+                        False,
+                        value["id"],
+                    ):
+                        return False
+            return True
+        kind = _scalar_kind(value["form"])
+        if value["size"] == 0:
+            built["error"] = f"field {prefix}{field['name']} embeds a variable-size type"
+            return False
+
+        def flat() -> None:
+            out.append(
+                {
+                    "name": prefix + field["name"],
+                    "offset": base + field["offset"],
+                    "size": value["size"] * field["count"],
+                    "reference": False,
+                    "optional": False,
+                    "derived": derived,
+                    "enumeration": None,
+                    "def": 0,
+                }
+            )
+
+        if kind == "float" and value["size"] not in (4, 8):
+            flat()
+            return True
+        if (kind != "hex" and value["size"] not in (1, 2, 4, 8) and kind != "float") or (
+            kind == "bool" and value["size"] != 1
+        ):
+            flat()
+            return True
+        if field["count"] > 1 and value["size"] == 1 and kind in ("uint", "hex"):
+            out.append(
+                {
+                    "name": prefix + field["name"],
+                    "offset": base + field["offset"],
+                    "size": field["count"],
+                    "reference": False,
+                    "optional": False,
+                    "derived": derived,
+                    "enumeration": None,
+                    "def": 0,
+                }
+            )
+            return True
+        if kind == "hex":
+            flat()
+            return True
+        for i in range(field["count"]):
+            if len(out) >= 1 << 16:
+                built["error"] = (
+                    f"field {prefix}{field['name']}: the type has too many values"
+                )
+                return False
+            out.append(
+                {
+                    "name": prefix
+                    + field["name"]
+                    + (f".{i}" if field["count"] > 1 else ""),
+                    "offset": base + field["offset"] + i * value["size"],
+                    "size": value["size"],
+                    "reference": False,
+                    "optional": False,
+                    "derived": derived,
+                    "enumeration": value["id"] if kind == "enum" else None,
+                    "def": 1
+                    if top_level and owner == self.handle_field and field["name"] == "count"
+                    else 0,
+                }
+            )
+        return True
+
+    def enumeration_name(self, enum_type: int, value: int) -> str | None:
+        info = self.type_info(enum_type)
+        if info is None or info["form"] != FORM_ENUM:
+            return None
+        items: list[tuple[str, int]] = []
+        for child in self.children(enum_type):
+            record = self._by_handle.get(child)
+            if (
+                record is None
+                or self._kind_word(child) != NODE_ENUMERATOR
+                or record["payload_size"] < 8
+            ):
+                continue
+            items.append(
+                (self.name_of(child), struct.unpack_from("<Q", self._payload_of(child), 0)[0])
+            )
+        items.sort(key=lambda item: (item[1], item[0]))
+        head = self.path_of(enum_type) + "."
+        if not info["bitset"]:
+            for name, item in items:
+                if item == value:
+                    return head + name
+            return None
+        text = ""
+        rest = value
+        for name, item in items:
+            if item == 0 or (item & rest) != item:
+                continue
+            text += head if text == "" else "|"
+            text += name
+            rest &= ~item
+        return text if rest == 0 else None
+
+    # -- the aliases (core/meta/types.cpp) ----------------------------------------------------------
+
+    def alias_target(self, alias: int) -> int | None:
+        record = self._by_handle.get(alias)
+        type_handle = self._spec[alias][0] if record is not None else HANDLE32_NONE
+        if record is None or type_handle == HANDLE32_NONE:
+            return None
+        layout = self.layout(type_handle)
+        if layout["error"] or layout["raw"]:
+            return None
+        payload = self._payload_of(alias)
+        for leaf in layout["leaves"]:
+            if leaf["reference"] and leaf["name"] == "target" and leaf["offset"] + 8 <= len(payload):
+                target = struct.unpack_from("<Q", payload, leaf["offset"])[0]
+                if target != HANDLE_NONE and self._by_handle.get(target) is not None:
+                    return target
+        return None
+
+    def collect_aliases(self, module: int) -> dict[str, Any]:
+        names: list[tuple[str, str]] = []
+        handles: list[int] = []
+        for child in self.children(module):
+            if not self.is_alias(child):
+                continue
+            target = self.alias_target(child)
+            if target is None:
+                continue
+            names.append((self.name_of(child), self.path_of(target)))
+            handles.append(child)
+        return {"names": names, "handles": handles}
+
+    def written_paths(self, handle: int) -> list[str]:
+        out = list(self.decode_paths(handle))
+        for target, role, _, _, _ in self._refs_of(handle):
+            if target != HANDLE_NONE and self._by_handle.get(target) is not None:
+                out.append(self.path_of(target))
+            if role is not None and self._by_handle.get(role) is not None:
+                out.append(self.path_of(role))
+        return out
+
+    def decode_paths(self, handle: int) -> list[str]:
+        out: list[str] = []
+        record = self._by_handle.get(handle)
+        type_handle = self._spec[handle][0] if record is not None else HANDLE32_NONE
+        if record is None or type_handle == HANDLE32_NONE:
+            return out
+        layout = self.layout(type_handle)
+        if layout["error"] or layout["raw"]:
+            return out
+        payload = self._payload_of(handle)
+        value = len(payload)
+        fits = value == layout["prefix"] if layout["fixed"] else value >= layout["prefix"]
+        if not fits:
+            return out
+        at = 0
+        for leaf in layout["leaves"]:
+            if any(payload[i] != 0 for i in range(at, leaf["offset"])):
+                return out
+            at = leaf["offset"] + leaf["size"]
+        if any(payload[i] != 0 for i in range(at, layout["prefix"])):
+            return out
+        for leaf in layout["leaves"]:
+            if leaf["derived"]:
+                continue
+            if leaf["reference"]:
+                target = struct.unpack_from("<Q", payload, leaf["offset"])[0]
+                if target == HANDLE_NONE:
+                    continue
+                if self._by_handle.get(target) is None:
+                    return out
+                out.append(self.path_of(target))
+            elif leaf["enumeration"] is not None:
+                value = int.from_bytes(
+                    payload[leaf["offset"] : leaf["offset"] + leaf["size"]], "little"
+                )
+                if value == 0:
+                    continue
+                named = self.enumeration_name(leaf["enumeration"], value)
+                if named is None:
+                    return out
+                out.append(named)
+        return out
+
+    def alias_for(self, aliases: list[tuple[str, str]], path: str) -> int:
+        best = -1
+        for i, (_, target) in enumerate(aliases):
+            inside = path == target or (
+                len(path) > len(target)
+                and path[: len(target)] == target
+                and path[len(target)] == "."
+            )
+            if inside and (best < 0 or len(target) > len(aliases[best][1])):
+                best = i
+        if best < 0:
+            return -1
+        alias = aliases[best]
+        return (
+            best
+            if 1 + len(alias[0]) + len(path) - len(alias[1]) < len(path)
+            else -1
+        )
+
+    def alias_uses(self) -> list[tuple[int, int]]:
+        out: list[tuple[int, int]] = []
+        for index in range(1, self._slot_count):
+            handle = self._handle_of_index(index)
+            if handle is None or self.is_alias(handle) or self.is_ground(handle):
+                continue
+            record = self._by_handle[handle]
+            if self.type_info(self._spec[handle][0]) is None:
+                continue
+            scope = self.scope_of(handle)
+            if scope is None:
+                continue
+            aliases = self._alias_scopes.get(scope)
+            if aliases is None:
+                aliases = self.collect_aliases(scope)
+                self._alias_scopes[scope] = aliases
+            if not aliases["names"]:
+                continue
+            seen: set[int] = set()
+            for path in self.written_paths(handle):
+                i = self.alias_for(aliases["names"], path)
+                if i >= 0 and i not in seen:
+                    seen.add(i)
+                    out.append((aliases["handles"][i], handle))
+            del record
+        return out
+
+    def _handle_of_index(self, index: int) -> int | None:
+        kind, gen, slot = self._entries[index]
+        if slot == 0:
+            return None
+        handle = (gen << 20) | index
+        return handle if self.live(handle) else None
+
+
 class Layers:
     """The scene of one image, layer by layer: computed on demand, once each, reportable.
 
@@ -2135,7 +3080,7 @@ class Layers:
     pins the assembled document)."""
 
     def __init__(
-        self, inspector: Inspector, report: Report | None = None, packing: bool = True
+        self, inspector: SceneSource, report: Report | None = None, packing: bool = True
     ) -> None:
         self.inspector = inspector
         self.report = report
@@ -2299,17 +3244,19 @@ class Layers:
 
 
 def export_world(
-    inspector: Inspector, report: Report | None = None, packing: bool = True
+    inspector: SceneSource, report: Report | None = None, packing: bool = True
 ) -> dict[str, Any]:
     """The scene input of one image, deterministic: the same image always yields the same document.
 
     ``packing=False`` is the client half: what rxf-reader.js computes in the browser from
     raw bytes — the same document without the slow duct packing (empty ``bundles``, empty
-    ``stubs``). test_reader_js pins the two languages to the same output on this face."""
+    ``stubs``). test_reader_js pins the two languages to the same output on this face.
+    The source is the world's ``Inspector`` or the v7 one-arena image (``ArenaScene``,
+    docs/32): the same scene from whichever storage carries it."""
     return Layers(inspector, report, packing).document()
 
 
-def scene_json(inspector: Inspector) -> str:
+def scene_json(inspector: SceneSource) -> str:
     """The scene document as canonical text (sorted keys, indent 1, trailing newline): what the
     tests pin byte for byte and what /world/scene.json serves."""
     return json.dumps(export_world(inspector), indent=1, sort_keys=True) + "\n"

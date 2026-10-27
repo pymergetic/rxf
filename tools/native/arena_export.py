@@ -187,6 +187,8 @@ class World(Protocol):
 
     def get(self, handle: int, /) -> dict[str, Any]: ...
 
+    def layout(self, type: int, /) -> dict[str, Any]: ...
+
 
 def export_world(world: World, limit: int = 256 * 1024 * 1024) -> ObjectArena:
     """The world as an arena image: root "boot", the world's tree under it.
@@ -215,6 +217,7 @@ def place_world(
         _place(world, child, arena.root_handle, arena, handles)
     relations = _relations(world, handles, arena)
     _specs(world, handles, arena)
+    _relink_payloads(world, handles, arena)
     _genesis(arena, relations)
     arena.journal_commit()
     arena.verify()
@@ -281,6 +284,49 @@ def _relations(world: World, handles: dict[int, int], arena: ObjectArena) -> int
 
     walk(0)
     return relations
+
+
+def _relink_payloads(world: World, handles: dict[int, int], arena: ObjectArena) -> None:
+    """The declared reference slots of every payload, remapped to arena handles (pass 4).
+
+    A reference slot holds one handle, 8 bytes — which slots those are is the object's
+    type layout (the same walk `_reference_slots` reads in world/export.py). In the
+    arena a handle is an arena handle (docs/32 2), zero-extended like the relation
+    rows' `target`/`role`; every other value byte stays what the world says it is.
+    A slot whose target the walk never placed is a dangling ref and refuses the
+    export, like a dangling relation."""
+    placed = {0: arena.root_handle, **handles}
+
+    def walk(source: int) -> None:
+        info = world.get(source)
+        data = bytearray(info.get("payload") or b"")
+        type_handle = info.get("type")
+        if data and type_handle is not None and type_handle != HANDLE_NONE_64:
+            leaves = world.layout(type_handle).get("leaves") or []
+            head = MODULE_SIZE if world.children(source) else 0
+            changed = False
+            for leaf in leaves:
+                if not leaf.get("reference"):
+                    continue
+                at = int(leaf["offset"])
+                if at + 8 > len(data):
+                    continue
+                (was,) = struct.unpack_from("<Q", data, at)
+                if was == HANDLE_NONE_64:
+                    continue
+                struct.pack_into("<Q", data, at, _handle(placed, was))
+                changed = True
+            if changed:
+                room = arena.load(placed[source])[7]
+                value = bytes(data).ljust(room - head, b"\0")
+                arena.set_payload(
+                    placed[source],
+                    EMPTY_MODULE_HEAD + value if head else value,
+                )
+        for child in world.children(source):
+            walk(child)
+
+    walk(0)
 
 
 def flags_word(info: dict[str, Any]) -> int:
