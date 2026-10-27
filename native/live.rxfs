@@ -313,6 +313,20 @@ macro m_slot(Zh) {
     m_entry(Zh & 1048575);
 }
 
+# pack_i(index) -> hx_r: the handle32 this index carries now, 0 when the slot is
+# dead. A walk over the object index addresses objects by handle (docs/32 1.2),
+# never by bare index - the generation is what makes a stale handle fail.
+macro m_pack_i(Zi) {
+    var hx_off;
+    m_entry(Zi);
+    hx_off = load64(sp_r + 8);
+    if (hx_off == 0) {
+        hx_r = 0;
+    } else {
+        hx_r = ((load16(sp_r + 2) & 4095) << 20) | (Zi & 1048575);
+    }
+}
+
 # live(handle) -> lv_r (1/0)
 macro m_live(Zh) {
     var lv_ix, lv_gn, lv_off, lv_gen;
@@ -490,6 +504,8 @@ sub s_fill(Zh_fill, Zw_fill) {
     var f_spc;
     var f_name;
     var f_rows;
+    var f_type;
+    var f_par;
     callsub s_rec(Zh_fill);
     f_rec = ce_r;
     fv_r = 0;
@@ -503,8 +519,18 @@ sub s_fill(Zh_fill, Zw_fill) {
         if (f_name == 0) {
             f_name = ab + 32;
         }
-        store64(Zw_fill + 0, load32(f_spc + 0));
-        store64(Zw_fill + 8, load32(f_rec + 8));
+        # An absent handle is the 64-bit all-ones the rest of the pump compares
+        # against, not the 32-bit HANDLE32_NONE of the record.
+        f_type = load32(f_spc + 0);
+        f_par = load32(f_rec + 8);
+        if (f_type == 4294967295) {
+            f_type = 0xFFFFFFFFFFFFFFFF;
+        }
+        if (f_par == 4294967295) {
+            f_par = 0xFFFFFFFFFFFFFFFF;
+        }
+        store64(Zw_fill + 0, f_type);
+        store64(Zw_fill + 8, f_par);
         store64(Zw_fill + 16, load32(f_rec + 20));
         store64(Zw_fill + 24, load64(f_spc + 16));
         store64(Zw_fill + 32, f_name - ab);
@@ -971,7 +997,7 @@ macro m_init(Zbase, Zcomm, Zlim, Zcap) {
             store16(ab + 4128 + 16, 5);
             store16(ab + 4128 + 18, 1);
             store64(ab + 4128 + 24, in_syms);
-            asyms = in_syms + 24;
+            asyms = ab + in_syms + 24;
 
             # sys/specs: one semantic row per index (docs/32 5). It is entry 2.
             in_specs = in_syms + 24 + 8 + 4 * 32 + 256;
@@ -981,7 +1007,7 @@ macro m_init(Zbase, Zcomm, Zlim, Zcap) {
             store16(ab + 4128 + 32, 4);
             store16(ab + 4128 + 34, 1);
             store64(ab + 4128 + 40, in_specs);
-            aspec = in_specs + 24;
+            aspec = ab + in_specs + 24;
             in_at = 0;
             while (in_at < in_slots) {
                 store32(aspec + 24 * in_at, 4294967295);
@@ -1020,7 +1046,7 @@ sub s_attach() {
                                     if (load64(sp_r + 8) == 4096) {
                                         if (load16(ab + 4096) == load16(sp_r)) {
                                             m_entry(1);
-                                            asyms = load64(sp_r + 8) + 24;
+                                            asyms = ab + load64(sp_r + 8) + 24;
                                             aspec = 0;
                                             at_r = 0;
                                         }
@@ -1805,10 +1831,13 @@ sub s_home(Zh_home) {
     var hm_c;
     callsub s_cell(Zh_home);
     hm_c = ce_r;
-    callsub s_name(Zh_home);
-    callsub s_len(nm_r);
-    callsub s_name_hash(load64(hm_c + 8), nm_r, len_r);
-    hm_r = nh_r;
+    hm_r = 0;
+    if (hm_c != 0) {
+        callsub s_name(Zh_home);
+        callsub s_len(nm_r);
+        callsub s_name_hash(load64(hm_c + 8), nm_r, len_r);
+        hm_r = nh_r;
+    }
 }
 
 # find_child(parent, p, n) -> fc_r (handle or kNone)
@@ -1852,30 +1881,34 @@ sub s_table_ins(Zh_table_ins) {
     var tin_n;
     callsub s_cell(Zh_table_ins);
     tin_c = ce_r;
-    callsub s_name(Zh_table_ins);
-    callsub s_len(nm_r);
-    tin_n = len_r;
-    tin_r = 1;
-    if (Zh_table_ins >= 0xFFFFFFF0) {
-        tin_r = 0;
-    }
-    if (load32(ab + 4120) * 2 > slts) {
-        tin_r = 0;
-    }
-    if (tin_r == 1) {
-        callsub s_find_child(load64(tin_c + 8), nm_r, tin_n);
-        if (fc_r != 0xFFFFFFFFFFFFFFFF) {
+    tin_r = 0;
+    if (tin_c != 0) {
+        # No cell, no name to insert: a dead slot is not a lookup entry.
+        callsub s_name(Zh_table_ins);
+        callsub s_len(nm_r);
+        tin_n = len_r;
+        tin_r = 1;
+        if (Zh_table_ins >= 0xFFFFFFF0) {
             tin_r = 0;
         }
-    }
-    if (tin_r == 1) {
-        tin_mask = slts - 1;
-        callsub s_name_hash(load64(tin_c + 8), nm_r, tin_n);
-        tin_i = nh_r & tin_mask;
-        while (load32(taddr + 4 * tin_i) != 0) {
-            tin_i = (tin_i + 1) & tin_mask;
+        if (load32(ab + 4120) * 2 > slts) {
+            tin_r = 0;
         }
-        store32(taddr + 4 * tin_i, Zh_table_ins + 1);
+        if (tin_r == 1) {
+            callsub s_find_child(load64(tin_c + 8), nm_r, tin_n);
+            if (fc_r != 0xFFFFFFFFFFFFFFFF) {
+                tin_r = 0;
+            }
+        }
+        if (tin_r == 1) {
+            tin_mask = slts - 1;
+            callsub s_name_hash(load64(tin_c + 8), nm_r, tin_n);
+            tin_i = nh_r & tin_mask;
+            while (load32(taddr + 4 * tin_i) != 0) {
+                tin_i = (tin_i + 1) & tin_mask;
+            }
+            store32(taddr + 4 * tin_i, Zh_table_ins + 1);
+        }
     }
 }
 
@@ -1940,10 +1973,11 @@ sub s_build_table() {
     bt_n = load32(ab + 4120);
     bt_h = 0;
     while (bt_h < bt_n & bt_r == 1) {
-        callsub s_cell(bt_h);
+        m_pack_i(bt_h);
+        callsub s_cell(hx_r);
         if (ce_r != 0) {
             if (load64(ce_r + 8) != 0xFFFFFFFFFFFFFFFF) {
-                callsub s_table_ins(bt_h);
+                callsub s_table_ins(hx_r);
                 bt_r = tin_r;
             }
         }
@@ -4334,7 +4368,8 @@ macro m_check_all() {
             }
             ck_h = 0;
             while (ck_h < ck_n & ck_r == 1) {
-                callsub s_cell(ck_h);
+                m_pack_i(ck_h);
+                callsub s_cell(hx_r);
                 ck_c = ce_r;
                 if (ck_c != 0) {
                     if (load64(ck_c + 8) != 0xFFFFFFFFFFFFFFFF) {
@@ -4733,11 +4768,12 @@ macro m_serve(Zop, Zarg, Zrq, Zrl, Zrs) {
                 se_at = load32(Zrq + 8);
                 se_count = 0;
                 while (se_at < load32(ab + 4120) & se_count < 120) {
-                    callsub s_cell(se_at);
+                    m_pack_i(se_at);
+                    callsub s_cell(hx_r);
                     se_c = ce_r;
                     if (se_c != 0) {
                         if (load64(se_c + 8) == load64(Zrq)) {
-                            store64(Zrs + 8 + 8 * se_count, se_at);
+                            store64(Zrs + 8 + 8 * se_count, hx_r);
                             se_count = se_count + 1;
                         }
                     }
@@ -5175,7 +5211,7 @@ fn live_pump(context, area) {
     var ap_i, ap_k, ap_d, ap_ab, ap_ah, ap_alim, ap_acomm, ap_aneed, ap_aj;
     var ap_alb, ap_alc, ap_all, ap_amark, ap_abitmap, ap_aused, ap_fixups, ap_pos, ap_size, ap_go, ap_tail, ap_padded;
     var gn_r, ar_r, ws_r, bw_r, mb_r2, tmp8_r, tmp32_r;
-    var cva, cvb, cvc, asyms, aspec, arel, fv_r, rc_r, rt_at, rt_n;
+    var cva, cvb, cvc, asyms, aspec, arel, fv_r, rc_r, rt_at, rt_n, hx_r;
     var cn_at, it_id, sr_at, sf_r, sg_r, si_r, st_r, sk_r, sr2_r, sn2_r;
     var la_r, ru_r, ri_r, rl2_r, pk_r, pi_r, pi2_r;
     var cb_r, en_r, disp_r, mob_r, so_r, pi_r, pi_id, pt_r;
