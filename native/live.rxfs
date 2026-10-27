@@ -4717,6 +4717,9 @@ macro m_run_job(Zjob) {
     jguard = 0;
     rj_ph = 2;
     if (Zjob == 1) {
+        # Job 1 is the dump: produce the canonical bytes first, then let the phase
+        # machine carry them (em_r, em_len) through the rest.
+        m_emit();
         jemit_next = 11;
         rj_ph = 0;
     } else {
