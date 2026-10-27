@@ -18,6 +18,8 @@ from pymergetic.rxftk.live import Refused, frames, physical
 from pymergetic.rxftk.live.client import Declined, LiveError
 from pymergetic.rxftk.live.harness import HostImage
 
+import link
+
 from .support import resolved
 
 STARTER = Path(__file__).parents[1] / "starter"
@@ -26,7 +28,10 @@ NONE = 0xFFFFFFFFFFFFFFFF
 
 @pytest.fixture(scope="module")
 def starter() -> bytes:
-    return tree.load(STARTER).compact().to_bytes()
+    # The one v7 arena the linked image carries: the host engine is on that model
+    # now, and a fixture built from the v6 world (Image.compact().to_bytes()) is a
+    # fixture for a model nothing serves any more.
+    return link.arena_of(tree.load(STARTER))
 
 
 @pytest.fixture
