@@ -73,8 +73,18 @@ the version byte is the gate.
 | 0x08 | 4 | `parent` | handle |
 | 0x0c | 4 | `link` | next sibling in the parent's ring |
 | 0x10 | 4 | `refs` | reference count |
-| 0x14 | 4 | `payload` | payload length in bytes |
+| 0x14 | 4 | `payload` | payload room in bytes (see below) |
 | 0x18 | 8 | payload bytes … (inline, `ceil(payload/8)` slots) |
+
+`payload` is the length of the value when the span fits it exactly, and the whole
+span's room when it does not. A span is taken either exactly or with 40 or more
+bytes to spare, because a smaller remainder cannot carry the `FREE` ring links and
+would be a fragment nobody can ever hand out again (1.3); when that happens the
+remainder is absorbed into the object and the room covers it. So a reader gets the
+value's length back exactly for the common case, and the padded room for the
+absorbed one — a round trip through this model is therefore byte-preserving but not
+length-preserving. If a value has to carry its own length, it says so in its
+payload, the way a blob's `byte_count` does.
 
 ```
 0x00 | 00 01 00 00 03 00 42 00 | kind=Module, gen=0, flags=RW, name="sys.objects"

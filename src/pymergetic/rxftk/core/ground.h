@@ -469,7 +469,11 @@ typedef struct PYMERGETIC_RXF_ALIGNED8 pymergetic_rxf_object {
     uint32_t parent;  /* handle of the parent object */
     uint32_t link;    /* next sibling under the parent */
     uint32_t refs;    /* reference count */
-    uint32_t payload; /* payload length in bytes */
+    uint32_t payload; /* the payload room in bytes: the length of the value when the
+                       * span fits exactly, and the whole span's room when a remainder
+                       * too small to be a record was absorbed into it. The span is
+                       * 24 + ceil(payload/8); see docs/32 1.2 for what a reader can
+                       * recover from this field. */
 } pymergetic_rxf_object;
 
 PYMERGETIC_RXF_GROUND_ASSERT(sizeof(pymergetic_rxf_object) == 24, "object header is 24 bytes");
