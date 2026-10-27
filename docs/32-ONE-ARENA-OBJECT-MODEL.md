@@ -400,6 +400,26 @@ the walk simply would not have placed it where it sits, so the image is
 *compacted* before it is dumped - the pass that slides records down to a frontier,
 which is what `docs/20` S7/S8 describe and what the compaction proof holds to.
 
+**The recipe a dump follows**, which is what makes two dumps agree byte for byte:
+`place_world` creates objects in the order they get their index, so a dump that
+replays that order lands the same bytes. Concretely:
+
+1. lay down the superblock and the two objects that are fixed: the object index at
+   byte 4096 (entry 0) and `sys/syms` (entry 1) — they are the skeleton, not the
+   walk's business;
+2. walk the source **in index order** from 2, and create each object into the
+   output with the same name, storage role and payload room, interning its name as
+   it goes so the symbol ids match;
+3. write the semantic rows in a second pass, exactly as the writer does — a row
+   cannot be written until `sys/specs` exists, and `sys/specs` is itself an object
+   the walk makes at its own index;
+4. nothing else. The relation tables come along as ordinary objects of
+   `sys/relations`, and the genesis tree as ordinary objects of the root.
+
+The consequence worth naming: the order is the **index order**, not the tree
+order. A tree walk is how the writer *decides* what to write; the index is the
+order it lands in, and that is what the bytes record.
+
 The digest is the digest of those bytes. It is therefore the digest of the world
 and nothing else, which is what makes a founding commit able to pin it.
 

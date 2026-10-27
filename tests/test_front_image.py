@@ -124,14 +124,21 @@ def value_at(channel: lw.Channel, path: str) -> int:
     assert machine.linked.live is not None
     arena_at, _ = machine.linked.live.regions["arena"]
     arena = channel.arena()
-    image = Image.from_bytes(arena)
+    image = running_image()
     handle = image.resolve(path)
     assert handle is not None
     type_handle = image.get(handle)["type"]
     values = dict(image.fields(type_handle))
     variable = "Variable" in values.get("flags", "")
     prefix = image.layout(type_handle)["prefix"] if variable else 0
-    return arena_at + link.arena_cells(arena)[handle] + link.CELL_BYTES + prefix
+    # A handle is image-local (docs/32 1.2): the world handle names the object in
+    # the world, the map says which arena handle32 it became, and locate gives the
+    # byte offset of its value in that arena.
+    from pymergetic.rxftk.core.arena import ObjectArena
+
+    arena_handle = link.arena_map(image)[handle]
+    _record, value = ObjectArena.attach(arena).locate(arena_handle)
+    return arena_at + value + prefix
 
 
 @pytest.fixture(scope="module")

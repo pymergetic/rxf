@@ -293,27 +293,6 @@ void bind_arena(nb::module_ &m) {
              },
              nb::arg("handle"), nb::arg("type"), nb::arg("flags"), nb::arg("index"),
              nb::arg("generation"))
-        /* The semantic face (docs/32 5): the row of sys/specs for a handle, as
-         * (type, flags, index, generation), and the journaled store. */
-        .def("spec",
-             [](HostObjectArena &self, uint32_t handle) {
-                 pymergetic_rxf_spec row{};
-                 check(self.arena.spec(handle, &row));
-                 return nb::make_tuple(row.type, row.flags, row.index, row.generation);
-             },
-             nb::arg("handle"))
-        .def("set_spec",
-             [](HostObjectArena &self, uint32_t handle, uint32_t type, uint32_t flags,
-                uint32_t index, uint64_t generation) {
-                 pymergetic_rxf_spec row{};
-                 row.type = type;
-                 row.flags = flags;
-                 row.index = index;
-                 row.generation = generation;
-                 check(self.arena.set_spec(handle, row));
-             },
-             nb::arg("handle"), nb::arg("type"), nb::arg("flags"), nb::arg("index"),
-             nb::arg("generation"))
         /* The tree and the relations (docs/32 2): the dotted path of an object, and
          * the rows of the relation table named after it. */
         .def("path_of",

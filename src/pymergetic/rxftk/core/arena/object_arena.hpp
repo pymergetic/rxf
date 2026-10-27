@@ -10,6 +10,7 @@
  */
 
 #include <pymergetic/rxftk/core/arena/arena.hpp>
+#include <pymergetic/rxftk/core/ground.h>
 
 namespace pymergetic::rxf::core::arena {
 
@@ -82,8 +83,7 @@ class ObjectArena {
      * module, empty for anything that is not one (a leaf cannot have children). The
      * contract of image(): when the buffer is too small (or out == nullptr) the count
      * it needs is reported in *written and the call answers OutOfMemory. */
-    Status children(uint32_t handle, uint32_t *out, uint32_t capacity,
-                    uint32_t *written);
+    Status children(uint32_t handle, uint32_t *out, uint32_t capacity, uint32_t *written);
 
     /* The record a handle names, checked against the index entry and the record
      * itself; a stale handle answers BadHandle before it touches payload bytes. */
@@ -169,12 +169,11 @@ class ObjectArena {
      * before the write (docs/32 3, step 4). `j_set` is the field store, `j_fill`
      * and `j_copy` the region writes; on an arena without a journal they just
      * store. */
-    template <typename T>
-    Status j_set(T *dst, T value) {
-        Status st = journal_before_write(
-            static_cast<uint64_t>(reinterpret_cast<uint8_t *>(dst) -
-                                  static_cast<uint8_t *>(memory_.base)),
-            sizeof(T));
+    template <typename T> Status j_set(T *dst, T value) {
+        Status st =
+            journal_before_write(static_cast<uint64_t>(reinterpret_cast<uint8_t *>(dst) -
+                                                       static_cast<uint8_t *>(memory_.base)),
+                                 sizeof(T));
         if (st != Status::Ok)
             return st;
         *dst = value;

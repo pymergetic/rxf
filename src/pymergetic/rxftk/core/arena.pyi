@@ -1,6 +1,5 @@
 """The ground layout."""
 
-from typing import overload
 
 
 ARENA_VERSION: int = 6
@@ -156,16 +155,8 @@ class ObjectArena:
 
     def set_flags(self, handle: int, flags: int) -> None: ...
 
-    @overload
     def spec(self, handle: int) -> tuple: ...
 
-    @overload
-    def spec(self, handle: int) -> tuple: ...
-
-    @overload
-    def set_spec(self, handle: int, type: int, flags: int, index: int, generation: int) -> None: ...
-
-    @overload
     def set_spec(self, handle: int, type: int, flags: int, index: int, generation: int) -> None: ...
 
     def path_of(self, handle: int) -> str: ...

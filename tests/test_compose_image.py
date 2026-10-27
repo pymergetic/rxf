@@ -57,24 +57,24 @@ REQUEST_AT_SHIFT = 0x100  # the request lives in the work region behind the look
 WORK_AT_SHIFT = 0x100000
 
 
-def cell_of_arena(arena: bytes, handle: int) -> dict:
-    """The raw cell of a handle: the ground the in-image reader walks the arena to."""
-    cells = link.arena_cells(arena)
-    off = cells[handle]
-    type_h, parent, payload_size, _gen, name_off, flags, ref_count, _f, _i, _r = (
-        struct.unpack_from("<QQQQQIIQII", arena, off)
-    )
-    refs_off = off + 64 + ((payload_size + 15) & ~15)
-    refs = [
-        struct.unpack_from("<QQ", arena, refs_off + 24 * i) for i in range(ref_count)
-    ]
+def cell_of_arena(arena: bytes, placed: dict[int, int], handle: int) -> dict:
+    """The world cell of a handle as the arena holds it (docs/32 5.3): the record
+    and its row of sys/specs, with the rows of its relation table."""
+    from pymergetic.rxftk.core.arena import ObjectArena
+
+    book = ObjectArena.attach(arena)
+    arena_handle = placed[handle]
+    _kind, _gen, _flags, name, parent, _link, _refs, payload_size = book.load(arena_handle)
+    type_h, flags, _index, _generation = book.spec(arena_handle)
+    rows = book.refs_of(arena_handle)
+    refs = [(target, role) for target, role, _kind2, _binding, _index2 in rows]
     return {
         "type": type_h,
         "parent": parent,
-        "name_off": name_off,
+        "name_off": name,
         "payload_size": payload_size,
-        "flags_word": flags | (ref_count << 32),
-        "ref_count": ref_count,
+        "flags_word": flags | (len(rows) << 32),
+        "ref_count": len(rows),
         "refs": refs,
     }
 
@@ -181,7 +181,8 @@ def test_the_image_composes_its_graphs_as_the_host_composer_does(running, base: 
     arena = channel.arena()
     live_image = Image.from_bytes(arena)
     targets = graph_handles(live_image)
-    reference = {target: cell_of_arena(arena, target) for target in targets}
+    placed = link.arena_map(live_image)
+    reference = {target: cell_of_arena(arena, placed, target) for target in targets}
     c = compose.Composer(live_image)
 
     for target in targets:

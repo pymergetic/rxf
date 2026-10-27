@@ -186,6 +186,16 @@ def arena_of(image: Image) -> bytes:
     return arena_export.place_world(programs.filled(image))[0].to_bytes()
 
 
+def arena_map(image: Image) -> dict[int, int]:
+    """Where each world object landed in that arena: world handle -> arena handle32.
+
+    A handle is image-local (docs/32 1.2), so a reader that holds the world's
+    handle needs this to name the same object in the arena. It is derived, not
+    stored: the path is the identity across images."""
+    _, placed = arena_export.place_world(programs.filled(image))
+    return dict(placed)
+
+
 def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) -> Linked:
     """The image as it sits in memory at ``base`` for one machine."""
     if machine not in MACHINES:
