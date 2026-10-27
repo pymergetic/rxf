@@ -725,6 +725,204 @@ Status ObjectArena::set_spec(uint32_t handle, const pymergetic_rxf_spec &row) {
     return j_copy(&rows[index], &row, sizeof(row));
 }
 
+uint32_t ObjectArena::handle_count() const {
+    const pymergetic_rxf_slots *slots = index_table();
+    return model_ready(slots) ? slots->count : 0;
+}
+
+/* One child of a module whose name is exactly `length` bytes of `text`. The walk
+ * compares in place: a name that is a segment of a dotted path never has to be
+ * copied out of the table it is written in. */
+Status ObjectArena::child_named(uint32_t parent, const char *text, uint32_t length,
+                                uint32_t *handle) {
+    *handle = PYMERGETIC_RXF_HANDLE32_NONE;
+    if (text == nullptr || length == 0)
+        return Status::BadName;
+    pymergetic_rxf_object *module = nullptr;
+    Status st = load(parent, &module);
+    if (st != Status::Ok)
+        return st;
+    if (module->kind != PYMERGETIC_RXF_OBJ_MODULE)
+        return Status::BadImage;
+    uint32_t walk = module_of(module)->children;
+    while (walk != PYMERGETIC_RXF_HANDLE32_NONE) {
+        pymergetic_rxf_object *child = nullptr;
+        st = load(walk, &child);
+        if (st != Status::Ok)
+            return st;
+        if (child->name != PYMERGETIC_RXF_SYMS_ANONYMOUS) {
+            const char *held = nullptr;
+            uint32_t size = 0;
+            st = symbol(child->name, &held, &size);
+            if (st != Status::Ok)
+                return st;
+            if (size == length && mem::compare(held, text, length) == 0) {
+                *handle = walk;
+                return Status::Ok;
+            }
+        }
+        walk = child->link;
+    }
+    return Status::Ok;
+}
+
+/* Does `name` spell the path of `handle`? The segments are compared from the
+ * object up, so the path never has to be materialized: no buffer, and a name of
+ * the wrong length is refused on its first word. */
+bool ObjectArena::path_matches(uint32_t handle, const char *name, uint32_t length) {
+    if (name == nullptr || length == 0)
+        return false;
+    const char *const start = name;
+    const char *end = name + length;
+    uint32_t walk = handle;
+    while (end != start) {
+        /* More segments than the tree has: the root is the image, not a segment. */
+        if (walk == PYMERGETIC_RXF_HANDLE32_NONE || walk == super()->root)
+            return false;
+        pymergetic_rxf_object *part = nullptr;
+        if (load(walk, &part) != Status::Ok)
+            return false;
+        if (part->name == PYMERGETIC_RXF_SYMS_ANONYMOUS)
+            return false; /* an unnamed object has no path segment */
+        const char *segment = end;
+        while (segment != start && segment[-1] != '.')
+            --segment;
+        const auto size = static_cast<uint32_t>(end - segment);
+        const char *text = nullptr;
+        uint32_t held = 0;
+        if (symbol(part->name, &text, &held) != Status::Ok)
+            return false;
+        if (held != size || mem::compare(text, segment, size) != 0)
+            return false;
+        walk = part->parent;
+        end = (segment == start) ? segment : segment - 1; /* the dot before the segment */
+    }
+    return walk == super()->root;
+}
+
+/* The rows of `sys/relations/<path>` (docs/32 2), found by matching the table's
+ * name against the object's own path - a comparison that walks the tree instead
+ * of building the path first. */
+Status ObjectArena::relation_rows(uint32_t handle, const pymergetic_rxf_ref **rows,
+                                  uint32_t *count) {
+    *rows = nullptr;
+    *count = 0;
+    uint32_t sys = PYMERGETIC_RXF_HANDLE32_NONE;
+    uint32_t relations = PYMERGETIC_RXF_HANDLE32_NONE;
+    Status st = child_named(super()->root, "sys", 3, &sys);
+    if (st != Status::Ok)
+        return st;
+    if (sys == PYMERGETIC_RXF_HANDLE32_NONE)
+        return Status::Ok; /* no sys/, so nothing has refs */
+    st = child_named(sys, "relations", 9, &relations);
+    if (st != Status::Ok)
+        return st;
+    if (relations == PYMERGETIC_RXF_HANDLE32_NONE)
+        return Status::Ok; /* no tables at all */
+    pymergetic_rxf_object *module = nullptr;
+    st = load(relations, &module);
+    if (st != Status::Ok)
+        return st;
+    uint32_t walk = module_of(module)->children;
+    while (walk != PYMERGETIC_RXF_HANDLE32_NONE) {
+        pymergetic_rxf_object *table = nullptr;
+        st = load(walk, &table);
+        if (st != Status::Ok)
+            return st;
+        if (table->name != PYMERGETIC_RXF_SYMS_ANONYMOUS) {
+            const char *name = nullptr;
+            uint32_t size = 0;
+            st = symbol(table->name, &name, &size);
+            if (st != Status::Ok)
+                return st;
+            if (path_matches(handle, name, size)) {
+                *rows = reinterpret_cast<const pymergetic_rxf_ref *>(
+                    reinterpret_cast<const uint8_t *>(table) + sizeof(pymergetic_rxf_object));
+                *count = table->payload / sizeof(pymergetic_rxf_ref);
+                return Status::Ok;
+            }
+        }
+        walk = table->link;
+    }
+    return Status::Ok; /* the object has no table: no refs */
+}
+
+Status ObjectArena::path_of(uint32_t handle, char *out, uint32_t capacity, uint32_t *written) {
+    *written = 0;
+    pymergetic_rxf_object *record = nullptr;
+    Status st = load(handle, &record); /* the handle is checked first */
+    if (st != Status::Ok)
+        return st;
+
+    /* The root is the image, not a path segment: its path is empty. */
+    uint64_t total = 0;
+    uint32_t walk = handle;
+    uint32_t depth = 0;
+    while (walk != super()->root) {
+        pymergetic_rxf_object *part = nullptr;
+        st = load(walk, &part);
+        if (st != Status::Ok)
+            return st;
+        if (part->name != PYMERGETIC_RXF_SYMS_ANONYMOUS) {
+            const char *text = nullptr;
+            uint32_t size = 0;
+            st = symbol(part->name, &text, &size);
+            if (st != Status::Ok)
+                return st;
+            total += size + (total == 0 ? 0 : 1);
+        }
+        if (part->parent == PYMERGETIC_RXF_HANDLE32_NONE)
+            return Status::BadImage; /* a tree that does not reach the root */
+        walk = part->parent;
+        if (++depth > 1024)
+            return Status::BadImage;
+    }
+    *written = static_cast<uint32_t>(total);
+    if (total > capacity)
+        return Status::OutOfMemory; /* *written is what the buffer has to offer */
+
+    /* Written backwards from the end, so the segments land in tree order. */
+    uint64_t at = total;
+    walk = handle;
+    while (walk != super()->root) {
+        pymergetic_rxf_object *part = nullptr;
+        if (load(walk, &part) != Status::Ok)
+            return Status::BadImage;
+        if (part->name != PYMERGETIC_RXF_SYMS_ANONYMOUS) {
+            const char *text = nullptr;
+            uint32_t size = 0;
+            if (symbol(part->name, &text, &size) != Status::Ok)
+                return Status::BadImage;
+            at -= size;
+            mem::copy(out + at, text, size);
+            if (at != 0)
+                out[--at] = '.';
+        }
+        walk = part->parent;
+    }
+    return Status::Ok;
+}
+
+Status ObjectArena::refs_of(uint32_t handle, pymergetic_rxf_ref *out, uint32_t capacity,
+                            uint32_t *count) {
+    *count = 0;
+    pymergetic_rxf_object *record = nullptr;
+    Status st = load(handle, &record); /* the handle is checked first */
+    if (st != Status::Ok)
+        return st;
+    const pymergetic_rxf_ref *rows = nullptr;
+    uint32_t held = 0;
+    st = relation_rows(handle, &rows, &held);
+    if (st != Status::Ok)
+        return st;
+    *count = held;
+    if (out == nullptr || held > capacity)
+        return held == 0 ? Status::Ok : Status::OutOfMemory;
+    for (uint32_t i = 0; i < held; i++)
+        out[i] = rows[i];
+    return Status::Ok;
+}
+
 Status ObjectArena::bootstrap(const char *image_name, uint32_t capacity) {
     if (image_name == nullptr || image_name[0] == 0)
         return Status::BadName;

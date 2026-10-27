@@ -91,6 +91,15 @@ void bind_arena(nb::module_ &m) {
     m.attr("FLAG_STATE_MASK") = PYMERGETIC_RXF_FLAG_STATE_MASK;
     m.attr("FLAG_OWNER_SHIFT") = PYMERGETIC_RXF_FLAG_OWNER_SHIFT;
     m.attr("FLAG_OWNER_MASK") = PYMERGETIC_RXF_FLAG_OWNER_MASK;
+    /* The semantic face (docs/32 5): the row of sys/specs, and the layout of the
+     * flags word it keeps whole (kind | state | owner). */
+    m.attr("SPEC_SIZE") = sizeof(pymergetic_rxf_spec);
+    m.attr("FLAG_KIND_SHIFT") = PYMERGETIC_RXF_FLAG_KIND_SHIFT;
+    m.attr("FLAG_KIND_MASK") = PYMERGETIC_RXF_FLAG_KIND_MASK;
+    m.attr("FLAG_STATE_SHIFT") = PYMERGETIC_RXF_FLAG_STATE_SHIFT;
+    m.attr("FLAG_STATE_MASK") = PYMERGETIC_RXF_FLAG_STATE_MASK;
+    m.attr("FLAG_OWNER_SHIFT") = PYMERGETIC_RXF_FLAG_OWNER_SHIFT;
+    m.attr("FLAG_OWNER_MASK") = PYMERGETIC_RXF_FLAG_OWNER_MASK;
     /* The undo ring (docs/32 3): the record, the head, the granule. */
     m.attr("UNDO_SIZE") = sizeof(pymergetic_rxf_undo);
     m.attr("JOURNAL_HEAD_SIZE") = sizeof(pymergetic_rxf_journal);
@@ -284,6 +293,58 @@ void bind_arena(nb::module_ &m) {
              },
              nb::arg("handle"), nb::arg("type"), nb::arg("flags"), nb::arg("index"),
              nb::arg("generation"))
+        /* The semantic face (docs/32 5): the row of sys/specs for a handle, as
+         * (type, flags, index, generation), and the journaled store. */
+        .def("spec",
+             [](HostObjectArena &self, uint32_t handle) {
+                 pymergetic_rxf_spec row{};
+                 check(self.arena.spec(handle, &row));
+                 return nb::make_tuple(row.type, row.flags, row.index, row.generation);
+             },
+             nb::arg("handle"))
+        .def("set_spec",
+             [](HostObjectArena &self, uint32_t handle, uint32_t type, uint32_t flags,
+                uint32_t index, uint64_t generation) {
+                 pymergetic_rxf_spec row{};
+                 row.type = type;
+                 row.flags = flags;
+                 row.index = index;
+                 row.generation = generation;
+                 check(self.arena.set_spec(handle, row));
+             },
+             nb::arg("handle"), nb::arg("type"), nb::arg("flags"), nb::arg("index"),
+             nb::arg("generation"))
+        /* The tree and the relations (docs/32 2): the dotted path of an object, and
+         * the rows of the relation table named after it. */
+        .def("path_of",
+             [](HostObjectArena &self, uint32_t handle) {
+                 uint32_t need = 0;
+                 arena::Status probe = self.arena.path_of(handle, nullptr, 0, &need);
+                 if (probe != arena::Status::Ok && probe != arena::Status::OutOfMemory)
+                     check(probe);
+                 std::string text(need, '\0');
+                 check(self.arena.path_of(handle, text.data(), need, &need));
+                 return text;
+             },
+             nb::arg("handle"))
+        .def("refs_of",
+             [](HostObjectArena &self, uint32_t handle) {
+                 uint32_t need = 0;
+                 arena::Status probe = self.arena.refs_of(handle, nullptr, 0, &need);
+                 if (probe != arena::Status::Ok && probe != arena::Status::OutOfMemory)
+                     check(probe);
+                 std::vector<pymergetic_rxf_ref> rows(need);
+                 uint32_t count = 0;
+                 check(self.arena.refs_of(handle, rows.data(), need, &count));
+                 nb::list found;
+                 for (uint32_t at = 0; at < count; ++at) {
+                     const pymergetic_rxf_ref &row = rows[at];
+                     found.append(
+                         nb::make_tuple(row.target, row.role, row.kind, row.binding, row.index));
+                 }
+                 return found;
+             },
+             nb::arg("handle"))
         .def("release",
              [](HostObjectArena &self, uint32_t handle) {
                  check(self.arena.release_handle(handle));
@@ -336,6 +397,8 @@ void bind_arena(nb::module_ &m) {
                                        links[PYMERGETIC_RXF_FREE_NEXT / 8]);
              },
              nb::arg("offset"))
+        .def_prop_ro("handle_count",
+                     [](const HostObjectArena &self) { return self.arena.handle_count(); })
         .def_prop_ro("committed",
                      [](const HostObjectArena &self) { return self.arena.committed(); })
         .def_prop_ro("limit", [](const HostObjectArena &self) { return self.arena.limit(); })

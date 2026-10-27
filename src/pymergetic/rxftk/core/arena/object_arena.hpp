@@ -114,6 +114,22 @@ class ObjectArena {
     Status spec(uint32_t handle, pymergetic_rxf_spec *out);
     Status set_spec(uint32_t handle, const pymergetic_rxf_spec &row);
 
+    /* The tree of an object as the world spells it: the names below the root,
+     * joined with '.' (the root's own name is the image, not a path segment). An
+     * anonymous object contributes no segment. A handle that is not live answers
+     * BadHandle, and a name that does not fit is OutOfMemory with `*written` the
+     * length it would take. */
+    Status path_of(uint32_t handle, char *out, uint32_t capacity, uint32_t *written);
+
+    /* The refs of an object: the rows of its relation table `sys/relations/<path>`
+     * (docs/32 2), remapped to arena handles by the exporter. An object with no
+     * table has no refs and answers a count of zero. The rows are the pinned
+     * pymergetic_rxf_ref of ground.h. */
+    Status refs_of(uint32_t handle, pymergetic_rxf_ref *out, uint32_t capacity, uint32_t *count);
+
+    /* How many indices the object index hands out: the live layer's handle count. */
+    uint32_t handle_count() const;
+
     /* The object's span frees, its index entry dies, and the handle is stale from
      * here on (the reuse of the span bumps the generation). Its spec row returns
      * to the default. */
@@ -204,6 +220,15 @@ class ObjectArena {
      * once (a cold attach has none cached) and kept; an image without the table
      * answers BadImage. */
     Status spec_rows(pymergetic_rxf_spec **rows, uint32_t *count);
+    /* The relation table of an object, or the refusal a path that has none: the
+     * rows are read out of `sys/relations/<path>`. */
+    Status relation_rows(uint32_t handle, const pymergetic_rxf_ref **rows, uint32_t *count);
+    /* One child of a module by the exact bytes of its name, and a dotted path
+     * walked from the root (the lookup a relation table is found by). */
+    Status child_named(uint32_t parent, const char *text, uint32_t length, uint32_t *handle);
+    /* Does `name` spell the path of `handle`? Compares from the object up, so the
+     * path never has to be materialized. */
+    bool path_matches(uint32_t handle, const char *name, uint32_t length);
 
     Memory memory_{};
     uint64_t need_ = 0;

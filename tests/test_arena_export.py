@@ -208,6 +208,46 @@ def test_the_row_keeps_the_kinds_the_record_flattens(world, placed):
         assert row[1] & 0xFF == world.get(source)["kind"]  # the kind byte of the flags
 
 
+def test_the_paths_are_the_worlds_paths(world, placed):
+    """The arena answers the path the world spells: the names below the root, dotted.
+    A relation table is named after it, so this is the lookup a reader resolves by."""
+    arena, handles = placed
+    for source in every_object(world):
+        want = world.get(source)["path"]
+        got = arena.path_of(arena.root_handle if source == 0 else handles[source])
+        assert got == want, f"{want!r} -> {got!r}"
+    assert arena.path_of(arena.root_handle) == ""
+
+
+def test_the_refs_are_the_relation_table_of_the_object(world, placed):
+    """docs/32 2: refs are data, in a table under sys/relations, keyed by the path.
+    `refs_of` is the reader's side of it - the same rows the export wrote."""
+    arena, handles = placed
+    seen = 0
+    for source in every_object(world):
+        want = world.get(source)["refs"]
+        got = arena.refs_of(arena.root_handle if source == 0 else handles[source])
+        assert len(got) == len(want), world.get(source)["path"]
+        for row, (target, role, index, kind, binding) in zip(got, want, strict=True):
+            row_target, row_role, row_kind, row_binding, row_index = row
+            assert (row_kind, row_binding, row_index) == (kind, binding, index)
+            # the exporter remapped the targets to arena handles: the same objects
+            assert row_target == (arena.root_handle if target == 0 else handles[target])
+            assert row_target != HANDLE32_NONE
+            assert row_role == (arena.root_handle if role == 0 else handles[role])
+        seen += len(want)
+    assert seen > 0, "the starter carries relations"
+    # an object with no table has no refs, and a stale handle answers nothing
+    assert arena.refs_of(down(arena, "sys", "specs")) == []
+    with pytest.raises(Exception):
+        arena.refs_of(0x12345678)
+
+
+def test_the_handle_count_is_the_index(placed):
+    arena, _ = placed
+    assert arena.handle_count > arena.root_handle >> 20  # every placed object has an index
+
+
 def test_the_spec_table_is_sized_to_the_index(placed):
     arena, _ = placed
     table = down(arena, "sys", "specs")

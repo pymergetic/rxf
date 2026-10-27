@@ -287,6 +287,25 @@ Laws of the table:
 - **It is found by name once**, and the handle is kept: a cold attach has nothing
   cached and reads `sys/specs` as any other object.
 
+### 5.2 The reader's side: path and refs
+
+Two lookups every consumer needs, and neither is stored in the record:
+
+- **The path of an object** is its names below the root, joined with `.` — the
+  root itself is the image and no path segment. It is computed by walking
+  `parent`, so it never has to be stored twice. An anonymous object contributes no
+  segment. `path_of` answers it, and answers `OutOfMemory` with the length the
+  buffer has to offer.
+- **The refs of an object** are the rows of `sys/relations/<path>`: the table is
+  named after the object's path, so the path is the lookup. `refs_of` answers the
+  pinned `pymergetic_rxf_ref` rows; an object with no table has no refs and
+  answers a count of zero, which is the common case.
+
+A reader therefore resolves an object the way the exporter wrote it: walk the
+tree by name to the object, read its spec row for what the world says about it,
+and look its path up under `sys/relations` for what it points at. Nothing in that
+read touches the record's payload, so the value bytes stay pure.
+
 The writer fills the rows in a third pass (`tools/native/arena_export.py`), after
 the tree and the relation tables, because a Type can only be named once every
 object is placed; the Genesis objects the writer adds have the default row. The
