@@ -306,6 +306,16 @@ tree by name to the object, read its spec row for what the world says about it,
 and look its path up under `sys/relations` for what it points at. Nothing in that
 read touches the record's payload, so the value bytes stay pure.
 
+**Lookup cost, and the live layer's derived index.** A table is named by the
+path, so a lookup is a name comparison and a walk costs as much as the table set
+has members. That is fine for a reader that asks a few times and wrong for a
+consumer that asks per object over a whole image (the canonical form, a relink, a
+compaction). Such a consumer builds a derived index once - the object index of a
+relation table, or the table of an object - exactly the way the live layer already
+builds its name lookup (`work` region, docs/19) and the host `Image` keeps its
+parent and name maps. It is derived state: the path stays the one identity, the
+index is rebuilt whenever the tree changes, and nothing writes through it.
+
 The writer fills the rows in a third pass (`tools/native/arena_export.py`), after
 the tree and the relation tables, because a Type can only be named once every
 object is placed; the Genesis objects the writer adds have the default row. The
