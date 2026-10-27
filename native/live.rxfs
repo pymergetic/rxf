@@ -4586,6 +4586,19 @@ macro m_serve(Zop, Zarg, Zrq, Zrl, Zrs) {
     callsub s_scratch_reset();
     se_job = 0;
     se_done = 0;
+    # The read side is on the v7 model (docs/32 5.3) and answers. The write side is
+    # not yet: a delta apply, a dump, a compaction and a relink still walk the
+    # superseded cell stream, and an apply would write those offsets into an arena
+    # that does not have them. REFUSED is what a well formed request that is not
+    # done gets (live.h), so the writer never sees bytes from a layout the arena
+    # does not have and a half-migrated apply can never corrupt the image.
+    if (Zop == 18 | Zop == 32 | Zop == 33 | Zop == 35 | Zop == 37) {
+        sv_status = 9;
+        store64(Zrs, 0);
+        store64(Zrs + 8, 0);
+        sv_rsl = 16;
+        se_done = 1;
+    }
     if (Zop == 1) {
         callsub s_cpy(Zrs, Zrq, Zrl);
         sv_rsl = Zrl;
