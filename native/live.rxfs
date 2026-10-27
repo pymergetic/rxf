@@ -493,7 +493,7 @@ sub s_fill(Zh_fill, Zw_fill) {
     callsub s_rec(Zh_fill);
     f_rec = ce_r;
     fv_r = 0;
-    if (f_rec != 0) {
+    if (f_rec != 0 & aspec != 0) {
         m_spec_row(Zh_fill & 1048575);
         f_spc = sr_at;
         callsub s_rel_rows(Zh_fill);
@@ -1021,8 +1021,7 @@ sub s_attach() {
                                         if (load16(ab + 4096) == load16(sp_r)) {
                                             m_entry(1);
                                             asyms = load64(sp_r + 8) + 24;
-                                            m_entry(2);
-                                            aspec = load64(sp_r + 8) + 24;
+                                            aspec = 0;
                                             at_r = 0;
                                         }
                                     }
@@ -1036,9 +1035,18 @@ sub s_attach() {
     }
     if (at_r == 0) {
         arel = 0;
+        aspec = 0;
         m_lit_sys();
         callsub s_named_child(load32(ab + 24), lit, 3);
         if (cn_at != 4294967295) {
+            m_lit_specs();
+            callsub s_named_child(cn_at, lit, 5);
+            if (cn_at != 4294967295) {
+                callsub s_rec(cn_at);
+                if (ce_r != 0) {
+                    aspec = ce_r + 24;
+                }
+            }
             m_lit_relations();
             callsub s_named_child(cn_at, lit, 9);
             arel = cn_at;
@@ -1096,6 +1104,11 @@ sub s_named_child(Zparent_cn, Zp_cn, Zn_cn) {
 # The names this model looks up by (docs/32 2): the system namespace and its relation tables.
 macro m_lit_sys() {
     store8(lit, 115); store8(lit + 1, 121); store8(lit + 2, 115);
+}
+
+macro m_lit_specs() {
+    store8(lit, 115); store8(lit + 1, 112); store8(lit + 2, 101); store8(lit + 3, 99);
+    store8(lit + 4, 115);
 }
 
 macro m_lit_relations() {
@@ -4982,6 +4995,14 @@ macro m_open() {
                             if (slts * 4 <= load64(ar + 64)) {
                                 taddr = load64(ar + 56);
                                 sbase = load64(ar + 56) + ((slts * 4 + 15) & ~15);
+                                # The three world-cell views (docs/32 5.3) live above the
+                                # lookup table and below the scratch a request takes from,
+                                # so they hold for the whole run and never alias a scratch
+                                # allocation.
+                                cva = sbase;
+                                cvb = sbase + 64;
+                                cvc = sbase + 128;
+                                sbase = sbase + 192;
                                 send = load64(ar + 56) + load64(ar + 64);
                                 sat = sbase;
                                 if (load32(ar + 140) == 1) {
