@@ -1,3 +1,4 @@
+#include <pymergetic/rxftk/core/ground.h>
 #include <pymergetic/rxftk/core/object/image.hpp>
 
 #include <pymergetic/rxftk/core/kinds/kinds.hpp>

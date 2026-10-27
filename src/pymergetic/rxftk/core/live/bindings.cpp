@@ -2,6 +2,7 @@
 #include <nanobind/stl/vector.h>
 
 #include <pymergetic/rxftk/core/bindings.hpp>
+#include <pymergetic/rxftk/core/ground.h>
 #include <pymergetic/rxftk/core/live/live.hpp>
 
 #include <cstring>

@@ -8,6 +8,7 @@
 #include <string_view>
 #include <thread>
 
+#include <pymergetic/rxftk/core/ground.h>
 #include <pymergetic/rxftk/core/xml/xml.hpp>
 
 namespace pymergetic::rxf::core::tree {

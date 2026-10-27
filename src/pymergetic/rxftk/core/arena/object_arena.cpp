@@ -1,5 +1,6 @@
 #include <pymergetic/rxftk/core/arena/mem.hpp>
 #include <pymergetic/rxftk/core/arena/object_arena.hpp>
+#include <pymergetic/rxftk/core/ground.h>
 
 namespace pymergetic::rxf::core::arena {
 
@@ -238,8 +239,8 @@ Status ObjectArena::s_allocate(uint64_t room, uint64_t *offset) {
     /* The writes of this allocation - the record, and the remainder's header and links -
      * have to be inside committed bytes (docs/32 3, step 3). */
     const bool split = best_span - total >= PYMERGETIC_RXF_FREE_MIN_SPAN;
-    const uint64_t write_span = split ? total + sizeof(pymergetic_rxf_object) + PYMERGETIC_RXF_FREE_LINKS
-                                      : best_span;
+    const uint64_t write_span =
+        split ? total + sizeof(pymergetic_rxf_object) + PYMERGETIC_RXF_FREE_LINKS : best_span;
     Status status = s_ensure(best, write_span);
     if (status != Status::Ok)
         return status;
@@ -347,8 +348,7 @@ Status ObjectArena::s_release(uint64_t offset) {
         Status st = j_set(&super->committed, offset);
         if (st != Status::Ok)
             return st;
-        st = j_fill(record, 0,
-                    (uint64_t)sizeof(pymergetic_rxf_object) + PYMERGETIC_RXF_FREE_LINKS);
+        st = j_fill(record, 0, (uint64_t)sizeof(pymergetic_rxf_object) + PYMERGETIC_RXF_FREE_LINKS);
         if (st != Status::Ok)
             return st;
         st = j_set(&record->kind, (uint16_t)PYMERGETIC_RXF_OBJ_FREE);
@@ -357,8 +357,8 @@ Status ObjectArena::s_release(uint64_t offset) {
         st = j_set(&record->gen, gen);
         if (st != Status::Ok)
             return st;
-        st = j_set(&record->payload,
-                   (uint32_t)(span + marker_span - sizeof(pymergetic_rxf_object)));
+        st =
+            j_set(&record->payload, (uint32_t)(span + marker_span - sizeof(pymergetic_rxf_object)));
         if (st != Status::Ok)
             return st;
         uint64_t *links = links_at(offset);
@@ -477,9 +477,9 @@ Status ObjectArena::verify() const {
 /* The table is the index object's payload: the object header at
  * PYMERGETIC_RXF_INDEX_OFFSET carries the identity, the slots sit behind it. */
 pymergetic_rxf_slots *ObjectArena::index_table() const {
-    return reinterpret_cast<pymergetic_rxf_slots *>(
-        static_cast<uint8_t *>(memory_.base) + PYMERGETIC_RXF_INDEX_OFFSET +
-        sizeof(pymergetic_rxf_object));
+    return reinterpret_cast<pymergetic_rxf_slots *>(static_cast<uint8_t *>(memory_.base) +
+                                                    PYMERGETIC_RXF_INDEX_OFFSET +
+                                                    sizeof(pymergetic_rxf_object));
 }
 
 pymergetic_rxf_slot *ObjectArena::index_entry(uint32_t index) const {
@@ -509,8 +509,7 @@ static bool model_ready(const pymergetic_rxf_slots *slots) {
 
 Status ObjectArena::syms_record(pymergetic_rxf_object **out) {
     const pymergetic_rxf_slot *entry = index_entry(PYMERGETIC_RXF_INDEX_SYMS);
-    const uint32_t handle =
-        pymergetic_rxf_handle32_pack(PYMERGETIC_RXF_INDEX_SYMS, entry->gen);
+    const uint32_t handle = pymergetic_rxf_handle32_pack(PYMERGETIC_RXF_INDEX_SYMS, entry->gen);
     return load(handle, out);
 }
 
@@ -672,9 +671,8 @@ Status ObjectArena::spec_rows(pymergetic_rxf_spec **rows, uint32_t *count) {
         uint32_t sys = PYMERGETIC_RXF_HANDLE32_NONE;
         uint32_t found = PYMERGETIC_RXF_HANDLE32_NONE;
         const uint32_t root = super()->root;
-        if (root == PYMERGETIC_RXF_HANDLE32_NONE ||
-            find(root, "sys", &sys) != Status::Ok || sys == PYMERGETIC_RXF_HANDLE32_NONE ||
-            find(sys, "specs", &found) != Status::Ok)
+        if (root == PYMERGETIC_RXF_HANDLE32_NONE || find(root, "sys", &sys) != Status::Ok ||
+            sys == PYMERGETIC_RXF_HANDLE32_NONE || find(sys, "specs", &found) != Status::Ok)
             found = PYMERGETIC_RXF_HANDLE32_NONE;
         specs_handle_ = found;
     }
@@ -942,9 +940,8 @@ Status ObjectArena::bootstrap(const char *image_name, uint32_t capacity) {
 
     /* The index: the first object of the arena, published at its own entry. */
     uint64_t at = 0;
-    Status st =
-        s_allocate(sizeof(pymergetic_rxf_slots) + (uint64_t)capacity * sizeof(pymergetic_rxf_slot),
-                   &at);
+    Status st = s_allocate(
+        sizeof(pymergetic_rxf_slots) + (uint64_t)capacity * sizeof(pymergetic_rxf_slot), &at);
     if (st != Status::Ok)
         return st;
     if (at != PYMERGETIC_RXF_INDEX_OFFSET)
@@ -1200,8 +1197,7 @@ Status ObjectArena::find(uint32_t parent, const char *name, uint32_t *handle) {
     return Status::Ok;
 }
 
-Status ObjectArena::children(uint32_t handle, uint32_t *out, uint32_t capacity,
-                             uint32_t *written) {
+Status ObjectArena::children(uint32_t handle, uint32_t *out, uint32_t capacity, uint32_t *written) {
     *written = 0;
     if (pymergetic_rxf_handle32_index(handle) == PYMERGETIC_RXF_INDEX_SELF)
         return Status::Protected; /* its payload is the slot table, not a chain */
@@ -1459,10 +1455,9 @@ pymergetic_rxf_journal *ObjectArena::journal_of(pymergetic_rxf_object *object) c
 }
 
 Status ObjectArena::j_fill(void *at, uint8_t byte, uint64_t len) {
-    Status st = journal_before_write(
-        static_cast<uint64_t>(reinterpret_cast<uint8_t *>(at) -
-                              static_cast<uint8_t *>(memory_.base)),
-        len);
+    Status st = journal_before_write(static_cast<uint64_t>(reinterpret_cast<uint8_t *>(at) -
+                                                           static_cast<uint8_t *>(memory_.base)),
+                                     len);
     if (st != Status::Ok)
         return st;
     mem::fill(at, byte, len);
@@ -1470,10 +1465,9 @@ Status ObjectArena::j_fill(void *at, uint8_t byte, uint64_t len) {
 }
 
 Status ObjectArena::j_copy(void *at, const void *src, uint64_t len) {
-    Status st = journal_before_write(
-        static_cast<uint64_t>(reinterpret_cast<const uint8_t *>(at) -
-                              static_cast<uint8_t *>(memory_.base)),
-        len);
+    Status st = journal_before_write(static_cast<uint64_t>(reinterpret_cast<const uint8_t *>(at) -
+                                                           static_cast<uint8_t *>(memory_.base)),
+                                     len);
     if (st != Status::Ok)
         return st;
     mem::copy(at, src, len);

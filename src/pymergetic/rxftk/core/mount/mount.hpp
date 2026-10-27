@@ -30,6 +30,7 @@
 
 #include <nanobind/nanobind.h>
 
+#include <pymergetic/rxftk/core/ground.h>
 #include <pymergetic/rxftk/core/meta/types.hpp>
 #include <pymergetic/rxftk/core/object/image.hpp>
 

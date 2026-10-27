@@ -7,6 +7,7 @@
 #include <pymergetic/rxftk/core/bindings.hpp>
 #include <pymergetic/rxftk/core/delta/delta.hpp>
 #include <pymergetic/rxftk/core/delta/edit.hpp>
+#include <pymergetic/rxftk/core/ground.h>
 #include <pymergetic/rxftk/core/hash/sha256.hpp>
 #include <pymergetic/rxftk/core/xml/xml.hpp>
 

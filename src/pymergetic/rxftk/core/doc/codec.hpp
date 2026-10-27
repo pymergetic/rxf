@@ -9,6 +9,7 @@
  */
 
 #include <cstdint>
+#include <pymergetic/rxftk/core/ground.h>
 #include <string>
 #include <string_view>
 #include <vector>

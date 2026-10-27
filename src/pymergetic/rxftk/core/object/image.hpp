@@ -18,6 +18,7 @@
 #include <vector>
 
 #include <pymergetic/rxftk/core/arena/arena.hpp>
+#include <pymergetic/rxftk/core/ground.h>
 
 namespace pymergetic::rxf::core::object {
 

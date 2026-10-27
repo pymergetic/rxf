@@ -1,5 +1,6 @@
 #include <pymergetic/rxftk/core/arena/arena.hpp>
 #include <pymergetic/rxftk/core/arena/mem.hpp>
+#include <pymergetic/rxftk/core/ground.h>
 
 namespace pymergetic::rxf::core::arena {
 
