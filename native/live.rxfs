@@ -443,8 +443,62 @@ sub s_rel_rows(Zh_rr) {
     }
 }
 
+# path_write(handle, buf, cap) -> pw2_r (the length, 0 when it does not fit): the
+# dotted path of an object, written into a buffer the caller owns. Written
+# backwards from the end so the segments land in tree order (the same walk
+# ObjectArena::path_of does).
+sub s_path_write(Zh_pw, Zb_pw, Zc_pw) {
+    var pw_w;
+    var pw_rec;
+    var pw_at;
+    var pw_len;
+    pw2_r = 0;
+    callsub s_rec(Zh_pw);
+    pw_rec = ce_r;
+    if (pw_rec != 0) {
+        pw_at = Zc_pw;
+        pw_len = 0;
+        while (pw_rec != 0) {
+            if (load32(pw_rec + 8) == 4294967295) {
+                pw_rec = 0;
+            } else {
+                callsub s_sym_addr(load16(pw_rec + 6));
+                if (sa_r == 0) {
+                    pw_rec = 0;
+                } else {
+                    callsub s_len(sa_r);
+                    if (pw_at < len_r + 1) {
+                        pw_rec = 0;
+                        pw_len = 0;
+                    } else {
+                        pw_at = pw_at - len_r;
+                        callsub s_cpy(Zb_pw + pw_at, sa_r, len_r);
+                        pw_len = pw_len + len_r;
+                        pw_rec = load32(pw_rec + 8);
+                        callsub s_rec(pw_rec);
+                        pw_w = ce_r;
+                        if (load32(pw_w + 8) == 4294967295) {
+                            pw_rec = 0;
+                        } else {
+                            pw_at = pw_at - 1;
+                            store8(Zb_pw + pw_at, 46);
+                            pw_len = pw_len + 1;
+                            pw_rec = pw_w;
+                        }
+                    }
+                }
+            }
+        }
+        if (pw_len != 0) {
+            callsub s_cpy(Zb_pw, Zb_pw + pw_at, pw_len);
+            store8(Zb_pw + pw_len, 0);
+            pw2_r = pw_len;
+        }
+    }
+}
+
 # resolve_path(p, n) -> rp_r: the handle32 a dotted path names, 0 when it names none.
-sub s_resolve_path(Zp_rp, Zn_rp) {
+macro m_resolve_path(Zp_rp, Zn_rp) {
     var rp_at;
     var rp_seg;
     var rp_h;
@@ -511,7 +565,7 @@ macro m_build_rels() {
                     if (br_name != 0) {
                         callsub s_len(br_name);
                         br_len = len_r;
-                        callsub s_resolve_path(br_name, br_len);
+                        m_resolve_path(br_name, br_len);
                         if (rp_r != 0) {
                             if ((rp_r & 1048575) < slts) {
                                 store32(raddr + 4 * (rp_r & 1048575), br_walk);
@@ -1313,6 +1367,13 @@ sub s_create() {
                                     cr_h = ((cr_gen & 4095) << 20) | (cr_ix & 1048575);
                                 }
                             }
+                            if (cr_r == 0 & cs_refs != 0) {
+                                # The refs of an object live in a table named after
+                                # its path (docs/32 5.2); an object a delta makes
+                                # with refs needs that table made with it.
+                                callsub s_rel_table_make(cr_h, cs_refs);
+                                cr_r = rm_r;
+                            }
                         }
                     }
                 }
@@ -1736,6 +1797,77 @@ sub s_take(Zbytes_take) {
 }
 
 # name_hash(parent, p, n) -> nh_r (wrapping 64-bit arithmetic, as in the C++)
+# rel_table_make(handle, rows) -> rm_r (status), rm_h (the table): the relation
+# table of an object, created when a delta names refs an object did not have. The
+# table is named by the object's path (docs/32 5.2), which is why the path writer
+# runs first; the derived index gets the word so the next lookup is one read.
+sub s_rel_table_make(Zh_rm, Zrows_rm) {
+    var rm_buf;
+    var rm_len;
+    var rm_at;
+    var rm_ix;
+    var rm_gen;
+    rm_r = 0;
+    rm_h = 0;
+    if (arel != 0) {
+        callsub s_take(512);
+        rm_buf = tk_r;
+        if (rm_buf != 0) {
+            callsub s_path_write(Zh_rm, rm_buf, 512);
+            rm_len = pw2_r;
+            if (rm_len != 0) {
+                callsub s_named_child(arel, rm_buf, rm_len);
+                if (cn_at != 4294967295) {
+                    rm_h = cn_at;
+                } else {
+                    rm_ix = load32(ab + 4120);
+                    if (rm_ix >= load32(ab + 4124)) {
+                        rm_r = 4;
+                    } else {
+                        callsub s_allocate(24 * Zrows_rm);
+                        rm_r = al_r;
+                        if (al_r == 0) {
+                            rm_at = al_at;
+                            rm_gen = 1;
+                            callsub s_before_write(rm_at - ab, 24);
+                            rm_r = bw_r;
+                            if (bw_r == 0) {
+                                callsub s_zero(ab + rm_at, 24);
+                                m_intern(rm_buf, rm_len);
+                                rm_r = it_r;
+                                store16(ab + rm_at, 4);
+                                store16(ab + rm_at + 2, rm_gen);
+                                store16(ab + rm_at + 6, it_id);
+                                store32(ab + rm_at + 8, arel);
+                                store32(ab + rm_at + 12, 4294967295);
+                                store32(ab + rm_at + 20, 24 * Zrows_rm);
+                                m_entry(rm_ix);
+                                callsub s_before_write(sp_r - ab, 16);
+                                rm_r = bw_r;
+                                if (bw_r == 0) {
+                                    store16(sp_r, 4);
+                                    store16(sp_r + 2, rm_gen);
+                                    store32(sp_r + 4, 0);
+                                    store64(sp_r + 8, rm_at);
+                                    callsub s_before_write(4120, 4);
+                                    rm_r = bw_r;
+                                    if (bw_r == 0) {
+                                        store32(ab + 4120, rm_ix + 1);
+                                        rm_h = ((rm_gen & 4095) << 20) | (rm_ix & 1048575);
+                                        if (rm_ix < slts) {
+                                            store32(raddr + 4 * rm_ix, rm_h);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 sub s_name_hash(Zparent_name_hash, Zp_name_hash, Zn_name_hash) {
     var nh_i;
     var nh_h;
@@ -5176,7 +5308,7 @@ fn live_pump(context, area) {
     var ap_i, ap_k, ap_d, ap_ab, ap_ah, ap_alim, ap_acomm, ap_aneed, ap_aj;
     var ap_alb, ap_alc, ap_all, ap_amark, ap_abitmap, ap_aused, ap_fixups, ap_pos, ap_size, ap_go, ap_tail, ap_padded;
     var gn_r, ar_r, ws_r, bw_r, mb_r2, tmp8_r, tmp32_r;
-    var cva, cvb, cvc, asyms, aspec, arel, fv_r, rc_r, rt_at, rt_n, hx_r, raddr, rp_r, at_sys;
+    var cva, cvb, cvc, asyms, aspec, arel, fv_r, rc_r, rt_at, rt_n, hx_r, raddr, rp_r, at_sys, pw2_r, rm_r, rm_h;
     var cn_at, it_id, sr_at, sf_r, sg_r, si_r, st_r, sk_r, sr2_r, sn2_r;
     var la_r, ru_r, ri_r, rl2_r, pk_r, pi_r, pi2_r;
     var cb_r, en_r, disp_r, mob_r, so_r, pi_r, pi_id, pt_r;
