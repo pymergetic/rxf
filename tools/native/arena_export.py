@@ -319,10 +319,13 @@ def _relink_payloads(world: World, handles: dict[int, int], arena: ObjectArena) 
             if changed:
                 room = arena.load(placed[source])[7]
                 value = bytes(data).ljust(room - head, b"\0")
-                arena.set_payload(
-                    placed[source],
-                    EMPTY_MODULE_HEAD + value if head else value,
-                )
+                # The head is the arena's own children chain (docs/32 1.2), which
+                # append_child has already written. Overwriting it with zeros
+                # orphans every child of a module whose own payload carries a ref
+                # slot, and then find/children cannot see the module's subtree at
+                # all - the walk above keeps the head that is there.
+                current = bytes(arena.payload(placed[source])[:head])
+                arena.set_payload(placed[source], current + value if head else value)
         for child in world.children(source):
             walk(child)
 

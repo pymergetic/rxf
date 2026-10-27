@@ -1819,6 +1819,7 @@ sub s_table_ins(Zh_table_ins) {
     var tin_mask;
     var tin_i;
     var tin_n;
+    var tin_par;
     callsub s_cell(Zh_table_ins);
     tin_c = ce_r;
     tin_r = 0;
@@ -1827,6 +1828,9 @@ sub s_table_ins(Zh_table_ins) {
         callsub s_name(Zh_table_ins);
         callsub s_len(nm_r);
         tin_n = len_r;
+        # The parent is read out of the view now: a view is good until the next
+        # call that fills it (docs/32 5.3) and s_find_child fills view A.
+        tin_par = load64(tin_c + 8);
         tin_r = 1;
         if (Zh_table_ins >= 0xFFFFFFF0) {
             tin_r = 0;
@@ -1835,14 +1839,14 @@ sub s_table_ins(Zh_table_ins) {
             tin_r = 0;
         }
         if (tin_r == 1) {
-            callsub s_find_child(load64(tin_c + 8), nm_r, tin_n);
+            callsub s_find_child(tin_par, nm_r, tin_n);
             if (fc_r != 0xFFFFFFFFFFFFFFFF) {
                 tin_r = 0;
             }
         }
         if (tin_r == 1) {
             tin_mask = slts - 1;
-            callsub s_name_hash(load64(tin_c + 8), nm_r, tin_n);
+            callsub s_name_hash(tin_par, nm_r, tin_n);
             tin_i = nh_r & tin_mask;
             while (load32(taddr + 4 * tin_i) != 0) {
                 tin_i = (tin_i + 1) & tin_mask;
@@ -4610,7 +4614,7 @@ macro m_serve(Zop, Zarg, Zrq, Zrl, Zrs) {
             store32(Zrs, 1);
             store32(Zrs + 4, 0);
             store64(Zrs + 8, load32(ab + 4120));
-            store64(Zrs + 16, load64(ah + 16));
+            store64(Zrs + 16, load64(ah + 8));
             store64(Zrs + 24, load64(ar + 16));
             store64(Zrs + 32, load64(ar + 48));
             store64(Zrs + 40, load64(ar + 80));
