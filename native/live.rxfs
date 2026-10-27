@@ -1223,30 +1223,46 @@ sub s_intern(Ztext, Zn) {
                 }
                 it_used = it_off + it_i + 1;
             }
-            if (it_count < load32(it_head + 4)) {
-                if (it_used + it_need <= load32(asyms - 24 + 20)) {
-                    callsub s_before_write(it_head + it_used - ab, it_need);
+            # Out of ids or out of room: the table moves to a bigger object and
+            # the append continues there (docs/32 2).
+            if (it_count >= load32(it_head + 4)) {
+                callsub s_syms_grow();
+                it_r = sg_r;
+            } else {
+                if (it_used + it_need > load32(asyms - 24 + 20)) {
+                    callsub s_syms_grow();
+                    it_r = sg_r;
+                }
+            }
+            if (it_r == 0) {
+                it_head = asyms;
+                it_count = load32(it_head);
+                it_used = 8 + 4 * load32(it_head + 4);
+                if (it_count > 1) {
+                    it_off = load32(it_head + 8 + 4 * (it_count - 1));
+                    it_i = 0;
+                    while (it_i < 65536 & load8(it_head + it_off + it_i) != 0) {
+                        it_i = it_i + 1;
+                    }
+                    it_used = it_off + it_i + 1;
+                }
+                callsub s_before_write(it_head + it_used - ab, it_need);
+                it_r = bw_r;
+                if (bw_r == 0) {
+                    callsub s_cpy(it_head + it_used, Ztext, Zn);
+                    store8(it_head + it_used + Zn, 0);
+                    callsub s_before_write(it_head + 8 + 4 * it_count - ab, 4);
                     it_r = bw_r;
                     if (bw_r == 0) {
-                        callsub s_cpy(it_head + it_used, Ztext, Zn);
-                        store8(it_head + it_used + Zn, 0);
-                        callsub s_before_write(it_head + 8 + 4 * it_count - ab, 4);
+                        store32(it_head + 8 + 4 * it_count, it_used);
+                        callsub s_before_write(it_head - ab, 4);
                         it_r = bw_r;
                         if (bw_r == 0) {
-                            store32(it_head + 8 + 4 * it_count, it_used);
-                            callsub s_before_write(it_head - ab, 4);
-                            it_r = bw_r;
-                            if (bw_r == 0) {
-                                store32(it_head, it_count + 1);
-                                it_id = it_count;
-                            }
+                            store32(it_head, it_count + 1);
+                            it_id = it_count;
                         }
                     }
-                } else {
-                    it_r = 4;
                 }
-            } else {
-                it_r = 4;
             }
         }
     }
@@ -1323,6 +1339,79 @@ sub s_rel_table_make(Zh_rm, Zrows_rm) {
     }
 }
 
+# syms_grow() -> sg_r (status): move sys/syms to a bigger object (docs/32 2).
+# The growth is the policy of ObjectArena::intern, and it has to be: the layout of
+# an image records the sequence of its allocations, so a dump that grew by another
+# rule would answer other bytes.
+sub s_syms_grow() {
+    var sg_head;
+    var sg_old;
+    var sg_cap;
+    var sg_newcap;
+    var sg_room;
+    var sg_used;
+    var sg_n;
+    var sg_i;
+    var sg_off;
+    var sg_at;
+    var sg_new;
+    sg_r = 0;
+    sg_head = asyms;
+    sg_old = sg_head - 24;
+    sg_n = load32(sg_head);
+    sg_cap = load32(sg_head + 4);
+    sg_used = 8 + 4 * sg_cap;
+    if (sg_n > 1) {
+        sg_off = load32(sg_head + 8 + 4 * (sg_n - 1));
+        sg_i = 0;
+        while (sg_i < 65536 & load8(sg_head + sg_off + sg_i) != 0) {
+            sg_i = sg_i + 1;
+        }
+        sg_used = sg_off + sg_i + 1;
+    }
+    sg_room = sg_used;
+    if (sg_room < 2 * load32(sg_old + 20)) {
+        sg_room = 2 * load32(sg_old + 20);
+    }
+    sg_newcap = sg_cap * 2;
+    if (sg_newcap < sg_n + 1) {
+        sg_newcap = sg_n + 1;
+    }
+    callsub s_allocate(sg_room);
+    sg_r = al_r;
+    if (al_r == 0) {
+        sg_at = al_at;
+        sg_new = sg_at + 24;
+        callsub s_before_write(sg_at - ab, sg_room + 24);
+        sg_r = bw_r;
+        if (bw_r == 0) {
+            callsub s_zero(ab + sg_at, sg_room + 24);
+            store32(ab + sg_new, sg_n);
+            store32(ab + sg_new + 4, sg_newcap);
+            # the strings move up by the growth of the offset table
+            sg_i = 1;
+            while (sg_i < sg_n) {
+                sg_off = load32(sg_head + 8 + 4 * sg_i);
+                callsub s_len(sg_head + sg_off);
+                callsub s_cpy(sg_new + 8 + 4 * sg_newcap + (sg_off - (8 + 4 * sg_cap)),
+                              sg_head + sg_off, len_r + 1);
+                store32(sg_new + 8 + 4 * sg_i,
+                        8 + 4 * sg_newcap + (sg_off - (8 + 4 * sg_cap)));
+                sg_i = sg_i + 1;
+            }
+            m_entry(1);
+            callsub s_before_write(sp_r - ab + 8, 8);
+            sg_r = bw_r;
+            if (bw_r == 0) {
+                store64(sp_r + 8, sg_at);
+                asyms = sg_new;
+                callsub s_release(sg_old);
+                sg_r = 0;
+            }
+        }
+    }
+}
+
 # ---- the object life cycle: create, destroy, resize --------------------------------------
 
 # create() from the cs_* words -> cr_r (status), cr_h (handle32)
@@ -1336,8 +1425,14 @@ sub s_create() {
     cr_h = 4294967295;
     if (cs_payload <= 281474976710655) {
         cr_ix = load32(ab + 4120);
+        # Walk from the cursor, not from the first slot: a create is then O(1)
+        # over a run of them, and a release lowers the cursor again so the slot
+        # is found by the next create.
         cr_free = 0;
-        cr_at = 0;
+        cr_at = acursor;
+        if (cr_at > cr_ix) {
+            cr_at = cr_ix;
+        }
         while (cr_at < cr_ix & cr_free == 0) {
             m_entry(cr_at);
             if (load64(sp_r + 8) == 0) {
@@ -1439,6 +1534,13 @@ sub s_create() {
                                     store32(cr_spc + 12, 0);
                                     store64(cr_spc + 16, cs_generation);
                                 }
+                            }
+                            if (cr_free == 1) {
+                                if (cr_at < acursor) {
+                                    acursor = cr_at;
+                                }
+                            } else {
+                                acursor = cr_ix + 1;
                             }
                             if ((cr_r == 0) & (cs_refs != 0)) {
                                 # The refs of an object live in a table named after
@@ -1715,6 +1817,7 @@ sub s_init(Zbase, Zcomm, Zlim, Zcap, Zname, Znlen) {
     aspec = 0;
     arel = 0;
     raddr = 0;
+    acursor = 0;
     in_r = 5;
     in_slots = Zcap;
     if (in_slots < 4) {
@@ -3445,7 +3548,9 @@ macro m_emit() {
         }
         em_i = 0;
         while (em_i < em_count) {
-            store32(em_remap + 4 * load32(em_order + 4 * em_i), em_i);
+            # The output handle of the object at this position: the bootstrap
+            # made 0..8 and the walk fills the rest in order (docs/32 5.4).
+            store32(em_remap + 4 * load32(em_order + 4 * em_i), 1048576 | em_i);
             em_i = em_i + 1;
         }
     }
@@ -3458,13 +3563,15 @@ macro m_emit() {
         callsub s_len(nm_r);
         em_name = nm_r;
         em_nlen = len_r;
-        callsub s_init(jemit_base, jemit_cap, jemit_cap, em_kept, em_name, em_nlen);
+        # layout of an image includes how much room the index was given.
+        em_slots = load32(ab + 4124);
+        callsub s_init(jemit_base, jemit_cap, jemit_cap, em_slots, em_name, em_nlen);
         em_init_r = in_r;
         callsub s_arena_pop();
         if (em_init_r != 0) {
             em_go = 0;
         }
-        em_i = 0;
+        em_i = 9;   # 0..8 are the bootstrap's own objects (docs/32 5.4)
         while (em_i < em_count & em_go == 1) {
             em_old = load32(em_order + 4 * em_i);
             # The order holds indices; an accessor takes a handle (index, gen).
@@ -3531,7 +3638,10 @@ macro m_emit() {
             cs_generation = load64(em_c + 24);
             cs_index = load32(em_c + 56);
             cs_payload = load64(em_c + 16);
-            cs_refs = em_nref;
+            # The relation table of an object is an ordinary object the walk
+            # already carries (docs/32 5.4): asking s_create to make one here
+            # would lay the same table down twice.
+            cs_refs = 0;
             em_words = empty0;
             if (cs_payload != 0) {
                 em_type = load64(em_c);
@@ -5537,7 +5647,7 @@ fn live_pump(context, area) {
     var crc_r, crc_i, crc_k, cmp_r, len_r;
     var cr_h, cr_r, cs2_r, ck_r, cn_r, cc_r;
     var cl_mod, cl_head, cl_walk, cl_next, cl_stop;
-    var em_name, em_nlen, em_nrw, em_src, em_hnd;
+    var em_name, em_nlen, em_nrw, em_src, em_hnd, sg_r, acursor, em_slots, em_claim;
     var cs_type, cs_parent, cs_generation, cs_flags, cs_index, cs_name, cs_name_len, cs_payload, cs_refs, cs_kind;
     var ce_r, sp_r, lv_r, pa_r, rr_r, kd_r, nm_r, fc_r;
     var ne_r, nh_r, hm_r, tin_r, it_r, tk_r, pw_r, rw_r, lss_r;

@@ -1733,7 +1733,7 @@ static int nsubs;
 static int in_sub;
 static int sub_index(const char *name);
 static void sub_mark_used(size_t from, size_t to);
-#define SEED_MAX_DECLS 16384
+#define SEED_MAX_DECLS 65536
 
 static void sub_scan_decls(size_t from, size_t to, seed_decl *decls, int *ndecls);
 static void sub_emit_used(size_t from, size_t to);

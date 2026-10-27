@@ -18,6 +18,8 @@ from pymergetic.rxftk.live.harness import HostImage
 
 from . import live_world as lw
 from .snippets import running_image
+import link
+
 from .support import resolved
 
 # Every test runs code on a machine the harness boots per test; the emulated seats
@@ -47,7 +49,10 @@ def image() -> Image:
 
 @pytest.fixture(scope="module")
 def compact(image: Image) -> bytes:
-    return image.compact().to_bytes()
+    # The canonical bytes are the v7 arena a tree walk would have produced
+    # (docs/32 5.4): the same bytes link() puts in the machine. The superseded
+    # world model answered another image entirely.
+    return link.arena_of(image)
 
 
 @pytest.fixture(scope="module")
