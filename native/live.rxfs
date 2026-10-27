@@ -4928,6 +4928,39 @@ macro m_run_job(Zjob) {
         # machine carry them (em_r, em_len) through the rest.
         m_emit();
         if (em_r == 1) {
+            # Every module's children count is the length of its chain: count it
+            # by walking each chain once, so the number cannot disagree with the
+            # chain it describes.
+            callsub s_arena_push();
+            m_arena_load_out();
+            cc_ix = 0;
+            cc_n = load32(ab + 4120);
+            while (cc_ix < cc_n) {
+                m_pack_i(cc_ix);
+                callsub s_rec(hx_r);
+                cc_rec = ce_r;
+                if (cc_rec != 0) {
+                    if (load16(cc_rec) == 1) {
+                        cc_k = 0;
+                        cc_w = load32(cc_rec + 24);
+                        while (cc_w != 4294967295) {
+                            cc_k = cc_k + 1;
+                            callsub s_rec(cc_w);
+                            if (ce_r == 0) {
+                                cc_w = 4294967295;
+                            } else {
+                                cc_w = load32(ce_r + 12);
+                            }
+                        }
+                        callsub s_before_write(cc_rec + 28 - ab, 4);
+                        if (bw_r == 0) {
+                            store32(cc_rec + 28, cc_k);
+                        }
+                    }
+                }
+                cc_ix = cc_ix + 1;
+            }
+            callsub s_arena_pop();
             # The claim is a record of how much room the image says it needs
             # (docs/32 3), not the size of the region it was written to: the build
             # runs inside the region and the recorded limit goes in at the end.
@@ -5693,7 +5726,7 @@ fn live_pump(context, area) {
     var crc_r, crc_i, crc_k, cmp_r, len_r;
     var cr_h, cr_r, cs2_r, ck_r, cn_r, cc_r;
     var cl_mod, cl_head, cl_walk, cl_next, cl_stop, cs_refc;
-    var em_name, em_nlen, em_nrw, em_src, em_hnd, sg_r, acursor, em_slots, em_claim, em_cmt;
+    var em_name, em_nlen, em_nrw, em_src, em_hnd, sg_r, acursor, em_slots, em_claim, em_cmt, cc_ix, cc_n, cc_rec, cc_k, cc_w;
     var cs_type, cs_parent, cs_generation, cs_flags, cs_index, cs_name, cs_name_len, cs_payload, cs_refs, cs_kind;
     var ce_r, sp_r, lv_r, pa_r, rr_r, kd_r, nm_r, fc_r;
     var ne_r, nh_r, hm_r, tin_r, it_r, tk_r, pw_r, rw_r, lss_r;
