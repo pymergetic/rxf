@@ -1502,9 +1502,10 @@ sub s_create() {
                                         cl_head = cl_mod + 24;
                                         cl_walk = load32(cl_head);
                                         if (cl_walk == 4294967295) {
-                                            callsub s_before_write(cl_head - ab, 4);
+                                            callsub s_before_write(cl_head - ab, 8);
                                             if (bw_r == 0) {
                                                 store32(cl_head, cr_h);
+                                                store32(cl_head + 4, load32(cl_head + 4) + 1);
                                             }
                                         } else {
                                             cl_stop = 0;
@@ -1518,6 +1519,10 @@ sub s_create() {
                                                         callsub s_before_write(cl_next + 12 - ab, 4);
                                                         if (bw_r == 0) {
                                                             store32(cl_next + 12, cr_h);
+                                                        }
+                                                        callsub s_before_write(cl_head + 4 - ab, 4);
+                                                        if (bw_r == 0) {
+                                                            store32(cl_head + 4, load32(cl_head + 4) + 1);
                                                         }
                                                         cl_stop = 1;
                                                     } else {
@@ -1942,6 +1947,20 @@ sub s_init(Zbase, Zcomm, Zlim, Zcap, Zname, Znlen) {
                 in_r = cr_r;
                 if (cr_r == 0) {
                     in_sys = cr_h;
+                }
+            }
+
+            # The index object is the first child of sys: the writer puts it on the
+            # chain as `objects` before anything else (docs/32 2).
+            if (in_r == 0) {
+                callsub s_rec(in_sys);
+                cl_head = ce_r + 24;
+                m_pack_i(0);
+                callsub s_before_write(cl_head - ab, 8);
+                in_r = bw_r;
+                if (bw_r == 0) {
+                    store32(cl_head, hx_r);
+                    store32(cl_head + 4, 1);
                 }
             }
 
