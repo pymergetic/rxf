@@ -404,15 +404,22 @@ which is what `docs/20` S7/S8 describe and what the compaction proof holds to.
 `place_world` creates objects in the order they get their index, so a dump that
 replays that order lands the same bytes. Concretely:
 
-1. lay down the superblock and the two objects that are fixed: the object index at
-   byte 4096 (entry 0) and `sys/syms` (entry 1) — they are the skeleton, not the
-   walk's business;
-2. walk the source **in index order** from 2, and create each object into the
-   output with the same name, storage role and payload room, interning its name as
-   it goes so the symbol ids match;
-3. write the semantic rows in a second pass, exactly as the writer does — a row
+1. **the bootstrap is replayed whole** - the superblock, the object index at byte
+   4096 (entry 0), `sys/syms` (entry 1), the root image, `sys`, and its leaves in
+   their order (`functions`, `specs`, `journal`, `caps`, `free`). This is not
+   optional detail: **the symbol ids are part of the bytes**, and `bootstrap`
+   interns in a specific order that does not follow the object order - the index
+   object is named `objects` *third*, `syms` is named *last*. A dump that made
+   only the index and the symbol table would intern in another order and answer
+   different symbol ids;
+2. walk the source **in index order** from the first index the bootstrap did not
+   make (9), and create each object into the output with the same name, storage
+   role and payload room, interning its name as it goes so the ids keep following;
+   because the output starts from the same skeleton and is filled in the same
+   order, **the handles come out identical** and no remap is needed;
+3. write the semantic rows in a second pass, exactly as the writer does - a row
    cannot be written until `sys/specs` exists, and `sys/specs` is itself an object
-   the walk makes at its own index;
+   the bootstrap makes;
 4. nothing else. The relation tables come along as ordinary objects of
    `sys/relations`, and the genesis tree as ordinary objects of the root.
 
