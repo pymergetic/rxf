@@ -2129,13 +2129,13 @@ sub s_build_kids(Zsorted_build_kids) {
         callsub s_zero(kstart, 4 * (n_kids + 1));
         bk_h = 0;
         while (bk_h < n_kids) {
-            callsub s_cell(bk_h);
+            m_pack_i(bk_h);
+            callsub s_cell(hx_r);
             if (ce_r != 0) {
-                if (load64(ce_r + 8) != 0xFFFFFFFFFFFFFFFF) {
-                    if (load64(ce_r + 8) < n_kids) {
-                        store32(kstart + 4 * (load64(ce_r + 8) + 1),
-                                load32(kstart + 4 * (load64(ce_r + 8) + 1)) + 1);
-                    }
+                bk_par = load64(ce_r + 8) & 1048575;
+                if (bk_par < n_kids) {
+                    store32(kstart + 4 * (bk_par + 1),
+                            load32(kstart + 4 * (bk_par + 1)) + 1);
                 }
             }
             bk_h = bk_h + 1;
@@ -2154,14 +2154,14 @@ sub s_build_kids(Zsorted_build_kids) {
             callsub s_cpy(bk_cursor, kstart, 4 * (n_kids + 1));
             bk_h = 0;
             while (bk_h < n_kids) {
-                callsub s_cell(bk_h);
+                m_pack_i(bk_h);
+                callsub s_cell(hx_r);
                 if (ce_r != 0) {
-                    if (load64(ce_r + 8) != 0xFFFFFFFFFFFFFFFF) {
-                        if (load64(ce_r + 8) < n_kids) {
-                            store32(klist + 4 * load32(bk_cursor + 4 * load64(ce_r + 8)), bk_h);
-                            store32(bk_cursor + 4 * load64(ce_r + 8),
-                                    load32(bk_cursor + 4 * load64(ce_r + 8)) + 1);
-                        }
+                    bk_par = load64(ce_r + 8) & 1048575;
+                    if (bk_par < n_kids) {
+                        store32(klist + 4 * load32(bk_cursor + 4 * bk_par), bk_h);
+                        store32(bk_cursor + 4 * bk_par,
+                                load32(bk_cursor + 4 * bk_par) + 1);
                     }
                 }
                 bk_h = bk_h + 1;
@@ -2829,7 +2829,8 @@ macro m_compact_scan() {
     cs2_h = 0;
     while (cs2_h < cs2_n) {
         if (cs2_r == 1) {
-            callsub s_cell(cs2_h);
+            m_pack_i(cs2_h);
+            callsub s_cell(hx_r);
             if (ce_r != 0) {
                 callsub s_mob_of(ce_r);
                 if (mob_r == 1) {
@@ -2942,7 +2943,8 @@ macro m_emit() {
         em_kept = 0;
         em_h = 0;
         while (em_h < em_n) {
-            callsub s_cell(em_h);
+            m_pack_i(em_h);
+            callsub s_cell(hx_r);
             if (ce_r != 0) {
                 m_disp_of(ce_r);
                 if (disp_r == 0) {
@@ -2972,13 +2974,14 @@ macro m_emit() {
         em_h = 0;
         while (em_h < em_n & em_go == 1) {
             if (load8(em_keep + em_h) == 1) {
-                callsub s_cell(em_h);
+                m_pack_i(em_h);
+                callsub s_cell(hx_r);
                 em_c = ce_r;
                 if (load64(em_c + 8) != 0xFFFFFFFFFFFFFFFF) {
                     if (load64(em_c + 8) >= em_n) {
                         em_go = 0;
                     } else {
-                        if (load8(em_keep + load64(em_c + 8)) == 0) {
+                        if (load8(em_keep + (load64(em_c + 8) & 1048575)) == 0) {
                             em_go = 0;
                         }
                     }
@@ -2988,14 +2991,14 @@ macro m_emit() {
                         if (load64(em_c) >= em_n) {
                             em_go = 0;
                         } else {
-                            if (load8(em_keep + load64(em_c)) == 0) {
+                            if (load8(em_keep + (load64(em_c) & 1048575)) == 0) {
                                 em_go = 0;
                             }
                         }
                     }
                 }
                 if (em_go == 1) {
-                    callsub s_refs(em_h);
+                    callsub s_refs(hx_r);
                     em_rp = rr_r;
                     em_k = 0;
                     while (em_k < load32(em_c + 44) & em_go == 1) {
@@ -3020,7 +3023,7 @@ macro m_emit() {
                                 if (load64(em_rp + 24 * em_k + 8) >= em_n) {
                                     em_go = 0;
                                 } else {
-                                    if (load8(em_keep + load64(em_rp + 24 * em_k + 8)) == 0) {
+                                    if (load8(em_keep + (load64(em_rp + 24 * em_k + 8) & 1048575)) == 0) {
                                         em_go = 0;
                                     }
                                 }
@@ -3364,7 +3367,8 @@ macro m_relink() {
             rl_count = 0;
             rl_h = 0;
             while (rl_h < rl_n & rl_go == 1) {
-                callsub s_cell(rl_h);
+                m_pack_i(rl_h);
+                callsub s_cell(hx_r);
                 rl_c = ce_r;
                 if (rl_c != 0) {
                     callsub s_kd(rl_c);
@@ -3374,7 +3378,7 @@ macro m_relink() {
                             rl_type = load64(rl_c);
                             if (rl_type != 0xFFFFFFFFFFFFFFFF) {
                                 jb_reason = 9;
-                                if (rl_type >= rl_n) {
+                                if ((rl_type & 1048575) >= rl_n) {
                                     rl_go = 0;
                                 } else {
                                     callsub s_cell(rl_type);
@@ -4331,7 +4335,7 @@ macro m_check_all() {
                         }
                     }
                     if (ck_r == 1) {
-                        callsub s_refs(ck_h);
+                        callsub s_refs(hx_r);
                         ck_rp = rr_r;
                         ck_k = 0;
                         while (ck_k < load32(ck_c + 44) & ck_r == 1) {
@@ -5161,7 +5165,7 @@ fn live_pump(context, area) {
     var cs_type, cs_parent, cs_generation, cs_flags, cs_index, cs_name, cs_name_len, cs_payload, cs_refs;
     var sn_r, sn_h, ce_r, sp_r, lv_r, pa_r, rr_r, kd_r, nm_r, fc_r, in_free, in_cells, in_dir, in_chunks;
     var ne_r, nh_r, hm_r, tin_r, it_r, it_at, tk_r, pw_r, rw_r, lss_r;
-    var bk_r, bt_r, rv_r, vf_r, vf_ok, po_n, po_r, cn_r2, tif_r, fif_r, hf_r;
+    var bk_r, bt_r, rv_r, vf_r, vf_ok, po_n, po_r, cn_r2, tif_r, fif_r, hf_r, bk_par;
     var n_kids, kstart, klist, kmemo, kpool, kpfx, pool_len;
     var ro_r, ro_words, ro2_r, sa_r, sa_p, sa_n, ni_r, em_r, em_rsn, em_len, em_state;
     var lk_r, ca_r, ca_at, ca_rng0, ca_rng1, rl_r, rl_entries, rl_slots;
