@@ -3344,7 +3344,13 @@ macro m_emit() {
                     callsub s_refs(hx_r);
                     em_rp = rr_r;
                     em_k = 0;
-                    while (em_k < load32(em_c + 44) & em_go == 1) {
+                    em_nrw = 0;
+                    if (em_c != 0) {
+                        if (em_rp != 0) {
+                            em_nrw = load32(em_c + 44);
+                        }
+                    }
+                    while (em_k < em_nrw & em_go == 1) {
                         em_t = load64(em_rp + 24 * em_k);
                         em_gone = 0;
                         if (em_t != 0xFFFFFFFFFFFFFFFF) {
@@ -3453,6 +3459,11 @@ macro m_emit() {
             em_old = load32(em_order + 4 * em_i);
             callsub s_cell(em_old);
             em_c = ce_r;
+            # A dead object has no view: read it as the empty cell rather than
+            # through a null pointer.
+            if (em_c == 0) {
+                em_c = empty0;
+            }
             callsub s_refs(em_old);
             em_rp = rr_r;
             em_nref = 0;
