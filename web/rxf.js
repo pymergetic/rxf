@@ -88,6 +88,19 @@ export class Rxf {
     return new Uint8Array(this.memory.buffer, 0, this.end).slice();
   }
 
+  /** The UART capability as the console FIFO: write a frame into the RX ring. */
+  send(bytes) {
+    const fifo = this.instance.exports.fifo_at();
+    const words = new Uint32Array(this.memory.buffer, fifo, 4);
+    const ring = new Uint8Array(this.memory.buffer, fifo, 576);
+    const mask = 255;
+    for (let i = 0; i < bytes.length; i++) {
+      ring[(words[0] + i) & mask] = bytes[i];
+    }
+    words[0] = words[0] + bytes.length;
+    return words[0] - words[3];
+  }
+
   /** Fork: a new instance that carries this memory where this one left it. */
   static async forkFrom(wasmUrl, saved) {
     const code = await fetch(wasmUrl).then((r) => r.arrayBuffer());
