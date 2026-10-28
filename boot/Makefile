@@ -26,7 +26,7 @@ PYTHON  ?= $(shell test -x ../.venv/bin/python && echo $(abspath ../.venv/bin/py
 BUILD   := build
 ENTRY   := image_stub/entry.c
 MAP     := image_stub/world_v7.h image_stub/entry_v7.ld
-INC     := -I. -Iimage_stub -I../native
+INC     := -I. -Iimage_stub -I../native -I../src
 CFLAGS  := -Os -ffreestanding -fno-builtin -fno-stack-protector -fno-pic \
            -fno-asynchronous-unwind-tables -Wall -Wextra $(INC)
 
