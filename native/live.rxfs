@@ -979,7 +979,7 @@ sub s_release(Zoff_rel) {
                             rl2_r = bw_r;
                             if (bw_r == 0) {
                                 store64(ab + 8, Zoff_rel);
-                                callsub s_before_write(Zoff_rel - ab, 40);
+                                callsub s_before_write(Zoff_rel, 40);
                                 rl2_r = bw_r;
                                 if (bw_r == 0) {
                                     callsub s_zero(ab + Zoff_rel, 40);
@@ -1010,11 +1010,11 @@ sub s_release(Zoff_rel) {
                             }
                         } else {
                             rel_room = rel_span - 24;
-                            callsub s_before_write(Zoff_rel - ab + 24, 16);
+                            callsub s_before_write(Zoff_rel + 24, 16);
                             rl2_r = bw_r;
                             if (bw_r == 0) {
                                 callsub s_zero(ab + Zoff_rel + 24, 16);
-                                callsub s_before_write(Zoff_rel - ab, 4);
+                                callsub s_before_write(Zoff_rel, 4);
                                 rl2_r = bw_r;
                                 if (bw_r == 0) {
                                     store16(ab + Zoff_rel, 65535);
@@ -1414,7 +1414,7 @@ sub s_syms_grow() {
             if (bw_r == 0) {
                 store64(sp_r + 8, sg_at);
                 asyms = ab + sg_new;
-                callsub s_release(sg_old);
+                callsub s_release(sg_old - ab);
                 sg_r = 0;
             }
         }
