@@ -121,17 +121,18 @@ def program() -> bytes:
 
 
 def pump_program() -> bytes:
-    """The live pump's shell: call `live_pump(context, area)` and answer.
+    """The live pump's shell: call `live_pump` and answer.
 
-    One turn is one request. The glue calls the entry per turn, so a console
-    drives the image exactly as a host drives a machine - the words are the
-    same ones the smoke's program uses (docs/32 3.1), with CALL where the
-    smoke has a MOVE.
+    One turn is one request. The words follow graph.rxfs's m_call_leaf: six of
+    shape (id, count, out slot, out width, status slot) then one operand triple
+    per argument. The pump is shape 6 (m_shape_of: leaf 29) -- one argument and
+    no out slot -- so the out words are zero and the answer is the argument
+    word, exactly what the seats report.
     """
     word = graph_header.numbers()
     slot = word["RXF_OPERAND_SLOT"]
-    return struct.pack(
-        "<23Q",
+    literal = word["RXF_OPERAND_LITERAL"]
+    out = [
         word["RXF_GRAPH_MAGIC"],
         64,  # frame bytes
         1,   # parameters
@@ -141,21 +142,26 @@ def pump_program() -> bytes:
         8,   # parameter 0 lives at frame slot 0, one word
         word["RXF_OP_CALL"],
         LIVE_PUMP,
+        1,    # one operand
+        0,    # out slot: shape 6 has none
+        0,    # out width
+        16,   # status slot
         slot,
         0,
-        8,   # the pump's area: frame[0]
+        8,    # operand 0: frame[0], one word
         word["RXF_OP_MOVE"],
         8,
         8,
         slot,
         0,
-        8,   # frame[8] = frame[0]: the answer is the argument word
+        8,    # frame[8] = frame[0]
         word["RXF_OP_RETURN"],
-        slot,
+        literal,
+        0,
         8,
         8,
-        8,
-    )
+    ]
+    return struct.pack("<%dQ" % len(out), *out)
 
 
 # The argument the glue passes: "RXFOK" as one little-endian word (the string's
