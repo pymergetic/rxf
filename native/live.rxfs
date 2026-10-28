@@ -1055,6 +1055,7 @@ sub s_attach() {
                                         if (load16(ab + 4096) == load16(sp_r)) {
                                             m_entry(1);
                                             asyms = ab + load64(sp_r + 8) + 24;
+                                            src_syms = asyms;
                                             aspec = 0;
                                             at_r = 0;
                                         }
@@ -3606,6 +3607,7 @@ macro m_emit() {
         # layout of an image includes how much room the index was given.
         em_slots = load32(ab + 4124);
         em_claim = load64(ab + 16);
+        em_syms = src_syms;
         callsub s_init(jemit_base, jemit_cap, jemit_cap, em_slots, em_name, em_nlen);
         em_init_r = in_r;
         callsub s_arena_pop();
@@ -3671,10 +3673,12 @@ macro m_emit() {
             callsub s_rec(em_hnd);
             cs_name = ab + 32;
             if (ce_r != 0) {
-                em_id = load16(ce_r + 6);
-                if (em_id != 0) {
-                    if (em_id < load32(em_syms)) {
-                        cs_name = em_syms + load32(em_syms + 8 + 4 * em_id);
+                if (em_syms != 0) {
+                    em_id = load16(ce_r + 6);
+                    if (em_id != 0) {
+                        if (em_id < load32(em_syms)) {
+                            cs_name = em_syms + load32(em_syms + 8 + 4 * em_id);
+                        }
                     }
                 }
             }
@@ -5750,7 +5754,7 @@ fn live_pump(context, area) {
     var crc_r, crc_i, crc_k, cmp_r, len_r;
     var cr_h, cr_r, cs2_r, ck_r, cn_r, cc_r;
     var cl_mod, cl_head, cl_walk, cl_next, cl_stop, cs_refc;
-    var em_name, em_nlen, em_nrw, em_src, em_hnd, sg_r, acursor, em_slots, em_claim, em_cmt, cc_ix, cc_n, cc_rec, cc_k, cc_w, em_syms, em_id;
+    var em_name, em_nlen, em_nrw, em_src, em_hnd, sg_r, acursor, em_slots, em_claim, em_cmt, cc_ix, cc_n, cc_rec, cc_k, cc_w, em_syms, em_id, src_syms;
     var cs_type, cs_parent, cs_generation, cs_flags, cs_index, cs_name, cs_name_len, cs_payload, cs_refs, cs_kind;
     var ce_r, sp_r, lv_r, pa_r, rr_r, kd_r, nm_r, fc_r;
     var ne_r, nh_r, hm_r, tin_r, it_r, tk_r, pw_r, rw_r, lss_r;
