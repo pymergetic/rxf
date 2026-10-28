@@ -146,9 +146,10 @@ def pump_program() -> bytes:
         18446744073709551615,  # out slot: shape 6 has none and the reference
         0,    # out width            wants -1 there, not 0 (graph.rxfs)
         16,   # status slot
-        slot,
+        literal,
         0,
-        8,    # operand 0: frame[0], one word
+        8,    # operand 0: the area is 0, and the pump finds the live area
+        #        through the capability table of the context itself
         word["RXF_OP_MOVE"],
         8,
         8,
@@ -156,10 +157,10 @@ def pump_program() -> bytes:
         0,
         8,    # frame[8] = frame[0]
         word["RXF_OP_RETURN"],
-        literal,
-        0,
+        slot,
         8,
         8,
+        8,    # answer frame[8..16), the same leg the smoke returns
     ]
     return struct.pack("<%dQ" % len(out), *out)
 
