@@ -2,80 +2,181 @@
 <meta charset="utf-8">
 <title>RXF</title>
 <style>
-  body { margin:0; font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-         background:#0d0f12; color:#d7dde5; }
-  .win { border:1px solid #22272e; border-radius:8px; margin:16px; overflow:hidden; }
-  .bar { display:flex; align-items:center; gap:12px; padding:8px 12px;
-         background:#14181d; border-bottom:1px solid #22272e; }
-  .dot { width:8px; height:8px; border-radius:50%; background:#3a424c; }
-  .dot.on { background:#4ade80; }
-  .title { color:#8b96a3; }
-  .digest { margin-left:auto; color:#5f6b78; }
-  button { font:inherit; padding:4px 12px; border:1px solid #2b323a; border-radius:6px;
-           background:#1b2128; color:#d7dde5; cursor:pointer; }
-  button:hover { background:#232a32; }
-  .body { padding:12px; }
-  #screen { white-space:pre-wrap; min-height:120px; color:#4ade80; }
-  input { width:100%; box-sizing:border-box; margin-top:10px; font:inherit;
-          padding:6px 8px; background:#14181d; color:#d7dde5;
-          border:1px solid #2b323a; border-radius:6px; }
-  .note { color:#5f6b78; padding:0 16px 16px; }
+  html, body { height:100%; margin:0; }
+  body { display:flex; flex-direction:column;
+         font:13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+         background:#0b0d10; color:#c9d3dd; }
+
+  /* tabs: one per forked image, the first is the one that booted */
+  .tabs { display:flex; gap:1px; background:#171b21; border-bottom:1px solid #22272e;
+          padding:6px 8px 0; overflow-x:auto; }
+  .tab { display:flex; align-items:center; gap:8px; padding:5px 12px; cursor:pointer;
+         border:1px solid #22272e; border-bottom:none; border-radius:6px 6px 0 0;
+         background:#12161b; color:#6f7c89; white-space:nowrap; }
+  .tab.active { background:#0b0d10; color:#dfe6ee; }
+  .tab .dot { width:7px; height:7px; border-radius:50%; background:#3a424c; }
+  .tab .dot.on { background:#4ade80; }
+  .tab .x { color:#4a545f; padding:0 2px; }
+  .tab .x:hover { color:#e06c75; }
+  .newtab { padding:5px 12px; color:#4a545f; cursor:pointer; user-select:none; }
+  .newtab:hover { color:#c9d3dd; }
+
+  /* the console: output scrolls, the prompt stays at the bottom */
+  .term { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+  .out { flex:1; overflow-y:auto; padding:10px 12px 4px; white-space:pre-wrap;
+         word-break:break-word; }
+  .out .sys { color:#5f6b78; }
+  .out .err { color:#e06c75; }
+  .out .ok  { color:#4ade80; }
+  .prompt { display:flex; align-items:baseline; gap:8px; padding:6px 12px 10px;
+            border-top:1px solid #171b21; background:#0b0d10; }
+  .ps1 { color:#4ade80; }
+  .cmd { flex:1; background:none; border:none; outline:none; color:#c9d3dd;
+         font:inherit; padding:0; }
+
+  /* the strip: the state of this image, and the fork */
+  .strip { display:flex; align-items:center; gap:14px; padding:5px 12px;
+           background:#12161b; border-top:1px solid #22272e; color:#5f6b78;
+           font-size:12px; }
+  .strip button { font:inherit; padding:2px 10px; border:1px solid #2b323a;
+                  border-radius:5px; background:#1b2128; color:#c9d3dd; cursor:pointer; }
+  .strip button:hover { background:#232a32; }
+  .strip .grow { margin-left:auto; }
 </style>
 
-<div class="win">
-  <div class="bar">
-    <div class="dot" id="led"></div>
-    <div class="title">rxf.pymergetic.com</div>
-    <div class="digest" id="digest">-</div>
-    <button id="snap">Snapshot</button>
-    <button id="turn">Run</button>
-  </div>
-  <div class="body">
-    <div id="screen">loading...</div>
-    <input id="line" placeholder="the image's own prompt - try `honors`">
+<div class="tabs" id="tabs">
+  <div class="newtab" id="newtab" title="fork this image">+</div>
+</div>
+
+<div class="term">
+  <div class="out" id="out"></div>
+  <div class="prompt">
+    <span class="ps1">rxf&gt;</span>
+    <input class="cmd" id="cmd" autocomplete="off" spellcheck="false">
   </div>
 </div>
 
-<div class="note">
-  The window above is the image itself: a wasm32 seat running the same linked
-  v7 arena a machine boots. Nothing here is drawn from a fixture.
+<div class="strip">
+  <button id="snap">Snapshot</button>
+  <span id="where">boots</span>
+  <span class="grow" id="state">-</span>
 </div>
 
 <script type="module">
   import { Rxf } from "./rxf.js";
-  const screen = document.getElementById("screen");
-  const led = document.getElementById("led");
-  const out = (text) => { screen.textContent += text; };
-  const rxf = window.__rxfFork
-    ? await Rxf.forkFrom("rxf_boot.wasm", window.__rxfFork)
-    : await Rxf.open("rxf_boot.wasm", "image_wasm32.bin");
-  led.classList.add("on");
-  screen.textContent = "";
-  if (window.__rxfFork) {
-    out(`forked from ${window.__rxfParent || "another window"}\n`);
-    out(`${window.__rxfFork.length} bytes carried over\n\n`);
+
+  const out = document.getElementById("out");
+  const cmd = document.getElementById("cmd");
+  const tabs = document.getElementById("tabs");
+  const newtab = document.getElementById("newtab");
+  const state = document.getElementById("state");
+  const where = document.getElementById("where");
+
+  const say = (text, cls) => {
+    const line = document.createElement("div");
+    if (cls) line.className = cls;
+    line.textContent = text;
+    out.appendChild(line);
+    out.scrollTop = out.scrollHeight;
+  };
+
+  /* one tab per image: the first boots, the rest are forks of one that did */
+  const windows = [];
+  let current = 0;
+
+  async function boot(saved, parent) {
+    const rxf = saved
+      ? await Rxf.forkFrom("rxf_boot.wasm", saved)
+      : await Rxf.open("rxf_boot.wasm", "image_wasm32.bin");
+    return { rxf, saved: !!parent, parent };
   }
-  out(rxf.drain() || "the image is up\n");
-  document.getElementById("turn").onclick = () => {
-    const status = rxf.turn();
-    out(rxf.drain());
-    out(`status ${status}  out 0x${rxf.answer().toString(16)}\n`);
-    document.getElementById("digest").textContent =
-      `${rxf.snapshot().length} bytes in memory`;
+
+  function render() {
+    for (const el of tabs.querySelectorAll(".tab")) el.remove();
+    windows.forEach((w, i) => {
+      const el = document.createElement("div");
+      el.className = "tab" + (i === current ? " active" : "");
+      el.innerHTML =
+        '<div class="dot on"></div><span class="x">x</span>';
+      el.insertBefore(
+        Object.assign(document.createElement("span"), {
+          textContent: w.title,
+        }),
+        el.querySelector(".x"),
+      );
+      el.onclick = (e) => {
+        if (e.target.classList.contains("x")) return close(i);
+        current = i;
+        render();
+      };
+      tabs.insertBefore(el, newtab);
+    });
+    state.textContent = windows[current]
+      ? `${windows[current].rxf.snapshot().length} bytes in memory`
+      : "-";
+    where.textContent = windows[current]?.parent
+      ? `forked from ${windows[current].parent}`
+      : "boots";
+  }
+
+  function close(i) {
+    windows.splice(i, 1);
+    if (!windows.length) return location.reload();
+    current = Math.min(current, windows.length - 1);
+    render();
+  }
+
+  async function openWindow(saved, parent) {
+    const w = await boot(saved, parent);
+    w.title = parent ? `fork ${windows.length}` : "image";
+    windows.push(w);
+    current = windows.length - 1;
+    render();
+    say(
+      w.parent
+        ? `forked from ${parent} - ${saved.length} bytes carried over`
+        : "the image is up",
+      "sys",
+    );
+    return w;
+  }
+
+  /* the console: the image answers over its own FIFO */
+  function turn(w) {
+    const status = w.rxf.turn();
+    const text = w.rxf.drain();
+    if (text) for (const line of text.split("\n")) if (line) say(line);
+    say(`status ${status}`, status === 0 ? "ok" : "err");
+  }
+
+  cmd.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const line = cmd.value.trim();
+    cmd.value = "";
+    if (!line) return;
+    say(`rxf> ${line}`, "sys");
+    const w = windows[current];
+    if (!w) return;
+    if (line === "help") {
+      say("run        one turn of the image", "sys");
+      say("fork       snapshot this image into a new tab", "sys");
+      say("bytes      the image's size in memory", "sys");
+      return;
+    }
+    if (line === "fork") return document.getElementById("snap").click();
+    if (line === "bytes") return say(`${w.rxf.snapshot().length} bytes`, "ok");
+    if (line === "run") return turn(w);
+    say(`no command ${line}`, "err");
+  });
+
+  document.getElementById("snap").onclick = async () => {
+    const w = windows[current];
+    if (!w) return;
+    await openWindow(w.rxf.snapshot(), w.parent || "image");
   };
-  document.getElementById("snap").onclick = () => {
-    const here = rxf.snapshot();
-    const fork = open(location.href, "_blank");
-    const pass = () => {
-      if (!fork || fork.closed) return;
-      try {
-        fork.__rxfFork = here;
-        fork.__rxfParent = document.getElementById("digest").textContent;
-      } catch (e) {
-        setTimeout(pass, 50);
-      }
-    };
-    setTimeout(pass, 50);
-    document.getElementById("digest").textContent = `forked ${here.length} bytes`;
-  };
+
+  newtab.onclick = () => document.getElementById("snap").click();
+
+  await openWindow(null, null);
+  cmd.focus();
 </script>
