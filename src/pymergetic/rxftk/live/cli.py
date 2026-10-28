@@ -133,7 +133,45 @@ def ping(spec: str, text: str = "ping", timeout: float = 30.0) -> str:
     return _client(spec, timeout).ping(str(text).encode()).decode()
 
 
-HELP = """ping TEXT | hello | digest | resolve PATH | path HANDLE | get PATH | children PATH | halt | go | emit FILE | apply DELTA.rxfd... | help | quit"""
+HELP = """ping TEXT | hello | digest | resolve PATH | path HANDLE | get PATH | children PATH | honors [NAME] | halt | go | emit FILE | apply DELTA.rxfd... | help | quit"""
+
+
+HONORS_GROUPS = (("people", "person"), ("roles", "role"), ("works", "work"))
+
+
+def _honors(client: Client, args: list[str]) -> str:
+    """The founding core of the image (docs/36 4), as the console answers it.
+
+    ``honors`` lists the groups of the Genesis and what is in each. ``honors NAME``
+    is one entry with the relationships the world names for it: roles are objects,
+    so a relationship the world does not name is not one this can answer for.
+    """
+    root = client.resolve("honors")
+    if root is None:
+        raise KeyError("no object at 'honors'")
+    groups = {
+        client.path(handle).rsplit(".", 1)[-1]: handle for handle in client.children(root)
+    }
+    if not args:
+        out = []
+        for group, _ in HONORS_GROUPS:
+            members = sorted(
+                client.path(h).rsplit(".", 1)[-1] for h in client.children(groups[group])
+            )
+            out.append(f"{group} ({len(members)}): {' '.join(members)}")
+        return "\n".join(out)
+    wanted = args[0]
+    for group, singular in HONORS_GROUPS:
+        for handle in client.children(groups[group]):
+            if client.path(handle).rsplit(".", 1)[-1] != wanted:
+                continue
+            lines = [f"{singular} {wanted}"]
+            for target, role, _kind, _binding, index in client.refs(handle):
+                name = client.path(role).rsplit(".", 1)[-1]
+                other = client.path(target).rsplit(".", 1)[-1]
+                lines.append(f"  {name} {other} [{index}]")
+            return "\n".join(lines)
+    raise KeyError(f"no entry {wanted!r} in the founding core")
 
 
 def _handle(client: Client, word: str) -> int:
@@ -170,6 +208,8 @@ def _line(client: Client, line: str) -> str | None:
         return "\n".join(
             client.path(h) for h in client.children(_handle(client, args[0]))
         )
+    if command == "honors":
+        return _honors(client, args)
     if command == "halt":
         return "stopped" if client.break_(True) else "not stopped"
     if command == "go":
