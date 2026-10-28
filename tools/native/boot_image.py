@@ -143,8 +143,8 @@ def pump_program() -> bytes:
         word["RXF_OP_CALL"],
         LIVE_PUMP,
         1,    # one operand
-        0,    # out slot: shape 6 has none
-        0,    # out width
+        18446744073709551615,  # out slot: shape 6 has none and the reference
+        0,    # out width            wants -1 there, not 0 (graph.rxfs)
         16,   # status slot
         slot,
         0,
