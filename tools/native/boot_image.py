@@ -152,6 +152,26 @@ def handle_words(placed: int) -> bytes:
     return struct.pack("<3Q", placed, generation, 0)
 
 
+def honors_present(arena: bytes) -> list[str]:
+    """The names of the founding core that are missing from an arena's bytes.
+
+    The Genesis subtree is laid down by the world -> arena writer (docs/36 3) and
+    every seat boots the packed image of this arena (docs/36 4: the founding core
+    ships or nothing ships). A build that drops the honors must fail its prove, so
+    the packer looks for the subtree itself rather than trusting the export.
+    """
+    names = [
+        arena_export.HONORS,
+        arena_export.ROLES,
+        arena_export.PEOPLE,
+        arena_export.WORKS,
+        arena_export.LEDGER,
+        *sorted(arena_export.GENESIS_PEOPLE),
+        *sorted(arena_export.GENESIS_WORKS),
+    ]
+    return [name for name in names if name.encode() not in arena]
+
+
 def build(
     out: Path, entry: bytes = b"", machine: str = "x86_64", start: Path = STARTER
 ) -> tuple[int, int]:
@@ -172,6 +192,9 @@ def build(
     filled = programs.filled(image)
     made, placed = arena_export.place_world(filled)
     arena = made.to_bytes()
+    missing = honors_present(arena)
+    if missing:
+        raise BootImageError(f"the image carries no founding core: {missing}")
     identity = placed[probe]
 
     base = map_rows[base_row] + map_rows["RXF_BOOT_LINKED"]
