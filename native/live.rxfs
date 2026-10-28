@@ -1405,7 +1405,7 @@ sub s_syms_grow() {
             sg_r = bw_r;
             if (bw_r == 0) {
                 store64(sp_r + 8, sg_at);
-                asyms = sg_new;
+                asyms = ab + sg_new;
                 callsub s_release(sg_old);
                 sg_r = 0;
             }
