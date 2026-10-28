@@ -98,6 +98,7 @@ $(BUILD)/shim_wasm.o: wasm_shim.c image_stub/uart.h $(MAP) | $(BUILD)
 # initial and a maximum).
 $(BUILD)/rxf_boot.wasm: $(BUILD)/entry_wasm.o $(BUILD)/uart_wasm.o $(BUILD)/shim_wasm.o
 	wasm-ld --no-entry --export=run --export-memory \
+	    --growable-table --table-max=4096 \
 	    --stack-first -z stack-size=8192 --initial-memory=131072 --max-memory=268435456 \
 	    -o $@ $^
 
