@@ -154,7 +154,12 @@
     const out = new TextEncoder().encode("honors");
     w.rxf.send(Frames.encode(Frames.OP.RESOLVE, 1, 0, out));
     w.rxf.turn();
-    line(w, `${out.length} bytes on the line`, "ok");
+    const text = w.rxf.drain();
+    const { frames } = Frames.decode(new TextEncoder().encode(text));
+    for (const f of frames) {
+      line(w, `${f.op} status ${f.status} ${f.payload.length} bytes`, f.status ? "err" : "ok");
+    }
+    if (!frames.length) line(w, "(the image answered no frame)", "sys");
   } },
   ];
 
