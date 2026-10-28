@@ -131,7 +131,7 @@ def pump_program() -> bytes:
     word = graph_header.numbers()
     slot = word["RXF_OPERAND_SLOT"]
     return struct.pack(
-        "<17Q",
+        "<23Q",
         word["RXF_GRAPH_MAGIC"],
         64,  # frame bytes
         1,   # parameters
@@ -144,6 +144,12 @@ def pump_program() -> bytes:
         slot,
         0,
         8,   # the pump's area: frame[0]
+        word["RXF_OP_MOVE"],
+        8,
+        8,
+        slot,
+        0,
+        8,   # frame[8] = frame[0]: the answer is the argument word
         word["RXF_OP_RETURN"],
         slot,
         8,
