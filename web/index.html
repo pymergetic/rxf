@@ -1,0 +1,64 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>RXF</title>
+<style>
+  body { margin:0; font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+         background:#0d0f12; color:#d7dde5; }
+  .win { border:1px solid #22272e; border-radius:8px; margin:16px; overflow:hidden; }
+  .bar { display:flex; align-items:center; gap:12px; padding:8px 12px;
+         background:#14181d; border-bottom:1px solid #22272e; }
+  .dot { width:8px; height:8px; border-radius:50%; background:#3a424c; }
+  .dot.on { background:#4ade80; }
+  .title { color:#8b96a3; }
+  .digest { margin-left:auto; color:#5f6b78; }
+  button { font:inherit; padding:4px 12px; border:1px solid #2b323a; border-radius:6px;
+           background:#1b2128; color:#d7dde5; cursor:pointer; }
+  button:hover { background:#232a32; }
+  .body { padding:12px; }
+  #screen { white-space:pre-wrap; min-height:120px; color:#4ade80; }
+  input { width:100%; box-sizing:border-box; margin-top:10px; font:inherit;
+          padding:6px 8px; background:#14181d; color:#d7dde5;
+          border:1px solid #2b323a; border-radius:6px; }
+  .note { color:#5f6b78; padding:0 16px 16px; }
+</style>
+
+<div class="win">
+  <div class="bar">
+    <div class="dot" id="led"></div>
+    <div class="title">rxf.pymergetic.com</div>
+    <div class="digest" id="digest">-</div>
+    <button id="snap">Snapshot</button>
+    <button id="turn">Run</button>
+  </div>
+  <div class="body">
+    <div id="screen">loading...</div>
+    <input id="line" placeholder="the image's own prompt - try `honors`">
+  </div>
+</div>
+
+<div class="note">
+  The window above is the image itself: a wasm32 seat running the same linked
+  v7 arena a machine boots. Nothing here is drawn from a fixture.
+</div>
+
+<script type="module">
+  import { Rxf } from "./rxf.js";
+  const screen = document.getElementById("screen");
+  const led = document.getElementById("led");
+  const out = (text) => { screen.textContent += text; };
+  const rxf = await Rxf.open("rxf_boot.wasm", "image_wasm32.bin");
+  led.classList.add("on");
+  screen.textContent = "";
+  out(rxf.drain() || "the image is up\n");
+  document.getElementById("turn").onclick = () => {
+    const status = rxf.turn();
+    out(rxf.drain());
+    out(`status ${status}  out 0x${rxf.answer().toString(16)}\n`);
+    document.getElementById("digest").textContent =
+      `${rxf.snapshot().length} bytes in memory`;
+  };
+  document.getElementById("snap").onclick = () => {
+    window.__rxfSnapshot = rxf.snapshot();
+    open(location.href, "_blank");
+  };
+</script>
