@@ -86,6 +86,10 @@ SEATS = {
 PROGRAM_PARENT = "pymergetic.rxf.boot"
 PROGRAM_NAME = "smoke"
 
+# The live pump's leaf id (native/graph.h: RXF_LEAF_LIVE_PUMP). A program that
+# calls it is what a console drives: one turn is one request on the line.
+LIVE_PUMP = 29
+
 
 def program() -> bytes:
     """The smoke's program: take one argument word at frame slot 0, move it to
@@ -113,6 +117,38 @@ def program() -> bytes:
         8,
         8,
         8,  # answer frame[8..16)
+    )
+
+
+def pump_program() -> bytes:
+    """The live pump's shell: call `live_pump(context, area)` and answer.
+
+    One turn is one request. The glue calls the entry per turn, so a console
+    drives the image exactly as a host drives a machine - the words are the
+    same ones the smoke's program uses (docs/32 3.1), with CALL where the
+    smoke has a MOVE.
+    """
+    word = graph_header.numbers()
+    slot = word["RXF_OPERAND_SLOT"]
+    return struct.pack(
+        "<17Q",
+        word["RXF_GRAPH_MAGIC"],
+        64,  # frame bytes
+        1,   # parameters
+        1,   # argument words
+        7,   # entry word
+        0,
+        8,   # parameter 0 lives at frame slot 0, one word
+        word["RXF_OP_CALL"],
+        LIVE_PUMP,
+        slot,
+        0,
+        8,   # the pump's area: frame[0]
+        word["RXF_OP_RETURN"],
+        slot,
+        8,
+        8,
+        8,
     )
 
 
