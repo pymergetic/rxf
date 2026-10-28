@@ -189,7 +189,7 @@ def test_every_composed_function_has_one_program_and_its_interpreter():
         for f in binary.check(image)["functions"]
         if f["implementation"] == "Semantic"
     )
-    assert len(programs) == semantic == 59  # 58 composed from graphs, and tiny.compile
+    assert len(programs) == semantic == 60  # 59 composed from graphs, and tiny.compile
     assert {image.type_name(image.get(p)["parent"]) for p in programs} == {"Function"}
 
 

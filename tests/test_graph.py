@@ -73,7 +73,7 @@ def different(cases, want, have):
 
 
 def test_there_is_a_program_for_every_semantic_function(cases):
-    assert len(cases) == 58 * 3 + len(programs.synthetic())
+    assert len(cases) == 59 * 3 + len(programs.synthetic())
 
 
 def test_the_programs_succeed_and_refuse_both(reference):

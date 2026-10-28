@@ -1,4 +1,37 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <delta xmlns:rxf="urn:pymergetic:rxf">
-  <Module name="honors" category="ModuleCategory.Library" />
+  <Module name="honors" category="ModuleCategory.Library">
+    <Alias name="foundation" target="pymergetic.rxf.foundation" />
+    <Alias name="honors" target="pymergetic.rxf.honors" />
+    <Alias name="kinds" target="pymergetic.rxf.kinds" />
+    <Alias name="semantic" target="pymergetic.rxf.roles.semantic" />
+    <Function name="who" implementation="@kinds.FunctionImplementation.Semantic" layer="@kinds.FunctionLayer.Library" semantic_version="1" signature="@honors.who.signature" body="@honors.who.semantic_graph_compatibility_entry" semantic_digest="1759509489c9a8fc2fedf8dc58f9f7de13c6d2304bfe1d4be0ff822e3d57265c">
+      <Code name="bytecode" owner_function="@honors.who" signature="@honors.who.signature" format="@kinds.CodeFormat.Bytecode" semantic_version="1" byte_count="160" semantic_digest="1759509489c9a8fc2fedf8dc58f9f7de13c6d2304bfe1d4be0ff822e3d57265c" rxf:data="525847310000000018000000000000000000000000000000000000000000000005000000000000000200000000000000080000000000000008000000000000000100000000000000050000000000000008000000000000000b0000000000000000000000000000000800000000000000080000000000000008000000000000000c00000000000000000000000000000010000000000000000400000000000000">
+        <rxf:ref role="pymergetic.rxf.roles.call.Interpreter" kind="RefKind.Data" target="@foundation.graph.run" />
+      </Code>
+      <Call name="semantic_graph_compatibility_entry" callee="@honors.who" result_type="uint64_t" />
+      <Signature name="signature" return_type="uint64_t" result_count="1" refusal_set="@foundation.StdlibRefusals">
+        <Result name="value" value_type="uint64_t" />
+      </Signature>
+      <SemanticGraph name="who_graph" function="@honors.who" entry_block="@honors.who.who_graph.block[0]" refusal_set="@foundation.StdlibRefusals" output_type="uint64_t" block_count="2" result_count="1">
+        <rxf:ref role="@semantic.GraphResultValue" kind="RefKind.Data" target="@honors.who.who_graph.block[0].return_value.return_value_result" />
+        <SemanticBlock name="block[0]" terminator="@kinds.Terminator.Return" operation_count="1" predecessor_count="1" parameter_type_count="1" terminator_value="@honors.who.who_graph.block[0].return_value.return_value_result" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <rxf:ref role="@semantic.BlockParameterValue" kind="RefKind.Data" target="@honors.who.who_graph.block[0].successful_call_status" />
+          <SemanticOperation name="return_value" opcode="@kinds.Opcode.ReturnValue" input_type_count="1" result_type_count="1" input_value_count="1" result_value_count="1" refusal_set="@foundation.StdlibRefusals" target_object="@honors.who.who_graph.headcount">
+            <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultType" kind="RefKind.Type" target="uint64_t" />
+            <rxf:ref role="@semantic.ResultValue" kind="RefKind.Data" target="@honors.who.who_graph.block[0].return_value.return_value_result" />
+            <SemanticValue name="return_value_result" value_type="uint64_t" kind="@kinds.ValueKind.OperationResult" owner_function="@honors.who" owner_block="@honors.who.who_graph.block[0]" owner_operation="@honors.who.who_graph.block[0].return_value" />
+          </SemanticOperation>
+          <SemanticValue name="successful_call_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@honors.who" owner_block="@honors.who.who_graph.block[0]" />
+        </SemanticBlock>
+        <SemanticValue name="headcount" value_type="uint64_t" kind="@kinds.ValueKind.Literal" literal_size="8" owner_function="@honors.who" owner_block="@honors.who.who_graph.block[0]" rxf:data="0500000000000000" />
+        <SemanticBlock name="primary_refusal" index="1" terminator="@kinds.Terminator.Refuse" predecessor_count="1" parameter_type_count="1" terminator_value="@honors.who.who_graph.primary_refusal.primary_refusal_status" rxf:data="0000000000000000">
+          <rxf:ref role="@semantic.InputType" kind="RefKind.Type" target="uint32_t" />
+          <SemanticValue name="primary_refusal_status" value_type="uint32_t" kind="@kinds.ValueKind.Bound" owner_function="@honors.who" owner_block="@honors.who.who_graph.primary_refusal" />
+        </SemanticBlock>
+      </SemanticGraph>
+    </Function>
+  </Module>
 </delta>
