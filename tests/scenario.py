@@ -239,7 +239,12 @@ def steps() -> list[Step]:
 
 
 def stdlib_code() -> dict[str, dict[str, bytes]]:
-    """The code of every stdlib leaf in the starter, per machine."""
+    """The code of every stdlib leaf in the starter, per machine.
+
+    A machine ``Code`` carries no bytes: the starter keeps source and recipe, and
+    the built bytes live in the ``CodeBlob`` its ``body`` names (tools/native/
+    programs.py, ``_built_object``). Reading the Code element is reading a name.
+    """
     found: dict[str, dict[str, bytes]] = {}
     for path in sorted(STARTER.rglob("*.rxfd")):
         parts = path.relative_to(STARTER).with_suffix("").parts
@@ -251,12 +256,16 @@ def stdlib_code() -> dict[str, dict[str, bytes]]:
                 key = sync.snippet_key(parts, str(function.get("name")), SYMBOLS)
             except sync.SyncError:
                 continue
+            blobs = {c.get("name"): c for c in function if c.tag == "CodeBlob"}
             found[key] = {
-                machine: bytes.fromhex(codes[name].get(sync.DATA) or "")
-                for machine, name in (
-                    ("x86_64", "x86_64_linux"),
-                    ("aarch64", "aarch64_linux"),
-                    ("wasm32", "wasm32"),
-                )
+                machine: bytes.fromhex(_blob_hex(blobs, machine))
+                for machine in ("x86_64", "aarch64", "wasm32")
             }
     return found
+
+
+def _blob_hex(blobs: dict[str | None, ET.Element], machine: str) -> str:
+    """The hex of one body blob. A CodeBlob has no children, so `blob or default`
+    takes the default: an Element with no children is falsy."""
+    blob = blobs.get(f"body_{machine}")
+    return "" if blob is None else (blob.get(sync.DATA) or "")
