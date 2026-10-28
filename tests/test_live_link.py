@@ -23,6 +23,8 @@ from pymergetic.rxftk.live.harness import HostImage, fit, table_slots
 from . import live_serve
 from .snippets import STARTER
 
+import link as link_
+
 MiB = 1 << 20
 SIZES = {
     "arena": 8 * MiB,
@@ -61,7 +63,7 @@ def context():
 
 @pytest.fixture
 def shm(image: Image, context):
-    raw = image.to_bytes()
+    raw = link_.arena_of(image)
     sizes = sized(raw)
     size = live.Area.required_size(
         sizes["arena"],
@@ -121,9 +123,9 @@ def test_a_change_made_from_the_other_process_is_in_the_shared_image(
     delta.write_text(DELTA, encoding="utf-8")
     wire = link.SharedMemory(name)
     client = Client(wire)
-    expected = Image.from_bytes(raw)
+    expected = Image.from_bytes(image.to_bytes())
     expected.apply(DELTA)
-    compiled = physical.from_xml(Image.from_bytes(raw), ("wire.rxfd", DELTA))
+    compiled = physical.from_xml(Image.from_bytes(image.to_bytes()), ("wire.rxfd", DELTA))
     assert client.apply(compiled.data) == expected.digest()
     # a second client of the same segment sees the change too
     other = link.SharedMemory(name)
@@ -141,7 +143,7 @@ def serial(image: Image):
         slave
     )  # before anything is written: no echo of the answers back to the server
     stop, ready = threading.Event(), threading.Event()
-    raw = image.to_bytes()
+    raw = link_.arena_of(image)
     sizes = sized(raw)
     server = threading.Thread(
         target=live_serve.serve_descriptor,
