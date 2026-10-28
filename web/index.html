@@ -77,6 +77,7 @@
 
 <script type="module">
   import { Rxf } from "./rxf.js";
+  import * as Frames from "./frames.js";
 
   const tabs = document.getElementById("tabs");
   const newtab = document.getElementById("newtab");
@@ -150,9 +151,11 @@
     { name: "bytes", what: "how big this image is in memory", act: (w) =>
         line(w, `${w.rxf.snapshot().length} bytes`, "ok") },
     { name: "honors", what: "the founding core", act: (w) => {
-        line(w, "this seat runs the boot smoke program, not the live pump", "err");
-        line(w, "the founding core answers over the live protocol - coming", "sys");
-      } },
+    const out = new TextEncoder().encode("honors");
+    w.rxf.send(Frames.encode(Frames.OP.RESOLVE, 1, 0, out));
+    w.rxf.turn();
+    line(w, `${out.length} bytes on the line`, "ok");
+  } },
   ];
 
   /* modifications: the acts that change the image from inside */
