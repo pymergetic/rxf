@@ -1370,10 +1370,15 @@ sub s_syms_grow() {
         }
         sg_used = sg_off + sg_i + 1;
     }
-    sg_newcap = sg_cap * 2;
-    if (sg_newcap < sg_n + 1) {
-        sg_newcap = sg_n + 1;
+    # The capacity is twice what the table holds, so it is a load factor and not
+    # a doubling of whatever the table happened to carry: a table made with room
+    # for a million entries would otherwise ask for two million the first time a
+    # string runs past the end, and no arena gives that for 47 names.
+    sg_newcap = 2 * (sg_n + 1);
+    if (sg_newcap < 16) {
+        sg_newcap = 16;
     }
+
     # The strings sit at 8 + 4 * capacity, so a growth of the capacity moves every
     # string up. Sizing the new span as the old used leaves room for the strings
     # but not for the grown offset table, and the copy writes past the span end.
