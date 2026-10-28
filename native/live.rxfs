@@ -1394,9 +1394,9 @@ sub s_syms_grow() {
             while (sg_i < sg_n) {
                 sg_off = load32(sg_head + 8 + 4 * sg_i);
                 callsub s_len(sg_head + sg_off);
-                callsub s_cpy(sg_new + 8 + 4 * sg_newcap + (sg_off - (8 + 4 * sg_cap)),
+                callsub s_cpy(ab + sg_new + 8 + 4 * sg_newcap + (sg_off - (8 + 4 * sg_cap)),
                               sg_head + sg_off, len_r + 1);
-                store32(sg_new + 8 + 4 * sg_i,
+                store32(ab + sg_new + 8 + 4 * sg_i,
                         8 + 4 * sg_newcap + (sg_off - (8 + 4 * sg_cap)));
                 sg_i = sg_i + 1;
             }
