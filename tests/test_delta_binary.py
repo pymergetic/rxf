@@ -12,6 +12,8 @@ from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import harness, physical
 
 from .snippets import STARTER
+
+import link
 from .test_live import edited
 
 XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -42,7 +44,7 @@ def test_xml_to_physical_to_image_to_xml_is_the_same_text(base: Image):
     reference.apply(XML)
     compiled = physical.from_xml(base, ("change.rxfd", XML))
     assert (compiled.creates, compiled.sets, compiled.deletes) == (3, 1, 0)
-    result = harness.replay(base.to_bytes(), compiled.data)
+    result = harness.replay(link.arena_of(base), compiled.data)
     assert result.digest() == reference.digest()
     assert result.export() == reference.export()
     assert result.delta_digest() == reference.delta_digest()
@@ -73,7 +75,7 @@ def test_random_edits_give_the_same_image_both_ways(base: Image, seed: int):
         # the delta, with and without the check of the base it was made for
         loose = physical.compile(before, after, check_base=False)
         for data in (compiled.data, loose.data):
-            result = harness.replay(before.to_bytes(), data)
+            result = harness.replay(link.arena_of(before), data)
             assert result.digest() == after.digest()
             assert result.compact().to_bytes() == after.compact().to_bytes()
         before = after
@@ -86,7 +88,7 @@ def test_a_delta_for_another_base_is_refused(base: Image):
     other.apply(XML)
     data = physical.from_xml(other, ("again.rxfd", XML.replace("demo", "second"))).data
     with pytest.raises(Refused):
-        harness.replay(base.to_bytes(), data)
+        harness.replay(link.arena_of(base), data)
 
 
 def run(capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[int, str]:
