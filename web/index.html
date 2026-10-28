@@ -140,6 +140,7 @@
         const status = w.rxf.turn();
         const text = w.rxf.drain();
         const lines = text.split("\n").filter((l) => l.trim());
+        if (lines.length) line(w, "the boot smoke program's answer:", "sys");
         for (const l of lines) line(w, l);
         if (!lines.length) line(w, "(the image said nothing on its line)", "sys");
         line(w, `status ${status}`, status === 0 ? "ok" : "err");
@@ -174,14 +175,22 @@
     const el = document.createElement("div");
     el.className = "item";
     el.innerHTML = `${c.name}<span class="sub">${c.what}</span>`;
-    el.onclick = () => { const w = windows[current]; if (w) run(w, c.name); };
+    el.onclick = () => { const w = windows[current]; if (w) {
+      w.prompt?.remove(); w.prompt = null;
+      line(w, `rxf> ${c.name}`, "cmd");
+      run(w, c.name); ask(w);
+    } };
     document.getElementById("cmds").appendChild(el);
   }
   for (const m of MODS) {
     const el = document.createElement("div");
     el.className = "item";
     el.innerHTML = `${m.name}<span class="sub">${m.what}</span>`;
-    el.onclick = () => { const w = windows[current]; if (w) m.act(w); };
+    el.onclick = () => { const w = windows[current]; if (w) {
+      w.prompt?.remove(); w.prompt = null;
+      line(w, `rxf> ${m.name}`, "cmd");
+      m.act(w); ask(w);
+    } };
     document.getElementById("mods").appendChild(el);
   }
 
