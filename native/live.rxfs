@@ -1399,13 +1399,22 @@ sub s_syms_grow() {
             store32(ab + sg_new + 4, sg_newcap);
             # the strings move up by the growth of the offset table
             sg_i = 1;
-            while (sg_i < sg_n) {
+            while (sg_i < sg_n & sg_r == 0) {
                 sg_off = load32(sg_head + 8 + 4 * sg_i);
-                callsub s_len(sg_head + sg_off);
-                callsub s_cpy(ab + sg_new + 8 + 4 * sg_newcap + (sg_off - (8 + 4 * sg_cap)),
-                              sg_head + sg_off, len_r + 1);
-                store32(ab + sg_new + 8 + 4 * sg_i,
-                        8 + 4 * sg_newcap + (sg_off - (8 + 4 * sg_cap)));
+                # An offset below the string area names the table's own header,
+                # not a name. Copying through it runs past the span and corrupts
+                # whatever the arena put beside it, so a table that cannot be
+                # read is refused instead of rebuilt into a broken one.
+                if (sg_off < 8 + 4 * sg_cap) {
+                    sg_r = 3;
+                }
+                if (sg_r == 0) {
+                    callsub s_len(sg_head + sg_off);
+                    callsub s_cpy(ab + sg_new + 8 + 4 * sg_newcap + (sg_off - (8 + 4 * sg_cap)),
+                                  sg_head + sg_off, len_r + 1);
+                    store32(ab + sg_new + 8 + 4 * sg_i,
+                            8 + 4 * sg_newcap + (sg_off - (8 + 4 * sg_cap)));
+                }
                 sg_i = sg_i + 1;
             }
             m_entry(1);
