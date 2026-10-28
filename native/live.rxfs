@@ -1953,6 +1953,13 @@ sub s_init(Zbase, Zcomm, Zlim, Zcap, Zname, Znlen) {
                 callsub s_rec(in_sys);
                 cl_head = ce_r + 24;
                 m_pack_i(0);
+                callsub s_rec(hx_r);
+                if (ce_r != 0) {
+                    callsub s_before_write(ce_r + 8 - ab, 4);
+                    if (bw_r == 0) {
+                        store32(ce_r + 8, in_sys);
+                    }
+                }
                 callsub s_before_write(cl_head - ab, 8);
                 in_r = bw_r;
                 if (bw_r == 0) {
@@ -2003,7 +2010,7 @@ sub s_init(Zbase, Zcomm, Zlim, Zcap, Zname, Znlen) {
             if (in_r == 0) {
                 m_lit_journal();
                 cs_parent = in_sys;
-                cs_kind = 6;
+                cs_kind = 8;
                 cs_payload = 24 + 256 * 16;
                 cs_name = lit;
                 cs_name_len = 7;
@@ -2039,6 +2046,10 @@ sub s_init(Zbase, Zcomm, Zlim, Zcap, Zname, Znlen) {
                 if (it_r == 0) {
                     m_entry(1);
                     in_at = load64(sp_r + 8);
+                    callsub s_before_write(in_at - ab + 10, 2);
+                    if (bw_r == 0) {
+                        store32(ab + in_at + 8, in_sys);
+                    }
                     callsub s_before_write(in_at - ab + 6, 2);
                     in_r = bw_r;
                     if (bw_r == 0) {
@@ -3657,7 +3668,7 @@ macro m_emit() {
                     cs_parent = 0xFFFFFFFFFFFFFFFF;
                 }
             }
-            callsub s_name(em_old);
+            callsub s_name(em_hnd);
             cs_name = nm_r;
             callsub s_len(nm_r);
             cs_name_len = len_r;
@@ -3666,9 +3677,13 @@ macro m_emit() {
                 cs_flags = (load32(em_c + 40) & 0xFFFFC0FF) | (em_state << 8);
             }
             cs_refc = 1;
+            cs_kind = 1;
             callsub s_rec(em_hnd);
             if (ce_r != 0) {
                 cs_refc = load32(ce_r + 16);
+                # The storage role is the record's own word; the world-cell view
+                # carries the node kind, not this.
+                cs_kind = load16(ce_r);
             }
             cs_generation = load64(em_c + 24);
             cs_index = load32(em_c + 56);
