@@ -39,7 +39,9 @@ export class Rxf {
     this.out = out;
 
     // The seat's growth fill (docs/32 3.1): grow past the promised room, then
-    // lay the image's bytes at the base.
+    // lay the image's bytes at the base. `end` is where the image reaches - a
+    // fork carries that and no more.
+    this.end = base + image.length;
     const promised = BigInt(base + image.length + 65536);
     if (instance.exports.grow(0, promised) !== 1) {
       throw new Error(`grow to ${promised} bytes did not extend the memory`);
@@ -79,9 +81,11 @@ export class Rxf {
     return text;
   }
 
-  /** The whole image as it stands in memory right now. */
+  /** The image as it stands in memory - up to where it reaches, not the whole
+   *  buffer. The growth fill adds headroom on top; carrying that into a fork
+   *  and growing again on top of it made every fork bigger than its parent. */
   snapshot() {
-    return new Uint8Array(this.memory.buffer).slice(0);
+    return new Uint8Array(this.memory.buffer, 0, this.end).slice();
   }
 
   /** Fork: a new instance that carries this memory where this one left it. */
@@ -105,9 +109,11 @@ export class Rxf {
     rxf.args = args;
     rxf.argc = argc;
 
-    // The fork carries the whole memory, so grow to it and lay it back down at
-    // zero -- not the image at base: the snapshot is past the point of loading.
-    const promised = BigInt(saved.length + 65536);
+    // The fork carries the memory where it stood, so grow to exactly that and
+    // lay it back down at zero -- not the image at base: the snapshot is past
+    // the point of loading. No headroom on top: the snapshot already had it.
+    rxf.end = saved.length;
+    const promised = BigInt(saved.length);
     if (instance.exports.grow(0, promised) !== 1) {
       throw new Error(`grow to ${promised} bytes did not extend the memory`);
     }
