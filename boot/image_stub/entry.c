@@ -327,8 +327,7 @@ static rxf_u32 execute(rxf_runtime_context *c, rxf_object_handle program, rxf_u6
             }
             if (!fn)
                 return REFUSE_UNBOUND;
-            ((void (*)(rxf_runtime_context *, rxf_u64, rxf_u64, rxf_u64 *))(unsigned long)fn)(
-                c, w[2], w[3], out);
+            ((void (*)(rxf_runtime_context *, rxf_u64))(unsigned long)fn)(c, w[2]);
             pc += 6;
             continue;
         }
