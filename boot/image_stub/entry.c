@@ -306,6 +306,32 @@ static rxf_u32 execute(rxf_runtime_context *c, rxf_object_handle program, rxf_u6
         if (!have(&g, pc, 1))
             return REFUSE_RANGE;
         const rxf_u64 *w = g.code + pc;
+        if (w[0] == RXF_OP_CALL) {
+            /* A leaf of the context's function table (native/graph.h: the table
+             * is `count` at c+16, `entries` at c+24, one 24-byte row per leaf
+             * whose id is at 0 and whose function is at 16). The smoke never
+             * called one; the live pump's shell does. */
+            if (!have(&g, pc, 6))
+                return REFUSE_RANGE;
+            const rxf_u64 id = w[1];
+            const rxf_u64 count = *(const rxf_u64 *)(const void *)((const rxf_u8 *)c + 16);
+            const rxf_u8 *table =
+                (const rxf_u8 *)(unsigned long)(*(const rxf_u64 *)(const void *)((const rxf_u8 *)c + 24));
+            rxf_u64 fn = 0, row;
+            for (row = 0; row < count; row++) {
+                const rxf_u64 *e = (const rxf_u64 *)(const void *)(table + row * 24);
+                if (e[0] == id) {
+                    fn = e[2];
+                    break;
+                }
+            }
+            if (!fn)
+                return REFUSE_UNBOUND;
+            ((void (*)(rxf_runtime_context *, rxf_u64, rxf_u64, rxf_u64 *))(unsigned long)fn)(
+                c, w[2], w[3], out);
+            pc += 6;
+            continue;
+        }
         if (w[0] == RXF_OP_MOVE) {
             if (!have(&g, pc, 6))
                 return REFUSE_RANGE;
