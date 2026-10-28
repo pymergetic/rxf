@@ -143,6 +143,7 @@
         for (const l of lines) line(w, l);
         if (!lines.length) line(w, "(the image said nothing on its line)", "sys");
         line(w, `status ${status}`, status === 0 ? "ok" : "err");
+        refresh(w);
       } },
     { name: "fork", what: "snapshot this image into a new tab", act: () => snapshot() },
     { name: "bytes", what: "how big this image is in memory", act: (w) =>
@@ -155,12 +156,18 @@
 
   /* modifications: the acts that change the image from inside */
   const MODS = [
-    { name: "rename an object", what: "pick one and give it a new name", act: (w) =>
-        line(w, "needs the live pump - the write side is still refused", "err") },
-    { name: "change a value", what: "write into a payload and watch the digest", act: (w) =>
-        line(w, "needs the live pump - the write side is still refused", "err") },
-    { name: "add an entry", what: "a new object under an existing one", act: (w) =>
-        line(w, "needs the live pump - the write side is still refused", "err") },
+    { name: "rename an object", what: "pick one and give it a new name", act: (w) => {
+        line(w, "needs the live pump - the write side is still refused", "err");
+        refresh(w);
+      } },
+    { name: "change a value", what: "write into a payload and watch the digest", act: (w) => {
+        line(w, "needs the live pump - the write side is still refused", "err");
+        refresh(w);
+      } },
+    { name: "add an entry", what: "a new object under an existing one", act: (w) => {
+        line(w, "needs the live pump - the write side is still refused", "err");
+        refresh(w);
+      } },
   ];
 
   for (const c of COMMANDS) {
@@ -200,6 +207,13 @@
   }
 
   /* every console is its own stream: switching tabs shows only that image's */
+  /* the strip follows the image: anything that changed it calls this */
+  function refresh(w) {
+    if (!w) return;
+    bytes.textContent = `${w.rxf.snapshot().length} bytes in memory`;
+    stateEl.textContent = w.parent ? `fork of ${w.parent}` : "the one that booted";
+  }
+
   function showCurrent() {
     for (const w of windows) w.stream.style.display = "none";
     const w = windows[current];
