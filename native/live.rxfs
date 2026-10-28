@@ -1247,6 +1247,11 @@ sub s_intern(Ztext, Zn) {
                     }
                     it_used = it_off + it_i + 1;
                 }
+                # The name that triggered the growth still has to fit: the check
+                # above ran against the OLD table's room.
+                if (it_used + it_need > load32(asyms - 24 + 20)) {
+                    it_r = 3;
+                }
                 callsub s_before_write(it_head + it_used - ab, it_need);
                 it_r = bw_r;
                 if (bw_r == 0) {
@@ -1382,7 +1387,10 @@ sub s_syms_grow() {
     # The strings sit at 8 + 4 * capacity, so a growth of the capacity moves every
     # string up. Sizing the new span as the old used leaves room for the strings
     # but not for the grown offset table, and the copy writes past the span end.
-    sg_room = 8 + 4 * sg_newcap + (sg_used - (8 + 4 * sg_cap));
+    # The name that triggered this growth is not in the copied strings yet, and
+    # the append runs right after us: without its room the copy fits exactly and
+    # the append runs past the span onto the next one's free link.
+    sg_room = 8 + 4 * sg_newcap + (sg_used - (8 + 4 * sg_cap)) + it_need;
     if (sg_room < 2 * load32(sg_old + 20)) {
         sg_room = 2 * load32(sg_old + 20);
     }
