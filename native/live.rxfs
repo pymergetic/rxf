@@ -1370,13 +1370,16 @@ sub s_syms_grow() {
         }
         sg_used = sg_off + sg_i + 1;
     }
-    sg_room = sg_used;
-    if (sg_room < 2 * load32(sg_old + 20)) {
-        sg_room = 2 * load32(sg_old + 20);
-    }
     sg_newcap = sg_cap * 2;
     if (sg_newcap < sg_n + 1) {
         sg_newcap = sg_n + 1;
+    }
+    # The strings sit at 8 + 4 * capacity, so a growth of the capacity moves every
+    # string up. Sizing the new span as the old used leaves room for the strings
+    # but not for the grown offset table, and the copy writes past the span end.
+    sg_room = 8 + 4 * sg_newcap + (sg_used - (8 + 4 * sg_cap));
+    if (sg_room < 2 * load32(sg_old + 20)) {
+        sg_room = 2 * load32(sg_old + 20);
     }
     callsub s_allocate(sg_room);
     sg_r = al_r;
