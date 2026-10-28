@@ -46,9 +46,15 @@
   const screen = document.getElementById("screen");
   const led = document.getElementById("led");
   const out = (text) => { screen.textContent += text; };
-  const rxf = await Rxf.open("rxf_boot.wasm", "image_wasm32.bin");
+  const rxf = window.__rxfFork
+    ? await Rxf.forkFrom("rxf_boot.wasm", window.__rxfFork)
+    : await Rxf.open("rxf_boot.wasm", "image_wasm32.bin");
   led.classList.add("on");
   screen.textContent = "";
+  if (window.__rxfFork) {
+    out(`forked from ${window.__rxfParent || "another window"}\n`);
+    out(`${window.__rxfFork.length} bytes carried over\n\n`);
+  }
   out(rxf.drain() || "the image is up\n");
   document.getElementById("turn").onclick = () => {
     const status = rxf.turn();
@@ -58,7 +64,18 @@
       `${rxf.snapshot().length} bytes in memory`;
   };
   document.getElementById("snap").onclick = () => {
-    window.__rxfSnapshot = rxf.snapshot();
-    open(location.href, "_blank");
+    const here = rxf.snapshot();
+    const fork = open(location.href, "_blank");
+    const pass = () => {
+      if (!fork || fork.closed) return;
+      try {
+        fork.__rxfFork = here;
+        fork.__rxfParent = document.getElementById("digest").textContent;
+      } catch (e) {
+        setTimeout(pass, 50);
+      }
+    };
+    setTimeout(pass, 50);
+    document.getElementById("digest").textContent = `forked ${here.length} bytes`;
   };
 </script>
