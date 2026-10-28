@@ -166,6 +166,10 @@ def honors_present(arena: bytes) -> list[str]:
         arena_export.PEOPLE,
         arena_export.WORKS,
         arena_export.LEDGER,
+        # Roles are objects, not strings (docs/36 5): a relationship the world
+        # does not name is not one it can answer for, so the names of the roles
+        # are part of the founding core a build must carry.
+        *sorted(arena_export.GENESIS_ROLES),
         *sorted(arena_export.GENESIS_PEOPLE),
         *sorted(arena_export.GENESIS_WORKS),
     ]
