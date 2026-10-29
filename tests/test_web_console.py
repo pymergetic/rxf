@@ -89,3 +89,20 @@ def test_a_name_that_is_not_there_is_answered_not_dropped(served: str) -> None:
     assert frames, "the console fell silent instead of refusing"
     assert frames[0]["op"] == RESOLVE_ANSWER
     assert frames[0]["status"] != 0
+
+
+def test_a_fork_carries_exactly_what_its_parent_had(served: str) -> None:
+    """The chain the snapshot button makes: image -> fork 1 -> fork 2. A fork
+    carries its parent's snapshot and no more -- a chain that grows (the
+    screenshot's 812096 -> 812352) is the growth headroom leaking into it."""
+    done = subprocess.run(
+        ["node", str(HARNESS), served, "forks"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=300,
+    )
+    sizes = json.loads(done.stdout)["sizes"]
+    assert len(sizes) == 3
+    assert sizes[0] > 0
+    assert sizes == [sizes[0]] * 3, f"the forks grew: {sizes}"
