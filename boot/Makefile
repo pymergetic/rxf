@@ -95,10 +95,14 @@ $(BUILD)/shim_wasm.o: wasm_shim.c image_stub/uart.h $(MAP) | $(BUILD)
 # via the shim's export_name attribute (the linker renames it there). The
 # initial memory is the room the map promises below the image; the maximum is
 # the image's headroom (docs/32 3.1: wasm grows with memory.grow, with an
-# initial and a maximum).
+# initial and a maximum). The function table is the HOST's (--import-table:
+# env.__indirect_function_table): a function slot names its leaf by table index
+# (tools/native/link.py) and the host fills the table from the leaves module
+# (tools/native/wasm_table.py). LLD 18 has no --table-max -- the room is the
+# host table's, and --growable-table drops the link-time maximum.
 $(BUILD)/rxf_boot.wasm: $(BUILD)/entry_wasm.o $(BUILD)/uart_wasm.o $(BUILD)/shim_wasm.o
 	wasm-ld --no-entry --export=run --export-memory \
-	    --growable-table --table-max=4096 \
+	    --import-table --growable-table \
 	    --stack-first -z stack-size=8192 --initial-memory=131072 --max-memory=268435456 \
 	    -o $@ $^
 
@@ -112,7 +116,9 @@ $(BUILD)/rxf_boot.wasm: $(BUILD)/entry_wasm.o $(BUILD)/uart_wasm.o $(BUILD)/shim
 V7_INPUTS := $(shell find ../starter ../native -type f) \
     ../tools/native/boot_image.py ../tools/native/link.py \
     ../tools/native/arena_export.py ../tools/native/programs.py \
-    ../tools/native/graph_header.py
+    ../tools/native/graph_header.py ../tools/native/wasm_table.py \
+    ../tools/native/wasm_module.py ../tools/native/seed_build.py \
+    ../tools/native/compose.py
 
 $(BUILD)/image_x86_64_bios.bin: $(BUILD)/entry_v7_x86_64.bin $(MAP) $(V7_INPUTS) | $(BUILD)
 	$(PYTHON) ../tools/native/boot_image.py --machine x86_64 \
@@ -124,6 +130,13 @@ $(BUILD)/image_aarch64.bin: $(BUILD)/entry_v7_aarch64.bin $(MAP) $(V7_INPUTS) | 
 
 $(BUILD)/image_wasm32.bin: $(MAP) $(V7_INPUTS) | $(BUILD)
 	$(PYTHON) ../tools/native/boot_image.py --machine wasm32 $@
+
+# The leaves module: the image's leaf bodies as one module over the seat's
+# memory and table (tools/native/wasm_table.py). The host instantiates it and
+# fills table 0 by leaf id -- the function slots of the wasm32 image name
+# their leaves by exactly that index.
+$(BUILD)/rxf_leaves.wasm: $(V7_INPUTS) | $(BUILD)
+	$(PYTHON) ../tools/native/wasm_table.py $@
 
 # ---- x86_64 BIOS: a disk (sector + stage2) carrying the packed image -------
 
@@ -171,7 +184,7 @@ $(BUILD)/boot_aarch64.bin: $(BUILD)/boot_aarch64.elf
 
 # ---- wasm32: the module (entry + shim) and the image's bytes ---------------
 
-wasm: $(BUILD)/rxf_boot.wasm $(BUILD)/image_wasm32.bin
+wasm: $(BUILD)/rxf_boot.wasm $(BUILD)/image_wasm32.bin $(BUILD)/rxf_leaves.wasm
 
 # ---- x86_64 UEFI: a PE stub and the volume it reads the image from ----------
 

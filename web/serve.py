@@ -1,8 +1,9 @@
 """Serve the RXF preview page: the wasm32 seat, in a tab.
 
 `python web/serve.py [port]` serves this directory plus the seat's artifacts
-(`boot/build/rxf_boot.wasm` and the packed image) on one port -- 1337, because
-80 and 443 are taken on the host this runs on.
+(`boot/build/rxf_boot.wasm`, the packed image, and the leaves module of the
+function table) on one port -- 1337, because 80 and 443 are taken on the host
+this runs on.
 
 The page is not a mock: it instantiates the image's own wasm32 seat and runs
 it. What the browser shows is what the machine boots.
@@ -22,6 +23,7 @@ BUILD = ROOT / "boot" / "build"
 SEAT = {
     "rxf_boot.wasm": BUILD / "rxf_boot.wasm",
     "image_wasm32.bin": BUILD / "image_wasm32.bin",
+    "rxf_leaves.wasm": BUILD / "rxf_leaves.wasm",
 }
 
 

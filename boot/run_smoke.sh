@@ -88,7 +88,7 @@ fi
 echo "== wasm32 (node host: map -> handle copy -> run -> FIFO drain) =="
 if command -v node >/dev/null 2>&1; then
     seat "wasm32-node" "$LOG.wasm" 0 \
-        node wasm_shim.js build/rxf_boot.wasm build/image_wasm32.bin
+        node wasm_shim.js build/rxf_boot.wasm build/image_wasm32.bin build/rxf_leaves.wasm
 else
     echo "wasm32-node: SKIP (node not installed)"
 fi

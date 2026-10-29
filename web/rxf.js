@@ -1,10 +1,12 @@
 /* web/rxf.js -- the wasm32 seat in a browser tab.
  *
- * The same three acts boot/wasm_shim.js performs on a machine: instantiate the
- * image, lay its bytes at the map's base, call the entry. The imports are the
- * empty set on purpose (boot/wasm_shim.js: on wasm32 the Uart capability is a
- * FIFO block in linear memory, not a host call), so a tab carries the image
- * exactly the way a machine does.
+ * The same acts boot/wasm_shim.js performs on a machine: instantiate the
+ * image, lay its bytes at the map's base, call the entry. The one import is
+ * the function table (boot/wasm_shim.js: on wasm32 a function slot names its
+ * leaf by table index, so the host owns the table and fills it from the
+ * leaves module), and the Uart capability is a FIFO block in linear memory,
+ * not a host call -- so a tab carries the image exactly the way a machine
+ * does.
  *
  * This is the live half of the preview page: nothing here is drawn from a
  * fixture. Every byte the page shows comes out of the instance.
@@ -12,14 +14,37 @@
 
 const ANSWER = 0x0000004b4f465852n; // the "RXFOK" word the program answers
 
+/** The function table of one seat: the leaves module's exports at their ids
+ *  (table.set(id, leaf{id}) -- the fill tests/wasm_steps.js performs). */
+async function fillTable(table, leaves, memory) {
+  const { instance } = await WebAssembly.instantiate(leaves, {
+    env: { memory, table },
+  });
+  for (const name of Object.keys(instance.exports)) {
+    if (!name.startsWith("leaf")) continue;
+    const at = Number(name.slice("leaf".length));
+    if (Number.isInteger(at)) table.set(at, instance.exports[name]);
+  }
+}
+
 export class Rxf {
-  static async open(wasmUrl, imageUrl) {
-    const [code, image] = await Promise.all([
+  static async open(wasmUrl, imageUrl, leavesUrl) {
+    const [code, image, leaves] = await Promise.all([
       fetch(wasmUrl).then((r) => r.arrayBuffer()),
       fetch(imageUrl).then((r) => r.arrayBuffer()),
+      fetch(leavesUrl).then((r) => r.arrayBuffer()),
     ]);
-    const { instance } = await WebAssembly.instantiate(code, {});
-    return new Rxf(instance, new Uint8Array(image));
+    const table = new WebAssembly.Table({
+      element: "anyfunc",
+      initial: 64,
+      maximum: 4096,
+    });
+    const { instance } = await WebAssembly.instantiate(code, {
+      env: { __indirect_function_table: table },
+    });
+    const rxf = new Rxf(instance, new Uint8Array(image));
+    await fillTable(table, leaves, rxf.memory);
+    return rxf;
   }
 
   constructor(instance, image) {
@@ -102,9 +127,19 @@ export class Rxf {
   }
 
   /** Fork: a new instance that carries this memory where this one left it. */
-  static async forkFrom(wasmUrl, saved) {
-    const code = await fetch(wasmUrl).then((r) => r.arrayBuffer());
-    const { instance } = await WebAssembly.instantiate(code, {});
+  static async forkFrom(wasmUrl, leavesUrl, saved) {
+    const [code, leaves] = await Promise.all([
+      fetch(wasmUrl).then((r) => r.arrayBuffer()),
+      fetch(leavesUrl).then((r) => r.arrayBuffer()),
+    ]);
+    const table = new WebAssembly.Table({
+      element: "anyfunc",
+      initial: 64,
+      maximum: 4096,
+    });
+    const { instance } = await WebAssembly.instantiate(code, {
+      env: { __indirect_function_table: table },
+    });
     const rxf = Object.create(Rxf.prototype);
     rxf.instance = instance;
     rxf.memory = instance.exports.memory;
@@ -132,6 +167,7 @@ export class Rxf {
     }
     new Uint8Array(rxf.memory.buffer, 0, saved.length).set(saved);
     rxf.image = saved;
+    await fillTable(table, leaves, rxf.memory);
     return rxf;
   }
 }

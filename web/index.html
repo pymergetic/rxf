@@ -252,8 +252,8 @@
 
   async function open(saved, parent) {
     const rxf = saved
-      ? await Rxf.forkFrom("rxf_boot.wasm", saved)
-      : await Rxf.open("rxf_boot.wasm", "image_wasm32.bin");
+      ? await Rxf.forkFrom("rxf_boot.wasm", "rxf_leaves.wasm", saved)
+      : await Rxf.open("rxf_boot.wasm", "image_wasm32.bin", "rxf_leaves.wasm");
     const stream = windows.length
       ? document.createElement("div")
       : term;

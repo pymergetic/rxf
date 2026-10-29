@@ -14,9 +14,10 @@
  * entries, then the record they name.
  *
  * This is a MINI interpreter on purpose: the smoke's program is a MOVE + RETURN
- * and this runs the subset that program needs (MOVE, RETURN, REFUSE), refusing
- * every other opcode RXF_REFUSE_OUT_OF_RANGE exactly as the reference
- * interpreter (tests/graph_reference.py) refuses a word it cannot dispatch. The
+ * and this runs the subset that program needs (MOVE, RETURN, REFUSE, and CALL
+ * of shape 6 -- the pump's), refusing every other opcode
+ * RXF_REFUSE_OUT_OF_RANGE exactly as the reference interpreter
+ * (tests/graph_reference.py) refuses a word it cannot dispatch. The
  * refusals, the handle resolution and the entry checks are copied rule for rule
  * from native/graph.c so the smoke cannot pass on a looser contract than the
  * real run. When docs/115's ladder replaces this file with the compiled
@@ -310,10 +311,13 @@ static rxf_u32 execute(rxf_runtime_context *c, rxf_object_handle program, rxf_u6
             if (!have(&g, pc, 6))
                 return REFUSE_RANGE;
             const rxf_u64 id = w[1], nargs = w[2];
+            const rxf_u64 out_slot = w[3], status_slot = w[5];
             const rxf_u64 count = *(const rxf_u64 *)(const void *)((const rxf_u8 *)c + 16);
             const rxf_u8 *table =
                 (const rxf_u8 *)(unsigned long)(*(const rxf_u64 *)(const void *)((const rxf_u8 *)c + 24));
             rxf_u64 fn = 0, row;
+            if (!have(&g, pc, 6 + nargs * 3))
+                return REFUSE_RANGE;
             for (row = 0; row < count; row++) {
                 const rxf_u64 *e = (const rxf_u64 *)(const void *)(table + row * 24);
                 if (e[0] == id) {
@@ -323,12 +327,28 @@ static rxf_u32 execute(rxf_runtime_context *c, rxf_object_handle program, rxf_u6
             }
             if (!fn)
                 return REFUSE_UNBOUND;
+            /* The one shape this subset spells: 6 -- call_pp, the context and
+             * one operand word in, a status back, no out slot
+             * (native/graph.rxfs's m_call_leaf is the table of all of them).
+             * The cast is the leaf's letters (seed_build.LEAF_LETTERS, "pp"
+             * here), so the call is the same on every seat: a SysV/AAPCS64
+             * indirect call, and on wasm32 a call_indirect of exactly the
+             * leaf's function type. Any other shape is refused the way an
+             * unknown opcode is. */
+            if (shape_of(id) != RXF_SHAPE_P || nargs != 1 || out_slot != ~(rxf_u64)0)
+                return REFUSE_RANGE;
             {
-                rxf_u32 st = 0;
+                typedef rxf_u32 (*rxf_shape_pp)(rxf_runtime_context *, void *);
+                rxf_u32 st = 0, result;
                 rxf_u64 v0 = operand_value(&g, w + 6, &st);
                 if (st)
                     return st;
-                ((void (*)(rxf_runtime_context *, rxf_u64))(unsigned long)fn)(c, v0);
+                result = ((rxf_shape_pp)(unsigned long)fn)(c, (void *)(unsigned long)v0);
+                if (status_slot != ~(rxf_u64)0) {
+                    if (!in_frame(&g, status_slot, 4))
+                        return REFUSE_RANGE;
+                    copy_bytes(g.frame + status_slot, &result, 4);
+                }
             }
             pc += 6 + nargs * 3;
             continue;

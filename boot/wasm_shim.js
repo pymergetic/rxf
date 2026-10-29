@@ -12,14 +12,18 @@
  * rows of world_v7.h with the linked image behind them) and lands at the map's
  * base -- the same act as the harness's emulator.write(BASE, memory(case, ...)).
  *
- * The imports are the empty set on purpose: on wasm32 the Uart capability is
- * not a trap but the FIFO block in linear memory (native/graph.h: rx_head,
- * rx_tail, tx_head, tx_tail, then the rings) and the host is the line. The JS
- * console FIFO below is the drain of that TX ring -- the capability's fill
- * (boot/image_stub/uart_wasm32.c) writes it exactly the way native/uart.c's
- * wasm32 fill does, so the face does not change between seats. Where the block
- * lives is the linked image's business (its capability names it); the module's
- * `fifo_at` resolves it after the image is in place.
+ * The one import is the function table (env.__indirect_function_table): on
+ * wasm32 a function slot names its leaf by table index (tools/native/link.py),
+ * so the host owns the table and fills it from the leaves module
+ * (build/rxf_leaves.wasm, tools/native/wasm_table.py) -- the fill
+ * tests/wasm_steps.js performs, one export per leaf id. The Uart capability is
+ * not a host call either but the FIFO block in linear memory (native/graph.h:
+ * rx_head, rx_tail, tx_head, tx_tail, then the rings) and the host is the
+ * line. The JS console FIFO below is the drain of that TX ring -- the
+ * capability's fill (boot/image_stub/uart_wasm32.c) writes it exactly the way
+ * native/uart.c's wasm32 fill does, so the face does not change between
+ * seats. Where the block lives is the linked image's business (its capability
+ * names it); the module's `fifo_at` resolves it after the image is in place.
  *
  * The drained bytes go to stdout; the smoke's script asserts them byte for
  * byte. The shim itself fails on the two things only it can see: the status
@@ -34,13 +38,29 @@ const ANSWER = 0x0000004b4f465852n; // the "RXFOK" word the program must answer
 async function main() {
   const path = process.argv[2];
   const imagePath = process.argv[3];
-  if (!path || !imagePath) {
-    console.error("usage: node wasm_shim.js <rxf_boot.wasm> <image_wasm32.bin>");
+  const leavesPath = process.argv[4];
+  if (!path || !imagePath || !leavesPath) {
+    console.error(
+      "usage: node wasm_shim.js <rxf_boot.wasm> <image_wasm32.bin> <rxf_leaves.wasm>"
+    );
     process.exit(2);
   }
   const bytes = fs.readFileSync(path);
   const image = fs.readFileSync(imagePath);
-  const { instance } = await WebAssembly.instantiate(bytes, {});
+  const leaves = fs.readFileSync(leavesPath);
+
+  // The function table is the host's -- the seat's module imports it
+  // (env.__indirect_function_table) because a function slot names its leaf by
+  // table index (tools/native/link.py). It is created here and filled from the
+  // leaves module once the image is in place.
+  const table = new WebAssembly.Table({
+    element: "anyfunc",
+    initial: 64,
+    maximum: 4096,
+  });
+  const { instance } = await WebAssembly.instantiate(bytes, {
+    env: { __indirect_function_table: table },
+  });
   const run = instance.exports.run;
   const mapAt = instance.exports.map_at();
   const memory = instance.exports.memory;
@@ -74,6 +94,20 @@ async function main() {
   // of a copy, exactly what tests/graph_world.py writes at HANDLE_COPY.
   const copy = new Uint8Array(memory.buffer, handleCopy, 24);
   copy.set(new Uint8Array(memory.buffer, handle, 24));
+
+  // The table's leaves: the image's own leaf bodies composed as one module
+  // over this seat's memory and table (tools/native/wasm_table.py). The export
+  // leaf{N} lands at table index N -- the index the function slots carry.
+  const leafInstance = (
+    await WebAssembly.instantiate(leaves, {
+      env: { memory: instance.exports.memory, table },
+    })
+  ).instance;
+  for (const name of Object.keys(leafInstance.exports)) {
+    if (!name.startsWith("leaf")) continue;
+    const at = Number(name.slice("leaf".length));
+    if (Number.isInteger(at)) table.set(at, leafInstance.exports[name]);
+  }
 
   const status = run(context, handleCopy, BigInt(args), BigInt(argc), out);
 

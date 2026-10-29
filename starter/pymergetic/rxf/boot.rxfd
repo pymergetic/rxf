@@ -6,11 +6,11 @@
     <Alias name="kinds" target="pymergetic.rxf.kinds" />
     <Alias name="sources" target="pymergetic.rxf.sources" />
     <Alias name="targets" target="pymergetic.rxf.targets" />
-    <Function name="entry_aarch64" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.entry_aarch64.signature" semantic_digest="9009e3330b1219c0f7670a8b15f6abfe6ae347b0eece7058f882c75d772635ff">
-      <Code name="aarch64_linux" owner_function="@boot.entry_aarch64" runtime_target="@targets.aarch64_linux_aapcs64" signature="@boot.entry_aarch64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="3580" semantic_digest="9009e3330b1219c0f7670a8b15f6abfe6ae347b0eece7058f882c75d772635ff" source="@sources.boot_image_stub_entry_c" body="@boot.entry_aarch64.body_entry_aarch64">
+    <Function name="entry_aarch64" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.entry_aarch64.signature" semantic_digest="1c6bb49991990074863bcb67ce95a9d8494d95be3df150761fa6153eb3adff8c">
+      <Code name="aarch64_linux" owner_function="@boot.entry_aarch64" runtime_target="@targets.aarch64_linux_aapcs64" signature="@boot.entry_aarch64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="3852" semantic_digest="1c6bb49991990074863bcb67ce95a9d8494d95be3df150761fa6153eb3adff8c" source="@sources.boot_image_stub_entry_c" body="@boot.entry_aarch64.body_entry_aarch64">
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
       </Code>
-      <CodeBlob name="body_entry_aarch64" byte_count="3580" content_digest="4ab2c4abbe8f52f2f4face13571ffa3896866ed930bbf876037f6084da16b9ae" />
+      <CodeBlob name="body_entry_aarch64" byte_count="3852" content_digest="060606645dfb1ed26f1e9bc74bd41f37bbcfcc8fb17c6a98d6d989bf9c7e63ca" />
       <Signature name="signature" return_type="uint64_t" parameter_count="5">
         <Parameter name="argc" value_type="uint64_t" index="4" />
         <Parameter name="args" value_type="uint64_t" index="3" />
@@ -19,8 +19,8 @@
         <Parameter name="out" value_type="uint64_t" index="5" />
       </Signature>
     </Function>
-    <Function name="entry_x86_64" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.entry_x86_64.signature" semantic_digest="c7a7d40c74ebe64f19d50d3332713744b9927081272b0133b821a3c9f1981cc6">
-      <CodeBlob name="body_entry_x86_64" byte_count="5164" content_digest="943b5d01a9a0e8fc0772d8590804f0302672440e9d556de9dbf8f67e9fd5029c" />
+    <Function name="entry_x86_64" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.entry_x86_64.signature" semantic_digest="0e805ca0e506c369cf81b9ac60c1dbfabec970a456c5bd330b53ed7cdfc5feb1">
+      <CodeBlob name="body_entry_x86_64" byte_count="5468" content_digest="77e48a6932aaa3fc00141f47a654f31d774b57f80b6fd1e071ccc0e7594bfccc" />
       <Signature name="signature" return_type="uint64_t" parameter_count="5">
         <Parameter name="argc" value_type="uint64_t" index="4" />
         <Parameter name="args" value_type="uint64_t" index="3" />
@@ -28,14 +28,14 @@
         <Parameter name="handle" value_type="uint64_t" index="2" />
         <Parameter name="out" value_type="uint64_t" index="5" />
       </Signature>
-      <Code name="x86_64_bios" owner_function="@boot.entry_x86_64" runtime_target="@targets.x86_64_bios_sysv" signature="@boot.entry_x86_64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="5164" semantic_digest="c7a7d40c74ebe64f19d50d3332713744b9927081272b0133b821a3c9f1981cc6" source="@sources.boot_image_stub_entry_c" body="@boot.entry_x86_64.body_entry_x86_64">
+      <Code name="x86_64_bios" owner_function="@boot.entry_x86_64" runtime_target="@targets.x86_64_bios_sysv" signature="@boot.entry_x86_64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="5468" semantic_digest="0e805ca0e506c369cf81b9ac60c1dbfabec970a456c5bd330b53ed7cdfc5feb1" source="@sources.boot_image_stub_entry_c" body="@boot.entry_x86_64.body_entry_x86_64">
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
       </Code>
-      <Code name="x86_64_uefi" owner_function="@boot.entry_x86_64" runtime_target="@targets.x86_64_uefi_sysv" signature="@boot.entry_x86_64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="5164" semantic_digest="c7a7d40c74ebe64f19d50d3332713744b9927081272b0133b821a3c9f1981cc6" source="@sources.boot_image_stub_entry_c" body="@boot.entry_x86_64.body_entry_x86_64">
+      <Code name="x86_64_uefi" owner_function="@boot.entry_x86_64" runtime_target="@targets.x86_64_uefi_sysv" signature="@boot.entry_x86_64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="5468" semantic_digest="0e805ca0e506c369cf81b9ac60c1dbfabec970a456c5bd330b53ed7cdfc5feb1" source="@sources.boot_image_stub_entry_c" body="@boot.entry_x86_64.body_entry_x86_64">
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
       </Code>
     </Function>
-    <CompilerProvenance name="recipe" compiler_major="1" recipe_digest="cf1ff31ad8d2ff0dbac67eb956d62addb55395bea19d430770df5bfe8a76b15e" />
+    <CompilerProvenance name="recipe" compiler_major="1" recipe_digest="ea02f1ac0f7d827d3da1e8a4659b2ac54c32c1b87a4791b67fc127743d2f048a" />
     <Function name="start_aarch64" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.start_aarch64.signature" semantic_digest="ab98686fd4cc3be7fb2b384574b82e212649ea2ca8cdede30c0c65d6cca7bd74">
       <Code name="aarch64_linux" owner_function="@boot.start_aarch64" runtime_target="@targets.aarch64_linux_aapcs64" signature="@boot.start_aarch64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="2264" semantic_digest="ab98686fd4cc3be7fb2b384574b82e212649ea2ca8cdede30c0c65d6cca7bd74" source="@sources.boot_aarch64_S" body="@boot.start_aarch64.body_aarch64">
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
@@ -50,10 +50,10 @@
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
       </Code>
     </Function>
-    <Function name="start_wasm32" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.start_wasm32.signature" semantic_digest="f4e436444ad1b5daf8bf42490898e69f18b3cdcee546b866e65adbe7d71ac473">
-      <CodeBlob name="body_wasm32" byte_count="3427" content_digest="cf6baa982b976f86a75c134b760619225fdbe69e3ce12355a63a035def509d8a" />
+    <Function name="start_wasm32" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.start_wasm32.signature" semantic_digest="aec5563fc9204c0651b71089b9ff5d9e4d6b39c49e0abc7a0850a7b5fdae12ab">
+      <CodeBlob name="body_wasm32" byte_count="3776" content_digest="d1dc3a0e73394fb069b03e3caad3a66343f814e036a22136deeae65d5efdc7db" />
       <Signature name="signature" return_type="void" />
-      <Code name="wasm32" owner_function="@boot.start_wasm32" runtime_target="@targets.wasm32_wasm_c" signature="@boot.start_wasm32.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="3427" semantic_digest="f4e436444ad1b5daf8bf42490898e69f18b3cdcee546b866e65adbe7d71ac473" source="@sources.boot_wasm_shim_c" body="@boot.start_wasm32.body_wasm32">
+      <Code name="wasm32" owner_function="@boot.start_wasm32" runtime_target="@targets.wasm32_wasm_c" signature="@boot.start_wasm32.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="3776" semantic_digest="aec5563fc9204c0651b71089b9ff5d9e4d6b39c49e0abc7a0850a7b5fdae12ab" source="@sources.boot_wasm_shim_c" body="@boot.start_wasm32.body_wasm32">
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
       </Code>
     </Function>
