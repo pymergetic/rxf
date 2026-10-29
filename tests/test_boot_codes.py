@@ -25,6 +25,11 @@ from pymergetic.rxftk.core import tree
 
 from .support import resolved
 
+# The pin is what `make -C boot` builds, so the test builds it: same make,
+# same build dir as the smoke's. The marker discipline (pyproject) keeps boot
+# out of the pre-commit lane and out of the way of another lane's make.
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
+
 STARTER = Path(__file__).parents[1] / "starter"
 TOOLS = ["make", "clang", "as", "ld", "wasm-ld"]  # what boot/Makefile runs
 

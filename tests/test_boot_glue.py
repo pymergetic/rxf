@@ -14,6 +14,12 @@ import subprocess
 
 import pytest
 
+# Every test here runs boot/run_smoke.sh: it builds the glue and boots four
+# machines. The marker discipline (pyproject) keeps boot out of the pre-commit
+# lane -- and out of the way of any other lane's make, which is how
+# boot/build gets two writers at once.
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
+
 BOOT = pathlib.Path(__file__).resolve().parent.parent / "boot"
 TOOLS = [
     "make",

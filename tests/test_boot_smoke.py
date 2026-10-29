@@ -22,6 +22,10 @@ from pathlib import Path
 
 import pytest
 
+# The smoke builds the glue and boots four machines (emulator minutes each);
+# the marker discipline (pyproject) keeps boot out of the pre-commit lane.
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
+
 ROOT = Path(__file__).parents[1]
 SMOKE = ROOT / "boot" / "run_smoke.sh"
 SEATS = ("x86_64-bios", "aarch64-virt", "wasm32-node", "x86_64-uefi")
