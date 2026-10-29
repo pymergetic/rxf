@@ -161,11 +161,17 @@ def test_large_payloads_and_child_lists_come_in_pages(starter: bytes, host: Host
 
 
 def test_digest_and_dump_are_the_canonical_ones(starter: bytes, host: HostImage):
-    reference = Image.from_bytes(starter)
-    assert host.client.digest() == reference.digest()
+    # docs/32 5.4: the canonical bytes are the rebuild's and the digest is over
+    # them. The starter fixture is the canonical arena - the export is the same
+    # walk the dump replays - so the dump answers those bytes and the digest
+    # their hash. (The v6 oracle this test held - Image.compact().to_bytes() -
+    # is the superseded model's form of the same sentence; this is its move to
+    # v7 with the write slice.)
+    canonical = hashlib.sha256(starter).hexdigest()
+    assert host.client.digest() == canonical
     dump, digest = host.client.emit()
-    assert dump == reference.compact().to_bytes()
-    assert hashlib.sha256(dump).hexdigest() == digest == reference.digest()
+    assert dump == starter
+    assert hashlib.sha256(dump).hexdigest() == digest == canonical
 
 
 def test_a_dump_of_an_uncompacted_arena_is_still_the_canonical_form(starter: bytes):

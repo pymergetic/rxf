@@ -3,6 +3,7 @@
 
 #include <pymergetic/rxftk/core/arena/mem.hpp>
 #include <pymergetic/rxftk/core/arena/object_arena.hpp>
+#include <pymergetic/rxftk/core/hash/sha256_core.hpp>
 
 /*
  * See live.hpp. Every function here has to be inlinable into one body: no recursion, no function
@@ -128,20 +129,46 @@ class Session {
 
     // ---- requests -------------------------------------------------------------------------
 
+    /* The canonical form of the image (docs/32 5.4): a rebuild into the emit
+     * region, its bytes the dump and their SHA-256 the digest. The region IS
+     * the output arena's memory, so the dump is no copy: the canonical bytes
+     * are the region's prefix and emit_length is where they end. Two images
+     * that carry the same world answer the same bytes. */
+    bool dump() {
+        arena::Memory into{};
+        into.base = ptr(a_->emit_base);
+        into.committed = a_->emit_capacity;
+        into.limit = a_->emit_capacity;
+        into.commit = nullptr;
+        arena::ObjectArena out;
+        if (out.init(into, 0, 0) != arena::Status::Ok)
+            return false;
+        if (arena_.rebuild(out) != arena::Status::Ok)
+            return false;
+        uint64_t need = 0;
+        if (out.image(nullptr, 0, &need) != arena::Status::OutOfMemory || need > a_->emit_capacity)
+            return false;
+        a_->emit_length = need;
+        hash::Sha256Core sha;
+        sha.init();
+        sha.update(ptr(a_->emit_base), need);
+        sha.finish(a_->emit_digest);
+        return true;
+    }
+
     uint16_t serve(uint8_t op, uint32_t argument, const uint8_t *rq, uint32_t rl, uint8_t *rs,
                    uint32_t *rsl, uint32_t *rarg) {
         *rsl = 0;
         *rarg = argument;
         scratch_reset();
         /* The read side answers from the v7 model (docs/32 5.3). The write side does not:
-         * a delta apply, a dump, a compaction and a relink are not moved yet, and an apply
+         * a delta apply, a compaction and a relink are not moved yet, and an apply
          * would write offsets into an arena that does not have them. REFUSED is what a
          * well-formed request that is not done gets (live.h) - the same stub the twin
          * (native/live.rxfs) answers, byte for byte. Debt: the v7 write path here; the
-         * walkers move to the object index and the apply writes records, spec rows and
-         * relation tables. */
-        if (op == PYMERGETIC_RXF_OP_STAGE_COMMIT || op == PYMERGETIC_RXF_OP_DIGEST ||
-            op == PYMERGETIC_RXF_OP_EMIT || op == PYMERGETIC_RXF_OP_COMPACT ||
+         * apply writes records, spec rows and relation tables. (The dump - DIGEST and
+         * EMIT - is moved: docs/32 5.4's rebuild, above.) */
+        if (op == PYMERGETIC_RXF_OP_STAGE_COMMIT || op == PYMERGETIC_RXF_OP_COMPACT ||
             op == PYMERGETIC_RXF_OP_RELINK) {
             store<uint64_t>(rs, 0);
             store<uint64_t>(rs + 8, 0);
@@ -149,6 +176,24 @@ class Session {
             return PYMERGETIC_RXF_LIVE_REFUSED;
         }
         switch (op) {
+        case PYMERGETIC_RXF_OP_DIGEST:
+        case PYMERGETIC_RXF_OP_EMIT: {
+            if (!dump()) {
+                store<uint32_t>(rs, 0);
+                store<uint32_t>(rs + 4, PYMERGETIC_RXF_REASON_ARENA);
+                *rsl = 8;
+                return PYMERGETIC_RXF_LIVE_BAD_IMAGE;
+            }
+            if (op == PYMERGETIC_RXF_OP_DIGEST) {
+                mem::copy(rs, a_->emit_digest, 32);
+                *rsl = 32;
+            } else {
+                store<uint64_t>(rs, a_->emit_length);
+                mem::copy(rs + 8, a_->emit_digest, 32);
+                *rsl = 40;
+            }
+            return PYMERGETIC_RXF_LIVE_OK;
+        }
         case PYMERGETIC_RXF_OP_PING:
             mem::copy(rs, rq, rl);
             *rsl = rl;

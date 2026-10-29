@@ -1178,6 +1178,18 @@ Status ObjectArena::rebuild(ObjectArena &out) {
     if (memory_.base == nullptr || out.memory_.base == nullptr || &out == this ||
         !model_ready(slots) || model_ready(out.index_table()))
         return Status::BadImage;
+    /* The superblock is replayed whole (docs/32 5.4 step 1 names it first): the
+     * claim - the limit - is part of the bytes, and the tail marker's span is
+     * the claim's tail. The rebuild's arena may sit in memory of another size;
+     * the claim it answers is the source's, and the marker takes the claim's
+     * tail formula over again (init wrote it for the memory's own claim). */
+    out.memory_.limit = super()->limit;
+    out.super()->limit = super()->limit;
+    {
+        pymergetic_rxf_object *marker = out.record_at(out.marker_offset());
+        marker->payload =
+            (uint32_t)(super()->limit - out.marker_offset() - sizeof(pymergetic_rxf_object));
+    }
     /* Step 1: the bootstrap is replayed whole - the same call the writer made
      * (tools/native/arena_export.py's place_world), so the interning order of
      * the skeleton - "the index object is named `objects` third, `syms` is named
