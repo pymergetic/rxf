@@ -19,9 +19,9 @@ pins ``native/*.h`` to the four headers it has, and a fifth would break that pin
 
 The wasm32 body's ``call_indirect`` names a leaf's function type by the position of
 the leaf's signature in the type section of whoever composes the snippets: the
-composer (``tests/wasm.py module_of``) puts one type per leaf in the order of the
-leaf ids, so ``call_types()`` is that list, one entry per leaf, and the ``@`` argv
-must be it (the same list ``graph_build`` passes).
+composer (``tools/native/wasm_module.py``'s ``module_of``) puts one type per leaf
+in the order of the leaf ids, so ``call_types()`` is that list, one entry per
+leaf, and the ``@`` argv must be it (the same list ``graph_build`` passes).
 """
 
 from __future__ import annotations

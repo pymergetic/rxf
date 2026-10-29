@@ -25,7 +25,7 @@ from pymergetic.rxftk.core.object import Image
 from . import scenario
 from .emulator import Blob, Emulator, Integer
 from .graph_reference import Reference
-from .wasm import module_of
+from .wasm import module_of, wasm_type
 
 HARNESS = Path(__file__).with_name("wasm_steps.js")
 RUN = "pymergetic.rxf.foundation.graph.run"
@@ -113,10 +113,6 @@ def letters() -> Letters:
     found.update(NUMERIC)
     assert set(found) == set(graph_header.leaves())
     return found
-
-
-def wasm_type(letter: str) -> str:
-    return "i64" if letter == "q" else "i32"
 
 
 def call_types() -> list[list[str]]:
