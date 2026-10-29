@@ -85,9 +85,12 @@ SEATS = {
 PROGRAM_PARENT = "pymergetic.rxf.boot"
 PROGRAM_NAME = "smoke"
 
-# The live pump's leaf id (native/graph.h: RXF_LEAF_LIVE_PUMP). A program that
-# calls it is what a console drives: one turn is one request on the line.
+# The console's leaves: the live pump (native/graph.h: RXF_LEAF_LIVE_PUMP) and
+# the uart pump (RXF_LEAF_UART_PUMP). One turn is one request on the line:
+# the uart pump moves the bytes between the device's FIFOs and the live area's
+# rings, the live pump serves them (tests/test_live_uart.py's FifoLine).
 LIVE_PUMP = 29
+UART_PUMP = 30
 
 
 def program() -> bytes:
@@ -120,17 +123,37 @@ def program() -> bytes:
 
 
 def pump_program() -> bytes:
-    """The live pump's shell: call `live_pump` and answer.
+    """The console's turn: uart_pump, live_pump, uart_pump, then answer.
 
-    One turn is one request. The words follow graph.rxfs's m_call_leaf: six of
-    shape (id, count, out slot, out width, status slot) then one operand triple
-    per argument. The pump is shape 6 (m_shape_of: leaf 29) -- one argument and
-    no out slot -- so the out words are zero and the answer is the argument
-    word, exactly what the seats report.
+    One turn is one request on the line. The tour is the one
+    tests/test_live_uart.py's FifoLine makes: the uart pump moves the bytes
+    between the device's FIFOs and the live area's rings, the live pump serves
+    them, and the uart pump moves the answers back out to the line. The words
+    follow graph.rxfs's m_call_leaf: six of shape (id, count, out slot, out
+    width, status slot) then one operand triple per argument. All three calls
+    are shape 6 (m_shape_of: one argument, no out slot), so the out words are
+    the reference's -1 and 0 and the answer is the argument word, exactly
+    what the seats report.
     """
     word = graph_header.numbers()
     slot = word["RXF_OPERAND_SLOT"]
     literal = word["RXF_OPERAND_LITERAL"]
+    none = 18446744073709551615
+
+    def call(leaf: int, status: int) -> list[int]:
+        return [
+            word["RXF_OP_CALL"],
+            leaf,
+            1,    # one operand
+            none,  # out slot: shape 6 has none and the reference
+            0,     # out width        wants -1 there, not 0 (graph.rxfs)
+            status,
+            literal,
+            0,
+            8,    # operand 0: the area is 0, and the pump finds the live area
+            #        through the capability table of the context itself
+        ]
+
     out = [
         word["RXF_GRAPH_MAGIC"],
         64,  # frame bytes
@@ -139,16 +162,9 @@ def pump_program() -> bytes:
         7,   # entry word
         0,
         8,   # parameter 0 lives at frame slot 0, one word
-        word["RXF_OP_CALL"],
-        LIVE_PUMP,
-        1,    # one operand
-        18446744073709551615,  # out slot: shape 6 has none and the reference
-        0,    # out width            wants -1 there, not 0 (graph.rxfs)
-        16,   # status slot
-        literal,
-        0,
-        8,    # operand 0: the area is 0, and the pump finds the live area
-        #        through the capability table of the context itself
+        *call(UART_PUMP, 16),
+        *call(LIVE_PUMP, 20),
+        *call(UART_PUMP, 24),
         word["RXF_OP_MOVE"],
         8,
         8,

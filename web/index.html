@@ -139,7 +139,7 @@
       } },
     { name: "run", what: "one turn of the image", act: (w) => {
         const status = w.rxf.turn();
-        const text = w.rxf.drain();
+        const text = new TextDecoder().decode(w.rxf.drain());
         const lines = text.split("\n").filter((l) => l.trim());
         if (lines.length) line(w, "the boot smoke program's answer:", "sys");
         for (const l of lines) line(w, l);
@@ -151,16 +151,15 @@
     { name: "bytes", what: "how big this image is in memory", act: (w) =>
         line(w, `${w.rxf.snapshot().length} bytes`, "ok") },
     { name: "honors", what: "the founding core", act: (w) => {
-    const out = new TextEncoder().encode("honors");
-    w.rxf.send(Frames.encode(Frames.OP.RESOLVE, 1, 0, out));
-    w.rxf.turn();
-    const text = w.rxf.drain();
-    const { frames } = Frames.decode(new TextEncoder().encode(text));
-    for (const f of frames) {
-      line(w, `${f.op} status ${f.status} ${f.payload.length} bytes`, f.status ? "err" : "ok");
-    }
-    if (!frames.length) line(w, "(the image answered no frame)", "sys");
-  } },
+        const out = new TextEncoder().encode("honors");
+        w.rxf.send(Frames.encode(Frames.OP.RESOLVE, 1, 0, out));
+        w.rxf.turn();
+        const { frames } = Frames.decode(w.rxf.drain());
+        for (const f of frames) {
+          line(w, `${f.op} status ${f.status} ${f.payload.length} bytes`, f.status ? "err" : "ok");
+        }
+        if (!frames.length) line(w, "(the image answered no frame)", "sys");
+      } },
   ];
 
   /* modifications: the acts that change the image from inside */

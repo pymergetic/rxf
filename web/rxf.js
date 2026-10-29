@@ -93,17 +93,19 @@ export class Rxf {
     return new BigUint64Array(this.memory.buffer, this.out, 1)[0];
   }
 
-  /** The UART capability as the console FIFO: drain the TX ring into a string. */
+  /** The UART capability as the console FIFO: the TX ring drained into bytes.
+   *  Frames are bytes and a frame is not text -- the codec (web/frames.js)
+   *  reads these, and only a line the page shows is decoded for display. */
   drain() {
     const fifo = this.instance.exports.fifo_at();
     const ring = new Uint8Array(this.memory.buffer, fifo, 576);
     const words = new Uint32Array(this.memory.buffer, fifo, 4);
-    let text = "";
+    const out = [];
     for (let tail = words[3]; tail !== words[2]; tail++) {
-      text += String.fromCharCode(ring[320 + (tail >>> 0) % 256]);
+      out.push(ring[320 + (tail >>> 0) % 256]);
       words[3] = tail + 1;
     }
-    return text;
+    return Uint8Array.from(out);
   }
 
   /** The image as it stands in memory - up to where it reaches, not the whole
@@ -113,17 +115,20 @@ export class Rxf {
     return new Uint8Array(this.memory.buffer, 0, this.end).slice();
   }
 
-  /** The UART capability as the console FIFO: write a frame into the RX ring. */
+  /** The UART capability as the console FIFO: write a frame into the RX ring.
+   *  native/graph.h's FIFO block: the four words (rx_head, rx_tail, tx_head,
+   *  tx_tail) and at RXF_UART_FIFO_RX (64) and _TX (320) the two 256-byte
+   *  rings -- the bytes go into the RX ring, never over the words. */
   send(bytes) {
     const fifo = this.instance.exports.fifo_at();
     const words = new Uint32Array(this.memory.buffer, fifo, 4);
     const ring = new Uint8Array(this.memory.buffer, fifo, 576);
     const mask = 255;
     for (let i = 0; i < bytes.length; i++) {
-      ring[(words[0] + i) & mask] = bytes[i];
+      ring[64 + ((words[0] + i) & mask)] = bytes[i];
     }
     words[0] = words[0] + bytes.length;
-    return words[0] - words[3];
+    return words[0] - words[1];
   }
 
   /** Fork: a new instance that carries this memory where this one left it. */
