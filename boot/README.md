@@ -40,10 +40,10 @@ linker does not put there.
 
 The run is the whole convention on the path of the magic bytes: the glue
 resolves the handle (3 words) to the program object, passes `args`/`argc`/`out`
-at their rows, the image's mini entry executes the object's program (MOVE +
-RETURN), writes the answer to `out`, and reports through the Uart capability of
-the seat (NS16550 port on x86_64, PL011 MMIO on aarch64, FIFO block + JS drain
-on wasm32).
+at their rows, the image's mini entry executes the object's program (one turn
+of the live pump), writes the answer to `out`, and reports through the Uart
+capability of the seat (NS16550 port on x86_64, PL011 MMIO on aarch64, FIFO
+block + JS drain on wasm32).
 
 ## The files
 

@@ -19,12 +19,13 @@ home of the rows, parsed here, never copied):
   first object at offset 4096 (ground.h pins the record, the slot head and the
   16-byte slot entries).
 
-The run's program is the smoke's own -- one MOVE + RETURN that answers the
-argument word -- as an object of the world (``pymergetic.rxf.boot.smoke``), so
-the arena export places it like any other object and its handle resolves
-through the arena's slot table (the walk ``boot/image_stub/entry.c`` takes).
-The handle words at the map's HANDLE_COPY row are that object's (index, gen),
-packed the way ground.h packs a handle32.
+The run's program is the live pump's shell (``pump_program`` below): one CALL
+of the pump and RETURN of the argument word -- as an object of the world
+(``pymergetic.rxf.boot.smoke``), so the arena export places it like any other
+object, its handle resolves through the arena's slot table (the walk
+``boot/image_stub/entry.c`` takes), and every seat's boot is one turn of the
+console's own pump. The handle words at the map's HANDLE_COPY row are that
+object's (index, gen), packed the way ground.h packs a handle32.
 
 Usage::
 
@@ -77,12 +78,10 @@ SEATS = {
     "wasm32": ("RXF_BOOT_WASM_IMAGE_BASE", 1),
 }
 
-# The probe's program: one MOVE + RETURN that answers the argument word -- the
-# program the smoke has always carried (graph.h: magic, frame bytes,
-# parameters, argument words, entry word, then (slot, width) per parameter and
-# the instructions). It is data, the smoke's program words: an object of the
-# real world. The magic and the opcodes come from the header that defines them
-# (graph_header.numbers).
+# The probe's program: the live pump's shell (pump_program below), the program
+# the console drives -- one CALL + RETURN that answers the argument word. It is
+# data, the program words of an object of the real world. The magic and the
+# opcodes come from the header that defines them (graph_header.numbers).
 PROGRAM_PARENT = "pymergetic.rxf.boot"
 PROGRAM_NAME = "smoke"
 
@@ -240,7 +239,7 @@ def build(
     map_rows = rows()
     image = tree.load(start)
     parent = image.handle(PROGRAM_PARENT)
-    probe = image.add(parent, PROGRAM_NAME, payload=program())
+    probe = image.add(parent, PROGRAM_NAME, payload=pump_program())
 
     filled = programs.filled(image)
     made, placed = arena_export.place_world(filled)
