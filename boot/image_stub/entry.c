@@ -313,8 +313,8 @@ static rxf_u32 execute(rxf_runtime_context *c, rxf_object_handle program, rxf_u6
             const rxf_u64 id = w[1], nargs = w[2];
             const rxf_u64 out_slot = w[3], status_slot = w[5];
             const rxf_u64 count = *(const rxf_u64 *)(const void *)((const rxf_u8 *)c + 16);
-            const rxf_u8 *table =
-                (const rxf_u8 *)(unsigned long)(*(const rxf_u64 *)(const void *)((const rxf_u8 *)c + 24));
+            const rxf_u8 *table = (const rxf_u8 *)(unsigned long)(*(
+                const rxf_u64 *)(const void *)((const rxf_u8 *)c + 24));
             rxf_u64 fn = 0, row;
             if (!have(&g, pc, 6 + nargs * 3))
                 return REFUSE_RANGE;
