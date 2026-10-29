@@ -24,7 +24,6 @@ names.
 from __future__ import annotations
 
 import functools
-import shutil
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -54,13 +53,13 @@ TINY = "pymergetic.rxf.foundation.tiny.compile"
 BUILT = frozenset(NATIVE_PROGRAMS) | {TINY}
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def native() -> dict[str, dict[str, str]]:
     """``{path: {machine: hex}}`` of the three native programs, from their recipes."""
     return {path: recipe.build() for path, recipe in NATIVE_PROGRAMS.items()}
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def tiny() -> str:
     """The hex of the compiler as a program, from ``native/tiny/tiny.rxfs``."""
     return rxfc.compile_file(TINY_SOURCE).hex()

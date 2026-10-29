@@ -35,8 +35,8 @@ import json
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping
 
 RXF = "urn:pymergetic:rxf"
 ET.register_namespace("rxf", RXF)

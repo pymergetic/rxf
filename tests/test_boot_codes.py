@@ -18,9 +18,9 @@ import hashlib
 import shutil
 from pathlib import Path
 
+import boot_sync
 import pytest
 
-import boot_sync
 from pymergetic.rxftk.core import tree
 
 from .support import resolved

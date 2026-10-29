@@ -40,8 +40,8 @@ from compose import object_id
 
 from pymergetic.rxftk.core.arena import (
     MODULE_SIZE,
-    OBJECT_HEADER_SIZE,
     OBJ_MODULE,
+    OBJECT_HEADER_SIZE,
     SUPERBLOCK_SIZE,
     ObjectArena,
 )

@@ -4,6 +4,7 @@ import hashlib
 import random
 from pathlib import Path
 
+import link
 import pytest
 
 from pymergetic.rxftk import source
@@ -12,8 +13,6 @@ from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import harness, physical
 
 from .snippets import STARTER
-
-import link
 from .test_live import edited
 
 XML = """<?xml version="1.0" encoding="UTF-8"?>

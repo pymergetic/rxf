@@ -413,7 +413,7 @@ def _genesis_table(
     for role, target, index in entry.refs:
         role_handle = _resolve(arena, f"{HONORS}/{ROLES}/{role}")
         records.append(REF_RECORD.pack(_resolve(arena, target), role_handle, 0, 0, index))
-    path = ".".join((HONORS, group, name))
+    path = f"{HONORS}.{group}.{name}"
     table = b"".join(records)
     handle = arena.new_object(relations, path, OBJ_SPEC, _round8(len(table)))
     arena.set_payload(handle, table)

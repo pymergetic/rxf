@@ -67,7 +67,7 @@ class Honors:
         self.arena = arena
 
     @classmethod
-    def attach(cls, data: bytes) -> "Honors":
+    def attach(cls, data: bytes) -> Honors:
         """The honors of an existing image (`ObjectArena.to_bytes` is that image)."""
         return cls(ObjectArena.attach(data, True))
 

@@ -398,7 +398,7 @@ def arena_handles(arena: bytes) -> list[int]:
     index is not a handle."""
     out = []
     for index in range(struct.unpack_from("<I", arena, SUPERBLOCK_SIZE + OBJECT_HEADER_SIZE)[0]):
-        kind, gen, _reserved, slot = struct.unpack_from(
+        _kind, gen, _reserved, slot = struct.unpack_from(
             "<HHIQ",
             arena,
             SUPERBLOCK_SIZE + OBJECT_HEADER_SIZE + SLOTS_HEAD_SIZE + SLOT_SIZE * index,

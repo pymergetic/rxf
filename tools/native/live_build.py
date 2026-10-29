@@ -45,7 +45,7 @@ LOG_BUDGET = 1 << 18  # LiveSpec.log: the log region a self-copy must fit in
 def source() -> str:
     """The pump source, and that it names no second safe_point (its own file does)."""
     text = SOURCE.read_text()
-    if re.search(r"^fn safe_point\(", text, re.M):
+    if re.search(r"^fn safe_point\(", text, re.MULTILINE):
         raise RuntimeError(
             "native/live.rxfs defines safe_point: its one defining source is "
             "native/safe/safe.rxfs (seed_build.SOURCES)"

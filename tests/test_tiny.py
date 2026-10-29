@@ -18,8 +18,8 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
-import pytest
 import programs
+import pytest
 import rxfc
 
 from pymergetic.rxftk.core import tree

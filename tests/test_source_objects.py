@@ -21,6 +21,7 @@ import boot_sync
 import seed_build
 import source_sync
 import sync
+
 from pymergetic.rxftk.core import tree
 
 from .support import resolved
@@ -47,7 +48,7 @@ def source_names() -> dict[str, Path]:
         source_sync.name_of(seed_build.source_of(key)): Path(
             seed_build.source_of(key)
         )
-        for key in seed_build.keys()
+        for key in seed_build.keys()  # noqa: SIM118 - keys() is the table's function
     }
 
 

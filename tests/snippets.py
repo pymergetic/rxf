@@ -225,7 +225,6 @@ def checked_saturating(leaf: str, a: int, b: int = 0) -> tuple[int, int]:
         value = -a if op == "negate" else abs(a)
         return 0, (value & mask)
     result = {"add": a + b, "subtract": a - b, "multiply": a * b}[op]
-    size = bits // 8
     if result < low or result > high:
         if leaf.startswith("checked"):
             return OVERFLOW, 0

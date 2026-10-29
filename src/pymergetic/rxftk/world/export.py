@@ -2400,7 +2400,7 @@ class ArenaScene:
     def _specs(self) -> None:
         """The semantic face (docs/32 5): one sys/specs row per object index."""
         self._spec: dict[int, tuple[int, int, int, int]] = {}
-        for handle, record in self._by_handle.items():
+        for handle in self._by_handle:
             self._spec[handle] = self._arena.spec(handle)
 
     def _find(self, parent: int, name: str) -> int:
@@ -2409,7 +2409,7 @@ class ArenaScene:
     # -- the scene source surface (the shape Inspector/Image answer) ----------------------------------
 
     @property
-    def image(self) -> "ArenaScene":
+    def image(self) -> ArenaScene:
         return self
 
     def to_bytes(self) -> bytes:
@@ -3061,7 +3061,7 @@ class ArenaScene:
         return out
 
     def _handle_of_index(self, index: int) -> int | None:
-        kind, gen, slot = self._entries[index]
+        _kind, gen, slot = self._entries[index]
         if slot == 0:
             return None
         handle = (gen << 20) | index
@@ -3222,7 +3222,6 @@ class Layers:
 
     def document(self) -> dict[str, Any]:
         """Every layer, assembled: the scene input schema (its own docstring above)."""
-        base = self.base()
         cells = self.cells()
         city = self.city()
         document = {

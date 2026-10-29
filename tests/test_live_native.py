@@ -9,6 +9,8 @@ import hashlib
 import random
 import shutil
 import struct
+
+import link
 import pytest
 
 from pymergetic.rxftk.core.object import Image
@@ -18,8 +20,6 @@ from pymergetic.rxftk.live.harness import HostImage
 
 from . import live_world as lw
 from .snippets import running_image
-import link
-
 from .support import resolved
 
 # Every test runs code on a machine the harness boots per test; the emulated seats

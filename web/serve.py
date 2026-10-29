@@ -12,7 +12,6 @@ it. What the browser shows is what the machine boots.
 from __future__ import annotations
 
 import http.server
-import shutil
 import sys
 from pathlib import Path
 
@@ -33,7 +32,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(WEB), **kwargs)
 
-    def do_GET(self) -> None:  # noqa: N802 - the stdlib spells it this way
+    def do_GET(self) -> None:
         name = self.path.lstrip("/").split("?")[0]
         if name in SEAT:
             artifact = SEAT[name]

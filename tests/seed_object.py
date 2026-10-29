@@ -19,9 +19,9 @@ names of the sources given), one seed run per name, cached beside the host glue 
 from __future__ import annotations
 
 import hashlib
-from functools import lru_cache
+from collections.abc import Iterable
+from functools import cache
 from pathlib import Path
-from typing import Iterable
 
 import seed_build
 from seed_object import bodies_of, object_bytes, symbols
@@ -30,7 +30,7 @@ HERE = Path(__file__).parent
 BUILD = HERE / "host" / "build"
 
 
-@lru_cache(maxsize=None)
+@cache
 def _code(names: tuple[str, ...]) -> dict[str, bytes]:
     """The x86_64 object-ABI bodies of the names that name a snippet (one run per name)."""
     return bodies_of("x86_64", names)

@@ -8,6 +8,7 @@ same memory, on each machine, and holds them to the same status and the same val
 
 import shutil
 import struct
+
 import compose
 import graph_header
 import programs

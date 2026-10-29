@@ -4,6 +4,7 @@ import struct
 
 import arena_export
 import pytest
+
 from pymergetic.rxftk.core import tree
 from pymergetic.rxftk.core.arena import (
     HANDLE32_NONE,
@@ -11,6 +12,7 @@ from pymergetic.rxftk.core.arena import (
     OBJ_SYM,
     OFLAG_RO,
     SPEC_SIZE,
+    ArenaError,
 )
 
 from .snippets import STARTER
@@ -259,7 +261,7 @@ def test_the_refs_are_the_relation_table_of_the_object(world, placed):
     assert seen > 0, "the starter carries relations"
     # an object with no table has no refs, and a stale handle answers nothing
     assert arena.refs_of(down(arena, "sys", "specs")) == []
-    with pytest.raises(Exception):
+    with pytest.raises(ArenaError):
         arena.refs_of(0x12345678)
 
 

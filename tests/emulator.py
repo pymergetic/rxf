@@ -6,8 +6,8 @@ aarch64 follows AAPCS64: integers in x0..x7, floating point in s0..s7/d0..d7,
 a structure larger than 16 bytes as a copy whose address takes an integer slot.
 """
 
-from dataclasses import dataclass
 import time
+from dataclasses import dataclass
 
 import pytest
 

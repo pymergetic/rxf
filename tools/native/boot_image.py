@@ -177,7 +177,7 @@ def pump_program() -> bytes:
         8,
         8,    # answer frame[8..16), the same leg the smoke returns
     ]
-    return struct.pack("<%dQ" % len(out), *out)
+    return struct.pack(f"<{len(out)}Q", *out)
 
 
 # The argument the glue passes: "RXFOK" as one little-endian word (the string's

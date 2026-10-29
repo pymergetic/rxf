@@ -515,7 +515,7 @@ def code(machine: str, key: str) -> str:
         import live_build
 
         return live_build.code(machine)
-    source, fn, shape, storew = SOURCES[key]
+    source, _fn, shape, storew = SOURCES[key]
     argv = [str(seed_bin()), "codegen", TARGET[machine], "object", str(storew),
             "#" + fn_of(key, machine)]
     if shape.startswith("!"):

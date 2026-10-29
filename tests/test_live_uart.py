@@ -9,6 +9,7 @@ device is two FIFOs in linear memory (native/graph.h) and the host between two s
 import shutil
 import struct
 from collections import deque
+
 import graph_header
 import pytest
 

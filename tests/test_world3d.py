@@ -555,22 +555,22 @@ def test_the_session_slices_reassemble_the_document():
     client = _client()
     whole = export_world(demo_inspector())
     pulled: dict[str, list] = {name: [] for name in ("cells", "voids", "blocks", "streets", "edges", "bundles")}
-    for name in pulled:
+    for name, items in pulled.items():
         at = 0
         while True:
             part = client.get(
                 f"/world/scene.json?part={name}&offset={at}&limit=40"
             ).json()
             assert part["total"] == len(whole[name])
-            pulled[name].extend(part["items"])
+            items.extend(part["items"])
             at += part["count"]
             if at >= part["total"]:
                 break
     stubs = client.get("/world/scene.json?part=stubs").json()["value"]
     for edge in pulled["edges"]:
         edge["stubs"] = stubs.get(edge["id"])
-    for name in pulled:
-        assert pulled[name] == whole[name], f"the {name} slices do not reassemble"
+    for name, items in pulled.items():
+        assert items == whole[name], f"the {name} slices do not reassemble"
     frame = client.get("/world/scene.json?part=frame").json()["value"]
     assert frame["ring"] == whole["ring"] and frame["metrics"] == whole["metrics"]
     counts = client.get("/world/scene.json?part=counts").json()["value"]

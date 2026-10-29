@@ -42,7 +42,8 @@ def smoke():
     if missing:
         pytest.skip("boot smoke tools missing: " + ", ".join(missing))
     return subprocess.run(
-        ["sh", "run_smoke.sh"], cwd=BOOT, capture_output=True, text=True, timeout=600
+        ["sh", "run_smoke.sh"], cwd=BOOT, capture_output=True, text=True, timeout=600,
+        check=False,
     )
 
 

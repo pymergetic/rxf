@@ -16,7 +16,6 @@ import compose
 import graph_sync
 import pytest
 
-from pymergetic.rxftk.core import tree
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import physical
 

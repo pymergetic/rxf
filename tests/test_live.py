@@ -9,6 +9,7 @@ import random
 import struct
 from pathlib import Path
 
+import link
 import pytest
 
 from pymergetic.rxftk.core import tree
@@ -17,8 +18,6 @@ from pymergetic.rxftk.core.object import Image, image_state
 from pymergetic.rxftk.live import Refused, frames, physical
 from pymergetic.rxftk.live.client import Declined, LiveError
 from pymergetic.rxftk.live.harness import HostImage
-
-import link
 
 from .support import resolved
 

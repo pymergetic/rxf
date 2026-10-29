@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from pymergetic.rxftk.core.arena import (
-    ArenaError,
     FREE_LINKS,
     FREE_MIN_SPAN,
     HANDLE32_NONE,
@@ -23,16 +22,21 @@ from pymergetic.rxftk.core.arena import (
     OBJ_MODULE,
     OBJ_SPEC,
     OBJ_SYM,
-    OBJECT_HEADER_SIZE as HEADER,
     OFLAG_ROOT,
     SLOT_SIZE,
     SPEC_SIZE,
-    SUPERBLOCK_SIZE as SUPER_SIZE,
     SUPERBLOCK_VERSION,
     SYMS_ANONYMOUS,
     SYMS_HEAD_SIZE,
     UNDO_SIZE,
+    ArenaError,
     ObjectArena,
+)
+from pymergetic.rxftk.core.arena import (
+    OBJECT_HEADER_SIZE as HEADER,
+)
+from pymergetic.rxftk.core.arena import (
+    SUPERBLOCK_SIZE as SUPER_SIZE,
 )
 
 ROOT = Path(__file__).parents[1]

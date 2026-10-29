@@ -131,7 +131,7 @@ def _launch(playwright, raster: str):
             page = browser.new_page()
             renderer = _renderer(page)
             page.close()
-        except Exception as miss:  # noqa: BLE001 - a missing raster is an expected miss
+        except Exception:  # noqa: BLE001, S112 - a missing raster is an expected miss
             continue
         if raster == "gpu" and any(m in renderer.lower() for m in SOFTWARE_MARKERS):
             browser.close()

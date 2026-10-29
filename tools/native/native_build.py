@@ -21,7 +21,6 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 import seed_build
-from native_symbols import EXPECTED as NUMERIC
 
 ROOT = HERE.parents[1]
 NATIVE = ROOT / "native"
@@ -75,7 +74,10 @@ COMPILE = {"compile_program"}
 def build() -> dict[str, dict[str, str]]:
     """Return ``{machine: {name: hex}}`` for every snippet, from its Seed source."""
     return {
-        machine: {name: seed_build.code(machine, name) for name in seed_build.keys()}
+        machine: {
+            name: seed_build.code(machine, name)
+            for name in seed_build.keys()  # noqa: SIM118 - keys() is the table's function
+        }
         for machine in MACHINES
     }
 
@@ -107,7 +109,7 @@ def recipe(machine: str) -> dict[str, object]:
         "target": MACHINES[machine],
         "functions": {
             name: [seed_build.fn_of(name, machine), *seed_build.shape_of(name)]
-            for name in seed_build.keys()
+            for name in seed_build.keys()  # noqa: SIM118 - keys() is the table's function
         },
     }
 

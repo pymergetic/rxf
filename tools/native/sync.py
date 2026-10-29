@@ -35,13 +35,13 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 import blob_sync
+import boot_sync
 import compose
 import graph_header
 import graph_sync
 import host_sync
 import live_sync
 import native_build
-import boot_sync
 import programs
 import seed_build
 import source_sync

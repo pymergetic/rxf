@@ -42,7 +42,6 @@ import argparse
 import functools
 import http.server
 import io
-import json
 import socketserver
 import threading
 from pathlib import Path

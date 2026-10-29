@@ -10,6 +10,7 @@ from typing import Any
 
 import arena_export
 import pytest
+
 from pymergetic.rxftk.console.session import Console
 from pymergetic.rxftk.core import tree
 from pymergetic.rxftk.core.arena import (

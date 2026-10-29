@@ -10,6 +10,7 @@ import threading
 import tty
 from pathlib import Path
 
+import link as link_
 import pytest
 
 from pymergetic.rxftk import source
@@ -22,8 +23,6 @@ from pymergetic.rxftk.live.harness import HostImage, fit, table_slots
 
 from . import live_serve
 from .snippets import STARTER
-
-import link as link_
 
 MiB = 1 << 20
 SIZES = {
@@ -118,7 +117,7 @@ def test_two_processes_share_one_image_over_the_rings(shm, image: Image):
 def test_a_change_made_from_the_other_process_is_in_the_shared_image(
     shm, image: Image, tmp_path
 ):
-    name, raw = shm
+    name, _raw = shm
     delta = tmp_path / "wire.rxfd"
     delta.write_text(DELTA, encoding="utf-8")
     wire = link.SharedMemory(name)

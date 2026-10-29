@@ -32,7 +32,6 @@ import link
 import pytest
 import rxfc
 
-from pymergetic.rxftk.core import tree
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import physical
 

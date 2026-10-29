@@ -18,8 +18,8 @@ import pytest
 
 from .snippets import (
     ARITHMETIC,
-    CHECKED_SATURATING,
     C_TYPES,
+    CHECKED_SATURATING,
     INTEGERS,
     OUTPUT_FILL,
     SIZES,
