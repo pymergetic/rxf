@@ -129,6 +129,11 @@ class ObjectArena:
 
     def to_bytes(self) -> bytes: ...
 
+    def rebuild(self, limit: int) -> ObjectArena:
+        """
+        The canonical form of this arena (docs/32 5.4): the same world rebuilt into a fresh arena, what the dump of a live image is. A rebuild of a canonical arena answers the arena's own bytes.
+        """
+
     def s_allocate(self, room: int) -> int: ...
 
     def s_release(self, offset: int) -> None: ...

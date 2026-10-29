@@ -334,3 +334,11 @@ def test_the_genesis_is_read_only(arena):
         assert arena.load(handle)[2] & OFLAG_RO, f"{'/'.join(path)} is Genesis"
     ledger = down(arena, "honors", "ledger")
     assert not arena.load(ledger)[2] & OFLAG_RO, "the ledger grows"
+
+
+def test_the_rebuild_of_the_export_is_the_export(arena):
+    """docs/32 5.4: the canonical form is the rebuild. A canonical arena rebuilds
+    to itself, byte for byte -- the dump's fixpoint, and what makes two dumps of
+    the same world answer the same bytes."""
+    rebuilt = arena.rebuild(256 * 1024 * 1024)
+    assert rebuilt.to_bytes() == arena.to_bytes()

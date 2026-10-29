@@ -170,6 +170,22 @@ void bind_arena(nb::module_ &m) {
                  return nb::bytes(buf.data(), written);
              })
         .def(
+            "rebuild",
+            [](HostObjectArena &self, uint64_t limit) {
+                auto host = object::HostMemory::reserve(limit);
+                if (host == nullptr)
+                    throw ArenaError("OutOfMemory");
+                auto held = std::make_unique<HostObjectArena>();
+                held->memory = std::move(host);
+                check(held->arena.init(held->memory->memory(), 0, 0));
+                check(self.arena.rebuild(held->arena));
+                return held;
+            },
+            nb::arg("limit"),
+            "The canonical form of this arena (docs/32 5.4): the same world rebuilt "
+            "into a fresh arena, what the dump of a live image is. A rebuild of a "
+            "canonical arena answers the arena's own bytes.")
+        .def(
             "s_allocate",
             [](HostObjectArena &self, uint64_t room) {
                 uint64_t offset = 0;

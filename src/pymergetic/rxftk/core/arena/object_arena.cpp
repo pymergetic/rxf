@@ -1167,6 +1167,97 @@ Status ObjectArena::create(uint32_t parent, const char *name, uint16_t kind, uin
     return Status::Ok;
 }
 
+namespace {
+/* docs/32 5.4 step 2: the first index the bootstrap does not make (the index,
+ * sys/syms, the root image, sys and its five leaves fill 0..8). */
+constexpr uint32_t kWalkFirst = 9;
+} // namespace
+
+Status ObjectArena::rebuild(ObjectArena &out) {
+    const pymergetic_rxf_slots *slots = index_table();
+    if (memory_.base == nullptr || out.memory_.base == nullptr || &out == this ||
+        !model_ready(slots) || model_ready(out.index_table()))
+        return Status::BadImage;
+    /* Step 1: the bootstrap is replayed whole - the same call the writer made
+     * (tools/native/arena_export.py's place_world), so the interning order of
+     * the skeleton - "the index object is named `objects` third, `syms` is named
+     * last" - and with it every symbol id is the same. The capacity is the
+     * source's: the slot table's room is part of the bytes. */
+    Status st = out.bootstrap("boot", slots->capacity);
+    if (st != Status::Ok)
+        return st;
+    st = out.journal_detach(); /* the walk is a build: nothing to unwind */
+    if (st != Status::Ok)
+        return st;
+    /* Step 2: the objects in index order. A canonical source has no dead slot,
+     * so the output's handles are the source's and every handle a parent or a
+     * payload carries stands as it is - no remap. */
+    for (uint32_t index = kWalkFirst; index < slots->count; ++index) {
+        const pymergetic_rxf_slot *entry = index_entry(index);
+        if (entry->slot == 0)
+            return Status::BadImage; /* dead slots: the compacting case, not this walk */
+        const uint32_t source = pymergetic_rxf_handle32_pack(index, entry->gen);
+        pymergetic_rxf_object *record = nullptr;
+        st = load(source, &record);
+        if (st != Status::Ok)
+            return st;
+        const char *name = nullptr;
+        uint32_t length = 0;
+        if (record->name != PYMERGETIC_RXF_SYMS_ANONYMOUS) {
+            st = symbol(record->name, &name, &length);
+            if (st != Status::Ok)
+                return st;
+        }
+        uint32_t handle = PYMERGETIC_RXF_HANDLE32_NONE;
+        st = out.create(record->parent, name, record->kind, record->payload, &handle);
+        if (st != Status::Ok)
+            return st;
+        if (handle != source)
+            return Status::BadImage; /* the walk lands the same handles or it is not this walk */
+        if (record->payload != 0) {
+            const uint8_t *bytes = nullptr;
+            uint32_t size = 0;
+            st = payload(source, &bytes, &size);
+            if (st != Status::Ok)
+                return st;
+            /* A module's first bytes are its chain head (children, count): the
+             * appends own it, and the writer writes it empty
+             * (tools/native/arena_export.py's EMPTY_MODULE_HEAD). The object's
+             * own data is what follows the head. */
+            const uint64_t skip =
+                record->kind == PYMERGETIC_RXF_OBJ_MODULE && size >= sizeof(pymergetic_rxf_module)
+                    ? sizeof(pymergetic_rxf_module)
+                    : 0;
+            st = out.set_payload_at(handle, skip, bytes + skip, size - skip);
+            if (st != Status::Ok)
+                return st;
+        }
+        st = out.set_flags(handle, record->flags);
+        if (st != Status::Ok)
+            return st;
+    }
+    /* Step 3: the semantic rows, in the writer's pass order - a row cannot be
+     * written until sys/specs exists, which is itself one of the objects step 2
+     * just placed. The rows of the skeleton objects (0..8) come along too: the
+     * writer's pass writes the row of every object index, and the root's row
+     * carries the world's flags. */
+    for (uint32_t index = 0; index < slots->count; ++index) {
+        const pymergetic_rxf_slot *entry = index_entry(index);
+        const uint32_t source = pymergetic_rxf_handle32_pack(index, entry->gen);
+        pymergetic_rxf_spec row{};
+        st = spec(source, &row);
+        if (st != Status::Ok)
+            return st;
+        st = out.set_spec(source, row);
+        if (st != Status::Ok)
+            return st;
+    }
+    st = out.journal_commit();
+    if (st != Status::Ok)
+        return st;
+    return out.verify();
+}
+
 Status ObjectArena::find(uint32_t parent, const char *name, uint32_t *handle) {
     *handle = PYMERGETIC_RXF_HANDLE32_NONE;
     if (name == nullptr || name[0] == 0)
@@ -1259,17 +1350,23 @@ Status ObjectArena::locate(uint32_t handle, uint64_t *record_offset, uint64_t *p
 }
 
 Status ObjectArena::set_payload(uint32_t handle, const uint8_t *bytes, uint32_t size) {
+    return set_payload_at(handle, 0, bytes, size);
+}
+
+Status ObjectArena::set_payload_at(uint32_t handle, uint64_t offset, const uint8_t *bytes,
+                                   uint32_t size) {
     if (size > 0 && bytes == nullptr)
         return Status::BadImage;
     pymergetic_rxf_object *record = nullptr;
     Status st = load(handle, &record);
     if (st != Status::Ok)
         return st;
-    if (size > record->payload)
+    if (offset > record->payload || size > record->payload - offset)
         return Status::TooLarge; /* a write past the granted room refuses */
     if (size == 0)
         return Status::Ok;
-    return j_copy(reinterpret_cast<uint8_t *>(record) + sizeof(pymergetic_rxf_object), bytes, size);
+    return j_copy(reinterpret_cast<uint8_t *>(record) + sizeof(pymergetic_rxf_object) + offset,
+                  bytes, size);
 }
 
 Status ObjectArena::payload(uint32_t handle, const uint8_t **bytes, uint32_t *size) {

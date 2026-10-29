@@ -28,6 +28,16 @@ class ObjectArena {
      * Two arenas that saw the same work give the same bytes. When the buffer is too
      * small (or out == nullptr) the required size is reported in *written. */
     Status image(uint8_t *out, uint64_t capacity, uint64_t *written) const;
+    /* The canonical form of this arena (docs/32 5.4): a rebuild into `out`, an
+     * arena the caller has made empty over its own memory (init, not yet
+     * bootstrapped). The walk replays the bootstrap whole and then fills the
+     * output in index order from the first index the bootstrap does not make --
+     * the same order the writer creates in, so the symbol ids, the handles and
+     * the bytes come out the same. A rebuild of a canonical arena is the arena
+     * itself: `image()` of both is byte for byte equal. (A source with dead
+     * slots is the compacting case, docs/32 5.4's "compacted before it is
+     * dumped"; this is the walk, not that pass.) */
+    Status rebuild(ObjectArena &out);
     /* Every invariant of the layout and of the FREE ring. Walks the whole arena. */
     Status verify() const;
 
@@ -99,6 +109,12 @@ class ObjectArena {
      * journal and refuses past the room (TooLarge); `payload` answers the room
      * as bytes. */
     Status set_payload(uint32_t handle, const uint8_t *bytes, uint32_t size);
+    /* The payload bytes at `offset` behind the record header, the same room
+     * check as set_payload. A rebuild writes an object's data and leaves the
+     * module head alone: the head is the chain bookkeeping (children, count)
+     * and the appends own it, exactly what the writer does with its
+     * EMPTY_MODULE_HEAD (tools/native/arena_export.py). */
+    Status set_payload_at(uint32_t handle, uint64_t offset, const uint8_t *bytes, uint32_t size);
     Status payload(uint32_t handle, const uint8_t **bytes, uint32_t *size);
 
     /* The state flags (ground.h PYMERGETIC_RXF_OFLAG_*). The Genesis of the
