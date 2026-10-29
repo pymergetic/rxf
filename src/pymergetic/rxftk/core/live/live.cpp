@@ -127,7 +127,531 @@ class Session {
         return true;
     }
 
-    // ---- requests -------------------------------------------------------------------------
+    /* ---- the physical delta (live.h's form; tools's physical.py the writer) -- */
+
+    /* One fixup: a handle that is a path until the replay is done. The list
+     * lives in the work region (the scratch), never the heap. */
+    enum : uint32_t { kPendType, kPendPatch, kPendTarget, kPendRole, kPendEntry };
+    struct Pending {
+        uint32_t handle;
+        uint32_t kind;
+        uint32_t at;
+        uint32_t string_id;
+    };
+    Pending *pend_ = nullptr;
+    uint32_t pend_count_ = 0;
+    uint32_t pend_room_ = 0;
+
+    bool pend_push(uint32_t handle, uint32_t kind, uint32_t at, uint32_t string_id) {
+        if (pend_count_ >= pend_room_)
+            return false;
+        pend_[pend_count_++] = Pending{handle, kind, at, string_id};
+        return true;
+    }
+
+    /* The record's fields the replay writes around (docs/32 1.2). */
+    bool arena_record(uint32_t handle, pymergetic_rxf_object **record) {
+        return arena_.load(handle, record) == arena::Status::Ok;
+    }
+
+    bool arena_name(uint32_t handle, char *out, uint32_t capacity, uint32_t *nlen) {
+        pymergetic_rxf_object *record = nullptr;
+        if (!arena_record(handle, &record))
+            return false;
+        const char *text = nullptr;
+        uint32_t length = 0;
+        if (record->name == PYMERGETIC_RXF_SYMS_ANONYMOUS) {
+            *nlen = 0;
+            return true;
+        }
+        if (arena_.symbol(record->name, &text, &length) != arena::Status::Ok || length >= capacity)
+            return false;
+        mem::copy(out, text, length);
+        out[length] = 0;
+        *nlen = length;
+        return true;
+    }
+
+    /* The relation table of an object (docs/32 2): sys/relations holds one
+     * child per related object, named by the object's dotted path, its payload
+     * the pinned reference rows (ground.h pymergetic_rxf_ref). */
+    bool write_refs(const uint8_t *path, uint32_t path_len, uint32_t count, const uint8_t *rows,
+                    uint32_t *reason) {
+        uint32_t sys = PYMERGETIC_RXF_HANDLE32_NONE;
+        uint32_t relations = PYMERGETIC_RXF_HANDLE32_NONE;
+        if (arena_.find(arena_.root_handle(), "sys", &sys) != arena::Status::Ok ||
+            arena_.find(sys, "relations", &relations) != arena::Status::Ok ||
+            relations == PYMERGETIC_RXF_HANDLE32_NONE) {
+            *reason = PYMERGETIC_RXF_REASON_PATH;
+            return false;
+        }
+        char name[256];
+        if (path_len >= sizeof(name)) {
+            *reason = PYMERGETIC_RXF_REASON_NAME;
+            return false;
+        }
+        mem::copy(name, path, path_len);
+        name[path_len] = 0;
+        uint32_t table = PYMERGETIC_RXF_HANDLE32_NONE;
+        arena_.find(relations, name, &table);
+        const uint64_t room = (uint64_t(count) * sizeof(pymergetic_rxf_ref) + 7) & ~uint64_t(7);
+        if (table == PYMERGETIC_RXF_HANDLE32_NONE) {
+            const arena::Status s =
+                arena_.create(relations, name, PYMERGETIC_RXF_OBJ_SPEC, room, &table);
+            if (s != arena::Status::Ok) {
+                *reason = reason_of(s);
+                return false;
+            }
+        } else {
+            pymergetic_rxf_object *record = nullptr;
+            if (!arena_record(table, &record) || room > record->payload) {
+                *reason = PYMERGETIC_RXF_REASON_ARENA;
+                return false;
+            }
+        }
+        for (uint32_t k = 0; k < count; k++) {
+            const pymergetic_rxf_delta_ref r = load<pymergetic_rxf_delta_ref>(rows);
+            rows += sizeof(r);
+            /* pymergetic_rxf_ref is (target u64, role u64, kind u16, binding u16,
+             * index u32): the two handles are paths until the replay is done. */
+            uint8_t bytes[sizeof(pymergetic_rxf_ref)] = {0};
+            const uint64_t none = PYMERGETIC_RXF_HANDLE_NONE;
+            mem::copy(bytes, &none, 8);
+            mem::copy(bytes + 8, &none, 8);
+            mem::copy(bytes + 16, &r.kind, 2);
+            mem::copy(bytes + 18, &r.binding, 2);
+            mem::copy(bytes + 20, &r.index, 4);
+            const uint64_t at = uint64_t(k) * sizeof(pymergetic_rxf_ref);
+            if (arena_.set_payload_at(table, at, bytes, sizeof(bytes)) != arena::Status::Ok) {
+                *reason = PYMERGETIC_RXF_REASON_ARENA;
+                return false;
+            }
+            if (r.target != PYMERGETIC_RXF_STRING_NONE &&
+                !pend_push(table, kPendTarget, at, r.target)) {
+                *reason = PYMERGETIC_RXF_REASON_SCRATCH;
+                return false;
+            }
+            if (r.role != PYMERGETIC_RXF_STRING_NONE &&
+                !pend_push(table, kPendRole, at + 8, r.role)) {
+                *reason = PYMERGETIC_RXF_REASON_SCRATCH;
+                return false;
+            }
+        }
+        return true;
+    }
+
+    void set_entry(uint32_t handle) {
+        arena_.super()->entry = handle;
+    }
+
+    /* A string of the delta's block: the id is its offset, 0xFFFFFFFF = none. */
+    static bool delta_string(const uint8_t *strings, uint32_t size, uint32_t id, const uint8_t **p,
+                             uint32_t *n) {
+        if (id == PYMERGETIC_RXF_STRING_NONE) {
+            *p = nullptr;
+            *n = 0;
+            return true;
+        }
+        if (id >= size)
+            return false;
+        uint32_t e = id;
+        while (e < size && strings[e] != 0)
+            e++;
+        if (e >= size)
+            return false;
+        *p = strings + id;
+        *n = e - id;
+        return true;
+    }
+
+    static uint32_t reason_of(arena::Status s) {
+        switch (s) {
+        case arena::Status::JournalFull:
+            return PYMERGETIC_RXF_REASON_JOURNAL;
+        case arena::Status::IndexFull:
+            return PYMERGETIC_RXF_REASON_EXISTS;
+        case arena::Status::BadName:
+            return PYMERGETIC_RXF_REASON_NAME;
+        case arena::Status::Protected:
+            return PYMERGETIC_RXF_REASON_PROTECTED;
+        case arena::Status::Dangling:
+            return PYMERGETIC_RXF_REASON_DANGLING;
+        case arena::Status::BadHandle:
+            return PYMERGETIC_RXF_REASON_PATH;
+        default:
+            return PYMERGETIC_RXF_REASON_ARENA;
+        }
+    }
+
+    /* The object a dotted path names, under the root (docs/32 2: the root's own
+     * name is the image, not a path segment). */
+    bool delta_resolve(const uint8_t *p, uint32_t n, uint32_t *handle) {
+        uint32_t at = arena_.root_handle();
+        uint32_t cut = 0;
+        while (cut < n) {
+            uint32_t end = cut;
+            while (end < n && p[end] != '.')
+                end++;
+            char name[256];
+            if (end == cut || end - cut >= sizeof(name))
+                return false;
+            mem::copy(name, p + cut, end - cut);
+            name[end - cut] = 0;
+            if (arena_.find(at, name, &at) != arena::Status::Ok ||
+                at == PYMERGETIC_RXF_HANDLE32_NONE)
+                return false;
+            cut = end + 1;
+        }
+        *handle = at;
+        return true;
+    }
+
+    /* The record's storage role (the writer's map, tools/native/arena_export.py):
+     * the world's node kind in the flags' low bits, and anything with children
+     * is a Module. */
+    static uint16_t storage_role(uint32_t flags, bool module) {
+        if (module)
+            return PYMERGETIC_RXF_OBJ_MODULE;
+        switch (flags & PYMERGETIC_RXF_FLAG_KIND_MASK) {
+        case PYMERGETIC_RXF_NODE_FN:
+        case PYMERGETIC_RXF_NODE_CODE:
+            return PYMERGETIC_RXF_OBJ_FUNC;
+        case PYMERGETIC_RXF_NODE_TYPE:
+        case PYMERGETIC_RXF_NODE_FIELD:
+        case PYMERGETIC_RXF_NODE_ENUMERATOR:
+            return PYMERGETIC_RXF_OBJ_SPEC;
+        case PYMERGETIC_RXF_NODE_IMPORT:
+        case PYMERGETIC_RXF_NODE_EXPORT:
+        case PYMERGETIC_RXF_NODE_ALIAS:
+            return PYMERGETIC_RXF_OBJ_SYM;
+        default:
+            return PYMERGETIC_RXF_OBJ_BLOB;
+        }
+    }
+
+    /* The delta applied to the image, all or nothing (docs/19): the stage is
+     * parsed in two passes - the format and the fixups it will need, then the
+     * writes on the journal - and whatever fails is rolled back to the bytes of
+     * the last commit. The answer is the digest of the result (docs/32 5.4):
+     * the apply and the dump are the same image's two faces. */
+    bool apply(uint32_t length, uint32_t *reason) {
+        *reason = PYMERGETIC_RXF_REASON_FORMAT;
+        const uint8_t *d = ptr(a_->stage_base);
+        if (length < sizeof(pymergetic_rxf_delta_header))
+            return false;
+        const pymergetic_rxf_delta_header head = load<pymergetic_rxf_delta_header>(d);
+        if (head.magic != PYMERGETIC_RXF_DELTA_MAGIC ||
+            head.version != PYMERGETIC_RXF_DELTA_VERSION)
+            return false;
+        const uint8_t *strings = d + sizeof(head);
+        const uint32_t ssize = head.string_bytes;
+        const uint64_t ops_start = (sizeof(head) + ssize + 7) & ~uint64_t(7);
+        if (sizeof(head) + uint64_t(ssize) > length || ops_start > length ||
+            (ssize != 0 && strings[ssize - 1] != 0))
+            return false;
+        if ((head.flags & PYMERGETIC_RXF_DELTA_CHECK_BASE) != 0) {
+            /* The base is the digest of the image the delta was compiled
+             * against (docs/32 5.4: the digest of those bytes). */
+            if (!dump())
+                return false;
+            if (mem::compare(a_->emit_digest, head.base_digest, 32) != 0) {
+                *reason = PYMERGETIC_RXF_REASON_BASE;
+                return false;
+            }
+        }
+
+        /* Pass 1: the format of every operation and the fixups it will need.
+         * The type of a record and the targets of its patches and refs are
+         * paths; they resolve after the replay, when an object the delta
+         * itself creates is there to point at. */
+        uint64_t fixups = 0;
+        uint64_t pos = ops_start;
+        for (uint32_t i = 0; i < head.op_count; i++) {
+            if (pos + sizeof(uint32_t) > length)
+                return false;
+            const uint32_t op = load<uint32_t>(d + pos);
+            const uint8_t *p = nullptr;
+            uint32_t n = 0;
+            if (op == PYMERGETIC_RXF_DELTA_CREATE || op == PYMERGETIC_RXF_DELTA_SET) {
+                if (pos + sizeof(pymergetic_rxf_delta_object) > length)
+                    return false;
+                const pymergetic_rxf_delta_object o = load<pymergetic_rxf_delta_object>(d + pos);
+                const uint64_t size = sizeof(o) +
+                                      ((uint64_t(o.payload_length) + 7) & ~uint64_t(7)) +
+                                      uint64_t(o.patch_count) * sizeof(pymergetic_rxf_delta_patch) +
+                                      uint64_t(o.ref_count) * sizeof(pymergetic_rxf_delta_ref);
+                if (pos + size > length)
+                    return false;
+                if (!delta_string(strings, ssize, o.path, &p, &n) || n == 0)
+                    return false;
+                if (o.type != PYMERGETIC_RXF_STRING_NONE) {
+                    if (!delta_string(strings, ssize, o.type, &p, &n))
+                        return false;
+                    fixups++;
+                }
+                const uint8_t *tail =
+                    d + pos + sizeof(o) + ((uint64_t(o.payload_length) + 7) & ~uint64_t(7));
+                for (uint32_t k = 0; k < o.patch_count; k++) {
+                    const pymergetic_rxf_delta_patch pt = load<pymergetic_rxf_delta_patch>(tail);
+                    tail += sizeof(pt);
+                    if (uint64_t(pt.offset) + 8 > o.payload_length)
+                        return false;
+                    if (!delta_string(strings, ssize, pt.path, &p, &n))
+                        return false;
+                    if (pt.path != PYMERGETIC_RXF_STRING_NONE)
+                        fixups++;
+                }
+                for (uint32_t k = 0; k < o.ref_count; k++) {
+                    const pymergetic_rxf_delta_ref r = load<pymergetic_rxf_delta_ref>(tail);
+                    tail += sizeof(r);
+                    if (!delta_string(strings, ssize, r.target, &p, &n) ||
+                        !delta_string(strings, ssize, r.role, &p, &n))
+                        return false;
+                    if (r.target != PYMERGETIC_RXF_STRING_NONE)
+                        fixups++;
+                    if (r.role != PYMERGETIC_RXF_STRING_NONE)
+                        fixups++;
+                }
+                pos += size;
+            } else if (op == PYMERGETIC_RXF_DELTA_DELETE || op == PYMERGETIC_RXF_DELTA_ENTRY) {
+                const uint32_t s = load<uint32_t>(d + pos + sizeof(uint32_t));
+                if (!delta_string(strings, ssize, s, &p, &n))
+                    return false;
+                pos += 2 * sizeof(uint32_t);
+            } else {
+                return false;
+            }
+        }
+        if (pos != length)
+            return false;
+
+        /* The fixups' list lives in the work region (the scratch): the replay
+         * writes it and the pass after reads it. */
+        pend_count_ = 0;
+        pend_room_ = uint32_t(fixups + 1);
+        pend_ = static_cast<Pending *>(take(sizeof(Pending) * (fixups + 1)));
+        if (pend_ == nullptr) {
+            *reason = PYMERGETIC_RXF_REASON_SCRATCH;
+            return false;
+        }
+
+        /* Pass 2: the writes. The module rule is the writer's - anything the
+         * delta itself gives children is a Module (docs/32 2: the storage role
+         * is the record's, not the semantic kind's). */
+        *reason = PYMERGETIC_RXF_REASON_PATH;
+        pos = ops_start;
+        for (uint32_t i = 0; i < head.op_count; i++) {
+            const uint32_t op = load<uint32_t>(d + pos);
+            const uint8_t *p = nullptr;
+            uint32_t n = 0;
+            if (op == PYMERGETIC_RXF_DELTA_CREATE || op == PYMERGETIC_RXF_DELTA_SET) {
+                const pymergetic_rxf_delta_object o = load<pymergetic_rxf_delta_object>(d + pos);
+                const uint64_t size = sizeof(o) +
+                                      ((uint64_t(o.payload_length) + 7) & ~uint64_t(7)) +
+                                      uint64_t(o.patch_count) * sizeof(pymergetic_rxf_delta_patch) +
+                                      uint64_t(o.ref_count) * sizeof(pymergetic_rxf_delta_ref);
+                const uint8_t *body = d + pos + sizeof(o);
+                pos += size;
+                delta_string(strings, ssize, o.path, &p, &n);
+                uint32_t handle = PYMERGETIC_RXF_HANDLE32_NONE;
+                if (op == PYMERGETIC_RXF_DELTA_CREATE) {
+                    uint32_t cut = n;
+                    while (cut > 0 && p[cut - 1] != '.')
+                        cut--;
+                    if (cut == 0) {
+                        *reason = PYMERGETIC_RXF_REASON_PATH;
+                        return false;
+                    }
+                    char name[256];
+                    mem::copy(name, p + cut, n - cut);
+                    name[n - cut] = 0;
+                    uint32_t parent = PYMERGETIC_RXF_HANDLE32_NONE;
+                    if (!delta_resolve(p, cut - 1, &parent)) {
+                        *reason = PYMERGETIC_RXF_REASON_PATH;
+                        return false;
+                    }
+                    bool module = false;
+                    for (uint64_t scan = pos; scan + sizeof(uint32_t) <= length && !module;) {
+                        const uint32_t scan_op = load<uint32_t>(d + scan);
+                        if (scan_op == PYMERGETIC_RXF_DELTA_CREATE ||
+                            scan_op == PYMERGETIC_RXF_DELTA_SET) {
+                            const pymergetic_rxf_delta_object sib =
+                                load<pymergetic_rxf_delta_object>(d + scan);
+                            const uint8_t *sp = nullptr;
+                            uint32_t sn = 0;
+                            delta_string(strings, ssize, sib.path, &sp, &sn);
+                            module = scan_op == PYMERGETIC_RXF_DELTA_CREATE && sn > n + 1 &&
+                                     mem::compare(sp, p, n) == 0 && sp[n] == '.';
+                            scan += sizeof(sib) +
+                                    ((uint64_t(sib.payload_length) + 7) & ~uint64_t(7)) +
+                                    uint64_t(sib.patch_count) * sizeof(pymergetic_rxf_delta_patch) +
+                                    uint64_t(sib.ref_count) * sizeof(pymergetic_rxf_delta_ref);
+                        } else {
+                            scan += 2 * sizeof(uint32_t);
+                        }
+                    }
+                    const uint16_t kind = storage_role(o.flags, module);
+                    const uint64_t room = (module ? sizeof(pymergetic_rxf_module) : 0) +
+                                          ((uint64_t(o.payload_length) + 7) & ~uint64_t(7));
+                    const arena::Status s = arena_.create(parent, name, kind, room, &handle);
+                    if (s != arena::Status::Ok) {
+                        *reason = reason_of(s);
+                        return false;
+                    }
+                } else {
+                    if (!delta_resolve(p, n, &handle)) {
+                        *reason = PYMERGETIC_RXF_REASON_PATH;
+                        return false;
+                    }
+                    pymergetic_rxf_object *old = nullptr;
+                    if (!arena_record(handle, &old)) {
+                        *reason = PYMERGETIC_RXF_REASON_PATH;
+                        return false;
+                    }
+                    const uint64_t want =
+                        (old->kind == PYMERGETIC_RXF_OBJ_MODULE ? sizeof(pymergetic_rxf_module)
+                                                                : 0) +
+                        ((uint64_t(o.payload_length) + 7) & ~uint64_t(7));
+                    if (want > old->payload) {
+                        /* A record that outgrows its room is freed and
+                         * re-grown (docs/32 1.2): the index is handed out
+                         * again and the generation bumps. */
+                        const uint32_t parent = old->parent;
+                        const uint16_t kind = old->kind;
+                        char name[256];
+                        uint32_t nlen = 0;
+                        if (!arena_name(handle, name, sizeof(name), &nlen)) {
+                            *reason = PYMERGETIC_RXF_REASON_NAME;
+                            return false;
+                        }
+                        if (arena_.release_handle(handle) != arena::Status::Ok) {
+                            *reason = PYMERGETIC_RXF_REASON_PROTECTED;
+                            return false;
+                        }
+                        const arena::Status s = arena_.create(parent, name, kind, want, &handle);
+                        if (s != arena::Status::Ok) {
+                            *reason = reason_of(s);
+                            return false;
+                        }
+                    }
+                }
+                /* The state: the semantic row (docs/32 5) and the value. */
+                pymergetic_rxf_spec row{};
+                row.type = PYMERGETIC_RXF_HANDLE32_NONE;
+                row.flags = o.flags;
+                row.index = o.index;
+                row.generation = o.generation;
+                if (o.payload_length != 0) {
+                    const arena::Status s =
+                        arena_.set_payload_at(handle, 0, body, o.payload_length);
+                    if (s != arena::Status::Ok) {
+                        *reason = reason_of(s);
+                        return false;
+                    }
+                }
+                /* The patches: the payload's declared handle slots hold paths
+                 * until the replay is done (live.h: every handle is a path). */
+                const uint8_t *tail = body + ((uint64_t(o.payload_length) + 7) & ~uint64_t(7));
+                for (uint32_t k = 0; k < o.patch_count; k++) {
+                    const pymergetic_rxf_delta_patch pt = load<pymergetic_rxf_delta_patch>(tail);
+                    tail += sizeof(pt);
+                    if (pt.path == PYMERGETIC_RXF_STRING_NONE) {
+                        const uint64_t none = PYMERGETIC_RXF_HANDLE_NONE;
+                        const arena::Status s = arena_.set_payload_at(
+                            handle, pt.offset, reinterpret_cast<const uint8_t *>(&none), 8);
+                        if (s != arena::Status::Ok) {
+                            *reason = reason_of(s);
+                            return false;
+                        }
+                    } else if (!pend_push(handle, kPendPatch, pt.offset, pt.path)) {
+                        *reason = PYMERGETIC_RXF_REASON_SCRATCH;
+                        return false;
+                    }
+                }
+                tail += uint64_t(o.patch_count) * sizeof(pymergetic_rxf_delta_patch);
+                if (o.ref_count != 0) {
+                    if (!write_refs(p, n, o.ref_count, tail, reason))
+                        return false;
+                    tail += uint64_t(o.ref_count) * sizeof(pymergetic_rxf_delta_ref);
+                }
+                if (!pend_push(handle, kPendType, 0, o.type)) {
+                    *reason = PYMERGETIC_RXF_REASON_SCRATCH;
+                    return false;
+                }
+                const arena::Status s = arena_.set_spec(handle, row);
+                if (s != arena::Status::Ok) {
+                    *reason = reason_of(s);
+                    return false;
+                }
+            } else if (op == PYMERGETIC_RXF_DELTA_DELETE) {
+                delta_string(strings, ssize, load<uint32_t>(d + pos + 4), &p, &n);
+                pos += 8;
+                uint32_t handle = PYMERGETIC_RXF_HANDLE32_NONE;
+                if (!delta_resolve(p, n, &handle)) {
+                    *reason = PYMERGETIC_RXF_REASON_PATH;
+                    return false;
+                }
+                const arena::Status s = arena_.release_handle(handle);
+                if (s != arena::Status::Ok) {
+                    *reason = reason_of(s);
+                    return false;
+                }
+            } else { /* ENTRY: the image's entry, the path of the run */
+                const uint32_t s = load<uint32_t>(d + pos + 4);
+                delta_string(strings, ssize, s, &p, &n);
+                pos += 8;
+                if (s == PYMERGETIC_RXF_STRING_NONE)
+                    set_entry(PYMERGETIC_RXF_HANDLE32_NONE);
+                else if (!pend_push(0, kPendEntry, 0, s)) {
+                    *reason = PYMERGETIC_RXF_REASON_SCRATCH;
+                    return false;
+                }
+            }
+        }
+
+        /* Pass 3: the fixups - the paths that only the replay made real. */
+        for (uint32_t k = 0; k < pend_count_; k++) {
+            const Pending &q = pend_[k];
+            const uint8_t *p = nullptr;
+            uint32_t n = 0;
+            delta_string(strings, ssize, q.string_id, &p, &n);
+            uint32_t target = PYMERGETIC_RXF_HANDLE32_NONE;
+            if (!delta_resolve(p, n, &target)) {
+                *reason = PYMERGETIC_RXF_REASON_PATH;
+                return false;
+            }
+            if (q.kind == kPendType) {
+                pymergetic_rxf_spec row{};
+                if (arena_.spec(q.handle, &row) != arena::Status::Ok) {
+                    *reason = PYMERGETIC_RXF_REASON_ARENA;
+                    return false;
+                }
+                row.type = target;
+                if (arena_.set_spec(q.handle, row) != arena::Status::Ok) {
+                    *reason = PYMERGETIC_RXF_REASON_ARENA;
+                    return false;
+                }
+            } else if (q.kind == kPendPatch) {
+                const uint64_t value = target;
+                if (arena_.set_payload_at(q.handle, q.at, reinterpret_cast<const uint8_t *>(&value),
+                                          8) != arena::Status::Ok) {
+                    *reason = PYMERGETIC_RXF_REASON_ARENA;
+                    return false;
+                }
+            } else if (q.kind == kPendEntry) {
+                set_entry(target);
+            } else { /* kPendTarget / kPendRole: a row of the relation table */
+                const uint64_t value = target;
+                if (arena_.set_payload_at(q.handle, q.at, reinterpret_cast<const uint8_t *>(&value),
+                                          8) != arena::Status::Ok) {
+                    *reason = PYMERGETIC_RXF_REASON_ARENA;
+                    return false;
+                }
+            }
+        }
+        *reason = 0;
+        return true;
+    }
 
     /* The canonical form of the image (docs/32 5.4): a rebuild into the emit
      * region, its bytes the dump and their SHA-256 the digest. The region IS
@@ -168,14 +692,48 @@ class Session {
          * (native/live.rxfs) answers, byte for byte. Debt: the v7 write path here; the
          * apply writes records, spec rows and relation tables. (The dump - DIGEST and
          * EMIT - is moved: docs/32 5.4's rebuild, above.) */
-        if (op == PYMERGETIC_RXF_OP_STAGE_COMMIT || op == PYMERGETIC_RXF_OP_COMPACT ||
-            op == PYMERGETIC_RXF_OP_RELINK) {
+        if (op == PYMERGETIC_RXF_OP_COMPACT || op == PYMERGETIC_RXF_OP_RELINK) {
             store<uint64_t>(rs, 0);
             store<uint64_t>(rs + 8, 0);
             *rsl = 16;
             return PYMERGETIC_RXF_LIVE_REFUSED;
         }
         switch (op) {
+        case PYMERGETIC_RXF_OP_STAGE_COMMIT: {
+            /* length, SHA-256 of the stage: apply it, all or nothing (live.h). */
+            if (rl < 36)
+                return PYMERGETIC_RXF_LIVE_BAD_REQUEST;
+            const uint32_t length = load<uint32_t>(rq);
+            if (length > a_->stage_length)
+                return PYMERGETIC_RXF_LIVE_BAD_REQUEST;
+            hash::Sha256Core sha;
+            sha.init();
+            sha.update(ptr(a_->stage_base), length);
+            uint8_t digest[32];
+            sha.finish(digest);
+            if (mem::compare(digest, rq + 4, 32) != 0)
+                return PYMERGETIC_RXF_LIVE_DIGEST;
+            uint32_t reason = 0;
+            if (!apply(length, &reason)) {
+                arena_.journal_rollback();
+                a_->rejects++;
+                store<uint32_t>(rs, 0);
+                store<uint32_t>(rs + 4, reason);
+                *rsl = 8;
+                return PYMERGETIC_RXF_LIVE_REFUSED;
+            }
+            arena_.journal_commit();
+            a_->commits++;
+            if (!dump()) {
+                store<uint32_t>(rs, 0);
+                store<uint32_t>(rs + 4, PYMERGETIC_RXF_REASON_ARENA);
+                *rsl = 8;
+                return PYMERGETIC_RXF_LIVE_BAD_IMAGE;
+            }
+            mem::copy(rs, a_->emit_digest, 32);
+            *rsl = 32;
+            return PYMERGETIC_RXF_LIVE_OK;
+        }
         case PYMERGETIC_RXF_OP_DIGEST:
         case PYMERGETIC_RXF_OP_EMIT: {
             if (!dump()) {

@@ -1171,6 +1171,12 @@ namespace {
 /* docs/32 5.4 step 2: the first index the bootstrap does not make (the index,
  * sys/syms, the root image, sys and its five leaves fill 0..8). */
 constexpr uint32_t kWalkFirst = 9;
+/* The capacity of a fresh arena is the world's survey plus the writer's
+ * headroom (tools/native/arena_export.py: objects + tables + INDEX_HEADROOM).
+ * The survey is the live slots minus the arena's own scaffolding - the
+ * bootstrap's ten and the founding core of docs/36 (its tree and its tables)
+ * - so the headroom a rebuild needs is the writer's 256 minus that 36. */
+constexpr uint32_t kIndexHeadroom = 220;
 } // namespace
 
 Status ObjectArena::rebuild(ObjectArena &out) {
@@ -1192,10 +1198,11 @@ Status ObjectArena::rebuild(ObjectArena &out) {
     }
     /* Step 1: the bootstrap is replayed whole - the same call the writer made
      * (tools/native/arena_export.py's place_world), so the interning order of
-     * the skeleton - "the index object is named `objects` third, `syms` is named
-     * last" - and with it every symbol id is the same. The capacity is the
-     * source's: the slot table's room is part of the bytes. */
-    Status st = out.bootstrap("boot", slots->capacity);
+     * the skeleton - "the index object is named `objects` third, `syms` is
+     * named last" - and with it every symbol id is the same. The capacity is
+     * the world's (the live slots plus the headroom, above): a world that grew
+     * answers the capacity it deserves, whatever the source claimed. */
+    Status st = out.bootstrap("boot", slots->count + kIndexHeadroom);
     if (st != Status::Ok)
         return st;
     st = out.journal_detach(); /* the walk is a build: nothing to unwind */
