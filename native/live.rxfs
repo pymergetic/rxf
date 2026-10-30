@@ -3511,21 +3511,33 @@ macro m_compact_scan() {
 }
 
 # compact_copy() -> cc_r (live.cpp:1224): the emitted bytes replace the arena's.
+# The slide of docs/20 S8: the canonical image the walk rebuilt into the emit
+# region is copied over the arena, in place; the vacated stream tail - the
+# pages between the new committed and the old image's end - is zeroed (the
+# copied marker's links are the fresh ring, the absorbed words beyond them are
+# not records any more); the superblock's own words (root, entry, the reserved
+# tail) are the canonical image's already - the copy is byte for byte, no word
+# is patched on top. What re-attaches is the region: committed as the area says
+# (arena_committed, 0: the whole region), the limit as the claim the image
+# carries. The lookup table is re-derived (docs/32 1: never stored), the
+# compactions and the epoch move, and the reclaimed bytes are the old image's
+# size - the new one's.
 macro m_compact_copy() {
     var cc_len;
     var cc_before;
     var cc_comm;
     var cc_base;
     cc_len = jb_emitted;
-    cc_before = load64(ah + 16);
-    cc_comm = acomm;
+    cc_before = load64(ah + 8) + 24 + 16;
+    cc_comm = load64(ar + 224);
+    if (cc_comm == 0) {
+        cc_comm = load64(ar + 16);
+    }
     cc_base = load64(ar + 8);
     callsub s_cpy(cc_base, jemit_base, cc_len);
     if (cc_before > cc_len) {
         callsub s_zero(cc_base + cc_len, cc_before - cc_len);
     }
-    store64(cc_base + 24, cc_comm);
-    store64(cc_base + 32, 0xFFFFFFFFFFFFFFFF);
     ab = cc_base;
     acomm = cc_comm;
     alim = load64(ar + 16);
@@ -4302,6 +4314,7 @@ macro m_relink() {
     var rl_h;
     var rl_c;
     var rl_type;
+    var rl_tix;
     var rl_kind;
     var rl_prefix;
     var rl_id;
@@ -4358,16 +4371,29 @@ macro m_relink() {
                 callsub s_cell(hx_r);
                 rl_c = ce_r;
                 if (rl_c != 0) {
+                    # The view is good until the next call that fills it (docs/32
+                    # 5.3): the kind and the type are read here, before the type's
+                    # cell and the path walks claim view A. The record is a stable
+                    # address into the arena (s_rec); the row's payload address and
+                    # size come from it, the way the linker writes them
+                    # (tools/native/link.py: the value sits behind the record's
+                    # 24-byte head and a module's chain head, the type's fixed
+                    # words behind those). The reference-layout tables (kmemo,
+                    # kpool, kpfx, the type ids) are indexed by the type's INDEX
+                    # (docs/32 1.2) -- the view carries the packed handle.
                     callsub s_kd(rl_c);
                     rl_kind = kd_r;
+                    rl_type = load64(rl_c);
+                    callsub s_rec(hx_r);
+                    rl_c = ce_r;
                     if (rl_kind != 255) {
                         if (rl_kind != 254) {
-                            rl_type = load64(rl_c);
                             if (rl_type != 0xFFFFFFFFFFFFFFFF) {
                                 jb_reason = 9;
                                 if ((rl_type & 1048575) >= rl_n) {
                                     rl_go = 0;
                                 } else {
+                                    rl_tix = rl_type & 1048575;
                                     callsub s_cell(rl_type);
                                     if (ce_r == 0) {
                                         rl_go = 0;
@@ -4375,25 +4401,27 @@ macro m_relink() {
                                 }
                                 if (rl_go == 1) {
                                     jb_reason = 12;
-                                    callsub s_refs_of(rl_type);
+                                    callsub s_refs_of(rl_tix);
                                     if (ro_r == 0) {
+                                        jb_reason = 12;
                                         rl_go = 0;
                                     }
                                 }
                                 if (rl_go == 1) {
-                                    rl_prefix = load32(kpfx + 4 * rl_type);
-                                    if (rl_prefix > load64(rl_c + 16)) {
+                                    rl_prefix = load32(kpfx + 4 * rl_tix);
+                                    if (rl_prefix > load32(rl_c + 20)) {
+                                        jb_reason = 11;
                                         rl_go = 0;
                                     }
                                 }
                                 if (rl_go == 1) {
                                     jb_reason = 11;
-                                    if (load8(rl_known + rl_type) == 0) {
+                                    if (load8(rl_known + rl_tix) == 0) {
                                         callsub s_path_id(rl_type, rl_path);
                                         if (pi_r == 0) {                                            rl_go = 0;
                                         } else {
-                                            store64(rl_type_ids + 8 * rl_type, pi_id);
-                                            store8(rl_known + rl_type, 1);
+                                            store64(rl_type_ids + 8 * rl_tix, pi_id);
+                                            store8(rl_known + rl_tix, 1);
                                         }
                                     }
                                 }
@@ -4409,29 +4437,41 @@ macro m_relink() {
                                         if (rl_f != 0xFFFFFFFFFFFFFFFF) {
                                             callsub s_field_info(rl_f, flF);
                                             if (fif_r == 1) {
-                                                if (load64(flF + 24) + 8 <= load64(rl_c + 16)) {
-                                                    rl_id = load64(rl_c + 64 + load64(flF + 24));
+                                                if (load64(flF + 24) + 8 <= load32(rl_c + 20)) {
+                                                    # the head of a module's value (link.py value()):
+                                                    # the chain word sits before the type's fixed part
+                                                    rl_f = 0;
+                                                    if (rl_kind == 1) {
+                                                        rl_f = 8;
+                                                    }
+                                                    rl_id = load64(rl_c + 24 + rl_f + load64(flF + 24));
                                                     rl_named = 1;
                                                 }
                                             }
                                         }
                                     }
                                     if (rl_named == 0) {
-                                        callsub s_path_id(rl_h, rl_path);
-                                        if (pi_r == 0) {                                            rl_go = 0;
+                                        callsub s_path_id(hx_r, rl_path);
+                                        if (pi_r == 0) {
+                                            jb_reason = 11;
+                                            rl_go = 0;
                                         } else {
                                             rl_id = pi_id;
                                         }
                                     }
                                 }
                                 if (rl_go == 1) {
+                                    rl_f = 0;
+                                    if (rl_kind == 1) {
+                                        rl_f = 8;
+                                    }
                                     store64(rl_rows + 32 * rl_count, rl_id);
                                     store64(rl_rows + 32 * rl_count + 8,
                                             load64(rl_type_ids + 8 * rl_type));
                                     store64(rl_rows + 32 * rl_count + 16,
-                                            rl_c + 64 + rl_prefix);
+                                            rl_c + 24 + rl_f + rl_prefix);
                                     store64(rl_rows + 32 * rl_count + 24,
-                                            load64(rl_c + 16) - rl_prefix);
+                                            load32(rl_c + 20) - rl_prefix);
                                     rl_count = rl_count + 1;
                                 }
                             }
@@ -4474,7 +4514,9 @@ macro m_relink() {
         }
     }
     if (rl_go == 1) {
-        if (8 + rl_count > load32(ar + 248)) {            rl_go = 0;
+        if (8 + rl_count > load32(ar + 248)) {
+            jb_reason = 11;
+            rl_go = 0;
         }
     }
     if (rl_go == 1) {
@@ -5418,10 +5460,10 @@ macro m_run_job(Zjob) {
     jguard = 0;
     rj_ph = 2;
     if (Zjob == 1) {
-        # Job 1 is the dump: m_emit answers the canonical bytes -- the claim, the
-        # marker's span and the digest included (live.cpp dump + ObjectArena::rebuild,
-        # docs/32 5.4) -- and the phase machine carries them (em_r, em_len) on.
-        m_emit();
+        # Job 1 is the dump: phase 0 runs m_emit -- the canonical bytes, the
+        # claim, the marker's span and the digest included (live.cpp dump +
+        # ObjectArena::rebuild, docs/32 5.4) -- and carries them (em_r, em_len)
+        # on to jemit_next.
         jemit_next = 11;
         rj_ph = 0;
     } else {
@@ -5443,6 +5485,14 @@ macro m_run_job(Zjob) {
     rj_loop = 1;
     while (rj_loop == 1) {
         if (rj_ph == 0) {
+            # The dump every job shares (live.cpp dump, docs/32 5.4): one
+            # expansion of the walk serves the DIGEST/EMIT answer, the apply's
+            # base check, the post-apply digest and the compaction's slide
+            # alike. The reason a dump that does not answer carries is the
+            # caller's own (jb_override): the apply's and the compaction's
+            # refusals are the arena's (live.cpp REASON_ARENA), a plain dump's
+            # is the walk's (em_rsn).
+            m_emit();
             if (em_r == 1) {
                 jb_emitted = em_len;
                 rj_ph = jemit_next;
@@ -5477,15 +5527,9 @@ macro m_run_job(Zjob) {
                             # into ar+192 before the compare, the same two faces
                             # as the engine (live.cpp). A dump that does not
                             # answer refuses the apply as the arena's (live.h).
-                            m_emit();
-                            if (em_r == 1) {
-                                jb_override = 2;
-                                jemit_next = 3;
-                                rj_ph = 0;
-                            } else {
-                                jb_reason = 6;
-                                rj_ph = 12;
-                            }
+                            jb_override = 6;
+                            jemit_next = 3;
+                            rj_ph = 0;
                         } else {
                             rj_ph = 4;
                         }
@@ -5508,14 +5552,9 @@ macro m_run_job(Zjob) {
                             # and jb_emitted, before the commit rolls the journal.
                             # A dump that does not answer is the image's own
                             # refusal (live.cpp: REASON_ARENA, BAD_IMAGE).
-                            m_emit();
-                            if (em_r == 1) {
-                                jemit_next = 5;
-                                rj_ph = 0;
-                            } else {
-                                jb_reason = 6;
-                                rj_ph = 12;
-                            }
+                            jb_override = 6;
+                            jemit_next = 5;
+                            rj_ph = 0;
                         } else {
                             rj_ph = 12;
                         }
@@ -5548,7 +5587,16 @@ macro m_run_job(Zjob) {
                                         }
                                     } else {
                                         if (rj_ph == 8) {
+                                            # The compaction's dump (docs/20 S8):
+                                            # phase 0 runs the walk -- the
+                                            # canonical bytes into the emit
+                                            # region, verified by the walk
+                                            # itself (docs/32 5.4). A dump that
+                                            # does not answer is the image's own
+                                            # refusal (live.cpp: REASON_ARENA,
+                                            # REFUSED), the arena untouched.
                                             jdry = 0;
+                                            jb_override = 6;
                                             jemit_next = 9;
                                             rj_ph = 0;
                                         } else {
@@ -5632,17 +5680,10 @@ macro m_serve(Zop, Zarg, Zrq, Zrl, Zrs) {
     # write side of the image: DIGEST and EMIT answer the rebuild (docs/32 5.4)
     # and STAGE_COMMIT applies the physical delta (docs/19) - two passes,
     # SHA-checked, rolled back on failure, the answer the digest of the result.
-    # A compaction and a relink still walk the superseded cell stream, and
-    # REFUSED is what a well formed request that is not done gets (live.h) - the
-    # same stub the engine answers (live.cpp) - so the writer never sees bytes
-    # from a layout the arena does not have.
-    if (Zop == 35 | Zop == 37) {
-        sv_status = 9;
-        store64(Zrs, 0);
-        store64(Zrs + 8, 0);
-        sv_rsl = 16;
-        se_done = 1;
-    }
+    # COMPACT (job 3, docs/20 S8) and RELINK (job 2) are served below through
+    # the job machine - the compaction's own canonical walk, and the relink's -
+    # and REFUSED is what a well formed request that is not done gets (live.h):
+    # the pin's reason 13 before a byte is moved, the unbound context's 15.
     if (Zop == 1) {
         callsub s_cpy(Zrs, Zrq, Zrl);
         sv_rsl = Zrl;
@@ -5971,7 +6012,7 @@ macro m_serve(Zop, Zarg, Zrq, Zrl, Zrs) {
                             sv_status = 9;
                         } else {
                             store64(Zrs, load32(ab + 4120));
-                            store64(Zrs + 8, load64(ah + 16));
+                            store64(Zrs + 8, load64(ah + 8));
                             callsub s_cpy(Zrs + 16, ar + 192, 32);
                             store64(Zrs + 48, jb_reclaimed);
                             sv_rsl = 56;
