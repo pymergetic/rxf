@@ -15,10 +15,12 @@
  * exactly what the native twin (native/live.rxfs) answers - the world cell of docs/32 5.3, the
  * payload behind the record, the rows of sys/relations/<path>, the paths and names of the tree.
  *
- * The write path (the delta apply) and the canonical dump, relink and compaction are the next
- * slice (docs/32 5.3: the semantic row is what the apply writes). Until they land they refuse
- * plainly - a well-formed request that is not done - and never answer wrong bytes. The refusal is
- * the same stub the twin answers with; the debt is named where it lives (serve()).
+ * The write path (the delta apply), the canonical dump and the compaction are moved: the apply
+ * replays the physical delta on the journal (docs/19), the dump answers the canonical form
+ * (docs/32 5.4), and COMPACT slides the arena onto that form where it sits (docs/20 S8). RELINK
+ * is the one write op still not served: it writes the payload slots of a runtime context, and the
+ * host engine holds none (its bindings' pump passes no context) - UNBOUND is the honest refusal,
+ * and the native twin (native/live.rxfs) owns the walk.
  */
 
 namespace pymergetic::rxf::core::live {
@@ -825,22 +827,82 @@ class Session {
         return true;
     }
 
+    /* The compaction (docs/20 S8, live.h COMPACT): the canonical bytes of the
+     * dump replace the arena's, in place. No undo log is involved - the
+     * bytes are the rebuild's, and the rebuild has verified them. The arena's
+     * claim (the superblock's limit) is a record of how much room the image
+     * says it needs, not the size of the region it was written to, so the
+     * copied marker keeps the source's claim; the region's own committed size
+     * is the area's word (arena_committed), never the bytes'. The lookup
+     * table and the journal bounds are re-derived from what now sits there -
+     * a cold attach would find the same (docs/32 3: the journal is not
+     * stored, it is re-derived from the tree). A pinned object (its state's
+     * mobility bits) forbids the move before a byte is touched. */
+    bool compact(uint32_t *reason) {
+        *reason = PYMERGETIC_RXF_REASON_PINNED;
+        const uint32_t count = arena_.handle_count();
+        for (uint32_t index = 0; index < count; index++) {
+            const uint64_t h = packed(index);
+            if (h == 0)
+                continue;
+            pymergetic_rxf_spec row{};
+            if (arena_.spec(static_cast<uint32_t>(h), &row) != arena::Status::Ok)
+                return false;
+            const uint32_t mobility = (row.flags >> (PYMERGETIC_RXF_FLAG_STATE_SHIFT +
+                                                     PYMERGETIC_RXF_STATE_MOBILITY_SHIFT)) &
+                                      3U;
+            if (mobility == PYMERGETIC_RXF_MOBILITY_PINNED)
+                return false;
+        }
+        *reason = PYMERGETIC_RXF_REASON_ARENA;
+        const uint64_t before =
+            arena_.committed() + sizeof(pymergetic_rxf_object) + PYMERGETIC_RXF_FREE_LINKS;
+        if (!dump())
+            return false;
+        const uint64_t length = a_->emit_length;
+        uint8_t *base = ptr(a_->arena_base);
+        mem::copy(base, ptr(a_->emit_base), length);
+        /* The arena region is the area's own: committed whole or in part, the
+         * pages the host made stay made - only the stream's tail between the
+         * new committed and the old image's end is the compaction's to zero
+         * (the copied marker's links are the fresh ring, the absorbed words
+         * beyond them are not records any more). */
+        if (before > length)
+            mem::fill(base + length, 0, before - length);
+        Memory m;
+        m.base = base;
+        m.committed = a_->arena_committed == 0 ? a_->arena_capacity : a_->arena_committed;
+        m.limit = reinterpret_cast<const pymergetic_rxf_superblock *>(base)->limit;
+        if (arena_.attach(m) != arena::Status::Ok)
+            return false;
+        if (!build_table()) {
+            *reason = PYMERGETIC_RXF_REASON_ARENA;
+            return false;
+        }
+        a_->index_state = 1;
+        a_->compactions++;
+        reclaimed_ = before - length;
+        *reason = 0;
+        return true;
+    }
+
     uint16_t serve(uint8_t op, uint32_t argument, const uint8_t *rq, uint32_t rl, uint8_t *rs,
                    uint32_t *rsl, uint32_t *rarg) {
         *rsl = 0;
         *rarg = argument;
         scratch_reset();
-        /* The read side answers from the v7 model (docs/32 5.3). The write side does not:
-         * a delta apply, a compaction and a relink are not moved yet, and an apply
-         * would write offsets into an arena that does not have them. REFUSED is what a
-         * well-formed request that is not done gets (live.h) - the same stub the twin
-         * (native/live.rxfs) answers, byte for byte. Debt: the v7 write path here; the
-         * apply writes records, spec rows and relation tables. (The dump - DIGEST and
-         * EMIT - is moved: docs/32 5.4's rebuild, above.) */
-        if (op == PYMERGETIC_RXF_OP_COMPACT || op == PYMERGETIC_RXF_OP_RELINK) {
-            store<uint64_t>(rs, 0);
-            store<uint64_t>(rs + 8, 0);
-            *rsl = 16;
+        /* The read side answers from the v7 model (docs/32 5.3). RELINK is the
+         * one write op not served: it writes the payload slots of a runtime
+         * context (native/stdlib_runtime.h), and the host engine holds none
+         * (its bindings' pump passes no context) - UNBOUND is the honest
+         * refusal, the same reason the twin answers when it has no context.
+         * COMPACT is served below (docs/20 S8): the canonical form, in place. */
+        if (op == PYMERGETIC_RXF_OP_RELINK) {
+            store<uint32_t>(rs, 0);
+            store<uint32_t>(rs + 4, context_ == nullptr || a_->entries_capacity == 0
+                                        ? PYMERGETIC_RXF_REASON_UNBOUND
+                                        : PYMERGETIC_RXF_REASON_LINK);
+            *rsl = 8;
             return PYMERGETIC_RXF_LIVE_REFUSED;
         }
         switch (op) {
@@ -1102,6 +1164,29 @@ class Session {
             *rsl = 8;
             return PYMERGETIC_RXF_LIVE_OK;
         }
+        case PYMERGETIC_RXF_OP_COMPACT: {
+            /* The arena becomes its own canonical successor, where it sits
+             * (live.h): the dump (the rebuild of docs/32 5.4) already answers
+             * the bytes; compact verifies them into the emit region, slides
+             * them over the arena, and re-derives what attaches - the lookup
+             * table and the journal bounds (docs/20 S8). An object that is
+             * pinned (its state's mobility bits) is not moved: the request is
+             * declined, reason 13, and the arena is byte for byte as it was. */
+            uint32_t reason = 0;
+            if (!compact(&reason)) {
+                store<uint32_t>(rs, 0);
+                store<uint32_t>(rs + 4, reason);
+                *rsl = 8;
+                return PYMERGETIC_RXF_LIVE_REFUSED;
+            }
+            store<uint64_t>(rs + 0, arena_.handle_count());
+            store<uint64_t>(rs + 8, arena_.committed());
+            mem::copy(rs + 16, a_->emit_digest, 32);
+            store<uint64_t>(rs + 48, reclaimed_);
+            *rsl = 56;
+            a_->epoch++;
+            return PYMERGETIC_RXF_LIVE_OK;
+        }
         case PYMERGETIC_RXF_OP_BREAK:
             a_->break_request = argument;
             store<uint32_t>(rs, a_->break_ack);
@@ -1320,6 +1405,7 @@ class Session {
     ObjectArena arena_;
     uint32_t *table_ = nullptr;
     uint32_t slots_ = 0;
+    uint64_t reclaimed_ = 0;
     uint8_t *scratch_base_ = nullptr, *scratch_at_ = nullptr, *scratch_end_ = nullptr;
 };
 

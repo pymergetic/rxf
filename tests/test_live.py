@@ -617,81 +617,76 @@ def test_a_size_outside_what_exists_is_declined(starter: bytes):
     assert host.client.hello().committed == len(starter) + 4096
 
 
-def garbage() -> Image:
-    """A model with dead cells: objects that came and went, payloads that grew.
-    The arena of it (``link.arena_of``) is the dirty form the engine runs."""
-    image = model_copy(WORLD)
-    parent = resolved(image, "pymergetic.rxf.application")
+def garbage() -> tuple[Image, Image]:
+    """A world that came and went: sixty objects placed, half of them removed.
+
+    The dirt is what an apply leaves in an arena that was born canonical - the
+    v7 arena has no dead cells at birth (the export is the canonical walk
+    itself), so the grime a compaction reclaims has to come through the
+    channel: dead spans in the stream and a fragmented FREE ring."""
+    full = model_copy(WORLD)
+    parent = resolved(full, "pymergetic.rxf.application")
     for n in range(60):
-        image.add(parent, f"tmp{n}", 8, NONE, bytes(300))
-    for n in range(0, 60, 2):
-        image.remove(resolved(image, f"pymergetic.rxf.application.tmp{n}"))
-    main = resolved(image, "pymergetic.rxf.application.main")
-    image.set_payload(main, image.get(main)["payload"] + bytes(512))
-    return image
+        full.add(parent, f"tmp{n}", 8, NONE, bytes(300))
+    pruned = model_copy(WORLD)
+    parent = resolved(pruned, "pymergetic.rxf.application")
+    for n in range(60):
+        if n % 2 == 1:
+            pruned.add(parent, f"tmp{n}", 8, NONE, bytes(300))
+    return full, pruned
 
 
-@pytest.mark.xfail(
-    reason="blocked on the arena lane: COMPACT is refused by design until the v7 "
-    "compaction lands in core/live/live.cpp (serve: the write side is not moved) - "
-    "the native machines answer status 8 with 'none' (the op is not served)",
-    strict=False,
-)
 def test_compaction_in_place_gives_the_canonical_arena(starter: bytes):
-    dirty_model = garbage()
-    dirty = link.arena_of(dirty_model)
-    host = HostImage(dirty)
+    full, pruned = garbage()
+    host = HostImage(link.arena_of(full))
+    host.client.apply(physical.compile(full, pruned, check_base=False).data)
+    dirty = host.area.arena_bytes()
+    # the canonical form of the arena as it stands (docs/32 5.4): the same
+    # world rebuilt - the rooms the apply's writes left, as they are
+    dump, digest = host.client.emit()
     done = host.client.compact()
-    assert done.digest == digest_of(dirty_model)
-    assert done.reclaimed > 0 and done.body_size == len(dirty) - done.reclaimed
-    expected = dirty_model.compact()
-    assert done.handles == expected.handle_count
+    assert done.reclaimed > 0  # the dead spans are gone
+    assert done.digest == digest  # the same world
+    assert done.handles == host.client.hello().handles
     after = host.area.arena_bytes()
-    canonical = canonical_of(dirty_model)
-    assert after[:24] == canonical[:24] and after[40:] == canonical[40:]
-    # the read of the compacted arena back into a host model needs a v7
-    # reader at the Python level -- blocked on the arena lane, not this one
-    assert host.client.digest() == digest_of(dirty_model)
+    # in place: the arena is the canonical form the dump answered
+    assert after == dump
+    assert len(after) == len(dirty) - done.reclaimed
+    # it is a live image again: reads answer on the new handles
     assert host.client.resolve("pymergetic.rxf.application.tmp1") is not None
     assert host.client.resolve("pymergetic.rxf.application.tmp0") is None
     assert host.client.hello().body_size == done.body_size
-    result = Image.from_bytes(expected.to_bytes())
-    result.add(resolved(result, "pymergetic.rxf.application"), "after", 8, NONE, b"x")
-    assert (
-        host.client.apply(physical.compile(expected, result, check_base=False).data)
-        == digest_of(result)
-    )
+    assert host.client.digest() == digest
     assert host.area.compactions == 1
     # compacting a compact arena changes nothing
     again = host.client.compact()
-    assert again.reclaimed == 0 and again.digest == digest_of(result)
+    assert again.reclaimed == 0 and again.digest == digest
+    assert host.area.arena_bytes() == after
+    assert host.area.compactions == 2
 
 
-@pytest.mark.xfail(
-    reason="blocked on the arena lane: COMPACT is refused by design until the v7 "
-    "compaction lands in core/live/live.cpp - the pinned-apply the test stages "
-    "dies earlier in `Bridge.__init__` (ArenaError BadImage: the harness's "
-    "v6 `Image.from_bytes` readback over v7 arena bytes), so the pin's own "
-    "refusal is not reached",
-    strict=False,
-)
 def test_a_pinned_object_is_not_moved(starter: bytes):
     host = HostImage(starter)
-    base = host.image()
-    pinned = Image.from_bytes(base.to_bytes())
+    base = model_copy(WORLD)
+    pinned = model_copy(WORLD)
     main = resolved(pinned, "pymergetic.rxf.application.main")
     pinned.set_state(main, image_state(1))  # mobility: pinned
-    assert host.client.apply(physical.compile(base, pinned, check_base=False).data) == pinned.digest()
+    assert (
+        host.client.apply(physical.compile(base, pinned, check_base=False).data)
+        == digest_of(pinned)
+    )
     before = snapshot(host)
     with pytest.raises(Declined) as caught:
         host.client.compact()
     assert caught.value.reason == 13
     assert snapshot(host) == before
+    assert host.area.compactions == 0
     # unpinned, it compacts
-    loose = Image.from_bytes(pinned.to_bytes())
+    loose = model_copy(pinned)
     loose.set_state(main, image_state(0))
     assert (
-        host.client.apply(physical.compile(host.image(), loose, check_base=False).data) == digest_of(loose)
+        host.client.apply(physical.compile(pinned, loose, check_base=False).data)
+        == digest_of(loose)
     )
     assert host.client.compact().digest == digest_of(loose)
 
