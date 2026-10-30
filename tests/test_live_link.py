@@ -172,8 +172,11 @@ def test_a_client_talks_to_the_image_over_a_pty(serial, image: Image):
 
 
 @pytest.mark.xfail(
-    reason="blocked on the arena lane: the engine's dump/apply answers 'image "
-    "not usable' while the rebuild/canonical-walk work is in progress",
+    reason="blocked on the arena lane: `live apply` over the line exits 2 "
+    "(`rxf: BadImage`): the CLI's apply reads the running image back with "
+    "the v6 `Image.from_bytes` over v7 arena bytes - the host needs a v7 "
+    "image reader on the Python side (the engine's digest over the line "
+    "is the oracle's: the walk of 5b1bb80 lands the untouched dump)",
     strict=False,
 )
 def test_the_rxf_live_commands_work_on_a_pty(serial, image: Image, tmp_path, capsys):

@@ -298,9 +298,11 @@ def edited(before: Image, rng: random.Random) -> Image:
 
 
 @pytest.mark.xfail(
-    reason="blocked on the arena lane: the apply-after-apply path refuses a "
-    "second delta ('image not usable' where the model links); the dump over "
-    "an arena an apply touched is not the canonical walk yet",
+    reason="blocked on the arena lane: the canonical walk of 5b1bb80 lands the "
+    "dump of an untouched arena, but a committed apply still answers a digest "
+    "that is not the v7 oracle's (the write side is not the writer's "
+    "allocation sequence, docs/32 5.4), and the second round's emit is "
+    "refused 'image not usable' over the arena the apply rewrote",
     strict=False,
 )
 @pytest.mark.parametrize("seed", range(4))
@@ -401,10 +403,11 @@ def record(**kw):
 
 
 @pytest.mark.xfail(
-    reason="blocked on the arena lane: the refusal reasons drift from the "
-    "model's (the engine answers 'the arena has no room' where the test pins "
-    "the protected-path and dangling-refusal reasons) and a duplicate create "
-    "is accepted",
+    reason="blocked on the arena lane: a delete of a parent with children and "
+    "the protected-path delete answer 'the arena has no room' (reason 6, the "
+    "slot-table grow the physical delete needs) before their own reasons 9 "
+    "and 10, and a duplicate create is accepted (a set, not a create - the "
+    "engine does not distinguish them yet)",
     strict=False,
 )
 def test_every_refusal_leaves_the_arena_byte_for_byte(starter: bytes):
@@ -491,9 +494,10 @@ def physical_digest_after(starter: bytes, data: bytes) -> str:
 
 
 @pytest.mark.xfail(
-    reason="blocked on the arena lane: the undo log refuses with 'the arena "
-    "has no room' before the log's own reason; the apply-after-apply path "
-    "does not carry a second delta",
+    reason="blocked on the arena lane: the mass state-word delta answers 'the "
+    "arena has no room' (reason 6, the slot-table grow a set needs) where "
+    "the test pins the log's own reason 7, and refuses on the roomy host "
+    "too (the grow is not carried through the apply, docs/32 2)",
     strict=False,
 )
 def test_a_full_undo_log_refuses_and_restores(starter: bytes):
@@ -542,7 +546,9 @@ def test_break_request_is_carried_to_the_area(host: HostImage):
 
 @pytest.mark.xfail(
     reason="blocked on the arena lane: the lookup table is not rebuilt after "
-    "a commit (the second round of mass edits is refused 'image not usable')",
+    "a commit (the engine refuses the second round with 'a path does not "
+    "resolve': the index the table carries is still the pre-apply one, "
+    "docs/32 1)",
     strict=False,
 )
 def test_the_lookup_table_survives_many_edits_and_deletes(starter: bytes):
@@ -576,8 +582,11 @@ def test_the_lookup_table_survives_many_edits_and_deletes(starter: bytes):
 
 
 @pytest.mark.xfail(
-    reason="blocked on the arena lane: a refused grow leaves arena traces "
-    "(the rollback does not restore the pages byte for byte)",
+    reason="blocked on the arena lane: the refused grow leaves arena traces "
+    "(the rollback does not restore the pages byte for byte: a byte at an "
+    "arena offset differs after the refused apply), and the grow the "
+    "provider commits is not carried into the apply that asked for it "
+    "(reason 6 again on the retry)",
     strict=False,
 )
 def test_an_arena_that_is_not_committed_far_enough_asks_for_pages(starter: bytes):
@@ -632,7 +641,8 @@ def garbage() -> Image:
 
 @pytest.mark.xfail(
     reason="blocked on the arena lane: COMPACT is refused by design until the v7 "
-    "compaction lands in core/live/live.cpp (serve: the write side is not moved)",
+    "compaction lands in core/live/live.cpp (serve: the write side is not moved) - "
+    "the native machines answer status 8 with 'none' (the op is not served)",
     strict=False,
 )
 def test_compaction_in_place_gives_the_canonical_arena(starter: bytes):
@@ -667,7 +677,10 @@ def test_compaction_in_place_gives_the_canonical_arena(starter: bytes):
 
 @pytest.mark.xfail(
     reason="blocked on the arena lane: COMPACT is refused by design until the v7 "
-    "compaction lands (a pinned object declines it today)",
+    "compaction lands in core/live/live.cpp - the pinned-apply the test stages "
+    "dies earlier in `Bridge.__init__` (ArenaError BadImage: the harness's "
+    "v6 `Image.from_bytes` readback over v7 arena bytes), so the pin's own "
+    "refusal is not reached",
     strict=False,
 )
 def test_a_pinned_object_is_not_moved(starter: bytes):
@@ -716,11 +729,10 @@ def test_the_hello_of_a_running_image_carries_its_version_and_its_counters(
 
 
 @pytest.mark.xfail(
-    reason="blocked on the compaction debt: the apply mutates the arena in "
-    "place (not a tree walk), so a best-fit span an apply handed out can be "
-    "absorbed whole (docs/32 2) and the walk replays the room it finds "
-    "(pymergetic.rxf.model.generics: 24 where the fresh export requests 16) "
-    "until COMPACT lands before the dump (docs/32 5.4)",
+    reason="blocked on the arena lane: the committed apply answers a digest "
+    "that is not the v7 oracle's (the write side is not the writer's "
+    "allocation sequence, docs/32 5.4) - the walk of 5b1bb80 lands the dump "
+    "of an untouched arena, not the apply's write side",
     strict=False,
 )
 def test_the_counters_of_a_session_move_with_what_the_image_takes_and_refuses(

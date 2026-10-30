@@ -56,11 +56,10 @@ def xml_file(tmp_path: Path) -> Path:
 
 
 @pytest.mark.xfail(
-    reason="blocked on the compaction debt: the apply mutates the arena in "
-    "place (not a tree walk), so a best-fit span an apply handed out can be "
-    "absorbed whole (docs/32 2) and the walk replays the room it finds "
-    "(pymergetic.rxf.model.generics: 24 where the fresh export requests 16) "
-    "until COMPACT lands before the dump (docs/32 5.4)",
+    reason="blocked on the arena lane: the committed apply answers a digest "
+    "that is not the v7 oracle's (the write side is not the writer's "
+    "allocation sequence, docs/32 5.4) - the walk of 5b1bb80 lands the dump "
+    "of an untouched arena, not the apply's write side",
     strict=False,
 )
 def test_xml_to_physical_to_image_to_xml_is_the_same_text(base: Image):
@@ -97,11 +96,12 @@ def test_the_physical_form_is_one_form(base: Image):
 
 @pytest.mark.xfail(
     reason="blocked on the arena lane: the engine's apply answers a digest "
-    "that is not the v7 canonical oracle's on these edits (and a second "
-    "delta is refused 'a path does not resolve') while the rebuild/canonical-"
-    "walk work is in progress - the v7 base check itself passes (the same "
-    "delta with the oracle digest baked in is taken when the edits stay "
-    "within the arena's tested paths)",
+    "that is not the v7 canonical oracle's on these edits (the write side "
+    "is not the writer's allocation sequence, docs/32 5.4 - the walk of "
+    "5b1bb80 lands the dump of an untouched arena, not the apply's write "
+    "side) and a second delta is refused 'a path does not resolve'; the v7 "
+    "base check itself passes (the same delta with the oracle digest baked "
+    "in is taken when the edits stay within the arena's tested paths)",
     strict=False,
 )
 @pytest.mark.parametrize("seed", range(6))
