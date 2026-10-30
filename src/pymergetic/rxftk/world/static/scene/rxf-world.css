@@ -131,6 +131,52 @@ body {
   color: var(--accent);
 }
 
+/* the film camera: the HUD button that records the city's pose flight
+   (rxf-world-film.js). A slot beside the keys, honest-disabled where the
+   browser cannot record, a link where the film landed. */
+.film {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 10px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}
+
+.film .film-button {
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.film .film-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.film .film-button:disabled {
+  color: var(--seam);
+  cursor: default;
+}
+
+.film .film-link {
+  font-size: 11px;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.film .film-link:hover {
+  text-decoration: underline;
+}
+
 .hud-lod {
   position: absolute;
   top: calc(var(--bar-h) + 12px);

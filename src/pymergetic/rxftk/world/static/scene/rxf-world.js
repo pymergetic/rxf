@@ -2389,6 +2389,7 @@
         return create(canvas, loaded.doc, config).then(function (api) {
           global.RXFWorld.api = api;
           if (hud && hud.ready) hud.ready();
+          if (hud && hud.film) hud.film();
           if (loaded.rest) {
             /* the layers that follow the world (ducts, their stubs, the counts): streamed in
                after the first frame — nothing the scene draws waits on them, and the counts

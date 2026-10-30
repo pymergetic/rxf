@@ -10,7 +10,7 @@
  * LEFT and +Z toward screen DOWN (verified against the camera), so the map's x axis is mirrored
  * to match — the minimap must lay out exactly like the world looks from above.
  *
- * window.RXFWorldHud = { metrics, counts, status, sheet, lod, minimap, loading, ready, error }
+ * window.RXFWorldHud = { metrics, counts, status, sheet, lod, minimap, loading, ready, error, film }
  */
 (function (global) {
   "use strict";
@@ -479,6 +479,31 @@
         slot("[data-loading-stage]", "failed: " + error.message);
         overlay.classList.add("failed");
       }
+    },
+    film: function () {
+      /* the film camera's button (rxf-world-film.js): record the city's pose
+       * flight from the scene's own canvas. Disabled — honest, not hidden —
+       * where the browser cannot record. A recording click stops early. */
+      var button = global.document.querySelector("[data-film-button]");
+      var slotEl = global.document.querySelector("[data-film-slot]");
+      if (!button) return;
+      var Film = global.RXFWorldFilm;
+      if (!Film || !Film.supported()) {
+        button.disabled = true;
+        button.title = "this browser cannot record the canvas (no MediaRecorder)";
+        button.textContent = "film unavailable";
+        return;
+      }
+      button.addEventListener("click", function () {
+        if (Film.state === "recording") return Film.stop();
+        if (slotEl) slotEl.textContent = "";
+        button.textContent = "■ stop (filming…)";
+        Film.record().then(function (filmResult) {
+          if (!filmResult) return;
+          Film.download(filmResult);
+          button.textContent = "● film the flight";
+        });
+      });
     }
   };
 
