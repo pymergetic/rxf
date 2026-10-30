@@ -470,6 +470,22 @@ class Session {
                         *reason = PYMERGETIC_RXF_REASON_PATH;
                         return false;
                     }
+                    /* The model refuses a taken name (Image::add: NameTaken)
+                     * and the writer's world never places two objects under
+                     * one parent of one name: a create that names an object
+                     * that is already there is refused with its own reason
+                     * (live.h: EXISTS) - a set is a set, and a duplicate
+                     * create is never one. The check walks the parent's
+                     * chain (arena find), not the lookup table: the table is
+                     * a mirror built at attach and after each commit, and an
+                     * object this delta created earlier is in the chain
+                     * already. */
+                    uint32_t taken = PYMERGETIC_RXF_HANDLE32_NONE;
+                    if (arena_.find(parent, name, &taken) != arena::Status::Ok ||
+                        taken != PYMERGETIC_RXF_HANDLE32_NONE) {
+                        *reason = PYMERGETIC_RXF_REASON_EXISTS;
+                        return false;
+                    }
                     bool module = false;
                     for (uint64_t scan = pos; scan + sizeof(uint32_t) <= length && !module;) {
                         const uint32_t scan_op = load<uint32_t>(d + scan);
@@ -756,6 +772,18 @@ class Session {
             }
             arena_.journal_commit();
             a_->commits++;
+            /* The lookup index is a derived mirror of the committed arena (the
+             * table open() builds at attach): a commit may have created,
+             * renamed-in or released paths, so the table is rebuilt from what
+             * the arena now holds - a resolve or a delta after the commit finds
+             * the paths the commit made (docs/32 1: the index is derived,
+             * never stored). */
+            if (!build_table()) {
+                store<uint32_t>(rs, 0);
+                store<uint32_t>(rs + 4, PYMERGETIC_RXF_REASON_ARENA);
+                *rsl = 8;
+                return PYMERGETIC_RXF_LIVE_BAD_IMAGE;
+            }
             if (!dump()) {
                 store<uint32_t>(rs, 0);
                 store<uint32_t>(rs + 4, PYMERGETIC_RXF_REASON_ARENA);
