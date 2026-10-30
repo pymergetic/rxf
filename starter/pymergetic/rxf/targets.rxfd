@@ -14,9 +14,9 @@
     <RuntimeTarget name="aarch64_uefi_aapcs64" architecture="@targets.aarch64" abi="@targets.aapcs64" environment="@targets.uefi" feature_set="@targets.aarch64_features" />
     <Environment name="bios" kind="@kinds.EnvironmentKind.Bios" version="1" />
     <Environment name="linux" kind="@kinds.EnvironmentKind.Linux" version="1" />
-    <CompilerProvenance name="seed_aarch64" compiler_major="1" recipe_digest="7dd600edaa379edc42e3857f39180b17c6f93a90988cd14c48c878d8a4ca3cac" />
-    <CompilerProvenance name="seed_wasm32" compiler_major="1" recipe_digest="6596ec970a4174e4eb12312fe26abea191dc4d5b6cf66eacaafb3c74ae47aade" />
-    <CompilerProvenance name="seed_x86_64" compiler_major="1" recipe_digest="8c7f31f501eb8ea2fc922075e4d57fb8437812dd978c553c762a4c9f2336cba9" />
+    <CompilerProvenance name="seed_aarch64" compiler_major="1" recipe_digest="ce555aad5de62cad00ba26c176b7f18678e872f9acf96a9433cca7eceee057cd" />
+    <CompilerProvenance name="seed_wasm32" compiler_major="1" recipe_digest="e25fc019fb1a962861eb7f54198b84e6d48b5e69ad38cc1b9957c84eff28e156" />
+    <CompilerProvenance name="seed_x86_64" compiler_major="1" recipe_digest="7926e73318262e4d825b1040ac67ed1c645a1f4ff88693615508949bbb31a1a7" />
     <ABI name="sysv" kind="@kinds.AbiKind.Sysv" version="1" calling_convention="@kinds.CallingConvention.StatusOut" architecture="@targets.x86_64" />
     <Environment name="uefi" kind="@kinds.EnvironmentKind.Uefi" version="1" />
     <Environment name="wasm" kind="@kinds.EnvironmentKind.Wasm" version="1" />

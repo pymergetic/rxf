@@ -411,6 +411,31 @@ sub s_sym_addr(Zid_sym) {
     }
 }
 
+# sym_id(text, n) -> smr_r: the id of an interned name, or 0 when it is not
+# there (ObjectArena::symbol_id: a lookup, never an intern -- the walk sorts
+# around names the source already holds). A macro, not a sub: the module's sub
+# count is at the seed's own limit.
+macro m_sym_id(Zp_sym, Zn_sym) {
+    var sm_head;
+    var sm_i;
+    var sm_off;
+    smr_r = 0;
+    sm_head = asyms;
+    if (sm_head != 0) {
+        sm_i = 1;
+        while (sm_i < load32(sm_head) & smr_r == 0) {
+            sm_off = load32(sm_head + 8 + 4 * sm_i);
+            if (load8(sm_head + sm_off + Zn_sym) == 0) {
+                callsub s_cmp(sm_head + sm_off, Zp_sym, Zn_sym);
+                if (cmp_r == 0) {
+                    smr_r = sm_i;
+                }
+            }
+            sm_i = sm_i + 1;
+        }
+    }
+}
+
 # spec_row(index) -> sr_at: the semantic row of this index (docs/32 5).
 macro m_spec_row(Zindex) {
     sr_at = aspec + 24 * (Zindex & 1048575);
@@ -817,6 +842,7 @@ sub s_allocate(Zbytes_allocate) {
     var al_mark;
     var al_next;
     var al_split;
+    var al_gen;
     var al_rest;
     var al_prev;
     var al_keep;
@@ -935,6 +961,14 @@ sub s_allocate(Zbytes_allocate) {
                     }
                 }
                 if (al_r == 0) {
+                    # The generation of a reused span is its previous occupant's
+                    # plus one (ObjectArena::s_allocate's next_gen, docs/32 1.2):
+                    # the span's gen word is read before the record is zeroed, and
+                    # 0 -- the fresh tail -- answers 1.
+                    al_gen = (load16(ab + al_best + 2) + 1) & 4095;
+                    if (al_gen == 0) {
+                        al_gen = 1;
+                    }
                     callsub s_before_write(al_best - ab, 24);
                     al_r = bw_r;
                     if (bw_r == 0) {
@@ -1375,22 +1409,21 @@ sub s_syms_grow() {
         }
         sg_used = sg_off + sg_i + 1;
     }
-    # The capacity is twice what the table holds, so it is a load factor and not
-    # a doubling of whatever the table happened to carry: a table made with room
-    # for a million entries would otherwise ask for two million the first time a
-    # string runs past the end, and no arena gives that for 47 names.
-    sg_newcap = 2 * (sg_n + 1);
-    if (sg_newcap < 16) {
-        sg_newcap = 16;
+    # The capacity doubles (ObjectArena::intern: head->capacity * 2, and at
+    # least count + 1): a growth is a load factor on the room the table was
+    # given, not on the names it happens to hold. Doubling the count instead
+    # grows a half-full table not at all and a full one past twice, and the
+    # layout of a dump that grew by another rule is another layout: the arena
+    # would answer other bytes than the writer's.
+    sg_newcap = 2 * sg_cap;
+    if (sg_n + 1 > sg_newcap) {
+        sg_newcap = sg_n + 1;
     }
-
-    # The strings sit at 8 + 4 * capacity, so a growth of the capacity moves every
-    # string up. Sizing the new span as the old used leaves room for the strings
-    # but not for the grown offset table, and the copy writes past the span end.
-    # The name that triggered this growth is not in the copied strings yet, and
-    # the append runs right after us: without its room the copy fits exactly and
-    # the append runs past the span onto the next one's free link.
-    sg_room = 8 + 4 * sg_newcap + (sg_used - (8 + 4 * sg_cap)) + it_need;
+    # The room is the engine's own formula (ObjectArena::intern: used + need,
+    # floored at twice the old payload): the new offset table's growth is covered
+    # by the doubling floor, not added here -- a span sized by any other rule is
+    # a different span, and every later allocation lands somewhere else.
+    sg_room = sg_used + it_need;
     if (sg_room < 2 * load32(sg_old + 20)) {
         sg_room = 2 * load32(sg_old + 20);
     }
@@ -1426,9 +1459,30 @@ sub s_syms_grow() {
                 sg_i = sg_i + 1;
             }
             m_entry(1);
-            callsub s_before_write(sp_r - ab + 8, 8);
+            # The identity moves to the new span whole (ObjectArena::syms_relocate):
+            # the handle stands -- callers hold handles, nothing outside the arena
+            # knows addresses (docs/32) -- so the record's own words and the index
+            # entry's kind and generation come with it. The generation is the one
+            # the handle already speaks (the engine keeps the old record's gen, so
+            # the handle that named the table names it still); a span whose header
+            # the zeroing left reads kind 0 is a broken one -- every later lookup
+            # of a name dies on the kind the slot says against the record's own.
+            callsub s_before_write(sg_at - ab, 24);
+            if (bw_r == 0) {
+                store16(ab + sg_at, 5);
+                store16(ab + sg_at + 2, load16(sg_old + 2));
+                store16(ab + sg_at + 4, load16(sg_old + 4));
+                store16(ab + sg_at + 6, load16(sg_old + 6));
+                store32(ab + sg_at + 8, load32(sg_old + 8));
+                store32(ab + sg_at + 12, load32(sg_old + 12));
+                store32(ab + sg_at + 16, load32(sg_old + 16));
+                store32(ab + sg_at + 20, al_room);
+            }
+            callsub s_before_write(sp_r - ab, 16);
             sg_r = bw_r;
             if (bw_r == 0) {
+                store16(sp_r, 5);
+                store16(sp_r + 2, load16(sg_old + 2));
                 store64(sp_r + 8, sg_at);
                 asyms = ab + sg_new;
                 callsub s_release(sg_old - ab);
@@ -1471,10 +1525,20 @@ sub s_create() {
             callsub s_intern(cs_name, cs_name_len);
             cr_r = it_r;
             if (it_r == 0) {
-                callsub s_allocate(24 + ((cs_payload + 7) & ~7) - 24 + 24);
+                # The room is the payload's alone (ObjectArena::create:
+                # s_allocate adds the 24 of the record header), rounded to the
+                # 8 of a slot - a caller that adds another 24 here takes 24
+                # waste per object, and a dump that laid its objects out with
+                # room the writer never gave answers other bytes than the
+                # export's.
+                callsub s_allocate((cs_payload + 7) & ~7);
                 cr_r = al_r;
                 if (al_r == 0) {
-                    cr_gen = 1;
+                    # The generation is the span's (ObjectArena::create reads it off
+                    # the record s_allocate made): a create that reuses a freed
+                    # span answers its previous occupant's gen + 1, and the handles
+                    # the record and the index entry share stay stale-proof.
+                    cr_gen = al_gen;
                     callsub s_before_write(al_at - ab, 24);
                     cr_r = bw_r;
                     if (bw_r == 0) {
@@ -1493,7 +1557,11 @@ sub s_create() {
                         callsub s_before_write(sp_r - ab, 16);
                         cr_r = bw_r;
                         if (bw_r == 0) {
-                            store16(sp_r, 1);
+                            # The slot publishes the record's own kind and
+                            # generation (ObjectArena::create): the handle's
+                            # two faces agree, and a reader that checks one
+                            # against the other finds the same object.
+                            store16(sp_r, cs_kind);
                             store16(sp_r + 2, cr_gen);
                             store32(sp_r + 4, 0);
                             store64(sp_r + 8, al_at);
@@ -1645,7 +1713,10 @@ sub s_resize(Zh_resize, Zp_resize, Zr_resize) {
             rz_off = ce_r - ab;
             rz_keep = load32(ce_r + 20);
             rz_gen = load16(ce_r + 2);
-            callsub s_allocate(24 + ((Zp_resize + 7) & ~7) - 24 + 24);
+            # The room is the payload's (the header is s_allocate's): the same
+            # formula the create answers, or a re-grown record lands 24 past
+            # the room the writer would have given it.
+            callsub s_allocate((Zp_resize + 7) & ~7);
             rz_r = al_r;
             if (al_r == 0) {
                 rz_new = al_at;
@@ -1844,6 +1915,7 @@ sub s_init(Zbase, Zcomm, Zlim, Zcap, Zname, Znlen) {
     var in_need;
     var in_root;
     var in_sys;
+    var in_i;
     ab = Zbase;
     acomm = Zcomm;
     alim = Zlim;
@@ -2031,6 +2103,15 @@ sub s_init(Zbase, Zcomm, Zlim, Zcap, Zname, Znlen) {
                 if (cr_r == 0) {
                     m_entry(cr_h & 1048575);
                     aspec = ab + load64(sp_r + 8) + 24;
+                    # Every row starts untyped (ObjectArena::bootstrap's fill):
+                    # the payload a fresh allocation answers is zeroed, and a row
+                    # the fill never touched would read type 0 -- the handle of the
+                    # index object, not "untyped". The bytes carry the difference.
+                    in_i = 0;
+                    while (in_i < in_slots) {
+                        store32(aspec + 24 * in_i, 4294967295);
+                        in_i = in_i + 1;
+                    }
                 }
             }
             if (in_r == 0) {
@@ -2042,6 +2123,20 @@ sub s_init(Zbase, Zcomm, Zlim, Zcap, Zname, Znlen) {
                 cs_name_len = 7;
                 callsub s_create();
                 in_r = cr_r;
+                if (cr_r == 0) {
+                    # The ring's head words are boot ground (ObjectArena::
+                    # bootstrap: count 0, capacity 256, the 8-byte granule,
+                    # base 0): the payload a fresh allocation answers is
+                    # zeroed, and the words the reader recovers the ring from
+                    # are part of the bytes.
+                    m_entry(cr_h & 1048575);
+                    in_at = load64(sp_r + 8);
+                    store32(ab + in_at + 24, 0);
+                    store32(ab + in_at + 28, 256);
+                    store32(ab + in_at + 32, 8);
+                    store32(ab + in_at + 36, 0);
+                    store64(ab + in_at + 40, 0);
+                }
             }
             if (in_r == 0) {
                 m_lit_caps();
@@ -2064,7 +2159,11 @@ sub s_init(Zbase, Zcomm, Zlim, Zcap, Zname, Znlen) {
                 in_r = cr_r;
             }
 
-            # `syms` is the name of the symbol table, interned last.
+            # `syms` is the name of the symbol table, interned last. The table
+            # is a child of sys like every leaf of it (ObjectArena::bootstrap:
+            # parent, append_child, then the name) -- a syms that is not on the
+            # chain is invisible to find and children, and the count the head
+            # carries would disagree with the chain it describes.
             if (in_r == 0) {
                 m_lit_syms();
                 callsub s_intern(lit, 4);
@@ -2080,6 +2179,47 @@ sub s_init(Zbase, Zcomm, Zlim, Zcap, Zname, Znlen) {
                     in_r = bw_r;
                     if (bw_r == 0) {
                         store16(ab + in_at + 6, it_id);
+                    }
+                    # append_child(sys, syms): the chain's tail is free, the
+                    # count one more.
+                    if (in_r == 0) {
+                        callsub s_rec(in_sys);
+                        cl_mod = ce_r;
+                        if (cl_mod != 0) {
+                            if (load16(cl_mod) == 1) {
+                                cl_head = cl_mod + 24;
+                                cl_walk = load32(cl_head);
+                                if (cl_walk == 4294967295) {
+                                    callsub s_before_write(cl_head - ab, 8);
+                                    if (bw_r == 0) {
+                                        m_pack_i(1);
+                                        store32(cl_head, hx_r);
+                                        store32(cl_head + 4, 1);
+                                    }
+                                } else {
+                                    cl_stop = 0;
+                                    while (cl_stop == 0) {
+                                        callsub s_rec(cl_walk);
+                                        cl_next = ce_r;
+                                        if (cl_next == 0) {
+                                            cl_stop = 1;
+                                        } else {
+                                            if (load32(cl_next + 12) == 4294967295) {
+                                                callsub s_before_write(cl_next + 12 - ab, 8);
+                                                if (bw_r == 0) {
+                                                    m_pack_i(1);
+                                                    store32(cl_next + 12, hx_r);
+                                                    store32(cl_head + 4, load32(cl_head + 4) + 1);
+                                                }
+                                                cl_stop = 1;
+                                            } else {
+                                                cl_walk = load32(cl_next + 12);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -2558,15 +2698,20 @@ sub s_path_of(Zh_path_of, Zout_path_of, Zcap_path_of) {
     }
 }
 
-# less(a, b) -> lss_r (1 when a's name sorts before b's)
+# less(a, b) -> lss_r (1 when a's name sorts before b's). The klist holds slot
+# indices; a name is read through a handle (index, gen -- docs/32 1.2), so the
+# indices are packed before the records resolve. A bare index is not a handle:
+# its generation word is 0 and no live slot carries that.
 sub s_less(Za_less, Zb_less) {
     var lss_i;
     var lss_x;
     var lss_y;
     var lss_go;
-    callsub s_name(Za_less);
+    m_pack_i(Za_less);
+    callsub s_name(hx_r);
     lss_x = nm_r;
-    callsub s_name(Zb_less);
+    m_pack_i(Zb_less);
+    callsub s_name(hx_r);
     lss_y = nm_r;
     lss_i = 0;
     lss_r = 0;
@@ -3409,467 +3554,740 @@ macro m_compact_copy() {
 # emit() -> em_r (1/0), em_len, em_rsn: the compacted image to the emit region, its digest to the
 # area. `Arena out` over the emit region is the arena state pushed aside and reloaded around each
 # out call (m_arena_push/pop); the session reads of one iteration all happen before the swap.
+# fixup_slot (object_arena.cpp): one u64 of the placed object's payload. The
+# source's slot sits at head + em_off2 of its value (the module head included);
+# the output's sits at em_dest + em_off2 (em_dest is the head minus the shift a
+# demotion dropped), and the value it holds follows the remap: a handle that
+# points at an object that is gone is unset in the canonical image (compaction
+# does the same), the rest are the output's own handles.
+macro m_fixup_slot() {
+    em_v2 = load64(em_orec + 24 + em_dest + em_off2);
+    if (em_v2 == 0xFFFFFFFFFFFFFFFF) {
+        em_v2 = 0xFFFFFFFFFFFFFFFF;
+    } else {
+        if (em_v2 > 4294967295) {
+            em_go = 0;
+        } else {
+            if ((em_v2 & 1048575) >= em_n) {
+                em_go = 0;
+            } else {
+                em_w2 = load32(em_remap + 4 * (em_v2 & 1048575));
+                if (em_w2 == 4294967295) {
+                    em_w2 = 0xFFFFFFFFFFFFFFFF;
+                }
+                em_v2 = em_w2;
+            }
+        }
+    }
+    if (em_go == 1) {
+        store64(em_orec + 24 + em_dest + em_off2, em_v2);
+    }
+}
+
+# place_one (object_arena.cpp: the writer's create): the source object em_hnd
+# placed into the output arena, its handle into em_remap. The name, the storage
+# role and the payload room are the writer's; a module that lost its last child
+# is a leaf (docs/32 1.2, the mirror of into_module) in the storage role of its
+# world kind; the module head is the appends' own and the value follows it. The
+# record's flags word is the source's (place_one's set_flags); the row is the
+# create's own -- the walk's second pass owns its type.
+macro m_emplace() {
+    callsub s_rec(em_hnd);
+    em_sr = ce_r;
+    if (em_sr == 0) {
+        em_go = 0;
+    }
+    if (em_go == 1) {
+        em_skid = load16(em_sr);
+        em_sflags = load16(em_sr + 4);
+        em_sid = load16(em_sr + 6);
+        em_spar = load32(em_sr + 8);
+        em_spay = load32(em_sr + 20);
+        callsub s_cell(em_hnd);
+        em_c = ce_r;
+        if (em_c == 0) {
+            em_c = empty0;
+        }
+        em_rflags = load32(em_c + 40);
+        # The parent follows the remap (place_one): a parent the walk has not
+        # placed yet is not this walk's tree. The parent is a handle -- the
+        # index is its low 20 bits.
+        if (em_spar == 4294967295) {
+            cs_parent = 4294967295;
+        } else {
+            if ((em_spar & 1048575) >= em_n) {
+                em_go = 0;
+            } else {
+                cs_parent = load32(em_remap + 4 * (em_spar & 1048575));
+                if (cs_parent == 4294967295) {
+                    em_go = 0;
+                }
+            }
+        }
+    }
+    if (em_go == 1) {
+        # The room and the role (place_one): a module keeps its room, a module
+        # the walk demotes answers the value's alone, a leaf its own.
+        em_module = 0;
+        em_kind2 = em_skid;
+        em_room2 = em_spay;
+        if (em_skid == 1) {
+            em_module = 1;
+            if (load32(em_sr + 24) == 4294967295) {
+                em_node = em_rflags & 255;
+                if (em_node != 0) {
+                    # LEAF_KIND (arena_export.py): fn and code are FUNC, the
+                    # typed layouts SPEC, the names SYM, the rest BLOB.
+                    em_module = 0;
+                    em_kind2 = 6;
+                    if (em_node == 6 | em_node == 7) {
+                        em_kind2 = 2;
+                    }
+                    if (em_node == 4 | em_node == 5 | em_node == 20) {
+                        em_kind2 = 4;
+                    }
+                    if (em_node == 12 | em_node == 13 | em_node == 21) {
+                        em_kind2 = 5;
+                    }
+                    em_room2 = 0;
+                    if (em_spay > 8) {
+                        em_room2 = em_spay - 8;
+                    }
+                }
+            }
+        }
+        cs_kind = em_kind2;
+        cs_payload = em_room2;
+        cs_refc = 1;
+        cs_refs = 0;
+        cs_type = 4294967295;
+        # The row's own words (the create writes them; the second pass owns the
+        # type): the source row, as it stands.
+        cs_flags = em_rflags;
+        cs_generation = load64(em_c + 24);
+        cs_index = load32(em_c + 56);
+        cs_name = ab + 32;
+        cs_name_len = 0;
+        if (em_sid != 0) {
+            if (em_sid < load32(src_syms)) {
+                cs_name = src_syms + load32(src_syms + 8 + 4 * em_sid);
+                nm_r = cs_name;
+                callsub s_len(nm_r);
+                cs_name_len = len_r;
+            }
+        }
+        # The value's address is the source's own (docs/32 1.2): taken before the
+        # arena is swapped for the output.
+        em_src = 0;
+        if (em_spay != 0) {
+            em_src = em_sr + 24;
+        }
+        callsub s_arena_push();
+        m_arena_load_out();
+        callsub s_create();
+        em_made = cr_h;
+        if (cr_r != 0) {
+            em_go = 0;
+        }
+        if (em_go == 1) {
+            m_entry(em_made & 1048575);
+            em_orec = ab + load64(sp_r + 8);
+            # set_flags (place_one): the record's own word.
+            store16(em_orec + 4, em_sflags);
+            em_pk = load16(em_orec);
+            # The value lands behind the head the appends own (place_one's skip
+            # and dest): a module's first 8 bytes are its chain, the object's
+            # own data follows; a demoted leaf has no head, its value at 0.
+            em_dest = 0;
+            if (em_pk == 1) {
+                if (em_spay >= 8) {
+                    em_dest = 8;
+                }
+            }
+            em_skip = 0;
+            if (em_skid == 1) {
+                if (em_spay >= 8) {
+                    em_skip = 8;
+                }
+            }
+            if (em_spay != 0) {
+                callsub s_cpy(em_orec + 24 + em_dest, em_src + em_skip, em_spay - em_skip);
+            }
+            em_osyms = asyms;
+            em_oaspec = aspec;
+            em_ocursor = acursor;
+        }
+        callsub s_arena_pop();
+        if (em_go == 1) {
+            store32(em_remap + 4 * (em_hnd & 1048575), em_made);
+        }
+    }
+}
+
+# emit() -> em_r (1/0), em_rsn, em_len (live.cpp dump + ObjectArena::rebuild, docs/32 5.4):
+# the canonical bytes of the session's arena, rebuilt into the emit region -- the
+# writer's whole sequence, replayed: the bootstrap first (the interning order --
+# and with it every symbol id -- is part of the bytes), then the world in TREE
+# order (children by name), the relation tables behind it, then the genesis tree;
+# the handles the payloads, the rows and the relation rows carry follow the remap
+# in the second pass. The region IS the output arena's memory, so the dump is no
+# copy: the canonical bytes are the region's prefix, and their SHA-256 the digest.
 macro m_emit() {
     var em_n;
-    var em_keep;
     var em_h;
-    var em_kept;
     var em_go;
     var em_c;
-    var em_type;
-    var em_rp;
     var em_k;
     var em_t;
-    var em_gone;
-    var em_order;
-    var em_remap;
-    var em_stack;
-    var em_count;
-    var em_sp;
-    var em_at;
-    var em_b;
-    var em_e;
-    var em_child;
     var em_i;
-    var em_old;
-    var em_nref;
-    var em_words;
-    var em_offset;
-    var em_before;
-    var em_now;
+    var em_remap;
+    var em_stk;
+    var em_depth;
+    var em_cur;
+    var em_end;
+    var em_e2;
+    var em_top;
+    var em_child;
+    var em_sr;
+    var em_skid;
+    var em_sflags;
+    var em_sid;
+    var em_spar;
+    var em_spay;
+    var em_rflags;
+    var em_node;
+    var em_module;
+    var em_kind2;
+    var em_room2;
     var em_made;
-    var em_payload;
-    var em_to;
-    var em_w;
+    var em_orec;
+    var em_pk;
+    var em_dest;
+    var em_skip;
+    var em_live;
+    var em_vr;
     var em_entry;
+    var em_eout;
+    var em_id_sys;
+    var em_id_honors;
+    var em_root;
+    var em_genesis;
+    var em_rel_ix;
+    var em_pass;
+    var em_table;
+    var em_par2;
+    var em_up;
+    var em_ridx;
+    var em_oidx;
+    var em_rowt;
+    var em_otype;
+    var em_off2;
+    var em_v2;
+    var em_w2;
+    var em_pay2;
+    var em_head2;
+    var em_shift2;
+    var em_src_kid;
     var em_init_r;
+    var em_fo;
+    var em_nref;
     em_r = 0;
-    em_rsn = 8;
+    em_rsn = 6;
     callsub s_scratch_reset();
     em_n = load32(ab + 4120);
     em_go = 0;
     if (em_n < 0xFFFFFFF0) {
-        callsub s_take(em_n + 1);
-        em_keep = tk_r;
-        if (em_keep != 0) {
-            callsub s_build_kids(1);
-            if (bk_r == 1) {
-                callsub s_prep_types();
-                if (pt_r == 1) {
-                    em_go = 1;
-                }
+        callsub s_build_kids(1);
+        if (bk_r == 1) {
+            callsub s_prep_types();
+            if (pt_r == 1) {
+                em_go = 1;
             }
-        }
-    }
-    if (em_go == 1) {
-        em_kept = 0;
-        em_h = 0;
-        while (em_h < em_n) {
-            m_pack_i(em_h);
-            callsub s_cell(hx_r);
-            if (ce_r != 0) {
-                m_disp_of(ce_r);
-                if (disp_r == 0) {
-                    store8(em_keep + em_h, 1);
-                    em_kept = em_kept + 1;
-                } else {
-                    store8(em_keep + em_h, 0);
-                }
-            } else {
-                store8(em_keep + em_h, 0);
-            }
-            em_h = em_h + 1;
-        }
-        em_rsn = 9;
-        em_go = 0;
-        if (em_n > 2) {
-            if (load8(em_keep) == 1) {
-                if (load8(em_keep + 1) == 1) {
-                    if (load8(em_keep + 2) == 1) {
-                        em_go = 1;
-                    }
-                }
-            }
-        }
-    }
-    if (em_go == 1) {
-        em_h = 0;
-        while (em_h < em_n & em_go == 1) {
-            if (load8(em_keep + em_h) == 1) {
-                m_pack_i(em_h);
-                callsub s_cell(hx_r);
-                em_c = ce_r;
-                if (load64(em_c + 8) != 0xFFFFFFFFFFFFFFFF) {
-                    if ((load64(em_c + 8) & 1048575) >= em_n) {
-                        em_go = 0;
-                    } else {
-                        if (load8(em_keep + (load64(em_c + 8) & 1048575)) == 0) {
-                            em_go = 0;
-                        }
-                    }
-                }
-                if (em_go == 1) {
-                    if (load64(em_c) != 0xFFFFFFFFFFFFFFFF) {
-                        if ((load64(em_c) & 1048575) >= em_n) {
-                            em_go = 0;
-                        } else {
-                            if (load8(em_keep + (load64(em_c) & 1048575)) == 0) {
-                                em_go = 0;
-                            }
-                        }
-                    }
-                }
-                if (em_go == 1) {
-                    callsub s_refs(hx_r);
-                    em_rp = rr_r;
-                    em_k = 0;
-                    em_nrw = 0;
-                    if (em_c != 0) {
-                        if (em_rp != 0) {
-                            em_nrw = load32(em_c + 44);
-                        }
-                    }
-                    while (em_k < em_nrw & em_go == 1) {
-                        em_t = load64(em_rp + 24 * em_k);
-                        em_gone = 0;
-                        if (em_t != 0xFFFFFFFFFFFFFFFF) {
-                            if ((em_t & 1048575) >= em_n) {
-                                em_gone = 1;
-                            } else {
-                                if (load8(em_keep + (em_t & 1048575)) == 0) {
-                                    em_gone = 1;
-                                }
-                            }
-                        }
-                        if (em_gone == 1) {
-                            if (load16(em_rp + 24 * em_k + 18) == 0) {
-                                em_go = 0;
-                            }
-                        }
-                        if (em_go == 1) {
-                            if (load64(em_rp + 24 * em_k + 8) != 0xFFFFFFFFFFFFFFFF) {
-                                if ((load64(em_rp + 24 * em_k + 8) & 1048575) >= em_n) {
-                                    em_go = 0;
-                                } else {
-                                    if (load8(em_keep + (load64(em_rp + 24 * em_k + 8) & 1048575)) == 0) {
-                                        em_go = 0;
-                                    }
-                                }
-                            }
-                        }
-                        em_k = em_k + 1;
-                    }
-                }
-            }
-            em_h = em_h + 1;
         }
     }
     if (em_go == 1) {
         em_rsn = 8;
-        callsub s_take(4 * (em_kept + 4));
-        em_order = tk_r;
+        em_go = 0;
         callsub s_take(4 * (em_n + 1));
         em_remap = tk_r;
-        callsub s_take(4 * (em_n + 4));
-        em_stack = tk_r;
-        if (em_order == 0 | em_remap == 0 | em_stack == 0) {
-            em_go = 0;
-        } else {
-            # The order is the index order (docs/32 5.4): the bootstrap lays down
-            # the first objects and the walk replays the rest, so the output lands
-            # in the same order the writer did and the handles come out identical -
-            # no remap, and the symbol ids follow because the names are interned in
-            # the same order.
-            em_count = 0;
-            while (em_count < 9 & em_count < em_n) {
-                store32(em_order + 4 * em_count, em_count);
-                em_count = em_count + 1;
-            }
-            em_at = 9;
-            while (em_at < em_n & em_go == 1) {
-                if (load8(em_keep + em_at) == 1) {
-                    if (em_count >= em_kept) {
-                        em_rsn = 11;
-                        em_go = 0;
-                    } else {
-                        store32(em_order + 4 * em_count, em_at);
-                        em_count = em_count + 1;
-                    }
-                }
-                em_at = em_at + 1;
+        callsub s_take(12 * 33);
+        em_stk = tk_r;
+        if (em_remap != 0) {
+            if (em_stk != 0) {
+                em_go = 1;
             }
         }
     }
     if (em_go == 1) {
-        if (em_count != em_kept) {
-            em_rsn = 11;
-            em_go = 0;
-        }
-    }
-    if (em_go == 1) {
+        # The remap (ObjectArena::rebuild): one entry per source index, the
+        # skeleton's own handles pre-filled -- the bootstrap replays those
+        # objects itself, and their handles stand.
         em_i = 0;
         while (em_i < em_n) {
-            store32(em_remap + 4 * em_i, 0xFFFFFFFF);
+            store32(em_remap + 4 * em_i, 4294967295);
             em_i = em_i + 1;
         }
         em_i = 0;
-        while (em_i < em_count) {
-            # The output handle of the object at this position: the bootstrap
-            # made 0..8 and the walk fills the rest in order (docs/32 5.4).
-            store32(em_remap + 4 * load32(em_order + 4 * em_i), 1048576 | em_i);
+        while (em_i < 9 & em_i < em_n) {
+            m_pack_i(em_i);
+            store32(em_remap + 4 * em_i, hx_r);
             em_i = em_i + 1;
+        }
+        # The capacity is the live slots plus the writer's headroom (rebuild's
+        # survey: the count still names the dead slots a release leaves behind,
+        # and one dead slot would size the output above the writer's).
+        em_live = 0;
+        em_i = 0;
+        while (em_i < em_n) {
+            m_entry(em_i);
+            if (load64(sp_r + 8) != 0) {
+                em_live = em_live + 1;
+            }
+            em_i = em_i + 1;
+        }
+        em_claim = load64(ab + 16);
+        em_root = load32(ab + 24);
+        # The name ids the walk sorts around (rebuild's symbol_id): "sys" and
+        # "honors" name the subtrees the bootstrap and the segments behind the
+        # world place.
+        em_id_sys = 0;
+        em_id_honors = 0;
+        if (em_go == 1) {
+            m_lit_sys();
+            m_sym_id(lit, 3);
+            em_id_sys = smr_r;
+            store8(lit, 104); store8(lit + 1, 111); store8(lit + 2, 110);
+            store8(lit + 3, 111); store8(lit + 4, 114); store8(lit + 5, 115);
+            m_sym_id(lit, 6);
+            em_id_honors = smr_r;
         }
     }
     if (em_go == 1) {
+        # The bootstrap is replayed whole (rebuild step 1): the same call the
+        # writer made, so the interning order of the skeleton -- and with it
+        # every symbol id -- is the same. The image is "boot" (place_world's
+        # own name: the canonical root is what the writer names it).
         em_rsn = 6;
+        store8(lit, 98); store8(lit + 1, 111); store8(lit + 2, 111); store8(lit + 3, 116);
         callsub s_arena_push();
-        # The image name is the source root's, and its symbol must be interned
-        # first in the new arena too (docs/32 5.4).
-        callsub s_name(load32(ab + 24));
-        callsub s_len(nm_r);
-        em_name = nm_r;
-        em_nlen = len_r;
-        # layout of an image includes how much room the index was given.
-        em_slots = load32(ab + 4124);
-        em_claim = load64(ab + 16);
-        em_syms = src_syms;
-        callsub s_init(jemit_base, jemit_cap, jemit_cap, em_slots, em_name, em_nlen);
+        callsub s_init(jemit_base, jemit_cap, jemit_cap, em_live + 220, lit, 4);
         em_init_r = in_r;
+        em_osyms = asyms;
+        em_oaspec = aspec;
+        em_ocursor = acursor;
         callsub s_arena_pop();
         if (em_init_r != 0) {
             em_go = 0;
         }
-        em_i = 9;   # 0..8 are the bootstrap's own objects (docs/32 5.4)
-        while (em_i < em_count & em_go == 1) {
-            em_old = load32(em_order + 4 * em_i);
-            # The order holds indices; an accessor takes a handle (index, gen).
-            m_pack_i(em_old);
-            em_hnd = hx_r;
-            callsub s_cell(em_hnd);
-            em_c = ce_r;
-            # A dead object has no view: read it as the empty cell rather than
-            # through a null pointer.
-            if (em_c == 0) {
-                em_c = empty0;
-            }
-            callsub s_refs(em_hnd);
-            em_rp = rr_r;
-            em_nref = 0;
-            em_k = 0;
-            em_nrw = 0;
-            if (em_c != 0) {
-                if (em_rp != 0) {
-                    em_nrw = load32(em_c + 44);
-                }
-            }
-            while (em_k < em_nrw) {
-                em_t = load64(em_rp + 24 * em_k);
-                if (em_t == 0xFFFFFFFFFFFFFFFF) {
-                    em_nref = em_nref + 1;
-                } else {
-                    if (em_t < em_n) {
-                        if (load8(em_keep + (em_t & 1048575)) == 1) {
-                            em_nref = em_nref + 1;
-                        }
-                    }
-                }
-                em_k = em_k + 1;
-            }
-            callsub s_mob_of(em_c);
-            # the canonical state of an emitted cell: provenance IMAGE (1) at shift 0, disposition
-            # RETAIN (0) at 1, cleanliness CLEAN (0) at 3, the old mobility at 4
-            em_state = 1 | (mob_r << 4);
-            if (load64(em_c) == 0xFFFFFFFFFFFFFFFF | load64(em_c) >= em_n) {
-                cs_type = 0xFFFFFFFFFFFFFFFF;
+    }
+    if (em_go == 1) {
+        # Segment A (rebuild step 2): the world's tree in name order, the root's
+        # children the walk has not placed yet, sys and honors excepted -- their
+        # objects are the bootstrap's and the segments behind the world's own.
+        em_i = load32(kstart + 4 * (em_root & 1048575));
+        em_end = load32(kstart + 4 * ((em_root & 1048575) + 1));
+        while (em_i < em_end & em_go == 1) {
+            em_child = load32(klist + 4 * em_i);
+            em_i = em_i + 1;
+            m_pack_i(em_child);
+            callsub s_rec(hx_r);
+            em_sr = ce_r;
+            if (em_sr == 0) {
+                em_go = 0;
             } else {
-                cs_type = load32(em_remap + 4 * (load64(em_c) & 1048575));
-                if (cs_type == 0xFFFFFFFF) {
-                    cs_type = 0xFFFFFFFFFFFFFFFF;
-                }
-            }
-            if (load64(em_c + 8) == 0xFFFFFFFFFFFFFFFF | load64(em_c + 8) >= em_n) {
-                cs_parent = 0xFFFFFFFFFFFFFFFF;
-            } else {
-                cs_parent = load32(em_remap + 4 * (load64(em_c + 8) & 1048575));
-                if (cs_parent == 0xFFFFFFFF) {
-                    cs_parent = 0xFFFFFFFFFFFFFFFF;
-                }
-            }
-            callsub s_rec(em_hnd);
-            cs_name = ab + 32;
-            if (ce_r != 0) {
-                if (em_syms != 0) {
-                    em_id = load16(ce_r + 6);
-                    if (em_id != 0) {
-                        if (em_id < load32(em_syms)) {
-                            cs_name = em_syms + load32(em_syms + 8 + 4 * em_id);
-                        }
-                    }
-                }
-            }
-            nm_r = cs_name;
-            callsub s_len(nm_r);
-            cs_name_len = len_r;
-            cs_flags = 0;
-            if (em_c != 0) {
-                cs_flags = (load32(em_c + 40) & 0xFFFFC0FF) | (em_state << 8);
-            }
-            cs_refc = 1;
-            cs_kind = 1;
-            callsub s_rec(em_hnd);
-            if (ce_r != 0) {
-                cs_refc = load32(ce_r + 16);
-                # The storage role is the record's own word; the world-cell view
-                # carries the node kind, not this.
-                cs_kind = load16(ce_r);
-            }
-            cs_generation = load64(em_c + 24);
-            cs_index = load32(em_c + 56);
-            cs_payload = load64(em_c + 16);
-            # The relation table of an object is an ordinary object the walk
-            # already carries (docs/32 5.4): asking s_create to make one here
-            # would lay the same table down twice.
-            cs_refs = 0;
-            em_words = empty0;
-            if (cs_payload != 0) {
-                em_type = load64(em_c);
-                callsub s_refs_of(em_type);
-                if (ro_r == 0) {
-                    em_go = 0;
+                # next_child skips the anonymous (the chain may carry them; the
+                # canonical walk places only what a name orders) and the two
+                # subtrees the bootstrap and the segments behind the world own.
+                em_sid = load16(em_sr + 6);
+                if (em_sid == 0) {
+                    em_child = 0;
                 } else {
-                    em_words = ro_words;
+                    if (em_sid == em_id_sys | em_sid == em_id_honors) {
+                        em_child = 0;
+                    }
                 }
             }
             if (em_go == 1) {
-                # The value of the source object is in the source arena: its
-                # address has to be taken before the arena is swapped for the
-                # output, because a payload is the record's own room (docs/32 1.2)
-                # and not a slot of the world-cell view.
-                callsub s_payload(em_hnd);
-                em_src = pa_r;
-                callsub s_arena_push();
-                m_arena_load_out();
-                callsub s_create();
-                em_made = cr_h;
-                if (cr_r != 0) {
-                    em_go = 0;
-                }
-                if (em_go == 1) {
-                    if (cs_payload != 0) {
-                        callsub s_payload(em_made);
-                        em_payload = pa_r;
-                        callsub s_cpy(em_payload, em_src, cs_payload);
-                        em_k = 0;
-                        while (em_k < load32(em_words) & em_go == 1) {
-                            em_offset = load32(em_words + 4 + 4 * em_k) & 0x7FFFFFFF;
-                            if (em_offset + 8 <= cs_payload) {
-                                em_before = load64(em_payload + em_offset);
-                                if (em_before != 0xFFFFFFFFFFFFFFFF) {
-                                    em_now = 0xFFFFFFFFFFFFFFFF;
-                                    if (em_before < em_n) {
-                                        if (load32(em_remap + 4 * em_before) != 0xFFFFFFFF) {
-                                            em_now = load32(em_remap + 4 * em_before);
-                                        }
-                                    }
-                                    if (em_now == 0xFFFFFFFFFFFFFFFF) {
-                                        if ((load32(em_words + 4 + 4 * em_k) & 0x80000000) == 0) {
-                                            em_rsn = 9;
-                                            em_go = 0;
-                                        }
-                                    }
-                                    if (em_go == 1) {
-                                        store64(em_payload + em_offset, em_now);
-                                    }
-                                }
-                            }
-                            em_k = em_k + 1;
-                        }
-                        if (em_go == 1) {
-                            em_rsn = 6;
-                        }
-                    }
-                }
-                if (em_go == 1) {
-                    if (em_nref != 0) {
-                        callsub s_refs(em_made);
-                        em_to = rr_r;
-                        em_w = 0;
-                        em_k = 0;
-                        while (em_k < load32(em_c + 44)) {
-                            em_t = load64(em_rp + 24 * em_k);
-                            em_gone = 0;
-                            if (em_t != 0xFFFFFFFFFFFFFFFF) {
-                                if (em_t >= em_n) {
-                                    em_gone = 1;
+                if (em_child != 0) {
+                    m_pack_i(em_child);
+                    em_hnd = hx_r;
+                    m_emplace();
+                    if (em_go == 1) {
+                        # walk_place (object_arena.cpp): the subtree in the
+                        # writer's order -- a module's children by name, the
+                        # walk iterative over a stack of open modules. The
+                        # stack's own range words (em_cur/em_e2) are not the
+                        # outer loop's: the segment's end is its own word.
+                        if (em_skid == 1) {
+                            em_depth = 0;
+                            store32(em_stk + 12 * em_depth, em_child);
+                            store32(em_stk + 12 * em_depth + 4,
+                                    load32(kstart + 4 * em_child));
+                            store32(em_stk + 12 * em_depth + 8,
+                                    load32(kstart + 4 * (em_child + 1)));
+                            em_depth = em_depth + 1;
+                            while (em_depth > 0 & em_go == 1) {
+                                em_top = em_depth - 1;
+                                em_cur = load32(em_stk + 12 * em_top + 4);
+                                em_e2 = load32(em_stk + 12 * em_top + 8);
+                                if (em_cur >= em_e2) {
+                                    em_depth = em_depth - 1;
                                 } else {
-                                    if (load8(em_keep + (em_t & 1048575)) == 0) {
-                                        em_gone = 1;
-                                    }
-                                }
-                            }
-                            if (em_gone == 0) {
-                                callsub s_cpy(em_to + 24 * em_w, em_rp + 24 * em_k, 24);
-                                if (em_t == 0xFFFFFFFFFFFFFFFF) {
-                                    store64(em_to + 24 * em_w, 0xFFFFFFFFFFFFFFFF);
-                                } else {
-                                    store64(em_to + 24 * em_w, load32(em_remap + 4 * em_t));
-                                }
-                                if (load64(em_rp + 24 * em_k + 8) == 0xFFFFFFFFFFFFFFFF |
-                                    load64(em_rp + 24 * em_k + 8) >= em_n) {
-                                    store64(em_to + 24 * em_w + 8, 0xFFFFFFFFFFFFFFFF);
-                                } else {
-                                    if (load32(em_remap + 4 * (load64(em_rp + 24 * em_k + 8) & 1048575)) ==
-                                        0xFFFFFFFF) {
-                                        store64(em_to + 24 * em_w + 8, 0xFFFFFFFFFFFFFFFF);
+                                    store32(em_stk + 12 * em_top + 4, em_cur + 1);
+                                    em_child = load32(klist + 4 * em_cur);
+                                    m_pack_i(em_child);
+                                    em_hnd = hx_r;
+                                    callsub s_rec(em_hnd);
+                                    em_sr = ce_r;
+                                    if (em_sr == 0) {
+                                        em_go = 0;
                                     } else {
-                                        store64(em_to + 24 * em_w + 8,
-                                                load32(em_remap + 4 * (load64(em_rp + 24 * em_k + 8) & 1048575)));
+                                        em_sid = load16(em_sr + 6);
+                                        if (em_sid != 0) {
+                                            m_emplace();
+                                            if (em_go == 1) {
+                                                if (em_skid == 1) {
+                                                    if (em_depth >= 32) {
+                                                        em_go = 0;
+                                                    } else {
+                                                        store32(em_stk + 12 * em_depth, em_child);
+                                                        store32(em_stk + 12 * em_depth + 4,
+                                                                load32(kstart + 4 * em_child));
+                                                        store32(em_stk + 12 * em_depth + 8,
+                                                                load32(kstart + 4 * (em_child + 1)));
+                                                        em_depth = em_depth + 1;
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
-                                em_w = em_w + 1;
                             }
-                            em_k = em_k + 1;
                         }
                     }
                 }
-                callsub s_arena_pop();
+            }
+        }
+    }
+    if (em_go == 1) {
+        # Segment B: sys/relations and its tables in the writer's order (rebuild:
+        # the chain is the creation order, so the walk sorts by name); a genesis
+        # table is the segment behind the genesis's own.
+        if (arel == 0) {
+            em_go = 0;
+        } else {
+            em_rel_ix = arel & 1048575;
+            em_hnd = arel;
+            m_emplace();
+            if (em_go == 1) {
+                em_i = load32(kstart + 4 * em_rel_ix);
+                em_end = load32(kstart + 4 * (em_rel_ix + 1));
+                while (em_i < em_end & em_go == 1) {
+                    em_child = load32(klist + 4 * em_i);
+                    em_i = em_i + 1;
+                    m_pack_i(em_child);
+                    em_hnd = hx_r;
+                    callsub s_rec(em_hnd);
+                    em_sr = ce_r;
+                    em_table = 0;
+                    if (em_sr != 0) {
+                        em_sid = load16(em_sr + 6);
+                        if (em_sid != 0) {
+                            if (em_sid < load32(src_syms)) {
+                                nm_r = src_syms + load32(src_syms + 8 + 4 * em_sid);
+                                # a genesis table's name opens with "honors."
+                                # (genesis_table: the writer's _genesis appends
+                                # them behind the genesis tree)
+                                if (load8(nm_r) == 104) {
+                                    if (load8(nm_r + 1) == 111) {
+                                        if (load8(nm_r + 2) == 110) {
+                                            if (load8(nm_r + 3) == 111) {
+                                                if (load8(nm_r + 4) == 114) {
+                                                    if (load8(nm_r + 5) == 115) {
+                                                        if (load8(nm_r + 6) == 46) {
+                                                            em_table = 1;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (em_table == 0) {
+                        m_emplace();
+                    }
+                }
+            }
+        }
+    }
+    if (em_go == 1) {
+        # Segment C (rebuild's third): the genesis tree in the index order, then
+        # its own relation tables -- the writer's _genesis appends them last.
+        store8(lit, 104); store8(lit + 1, 111); store8(lit + 2, 110);
+        store8(lit + 3, 111); store8(lit + 4, 114); store8(lit + 5, 115);
+        callsub s_named_child(em_root, lit, 6);
+        em_genesis = cn_at;
+        if (em_genesis != 4294967295) {
+            em_pass = 0;
+            while (em_pass < 2 & em_go == 1) {
+                em_i = 9;
+                while (em_i < em_n & em_go == 1) {
+                    m_entry(em_i);
+                    if (load64(sp_r + 8) == 0) {
+                        em_child = 0;
+                    } else {
+                        m_pack_i(em_i);
+                        em_child = hx_r;
+                    }
+                    if (em_child != 0) {
+                        em_table = 0;
+                        em_up = 0;
+                        callsub s_rec(em_child);
+                        em_sr = ce_r;
+                        if (em_sr == 0) {
+                            em_go = 0;
+                        } else {
+                            em_sid = load16(em_sr + 6);
+                            if (em_sid != 0) {
+                                if (em_sid < load32(src_syms)) {
+                                    nm_r = src_syms + load32(src_syms + 8 + 4 * em_sid);
+                                    if (load8(nm_r) == 104) {
+                                        if (load8(nm_r + 1) == 111) {
+                                            if (load8(nm_r + 2) == 110) {
+                                                if (load8(nm_r + 3) == 111) {
+                                                    if (load8(nm_r + 4) == 114) {
+                                                        if (load8(nm_r + 5) == 115) {
+                                                            if (load8(nm_r + 6) == 46) {
+                                                                em_table = 1;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            # under(source, genesis): the subtree's membership.
+                            if (em_table == 0) {
+                                em_up = em_child;
+                                em_k = 0;
+                                while (em_k < 32 & em_up != em_genesis & em_up != 4294967295) {
+                                    em_par2 = em_up;
+                                    em_k = em_k + 1;
+                                    callsub s_rec(em_par2);
+                                    em_sr = ce_r;
+                                    if (em_sr == 0) {
+                                        em_up = 4294967295;
+                                    } else {
+                                        em_up = load32(em_sr + 8);
+                                    }
+                                }
+                                if (em_up == em_genesis) {
+                                    em_up = 1;
+                                } else {
+                                    em_up = 0;
+                                }
+                            }
+                        }
+                        if ((em_pass == 0 & em_table == 0 & em_up == 1) |
+                            (em_pass == 1 & em_table == 1)) {
+                            em_hnd = em_child;
+                            m_emplace();
+                        }
+                    }
+                    em_i = em_i + 1;
+                }
+                em_pass = em_pass + 1;
+            }
+        }
+    }
+    if (em_go == 1) {
+        # Step 3 (rebuild): the handles the rows, the payloads and the relation
+        # rows carry, rewritten to the output's. The walk's world is placed --
+        # every handle it answers from here on is the output's own.
+        em_rsn = 6;
+        em_i = 9;
+        while (em_i < em_n & em_go == 1) {
+            m_entry(em_i);
+            if (load64(sp_r + 8) != 0) {
+                em_made = load32(em_remap + 4 * em_i);
+                if (em_made != 4294967295) {
+                    m_spec_row(em_i);
+                    em_rowt = load32(sr_at);
+                    em_otype = 4294967295;
+                    if (em_rowt != 4294967295) {
+                        em_otype = load32(em_remap + 4 * (em_rowt & 1048575));
+                    }
+                    store32(em_oaspec + 24 * (em_made & 1048575), em_otype);
+                    # The payload's declared slots and the relation rows' two
+                    # handles (fixup_refs / fixup_slot): the source's kind says
+                    # where the value sits (a module's head first), a module
+                    # the walk demoted answers its slots 8 lower.
+                    m_pack_i(em_i);
+                    em_hnd = hx_r;
+                    callsub s_rec(em_hnd);
+                    em_sr = ce_r;
+                    if (em_sr == 0) {
+                        em_go = 0;
+                    } else {
+                        em_src_kid = load16(em_sr);
+                        em_pay2 = load32(em_sr + 20);
+                        em_head2 = 0;
+                        if (em_src_kid == 1) {
+                            em_head2 = 8;
+                        }
+                        em_orec = jemit_base + load64(jemit_base + 4128 + 16 * (em_made & 1048575) + 8);
+                        em_pk = load16(em_orec);
+                        em_shift2 = 0;
+                        if (em_head2 != 0) {
+                            if (em_pk != 1) {
+                                em_shift2 = 8;
+                            }
+                        }
+                        em_dest = em_head2 - em_shift2;
+                        # is_ref_table (object_arena.cpp): the source's parent is
+                        # the relations module itself, the full handle.
+                        if (load32(em_sr + 8) == arel) {
+                            em_table = 1;
+                        } else {
+                            em_table = 0;
+                        }
+                        if (em_table == 1) {
+                            # A relation table (is_ref_table): its rows' two
+                            # handles, at the row's own offsets.
+                            em_k = 0;
+                            while (em_k + 24 <= em_pay2 & em_go == 1) {
+                                em_off2 = em_k;
+                                m_fixup_slot();
+                                em_off2 = em_k + 8;
+                                m_fixup_slot();
+                                em_k = em_k + 24;
+                            }
+                        } else {
+                            # The type's declared reference slots (fixup_refs):
+                            # the offsets are the world's value (the head is
+                            # the source's own), and a slot that points at an
+                            # object that is gone is unset in the canonical
+                            # image (compaction does the same).
+                            em_t = em_rowt;
+                            callsub s_refs_of(em_t);
+                            if (ro_r == 0) {
+                                em_go = 0;
+                            } else {
+                                em_k = 0;
+                                while (em_k < load32(ro_words) & em_go == 1) {
+                                    em_off2 = load32(ro_words + 4 + 4 * em_k) & 2147483647;
+                                    if (em_head2 + em_off2 + 8 > em_pay2) {
+                                        em_go = 0;
+                                    } else {
+                                        m_fixup_slot();
+                                    }
+                                    em_k = em_k + 1;
+                                }
+                            }
+                        }
+                    }
+                }
             }
             em_i = em_i + 1;
         }
     }
     if (em_go == 1) {
-        store32(jemit_base + 12, load32(ah + 12));
-        store64(jemit_base + 112, 0);
-        em_entry = load32(ab + 28);
-        if (em_entry != 0xFFFFFFFFFFFFFFFF) {
-            if (em_entry >= em_n) {
-                em_rsn = 9;
-                em_go = 0;
-            } else {
-                if (load8(em_keep + em_entry) == 0) {
-                    em_rsn = 9;
-                    em_go = 0;
+        # Step 4 (rebuild): the semantic rows of the skeleton -- the writer's
+        # pass writes the row of every index, and the root's row carries the
+        # world's flags.
+        em_i = 0;
+        while (em_i < 9 & em_i < em_n & em_go == 1) {
+            em_made = load32(em_remap + 4 * em_i);
+            if (em_made != 4294967295) {
+                m_spec_row(em_i);
+                em_rowt = load32(sr_at);
+                em_otype = 4294967295;
+                if (em_rowt != 4294967295) {
+                    em_otype = load32(em_remap + 4 * (em_rowt & 1048575));
                 }
+                store32(em_oaspec + 24 * (em_made & 1048575), em_otype);
+                store32(em_oaspec + 24 * (em_made & 1048575) + 4, load32(sr_at + 4));
+                store32(em_oaspec + 24 * (em_made & 1048575) + 8, load32(sr_at + 8));
+                store64(em_oaspec + 24 * (em_made & 1048575) + 16, load64(sr_at + 16));
             }
+            em_i = em_i + 1;
         }
     }
     if (em_go == 1) {
-        if (em_entry == 0xFFFFFFFFFFFFFFFF) {
-            store64(jemit_base + 104, 0xFFFFFFFFFFFFFFFF);
-        } else {
-            store64(jemit_base + 104, load32(em_remap + 4 * em_entry));
+        # The entry is a handle too (docs/32 2): when it names a live object it
+        # follows the remap; an entry that names nothing stands as it is.
+        em_entry = load32(ab + 28);
+        em_eout = em_entry;
+        if (em_entry != 4294967295) {
+            callsub s_arena_push();
+            m_arena_load_out();
+            m_live(em_entry);
+            if (lv_r == 1) {
+                em_eout = load32(em_remap + 4 * (em_entry & 1048575));
+                if (em_eout == 4294967295) {
+                    em_go = 0;
+                }
+            }
+            callsub s_arena_pop();
         }
-        store64(jemit_base + 24, load64(jemit_base + 16));
-        store64(jemit_base + 32, 0xFFFFFFFFFFFFFFFF);
+        if (em_go == 1) {
+            store32(jemit_base + 28, em_eout);
+        }
+    }
+    if (em_go == 1) {
+        # The claim is a record of how much room the image says it needs
+        # (docs/32 3), not the size of the region it was written to: the build
+        # runs inside the region and the recorded limit goes in at the end. The
+        # tail marker's span is the claim's tail (rebuild replays init's formula).
+        store64(jemit_base + 16, em_claim);
+        em_cmt = load64(jemit_base + 8);
+        store32(jemit_base + em_cmt + 20, em_claim - em_cmt - 24);
+        # sys/free mirrors the ring's head (ObjectArena::sync_free_head: the
+        # free list's derived head, the marker's offset -- the last sync the
+        # writer's own allocations left in the image the walk replays). The
+        # free record is the OUTPUT's own (slot 8 of its table), not the
+        # source's: the two arenas' layouts are not each other's.
+        em_fo = jemit_base + load64(jemit_base + 4128 + 16 * 8 + 8);
+        if (em_fo != jemit_base) {
+            store64(em_fo + 24, em_cmt);
+        }
+        # verify (rebuild's last step): the stream packs back to back, the ring
+        # is circular and holds every linkable free span, the claim covers it.
+        callsub s_arena_push();
+        m_arena_load_out();
+        alim = em_claim;
+        m_verify();
+        em_vr = vf_r;
+        callsub s_arena_pop();
+        store64(jemit_base + jemit_cap - 24, em_cmt);
+        if (em_vr == 0) {
+            em_go = 0;
+        }
+    }
+    if (em_go == 1) {
+        # dump's tail (live.cpp): the canonical bytes are the region's prefix --
+        # the committed stream and the marker's own header and links -- and
+        # their SHA-256 the digest.
+        em_len = em_cmt + 40;
+        if (em_len > jemit_cap) {
+            em_go = 0;
+        }
+    }
+    if (em_go == 1) {
         callsub s_sha_init(shh);
-        callsub s_sha_upd(shh, jemit_base, load64(jemit_base + 16));
+        callsub s_sha_upd(shh, jemit_base, em_len);
         callsub s_sha_finish(shh, ar + 192);
-        em_len = load64(jemit_base + 16);
         store64(ar + 184, em_len);
         em_rsn = 0;
         em_r = 1;
     }
 }
+
 
 # ---- linking (live.cpp:1323): the entries and function slots of the context, from the arena ------
 
@@ -4195,6 +4613,10 @@ macro m_relink() {
 
 # ---- the arena of `Arena out` over the emit region: the session's arena state, pushed aside ------
 
+# The lookups of the session (asyms, aspec, arel, raddr, acursor) are part of the
+# arena state a window swaps: s_init builds the output arena's own tables and the
+# pop has to put the session's back, or every read after a dump answers through
+# the output's tables (docs/32 5.3 -- the views are the arena's own).
 sub s_arena_push() {
     ap_ab = ab;
     ap_acomm = acomm;
@@ -4208,6 +4630,11 @@ sub s_arena_push() {
     ap_amark = amark;
     ap_abitmap = abitmap;
     ap_aused = aused;
+    ap_asyms = asyms;
+    ap_aspec = aspec;
+    ap_arel = arel;
+    ap_raddr = raddr;
+    ap_acursor = acursor;
 }
 
 sub s_arena_pop() {
@@ -4223,8 +4650,17 @@ sub s_arena_pop() {
     amark = ap_amark;
     abitmap = ap_abitmap;
     aused = ap_aused;
+    asyms = ap_asyms;
+    aspec = ap_aspec;
+    arel = ap_arel;
+    raddr = ap_raddr;
+    acursor = ap_acursor;
 }
 
+# The output arena's own lookups (em_osyms/em_oaspec/em_ocursor, cached after its
+# s_init and saved back at every window's end -- the syms table can move when the
+# walk interns a name that grows it) are what a window loads beside the base
+# words; the session's come back with s_arena_pop.
 macro m_arena_load_out() {
     ab = jemit_base;
     acomm = jemit_cap;
@@ -4232,6 +4668,11 @@ macro m_arena_load_out() {
     ah = jemit_base;
     aneed = 0;
     aj = 0;
+    asyms = em_osyms;
+    aspec = em_oaspec;
+    arel = 0;
+    raddr = 0;
+    acursor = em_ocursor;
 }
 
 # ---- good_name (live.cpp:84): text without control characters, without '.', not '@', UTF-8 ------
@@ -4977,53 +5418,10 @@ macro m_run_job(Zjob) {
     jguard = 0;
     rj_ph = 2;
     if (Zjob == 1) {
-        # Job 1 is the dump: produce the canonical bytes first, then let the phase
-        # machine carry them (em_r, em_len) through the rest.
+        # Job 1 is the dump: m_emit answers the canonical bytes -- the claim, the
+        # marker's span and the digest included (live.cpp dump + ObjectArena::rebuild,
+        # docs/32 5.4) -- and the phase machine carries them (em_r, em_len) on.
         m_emit();
-        if (em_r == 1) {
-            # Every module's children count is the length of its chain: count it
-            # by walking each chain once, so the number cannot disagree with the
-            # chain it describes.
-            callsub s_arena_push();
-            m_arena_load_out();
-            cc_ix = 0;
-            cc_n = load32(ab + 4120);
-            while (cc_ix < cc_n) {
-                m_pack_i(cc_ix);
-                callsub s_rec(hx_r);
-                cc_rec = ce_r;
-                if (cc_rec != 0) {
-                    if (load16(cc_rec) == 1) {
-                        cc_k = 0;
-                        cc_w = load32(cc_rec + 24);
-                        while (cc_w != 4294967295) {
-                            cc_k = cc_k + 1;
-                            callsub s_rec(cc_w);
-                            if (ce_r == 0) {
-                                cc_w = 4294967295;
-                            } else {
-                                cc_w = load32(ce_r + 12);
-                            }
-                        }
-                        callsub s_before_write(cc_rec + 28 - ab, 4);
-                        if (bw_r == 0) {
-                            store32(cc_rec + 28, cc_k);
-                        }
-                    }
-                }
-                cc_ix = cc_ix + 1;
-            }
-            callsub s_arena_pop();
-            # The claim is a record of how much room the image says it needs
-            # (docs/32 3), not the size of the region it was written to: the build
-            # runs inside the region and the recorded limit goes in at the end.
-            callsub s_arena_push();
-            m_arena_load_out();
-            store64(ab + 16, em_claim);
-            em_cmt = load64(ab + 8);
-            store32(ab + em_cmt + 20, em_claim - em_cmt - 24);
-            callsub s_arena_pop();
-        }
         jemit_next = 11;
         rj_ph = 0;
     } else {
@@ -5051,6 +5449,8 @@ macro m_run_job(Zjob) {
             } else {
                 if (jb_override != 0) {
                     jb_reason = jb_override;
+                } else {
+                    jb_reason = em_rsn;
                 }
                 rj_ph = 12;
             }
@@ -5072,9 +5472,20 @@ macro m_run_job(Zjob) {
                         rj_ph = 12;
                     } else {
                         if ((load32(jdhead + 16) & 1) != 0) {
-                            jb_override = 2;
-                            jemit_next = 3;
-                            rj_ph = 0;
+                            # The base is the digest of the image the delta was
+                            # compiled against (docs/32 5.4): the dump answers it
+                            # into ar+192 before the compare, the same two faces
+                            # as the engine (live.cpp). A dump that does not
+                            # answer refuses the apply as the arena's (live.h).
+                            m_emit();
+                            if (em_r == 1) {
+                                jb_override = 2;
+                                jemit_next = 3;
+                                rj_ph = 0;
+                            } else {
+                                jb_reason = 6;
+                                rj_ph = 12;
+                            }
                         } else {
                             rj_ph = 4;
                         }
@@ -5089,15 +5500,26 @@ macro m_run_job(Zjob) {
                             rj_ph = 4;
                         }
                     } else {
-                        if (rj_ph == 4) {
-                            m_apply_replay();
-                            if (ar_r == 1) {
+                    if (rj_ph == 4) {
+                        m_apply_replay();
+                        if (ar_r == 1) {
+                            # The answer is the digest of the result (live.cpp):
+                            # the dump of the world the replay made, into ar+192
+                            # and jb_emitted, before the commit rolls the journal.
+                            # A dump that does not answer is the image's own
+                            # refusal (live.cpp: REASON_ARENA, BAD_IMAGE).
+                            m_emit();
+                            if (em_r == 1) {
                                 jemit_next = 5;
                                 rj_ph = 0;
                             } else {
+                                jb_reason = 6;
                                 rj_ph = 12;
                             }
                         } else {
+                            rj_ph = 12;
+                        }
+                    } else {
                             if (rj_ph == 5) {
                                 rj_ph = 6;
                                 callsub s_linkable();
@@ -5206,13 +5628,15 @@ macro m_serve(Zop, Zarg, Zrq, Zrl, Zrs) {
     callsub s_scratch_reset();
     se_job = 0;
     se_done = 0;
-    # The read side is on the v7 model (docs/32 5.3) and answers. The write side is
-    # not yet: a delta apply, a dump, a compaction and a relink still walk the
-    # superseded cell stream, and an apply would write those offsets into an arena
-    # that does not have them. REFUSED is what a well formed request that is not
-    # done gets (live.h), so the writer never sees bytes from a layout the arena
-    # does not have and a half-migrated apply can never corrupt the image.
-    if (Zop == 32 | Zop == 33 | Zop == 35 | Zop == 37) {
+    # The read side is on the v7 model (docs/32 5.3) and answers, and so does the
+    # write side of the image: DIGEST and EMIT answer the rebuild (docs/32 5.4)
+    # and STAGE_COMMIT applies the physical delta (docs/19) - two passes,
+    # SHA-checked, rolled back on failure, the answer the digest of the result.
+    # A compaction and a relink still walk the superseded cell stream, and
+    # REFUSED is what a well formed request that is not done gets (live.h) - the
+    # same stub the engine answers (live.cpp) - so the writer never sees bytes
+    # from a layout the arena does not have.
+    if (Zop == 35 | Zop == 37) {
         sv_status = 9;
         store64(Zrs, 0);
         store64(Zrs + 8, 0);
@@ -5780,6 +6204,7 @@ fn live_pump(context, area) {
     var cr_h, cr_r, cs2_r, ck_r, cn_r, cc_r;
     var cl_mod, cl_head, cl_walk, cl_next, cl_stop, cs_refc;
     var em_name, em_nlen, em_nrw, em_src, em_hnd, sg_r, acursor, em_slots, em_claim, em_cmt, cc_ix, cc_n, cc_rec, cc_k, cc_w, em_syms, em_id, src_syms;
+    var em_osyms, em_oaspec, em_ocursor;
     var cs_type, cs_parent, cs_generation, cs_flags, cs_index, cs_name, cs_name_len, cs_payload, cs_refs, cs_kind;
     var ce_r, sp_r, lv_r, pa_r, rr_r, kd_r, nm_r, fc_r;
     var ne_r, nh_r, hm_r, tin_r, it_r, tk_r, pw_r, rw_r, lss_r;
@@ -5792,11 +6217,13 @@ fn live_pump(context, area) {
     var jguard, jdry, jops_start, ap_r, ap_len, ap_s, ap_op, ap_ops_start, ap_strings_end;
     var ap_i, ap_k, ap_d, ap_ab, ap_ah, ap_alim, ap_acomm, ap_aneed, ap_aj;
     var ap_alb, ap_alc, ap_all, ap_amark, ap_abitmap, ap_aused, ap_fixups, ap_pos, ap_size, ap_go, ap_tail, ap_padded;
+    var ap_asyms, ap_aspec, ap_arel, ap_raddr, ap_acursor;
     var gn_r, ar_r, ws_r, bw_r;
     var cva, cvb, cvc, asyms, aspec, arel, fv_r, rc_r, rt_at, hx_r, raddr, rp_r, at_sys, pw2_r, rm_r, rm_h;
     var cn_at, it_id, sr_at, sf_r, sk_r, sn2_r;
     var la_r, ru_r, ri_r, rl2_r, pi_r;
     var cb_r, en_r, disp_r, mob_r, so_r, pi_r, pi_id, pt_r;
+    var smr_r;
     var rqbuf[1044], rsbuf[1044];
     var shk[256], shw[256], shh[128], shd[32];
     var saved[192], jdhead[64], srt[32], empty0[8], lit[64];
