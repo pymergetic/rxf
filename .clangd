@@ -13,9 +13,9 @@ CompileFlags:
 # and every declaration of the module entry is red.
 CompileFlags:
   Add:
-    - -I/home/ladmin/Devel/os-sdk/packages/rxf/src
-    - -I/home/ladmin/Devel/os-sdk/packages/rxf/third_party/pugixml
-    - -isystem/home/ladmin/Devel/os-sdk/packages/rxf/.venv/lib/python3.14/site-packages/nanobind/include
+    - -Isrc
+    - -Ithird_party/pugixml
+    - -isystem.venv/lib/python3.14/site-packages/nanobind/include
     - -isystem/home/ladmin/.local/share/uv/python/cpython-3.14.4-linux-x86_64-gnu/include/python3.14
 ---
 If:
@@ -53,9 +53,10 @@ CompileFlags:
     - -fno-stack-protector
     - -fno-pic
     - -fno-asynchronous-unwind-tables
-    - -I/home/ladmin/Devel/os-sdk/packages/rxf/boot
-    - -I/home/ladmin/Devel/os-sdk/packages/rxf/boot/image_stub
-    - -I/home/ladmin/Devel/os-sdk/packages/rxf/native
+    - -Isrc
+    - -Iboot
+    - -Iboot/image_stub
+    - -Inative
 ---
 If:
   PathMatch: .*boot/image_stub/(entry|world|uart_x86_64)\.c$

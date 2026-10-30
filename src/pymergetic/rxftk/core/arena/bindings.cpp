@@ -178,7 +178,9 @@ void bind_arena(nb::module_ &m) {
                 auto held = std::make_unique<HostObjectArena>();
                 held->memory = std::move(host);
                 check(held->arena.init(held->memory->memory(), 0, 0));
-                check(self.arena.rebuild(held->arena));
+                std::vector<uint32_t> remap(self.arena.handle_count(),
+                                            PYMERGETIC_RXF_HANDLE32_NONE);
+                check(self.arena.rebuild(held->arena, remap.data(), (uint32_t)remap.size()));
                 return held;
             },
             nb::arg("limit"),
@@ -289,6 +291,22 @@ void bind_arena(nb::module_ &m) {
             nb::arg("handle"), nb::arg("data"))
         /* The state flags: the Genesis of the honors (docs/36 3) is marked
          * OFLAG_RO at image build. */
+        /* A leaf that gains a child becomes a module (docs/32 1.2). */
+        .def(
+            "into_module",
+            [](HostObjectArena &self, uint32_t handle) {
+                uint32_t fresh = handle;
+                check(self.arena.into_module(handle, &fresh));
+                return fresh;
+            },
+            nb::arg("handle"))
+        /* The entry of the image (docs/32 2: the superblock's entry): the
+         * handle of what runs. */
+        .def(
+            "set_entry",
+            [](HostObjectArena &self, uint32_t handle) { self.arena.set_entry(handle); },
+            nb::arg("handle"))
+        .def("entry", [](HostObjectArena &self) { return self.arena.entry(); })
         .def(
             "set_flags",
             [](HostObjectArena &self, uint32_t handle, uint16_t flags) {

@@ -108,11 +108,6 @@ def shm(image: Image, context):
     segment.unlink()
 
 
-@pytest.mark.xfail(
-    reason="blocked on the arena lane: the engine's dump/apply answers 'image "
-    "not usable' while the rebuild/canonical-walk work is in progress",
-    strict=False,
-)
 def test_two_processes_share_one_image_over_the_rings(shm, image: Image):
     name, raw = shm
     wire = link.SharedMemory(name)
@@ -124,11 +119,6 @@ def test_two_processes_share_one_image_over_the_rings(shm, image: Image):
     wire.close()
 
 
-@pytest.mark.xfail(
-    reason="blocked on the arena lane: the engine's dump/apply answers 'image "
-    "not usable' while the rebuild/canonical-walk work is in progress",
-    strict=False,
-)
 def test_a_change_made_from_the_other_process_is_in_the_shared_image(
     shm, image: Image, tmp_path
 ):
@@ -172,11 +162,6 @@ def serial(image: Image):
     os.close(slave)
 
 
-@pytest.mark.xfail(
-    reason="blocked on the arena lane: the engine's dump answers 'image not "
-    "usable' while the rebuild/canonical-walk work is in progress",
-    strict=False,
-)
 def test_a_client_talks_to_the_image_over_a_pty(serial, image: Image):
     path, _ = serial
     wire = link.open_link(f"pty:{path}")
@@ -223,11 +208,6 @@ def test_the_rxf_live_commands_work_on_a_pty(serial, image: Image, tmp_path, cap
     assert json.loads("\n".join(out[4:])) == {"commands": 4}  # `quit` ended it
 
 
-@pytest.mark.xfail(
-    reason="blocked on the arena lane: the engine's dump answers 'image not "
-    "usable' while the rebuild/canonical-walk work is in progress",
-    strict=False,
-)
 def test_the_rxf_live_commands_work_on_shared_memory(
     shm, image: Image, tmp_path, capsys
 ):

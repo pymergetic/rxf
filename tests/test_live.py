@@ -198,12 +198,6 @@ def test_large_payloads_and_child_lists_come_in_pages(
     )
 
 
-@pytest.mark.xfail(
-    reason="blocked on the arena lane: the engine's canonical dump (rebuild "
-    "into the emit region) answers 'image not usable' while the "
-    "rebuild/canonical-walk work is in progress",
-    strict=False,
-)
 def test_digest_and_dump_are_the_canonical_ones(starter: bytes, host: HostImage):
     # docs/32 5.4: the canonical bytes are the rebuild's and the digest is over
     # them. The starter fixture is the canonical arena - the export is the same
@@ -218,11 +212,6 @@ def test_digest_and_dump_are_the_canonical_ones(starter: bytes, host: HostImage)
     assert hashlib.sha256(dump).hexdigest() == digest == canonical
 
 
-@pytest.mark.xfail(
-    reason="blocked on the arena lane: the engine's canonical dump answers "
-    "'image not usable' while the rebuild/canonical-walk work is in progress",
-    strict=False,
-)
 def test_a_dump_of_an_uncompacted_arena_is_still_the_canonical_form(starter: bytes):
     # remove and re-add inside the host image, so that the arena has dead cells and another handle order
     image = model_copy(WORLD)
@@ -310,8 +299,8 @@ def edited(before: Image, rng: random.Random) -> Image:
 
 @pytest.mark.xfail(
     reason="blocked on the arena lane: the apply-after-apply path refuses a "
-    "second delta (the engine answers 'a path does not resolve'/'no room' "
-    "where the model links); the lookup table is not rebuilt after a commit",
+    "second delta ('image not usable' where the model links); the dump over "
+    "an arena an apply touched is not the canonical walk yet",
     strict=False,
 )
 @pytest.mark.parametrize("seed", range(4))
@@ -340,11 +329,6 @@ def test_applying_the_physical_delta_gives_the_same_image_as_the_host(
     assert host.client.hello().commits == 4
 
 
-@pytest.mark.xfail(
-    reason="blocked on the arena lane: the apply path refuses a delta while "
-    "the rebuild/canonical-walk work is in progress ('image not usable')",
-    strict=False,
-)
 def test_a_delta_that_retargets_payload_references_and_references(starter: bytes):
     base = model_copy(WORLD)
     host = HostImage(starter)
@@ -369,11 +353,6 @@ def test_a_delta_that_retargets_payload_references_and_references(starter: bytes
     )
 
 
-@pytest.mark.xfail(
-    reason="blocked on the arena lane: the apply path refuses a delta while "
-    "the rebuild/canonical-walk work is in progress ('image not usable')",
-    strict=False,
-)
 def test_the_entry_is_part_of_the_delta(starter: bytes):
     base = model_copy(WORLD)
     host = HostImage(starter)
@@ -718,11 +697,6 @@ def test_a_pinned_object_is_not_moved(starter: bytes):
 LIVE_LEAF = "pymergetic.rxf.foundation.live.pump"
 
 
-@pytest.mark.xfail(
-    reason="blocked on the arena lane: the engine's canonical dump answers "
-    "'image not usable' while the rebuild/canonical-walk work is in progress",
-    strict=False,
-)
 def test_the_hello_of_a_running_image_carries_its_version_and_its_counters(
     starter: bytes, host: HostImage, bridge: Bridge
 ):
@@ -742,8 +716,11 @@ def test_the_hello_of_a_running_image_carries_its_version_and_its_counters(
 
 
 @pytest.mark.xfail(
-    reason="blocked on the arena lane: the apply path refuses a delta while "
-    "the rebuild/canonical-walk work is in progress ('image not usable')",
+    reason="blocked on the compaction debt: the apply mutates the arena in "
+    "place (not a tree walk), so a best-fit span an apply handed out can be "
+    "absorbed whole (docs/32 2) and the walk replays the room it finds "
+    "(pymergetic.rxf.model.generics: 24 where the fresh export requests 16) "
+    "until COMPACT lands before the dump (docs/32 5.4)",
     strict=False,
 )
 def test_the_counters_of_a_session_move_with_what_the_image_takes_and_refuses(

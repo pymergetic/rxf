@@ -36,6 +36,19 @@ constexpr uint32_t kReserveAllocate = 32;
 constexpr uint32_t kReserveRelease = 32;
 constexpr uint32_t kReserveRing = 8;
 
+/* docs/32 5.4 step 2: the first index the bootstrap does not make (the index,
+ * sys/syms, the root image, sys and its five leaves fill 0..8). */
+constexpr uint32_t kWalkFirst = 9;
+/* The capacity of a fresh arena is the world's survey plus the writer's
+ * headroom (tools/native/arena_export.py: objects + tables + INDEX_HEADROOM).
+ * The survey is the live slots minus the arena's own scaffolding - the
+ * bootstrap's ten and the founding core of docs/36 (its tree and its tables)
+ * - so the headroom a rebuild needs is the writer's 256 minus that 36. */
+constexpr uint32_t kIndexHeadroom = 220;
+/* The tree walk is iterative (the engine has no recursion): the stack holds
+ * one entry per open module - its last placed child name. */
+constexpr uint32_t kWalkDepth = 32;
+
 } // namespace
 
 pymergetic_rxf_object *ObjectArena::record_at(uint64_t offset) const {
@@ -666,268 +679,342 @@ void ObjectArena::sync_free_head() {
 /* The rows of sys/specs (docs/32 5). The handle is looked up by name once - a cold
  * attach has nothing cached - and kept; the object itself is loaded every time, so
  * a stale or moved table is never trusted. */
+void ObjectArena::set_entry(uint32_t handle) {
+    super()->entry = handle;
+}
+
+uint32_t ObjectArena::entry() const {
+    return super()->entry;
+}
+
 Status ObjectArena::spec_rows(pymergetic_rxf_spec **rows, uint32_t *count) {
     if (specs_handle_ == 0) {
         uint32_t sys = PYMERGETIC_RXF_HANDLE32_NONE;
         uint32_t found = PYMERGETIC_RXF_HANDLE32_NONE;
         const uint32_t root = super()->root;
-        if (root == PYMERGETIC_RXF_HANDLE32_NONE || find(root, "sys", &sys) != Status::Ok ||
-            sys == PYMERGETIC_RXF_HANDLE32_NONE || find(sys, "specs", &found) != Status::Ok)
-            found = PYMERGETIC_RXF_HANDLE32_NONE;
+        if (find(root, "sys", &sys) != Status::Ok || sys == PYMERGETIC_RXF_HANDLE32_NONE)
+            return Status::BadImage;
+        if (find(sys, "specs", &found) != Status::Ok || found == PYMERGETIC_RXF_HANDLE32_NONE)
+            return Status::BadImage;
         specs_handle_ = found;
     }
-    if (specs_handle_ == PYMERGETIC_RXF_HANDLE32_NONE)
-        return Status::BadImage;
-    pymergetic_rxf_object *record = nullptr;
-    Status st = load(specs_handle_, &record);
+    pymergetic_rxf_object *table = nullptr;
+    Status st = load(specs_handle_, &table);
     if (st != Status::Ok)
         return st;
-    *rows = reinterpret_cast<pymergetic_rxf_spec *>(reinterpret_cast<uint8_t *>(record) +
-                                                    sizeof(pymergetic_rxf_object));
-    *count = record->payload / sizeof(pymergetic_rxf_spec);
+    const uint8_t *base = nullptr;
+    uint32_t size = 0;
+    st = payload(specs_handle_, &base, &size);
+    if (st != Status::Ok)
+        return st;
+    *rows = reinterpret_cast<pymergetic_rxf_spec *>(const_cast<uint8_t *>(base));
+    *count = table->payload / sizeof(pymergetic_rxf_spec);
     return Status::Ok;
 }
 
-Status ObjectArena::spec(uint32_t handle, pymergetic_rxf_spec *out) {
-    pymergetic_rxf_object *record = nullptr;
-    Status st = load(handle, &record); /* the handle is checked before its row is read */
-    if (st != Status::Ok)
-        return st;
-    pymergetic_rxf_spec *rows = nullptr;
-    uint32_t count = 0;
-    st = spec_rows(&rows, &count);
-    if (st != Status::Ok)
-        return st;
-    const uint32_t index = pymergetic_rxf_handle32_index(handle);
-    if (index >= count)
-        return Status::BadHandle;
-    *out = rows[index];
-    return Status::Ok;
-}
-
-Status ObjectArena::set_spec(uint32_t handle, const pymergetic_rxf_spec &row) {
-    if (row.reserved != 0)
-        return Status::BadImage; /* the reserved word is zero in every row */
-    pymergetic_rxf_object *record = nullptr;
-    Status st = load(handle, &record);
-    if (st != Status::Ok)
-        return st;
-    pymergetic_rxf_spec *rows = nullptr;
-    uint32_t count = 0;
-    st = spec_rows(&rows, &count);
-    if (st != Status::Ok)
-        return st;
-    const uint32_t index = pymergetic_rxf_handle32_index(handle);
-    if (index >= count)
-        return Status::BadHandle;
-    return j_copy(&rows[index], &row, sizeof(row));
-}
-
-uint32_t ObjectArena::handle_count() const {
-    const pymergetic_rxf_slots *slots = index_table();
-    return model_ready(slots) ? slots->count : 0;
-}
-
-/* One child of a module whose name is exactly `length` bytes of `text`. The walk
- * compares in place: a name that is a segment of a dotted path never has to be
- * copied out of the table it is written in. */
-Status ObjectArena::child_named(uint32_t parent, const char *text, uint32_t length,
-                                uint32_t *handle) {
-    *handle = PYMERGETIC_RXF_HANDLE32_NONE;
-    if (text == nullptr || length == 0)
-        return Status::BadName;
-    pymergetic_rxf_object *module = nullptr;
-    Status st = load(parent, &module);
-    if (st != Status::Ok)
-        return st;
-    if (module->kind != PYMERGETIC_RXF_OBJ_MODULE)
-        return Status::BadImage;
-    uint32_t walk = module_of(module)->children;
-    while (walk != PYMERGETIC_RXF_HANDLE32_NONE) {
-        pymergetic_rxf_object *child = nullptr;
-        st = load(walk, &child);
-        if (st != Status::Ok)
-            return st;
-        if (child->name != PYMERGETIC_RXF_SYMS_ANONYMOUS) {
-            const char *held = nullptr;
-            uint32_t size = 0;
-            st = symbol(child->name, &held, &size);
-            if (st != Status::Ok)
-                return st;
-            if (size == length && mem::compare(held, text, length) == 0) {
-                *handle = walk;
-                return Status::Ok;
-            }
-        }
-        walk = child->link;
-    }
-    return Status::Ok;
-}
-
-/* Does `name` spell the path of `handle`? The segments are compared from the
- * object up, so the path never has to be materialized: no buffer, and a name of
- * the wrong length is refused on its first word. */
-bool ObjectArena::path_matches(uint32_t handle, const char *name, uint32_t length) {
-    if (name == nullptr || length == 0)
+/* One object placed into the output: the writer's create (the name, the
+ * storage role, the payload room) with the module head left to the appends
+ * (tools/native/arena_export.py's EMPTY_MODULE_HEAD), and the source's handle
+ * mapped to the output's in `remap`. */
+bool ObjectArena::place_one(ObjectArena &out, uint32_t source, uint32_t *remap,
+                            uint32_t remap_count) {
+    const uint32_t index = pymergetic_rxf_handle32_index(source);
+    if (index >= remap_count || remap[index] != PYMERGETIC_RXF_HANDLE32_NONE)
         return false;
-    const char *const start = name;
-    const char *end = name + length;
-    uint32_t walk = handle;
-    while (end != start) {
-        /* More segments than the tree has: the root is the image, not a segment. */
-        if (walk == PYMERGETIC_RXF_HANDLE32_NONE || walk == super()->root)
+    pymergetic_rxf_object *record = nullptr;
+    if (load(source, &record) != Status::Ok)
+        return false;
+    const char *name = nullptr;
+    uint32_t length = 0;
+    if (record->name != PYMERGETIC_RXF_SYMS_ANONYMOUS &&
+        symbol(record->name, &name, &length) != Status::Ok)
+        return false;
+    const uint32_t parent = record->parent == PYMERGETIC_RXF_HANDLE32_NONE
+                                ? PYMERGETIC_RXF_HANDLE32_NONE
+                                : remap[pymergetic_rxf_handle32_index(record->parent)];
+    /* The writer's placement (tools/native/arena_export.py's _place): a node
+     * with children is a Module, a childless one a leaf in the storage role of
+     * its world kind (the LEAF_KIND map of the semantic row's flags). A module
+     * that lost its last child still carries its chain head - the head is
+     * arena bookkeeping, not the object's own - so the walk reads the children
+     * the source has, and a chain that emptied demotes here (docs/32 1.2, the
+     * mirror of into_module). A scaffold module (row kind 0) keeps its head. */
+    bool module = record->kind == PYMERGETIC_RXF_OBJ_MODULE;
+    uint16_t kind = record->kind;
+    if (module) {
+        const bool empty_chain = module_of(record)->children == PYMERGETIC_RXF_HANDLE32_NONE;
+        pymergetic_rxf_spec row{};
+        if (spec(source, &row) != Status::Ok)
             return false;
-        pymergetic_rxf_object *part = nullptr;
-        if (load(walk, &part) != Status::Ok)
-            return false;
-        if (part->name == PYMERGETIC_RXF_SYMS_ANONYMOUS)
-            return false; /* an unnamed object has no path segment */
-        const char *segment = end;
-        while (segment != start && segment[-1] != '.')
-            --segment;
-        const auto size = static_cast<uint32_t>(end - segment);
-        const char *text = nullptr;
-        uint32_t held = 0;
-        if (symbol(part->name, &text, &held) != Status::Ok)
-            return false;
-        if (held != size || mem::compare(text, segment, size) != 0)
-            return false;
-        walk = part->parent;
-        end = (segment == start) ? segment : segment - 1; /* the dot before the segment */
-    }
-    return walk == super()->root;
-}
-
-/* The rows of `sys/relations/<path>` (docs/32 2), found by matching the table's
- * name against the object's own path - a comparison that walks the tree instead
- * of building the path first. */
-Status ObjectArena::relation_rows(uint32_t handle, const pymergetic_rxf_ref **rows_out,
-                                  uint32_t *count) {
-    *rows_out = nullptr;
-    *count = 0;
-    uint32_t sys = PYMERGETIC_RXF_HANDLE32_NONE;
-    uint32_t relations = PYMERGETIC_RXF_HANDLE32_NONE;
-    Status st = child_named(super()->root, "sys", 3, &sys);
-    if (st != Status::Ok)
-        return st;
-    if (sys == PYMERGETIC_RXF_HANDLE32_NONE)
-        return Status::Ok; /* no sys/, so nothing has refs */
-    st = child_named(sys, "relations", 9, &relations);
-    if (st != Status::Ok)
-        return st;
-    if (relations == PYMERGETIC_RXF_HANDLE32_NONE)
-        return Status::Ok; /* no tables at all */
-    pymergetic_rxf_object *module = nullptr;
-    st = load(relations, &module);
-    if (st != Status::Ok)
-        return st;
-    uint32_t walk = module_of(module)->children;
-    while (walk != PYMERGETIC_RXF_HANDLE32_NONE) {
-        pymergetic_rxf_object *table = nullptr;
-        st = load(walk, &table);
-        if (st != Status::Ok)
-            return st;
-        if (table->name != PYMERGETIC_RXF_SYMS_ANONYMOUS) {
-            const char *name = nullptr;
-            uint32_t size = 0;
-            st = symbol(table->name, &name, &size);
-            if (st != Status::Ok)
-                return st;
-            if (path_matches(handle, name, size)) {
-                const auto *rows = reinterpret_cast<const pymergetic_rxf_ref *>(
-                    reinterpret_cast<const uint8_t *>(table) + sizeof(pymergetic_rxf_object));
-                /* The room of a table is a whole number of rows and may carry the
-                 * zero padding of an 8-byte slot; a real row always names a target,
-                 * and a live handle32 is never 0, so an all-zero row is padding. */
-                uint32_t held = table->payload / sizeof(pymergetic_rxf_ref);
-                while (held > 0 && rows[held - 1].target == 0 && rows[held - 1].role == 0 &&
-                       rows[held - 1].kind == 0 && rows[held - 1].binding == 0 &&
-                       rows[held - 1].index == 0)
-                    --held;
-                *rows_out = rows;
-                *count = held;
-                return Status::Ok;
+        const uint32_t node = row.flags & PYMERGETIC_RXF_FLAG_KIND_MASK;
+        if (empty_chain && node != 0) {
+            module = false;
+            kind = PYMERGETIC_RXF_OBJ_BLOB;
+            switch (node) {
+            case PYMERGETIC_RXF_NODE_FN:
+            case PYMERGETIC_RXF_NODE_CODE:
+                kind = PYMERGETIC_RXF_OBJ_FUNC;
+                break;
+            case PYMERGETIC_RXF_NODE_TYPE:
+            case PYMERGETIC_RXF_NODE_FIELD:
+            case PYMERGETIC_RXF_NODE_ENUMERATOR:
+                kind = PYMERGETIC_RXF_OBJ_SPEC;
+                break;
+            case PYMERGETIC_RXF_NODE_IMPORT:
+            case PYMERGETIC_RXF_NODE_EXPORT:
+            case PYMERGETIC_RXF_NODE_ALIAS:
+                kind = PYMERGETIC_RXF_OBJ_SYM;
+                break;
+            default:
+                break;
             }
         }
-        walk = table->link;
     }
-    return Status::Ok; /* the object has no table: no refs */
+    uint32_t handle = PYMERGETIC_RXF_HANDLE32_NONE;
+    /* A module's room carries its chain head; a demoted leaf's is the value
+     * alone (the head stays in the source); a leaf's room is its own. */
+    const bool demoted = !module && record->kind == PYMERGETIC_RXF_OBJ_MODULE;
+    const uint64_t room = module ? record->payload
+                                 : (demoted ? (record->payload > sizeof(pymergetic_rxf_module)
+                                                   ? record->payload - sizeof(pymergetic_rxf_module)
+                                                   : 0)
+                                            : record->payload);
+    const Status placed = out.create(parent, name, kind, room, &handle);
+    if (placed != Status::Ok)
+        return false;
+    if (record->payload != 0) {
+        const uint8_t *bytes = nullptr;
+        uint32_t size = 0;
+        if (payload(source, &bytes, &size) != Status::Ok)
+            return false;
+        /* A module's first bytes are its chain head (children, count): the
+         * appends own it, and the writer writes it empty. The object's own
+         * data is what follows the head - whether the output takes it as the
+         * module it is or the leaf a demoted empty chain becomes (the leaf has
+         * no head, so its value lands at 0). */
+        const uint64_t skip =
+            record->kind == PYMERGETIC_RXF_OBJ_MODULE && size >= sizeof(pymergetic_rxf_module)
+                ? sizeof(pymergetic_rxf_module)
+                : 0;
+        const uint64_t dest =
+            module && size >= sizeof(pymergetic_rxf_module) ? sizeof(pymergetic_rxf_module) : 0;
+        if (skip > size ||
+            out.set_payload_at(handle, dest, bytes + skip, size - skip) != Status::Ok)
+            return false;
+    }
+    if (out.set_flags(handle, record->flags) != Status::Ok)
+        return false;
+    remap[index] = handle;
+    return true;
 }
 
-Status ObjectArena::path_of(uint32_t handle, char *out, uint32_t capacity, uint32_t *written) {
-    *written = 0;
-    pymergetic_rxf_object *record = nullptr;
-    Status st = load(handle, &record); /* the handle is checked first */
-    if (st != Status::Ok)
-        return st;
+/* The children of a module in name order (docs/32 5.4: "children by name").
+ * The chain is the creation order - the order an apply appends at its end -
+ * so the walk picks the smallest name the walk has not placed yet. */
+bool ObjectArena::next_child(uint32_t parent, uint16_t after, uint32_t *next) {
+    pymergetic_rxf_object *module = nullptr;
+    if (load(parent, &module) != Status::Ok || module->kind != PYMERGETIC_RXF_OBJ_MODULE)
+        return false;
+    const char *after_text = nullptr;
+    uint32_t after_length = 0;
+    if (after != 0xFFFF && symbol(after, &after_text, &after_length) != Status::Ok)
+        return false;
+    uint32_t best = PYMERGETIC_RXF_HANDLE32_NONE;
+    const char *best_text = nullptr;
+    uint32_t best_length = 0;
+    uint32_t walk = module_of(module)->children;
+    while (walk != PYMERGETIC_RXF_HANDLE32_NONE) {
+        const uint32_t candidate = walk;
+        pymergetic_rxf_object *kid = nullptr;
+        if (load(walk, &kid) != Status::Ok)
+            return false;
+        walk = kid->link;
+        const char *text = nullptr;
+        uint32_t length = 0;
+        if (kid->name == PYMERGETIC_RXF_SYMS_ANONYMOUS)
+            continue;
+        if (symbol(kid->name, &text, &length) != Status::Ok)
+            return false;
+        if (after != 0xFFFF) {
+            const uint32_t common = length < after_length ? length : after_length;
+            const int diff = mem::compare(text, after_text, common);
+            const bool beyond = diff > 0 || (diff == 0 && length > after_length);
+            if (!beyond)
+                continue;
+        }
+        if (best == PYMERGETIC_RXF_HANDLE32_NONE ||
+            name_less(text, length, best_text, best_length)) {
+            best = candidate;
+            best_text = text;
+            best_length = length;
+        }
+    }
+    *next = best;
+    return true;
+}
 
-    /* The root is the image, not a path segment: its path is empty. */
-    uint64_t total = 0;
-    uint32_t walk = handle;
+/* The name order (the writer's children: docs/32 5.4 "children by name"). */
+bool ObjectArena::name_less(const char *a, uint32_t an, const char *b, uint32_t bn) {
+    const uint32_t common = an < bn ? an : bn;
+    const int diff = mem::compare(a, b, common);
+    return diff < 0 || (diff == 0 && an < bn);
+}
+
+/* The name id of a placed object (the sorted walk's cursor). */
+bool ObjectArena::name_of(uint32_t handle, uint16_t *name) {
+    pymergetic_rxf_object *record = nullptr;
+    if (load(handle, &record) != Status::Ok)
+        return false;
+    *name = record->name;
+    return true;
+}
+
+/* Whether a relation table belongs to the genesis (its name is the object's
+ * path: the genesis's tables open with "honors."). The writer's _genesis
+ * appends them after the genesis tree, so the walk keeps them there. */
+bool ObjectArena::genesis_table(uint32_t source) {
+    pymergetic_rxf_object *record = nullptr;
+    if (load(source, &record) != Status::Ok || record->name == PYMERGETIC_RXF_SYMS_ANONYMOUS)
+        return false;
+    const char *text = nullptr;
+    uint32_t length = 0;
+    if (symbol(record->name, &text, &length) != Status::Ok)
+        return false;
+    static const char kGenesis[] = {'h', 'o', 'n', 'o', 'r', 's', '.'};
+    return length >= sizeof(kGenesis) && mem::compare(text, kGenesis, sizeof(kGenesis)) == 0;
+}
+
+/* Whether `source` sits in the subtree of `root` (the genesis's membership). */
+bool ObjectArena::under(uint32_t source, uint32_t root) {
+    if (source == root)
+        return true;
+    uint32_t at = source;
+    for (uint32_t depth = 0; depth < kWalkDepth; depth++) {
+        pymergetic_rxf_object *record = nullptr;
+        if (load(at, &record) != Status::Ok)
+            return false;
+        if (record->parent == PYMERGETIC_RXF_HANDLE32_NONE)
+            return at == root;
+        if (record->parent == root)
+            return true;
+        at = record->parent;
+    }
+    return false;
+}
+
+/* A relation table is a child of sys/relations (docs/32 2): its payload is the
+ * pinned reference rows, and their two handles are paths until the remap. */
+bool ObjectArena::is_ref_table(uint32_t source, uint32_t relations,
+                               const pymergetic_rxf_object *record) {
+    return record->parent == relations && source != relations;
+}
+
+/* The subtree of `first` in the writer's order (the name order). */
+bool ObjectArena::walk_place(ObjectArena &out, uint32_t first, uint32_t *remap,
+                             uint32_t remap_count) {
+    struct Open {
+        uint32_t parent;
+        uint16_t last;
+    };
+    Open resume[kWalkDepth];
     uint32_t depth = 0;
-    while (walk != super()->root) {
-        pymergetic_rxf_object *part = nullptr;
-        st = load(walk, &part);
-        if (st != Status::Ok)
-            return st;
-        if (part->name != PYMERGETIC_RXF_SYMS_ANONYMOUS) {
-            const char *text = nullptr;
-            uint32_t size = 0;
-            st = symbol(part->name, &text, &size);
-            if (st != Status::Ok)
-                return st;
-            total += size + (total == 0 ? 0 : 1);
+    uint32_t at = first;
+    for (;;) {
+        if (!place_one(out, at, remap, remap_count))
+            return false;
+        pymergetic_rxf_object *record = nullptr;
+        if (load(at, &record) != Status::Ok)
+            return false;
+        uint32_t child = PYMERGETIC_RXF_HANDLE32_NONE;
+        if (record->kind == PYMERGETIC_RXF_OBJ_MODULE && !next_child(at, 0xFFFF, &child))
+            return false;
+        if (child != PYMERGETIC_RXF_HANDLE32_NONE) {
+            if (depth >= kWalkDepth)
+                return false;
+            pymergetic_rxf_object *kid = nullptr;
+            if (load(child, &kid) != Status::Ok)
+                return false;
+            resume[depth].parent = at;
+            resume[depth].last = kid->name;
+            depth++;
+            at = child;
+            continue;
         }
-        if (part->parent == PYMERGETIC_RXF_HANDLE32_NONE)
-            return Status::BadImage; /* a tree that does not reach the root */
-        walk = part->parent;
-        if (++depth > 1024)
-            return Status::BadImage;
-    }
-    *written = static_cast<uint32_t>(total);
-    if (total > capacity)
-        return Status::OutOfMemory; /* *written is what the buffer has to offer */
-
-    /* Written backwards from the end, so the segments land in tree order. */
-    uint64_t at = total;
-    walk = handle;
-    while (walk != super()->root) {
-        pymergetic_rxf_object *part = nullptr;
-        if (load(walk, &part) != Status::Ok)
-            return Status::BadImage;
-        if (part->name != PYMERGETIC_RXF_SYMS_ANONYMOUS) {
-            const char *text = nullptr;
-            uint32_t size = 0;
-            if (symbol(part->name, &text, &size) != Status::Ok)
-                return Status::BadImage;
-            at -= size;
-            mem::copy(out + at, text, size);
-            if (at != 0)
-                out[--at] = '.';
+        for (;;) {
+            if (depth == 0)
+                return true;
+            const Open open = resume[depth - 1];
+            uint32_t up = PYMERGETIC_RXF_HANDLE32_NONE;
+            if (!next_child(open.parent, open.last, &up))
+                return false;
+            if (up != PYMERGETIC_RXF_HANDLE32_NONE) {
+                pymergetic_rxf_object *nxt = nullptr;
+                if (load(up, &nxt) != Status::Ok)
+                    return false;
+                resume[depth - 1].last = nxt->name;
+                at = up;
+                break;
+            }
+            depth--;
         }
-        walk = part->parent;
     }
-    return Status::Ok;
 }
 
-Status ObjectArena::refs_of(uint32_t handle, pymergetic_rxf_ref *out, uint32_t capacity,
-                            uint32_t *count) {
-    *count = 0;
-    pymergetic_rxf_object *record = nullptr;
-    Status st = load(handle, &record); /* the handle is checked first */
-    if (st != Status::Ok)
-        return st;
-    const pymergetic_rxf_ref *rows = nullptr;
+bool ObjectArena::fixup_refs(ObjectArena &out, uint32_t where, uint32_t source, uint32_t type,
+                             uint64_t head, uint64_t shift, const uint32_t *remap,
+                             uint32_t remap_count) {
+    if (type == PYMERGETIC_RXF_HANDLE32_NONE)
+        return true;
+    uint32_t fields[64];
     uint32_t held = 0;
-    st = relation_rows(handle, &rows, &held);
-    if (st != Status::Ok)
-        return st;
-    *count = held;
-    if (out == nullptr || held > capacity)
-        return held == 0 ? Status::Ok : Status::OutOfMemory;
-    for (uint32_t i = 0; i < held; i++)
-        out[i] = rows[i];
-    return Status::Ok;
+    if (children(type, fields, 64, &held) != Status::Ok || held > 64)
+        return false;
+    for (uint32_t k = 0; k < held; k++) {
+        pymergetic_rxf_object *record = nullptr;
+        if (load(fields[k], &record) != Status::Ok)
+            return false;
+        if (record->payload < sizeof(pymergetic_rxf_field))
+            continue;
+        const uint8_t *bytes = nullptr;
+        uint32_t size = 0;
+        if (payload(fields[k], &bytes, &size) != Status::Ok)
+            continue;
+        pymergetic_rxf_field field{};
+        mem::copy(&field, bytes, sizeof(field));
+        if ((field.flags & PYMERGETIC_RXF_FIELD_FLAG_REF) == 0)
+            continue;
+        for (uint64_t i = 0; i < field.count; i++) {
+            const uint64_t at = head + field.offset + 8 * i;
+            if (!fixup_slot(out, where, source, at, shift, remap, remap_count))
+                return false;
+        }
+    }
+    return true;
+}
+
+/* One u64 of a payload: a handle that points at an object that is gone is
+ * unset in the canonical image (compaction does the same: tools/native/
+ * physical.py's records), and the rest follows the remap. The source slot
+ * sits at `at` (its module's head included); the output's slot sits at
+ * `at - shift` - `shift` is the head a demoted leaf dropped (docs/32 1.2),
+ * 0 for everything that keeps its shape. */
+bool ObjectArena::fixup_slot(ObjectArena &out, uint32_t where, uint32_t source, uint64_t at,
+                             uint64_t shift, const uint32_t *remap, uint32_t remap_count) {
+    const uint8_t *bytes = nullptr;
+    uint32_t size = 0;
+    if (payload(source, &bytes, &size) != Status::Ok || at + 8 > size)
+        return false;
+    uint64_t value = 0;
+    mem::copy(&value, bytes + at, 8);
+    if (value == PYMERGETIC_RXF_HANDLE_NONE)
+        return true;
+    if (value > 0xFFFFFFFFULL || pymergetic_rxf_handle32_index((uint32_t)value) >= remap_count)
+        return false;
+    const uint32_t target = remap[pymergetic_rxf_handle32_index((uint32_t)value)];
+    const uint64_t mapped =
+        target == PYMERGETIC_RXF_HANDLE32_NONE ? PYMERGETIC_RXF_HANDLE_NONE : (uint64_t)target;
+    return out.set_payload_at(where, at - shift, reinterpret_cast<const uint8_t *>(&mapped), 8) ==
+           Status::Ok;
 }
 
 Status ObjectArena::bootstrap(const char *image_name, uint32_t capacity) {
@@ -1078,6 +1165,133 @@ Status ObjectArena::bootstrap(const char *image_name, uint32_t capacity) {
     return journal_commit(); /* a fresh tree is one committed state */
 }
 
+Status ObjectArena::child_named(uint32_t parent, const char *text, uint32_t length,
+                                uint32_t *handle) {
+    *handle = PYMERGETIC_RXF_HANDLE32_NONE;
+    if (text == nullptr || length == 0)
+        return Status::BadName;
+    pymergetic_rxf_object *module = nullptr;
+    Status st = load(parent, &module);
+    if (st != Status::Ok)
+        return st;
+    if (module->kind != PYMERGETIC_RXF_OBJ_MODULE)
+        return Status::BadImage;
+    uint32_t walk = module_of(module)->children;
+    while (walk != PYMERGETIC_RXF_HANDLE32_NONE) {
+        pymergetic_rxf_object *child = nullptr;
+        st = load(walk, &child);
+        if (st != Status::Ok)
+            return st;
+        if (child->name != PYMERGETIC_RXF_SYMS_ANONYMOUS) {
+            const char *held = nullptr;
+            uint32_t size = 0;
+            st = symbol(child->name, &held, &size);
+            if (st != Status::Ok)
+                return st;
+            if (size == length && mem::compare(held, text, length) == 0) {
+                *handle = walk;
+                return Status::Ok;
+            }
+        }
+        walk = child->link;
+    }
+    return Status::Ok;
+}
+
+/* A leaf that gains a child becomes a module (docs/32 1.2: "a module owns its
+ * chain head first"): its value moves behind a fresh chain head. The record
+ * that outgrows its room is freed and re-grown (docs/32 1.2) - the same
+ * pattern a value that grows follows. */
+Status ObjectArena::into_module(uint32_t handle, uint32_t *fresh) {
+    *fresh = handle;
+    pymergetic_rxf_object *old = nullptr;
+    Status st = load(handle, &old);
+    if (st != Status::Ok)
+        return st;
+    if (old->kind == PYMERGETIC_RXF_OBJ_MODULE)
+        return Status::Ok;
+    if (pymergetic_rxf_handle32_index(handle) == PYMERGETIC_RXF_INDEX_SELF)
+        return Status::Protected;
+    const uint32_t parent = old->parent;
+    const uint16_t name_id = old->name;
+    const uint16_t flags = old->flags;
+    const uint64_t value = old->payload;
+    const uint64_t at_old = index_entry(pymergetic_rxf_handle32_index(handle))->slot;
+    uint64_t at_new = 0;
+    st = s_allocate(sizeof(pymergetic_rxf_module) + value, &at_new);
+    if (st != Status::Ok)
+        return st;
+    /* the chain head first (the writer's EMPTY_MODULE_HEAD), then the value */
+    for (uint64_t k = 0; k < value; k += 8) {
+        uint64_t word = 0;
+        mem::copy(&word,
+                  reinterpret_cast<const uint8_t *>(record_at(at_old)) +
+                      sizeof(pymergetic_rxf_object) + k,
+                  8);
+        st = j_set(reinterpret_cast<uint64_t *>(reinterpret_cast<uint8_t *>(record_at(at_new)) +
+                                                sizeof(pymergetic_rxf_object) +
+                                                sizeof(pymergetic_rxf_module) + k),
+                   word);
+        if (st != Status::Ok)
+            return st;
+    }
+    pymergetic_rxf_object *made = record_at(at_new);
+    st = j_set(&made->kind, (uint16_t)PYMERGETIC_RXF_OBJ_MODULE);
+    if (st != Status::Ok)
+        return st;
+    st = j_set(&made->name, name_id);
+    if (st != Status::Ok)
+        return st;
+    st = j_set(&made->parent, parent);
+    if (st != Status::Ok)
+        return st;
+    st = j_set(&made->link, old->link);
+    if (st != Status::Ok)
+        return st;
+    st = j_set(&made->refs, old->refs);
+    if (st != Status::Ok)
+        return st;
+    st = j_set(&made->flags, flags);
+    if (st != Status::Ok)
+        return st;
+    /* The empty chain spells HANDLE32_NONE (docs/32 1.2): a zeroed head would
+     * read children = 0, the index object's handle - the same hazard the
+     * bootstrap and create spell out for a fresh module. */
+    st = j_set(&module_of(made)->children, PYMERGETIC_RXF_HANDLE32_NONE);
+    if (st != Status::Ok)
+        return st;
+    st = j_set(&module_of(made)->count, (uint32_t)0);
+    if (st != Status::Ok)
+        return st;
+    st = s_release(at_old);
+    if (st != Status::Ok)
+        return st;
+    /* the index hands the entry out again (docs/32 1.2): the generation the
+     * span was handed is the one the entry and the record share (load() checks
+     * both). */
+    const uint32_t index = pymergetic_rxf_handle32_index(handle);
+    pymergetic_rxf_slot *entry = index_entry(index);
+    const uint16_t gen = record_at(at_new)->gen;
+    st = j_set(&entry->slot, at_new);
+    if (st != Status::Ok)
+        return st;
+    st = j_set(&entry->kind, (uint16_t)PYMERGETIC_RXF_OBJ_MODULE);
+    if (st != Status::Ok)
+        return st;
+    st = j_set(&entry->gen, gen);
+    if (st != Status::Ok)
+        return st;
+    *fresh = pymergetic_rxf_handle32_pack(index, gen);
+    return Status::Ok;
+}
+
+/* A module that loses its last child becomes a leaf again (docs/32 1.2, the
+ * mirror of into_module): the value moves out from behind the chain head and
+ * the record takes the storage role of its world kind - the writer's map
+ * (tools/native/arena_export.py's LEAF_KIND) reads the semantic row's flags.
+ * A scaffold module (a row whose kind word is 0) keeps its head: it is
+ * bookkeeping, not a world node. */
+
 Status ObjectArena::create(uint32_t parent, const char *name, uint16_t kind, uint64_t room,
                            uint32_t *handle) {
     if (room > 0xFFFFFFFFu - sizeof(pymergetic_rxf_object))
@@ -1167,23 +1381,220 @@ Status ObjectArena::create(uint32_t parent, const char *name, uint16_t kind, uin
     return Status::Ok;
 }
 
-namespace {
-/* docs/32 5.4 step 2: the first index the bootstrap does not make (the index,
- * sys/syms, the root image, sys and its five leaves fill 0..8). */
-constexpr uint32_t kWalkFirst = 9;
-/* The capacity of a fresh arena is the world's survey plus the writer's
- * headroom (tools/native/arena_export.py: objects + tables + INDEX_HEADROOM).
- * The survey is the live slots minus the arena's own scaffolding - the
- * bootstrap's ten and the founding core of docs/36 (its tree and its tables)
- * - so the headroom a rebuild needs is the writer's 256 minus that 36. */
-constexpr uint32_t kIndexHeadroom = 220;
-} // namespace
+uint32_t ObjectArena::handle_count() const {
+    const pymergetic_rxf_slots *slots = index_table();
+    return model_ready(slots) ? slots->count : 0;
+}
 
-Status ObjectArena::rebuild(ObjectArena &out) {
+bool ObjectArena::path_matches(uint32_t handle, const char *name, uint32_t length) {
+    if (name == nullptr || length == 0)
+        return false;
+    const char *const start = name;
+    const char *end = name + length;
+    uint32_t walk = handle;
+    while (end != start) {
+        /* More segments than the tree has: the root is the image, not a segment. */
+        if (walk == PYMERGETIC_RXF_HANDLE32_NONE || walk == super()->root)
+            return false;
+        pymergetic_rxf_object *part = nullptr;
+        if (load(walk, &part) != Status::Ok)
+            return false;
+        if (part->name == PYMERGETIC_RXF_SYMS_ANONYMOUS)
+            return false; /* an unnamed object has no path segment */
+        const char *segment = end;
+        while (segment != start && segment[-1] != '.')
+            --segment;
+        const auto size = static_cast<uint32_t>(end - segment);
+        const char *text = nullptr;
+        uint32_t held = 0;
+        if (symbol(part->name, &text, &held) != Status::Ok)
+            return false;
+        if (held != size || mem::compare(text, segment, size) != 0)
+            return false;
+        walk = part->parent;
+        end = (segment == start) ? segment : segment - 1; /* the dot before the segment */
+    }
+    return walk == super()->root;
+}
+
+Status ObjectArena::path_of(uint32_t handle, char *out, uint32_t capacity, uint32_t *written) {
+    *written = 0;
+    pymergetic_rxf_object *record = nullptr;
+    Status st = load(handle, &record); /* the handle is checked first */
+    if (st != Status::Ok)
+        return st;
+
+    /* The root is the image, not a path segment: its path is empty. */
+    uint64_t total = 0;
+    uint32_t walk = handle;
+    uint32_t depth = 0;
+    while (walk != super()->root) {
+        pymergetic_rxf_object *part = nullptr;
+        st = load(walk, &part);
+        if (st != Status::Ok)
+            return st;
+        if (part->name != PYMERGETIC_RXF_SYMS_ANONYMOUS) {
+            const char *text = nullptr;
+            uint32_t size = 0;
+            st = symbol(part->name, &text, &size);
+            if (st != Status::Ok)
+                return st;
+            total += size + (total == 0 ? 0 : 1);
+        }
+        if (part->parent == PYMERGETIC_RXF_HANDLE32_NONE)
+            return Status::BadImage; /* a tree that does not reach the root */
+        walk = part->parent;
+        if (++depth > 1024)
+            return Status::BadImage;
+    }
+    *written = static_cast<uint32_t>(total);
+    if (total > capacity)
+        return Status::OutOfMemory; /* *written is what the buffer has to offer */
+
+    /* Written backwards from the end, so the segments land in tree order. */
+    uint64_t at = total;
+    walk = handle;
+    while (walk != super()->root) {
+        pymergetic_rxf_object *part = nullptr;
+        if (load(walk, &part) != Status::Ok)
+            return Status::BadImage;
+        if (part->name != PYMERGETIC_RXF_SYMS_ANONYMOUS) {
+            const char *text = nullptr;
+            uint32_t size = 0;
+            if (symbol(part->name, &text, &size) != Status::Ok)
+                return Status::BadImage;
+            at -= size;
+            mem::copy(out + at, text, size);
+            if (at != 0)
+                out[--at] = '.';
+        }
+        walk = part->parent;
+    }
+    return Status::Ok;
+}
+
+Status ObjectArena::refs_of(uint32_t handle, pymergetic_rxf_ref *out, uint32_t capacity,
+                            uint32_t *count) {
+    *count = 0;
+    pymergetic_rxf_object *record = nullptr;
+    Status st = load(handle, &record); /* the handle is checked first */
+    if (st != Status::Ok)
+        return st;
+    const pymergetic_rxf_ref *rows = nullptr;
+    uint32_t held = 0;
+    st = relation_rows(handle, &rows, &held);
+    if (st != Status::Ok)
+        return st;
+    *count = held;
+    if (out == nullptr || held > capacity)
+        return held == 0 ? Status::Ok : Status::OutOfMemory;
+    for (uint32_t i = 0; i < held; i++)
+        out[i] = rows[i];
+    return Status::Ok;
+}
+
+Status ObjectArena::relation_rows(uint32_t handle, const pymergetic_rxf_ref **rows_out,
+                                  uint32_t *count) {
+    *rows_out = nullptr;
+    *count = 0;
+    uint32_t sys = PYMERGETIC_RXF_HANDLE32_NONE;
+    uint32_t relations = PYMERGETIC_RXF_HANDLE32_NONE;
+    Status st = child_named(super()->root, "sys", 3, &sys);
+    if (st != Status::Ok)
+        return st;
+    if (sys == PYMERGETIC_RXF_HANDLE32_NONE)
+        return Status::Ok; /* no sys/, so nothing has refs */
+    st = child_named(sys, "relations", 9, &relations);
+    if (st != Status::Ok)
+        return st;
+    if (relations == PYMERGETIC_RXF_HANDLE32_NONE)
+        return Status::Ok; /* no tables at all */
+    pymergetic_rxf_object *module = nullptr;
+    st = load(relations, &module);
+    if (st != Status::Ok)
+        return st;
+    uint32_t walk = module_of(module)->children;
+    while (walk != PYMERGETIC_RXF_HANDLE32_NONE) {
+        pymergetic_rxf_object *table = nullptr;
+        st = load(walk, &table);
+        if (st != Status::Ok)
+            return st;
+        if (table->name != PYMERGETIC_RXF_SYMS_ANONYMOUS) {
+            const char *name = nullptr;
+            uint32_t size = 0;
+            st = symbol(table->name, &name, &size);
+            if (st != Status::Ok)
+                return st;
+            if (path_matches(handle, name, size)) {
+                const auto *rows = reinterpret_cast<const pymergetic_rxf_ref *>(
+                    reinterpret_cast<const uint8_t *>(table) + sizeof(pymergetic_rxf_object));
+                /* The room of a table is a whole number of rows and may carry the
+                 * zero padding of an 8-byte slot; a real row always names a target,
+                 * and a live handle32 is never 0, so an all-zero row is padding. */
+                uint32_t held = table->payload / sizeof(pymergetic_rxf_ref);
+                while (held > 0 && rows[held - 1].target == 0 && rows[held - 1].role == 0 &&
+                       rows[held - 1].kind == 0 && rows[held - 1].binding == 0 &&
+                       rows[held - 1].index == 0)
+                    --held;
+                *rows_out = rows;
+                *count = held;
+                return Status::Ok;
+            }
+        }
+        walk = table->link;
+    }
+    return Status::Ok; /* the object has no table: no refs */
+}
+
+Status ObjectArena::set_spec(uint32_t handle, const pymergetic_rxf_spec &row) {
+    if (row.reserved != 0)
+        return Status::BadImage; /* the reserved word is zero in every row */
+    pymergetic_rxf_object *record = nullptr;
+    Status st = load(handle, &record);
+    if (st != Status::Ok)
+        return st;
+    pymergetic_rxf_spec *rows = nullptr;
+    uint32_t count = 0;
+    st = spec_rows(&rows, &count);
+    if (st != Status::Ok)
+        return st;
+    const uint32_t index = pymergetic_rxf_handle32_index(handle);
+    if (index >= count)
+        return Status::BadHandle;
+    return j_copy(&rows[index], &row, sizeof(row));
+}
+
+/* The semantic row of one object (docs/32 5): sys/specs is keyed by the
+ * index of the handle (a reused span keeps its rows: `gen` only certifies
+ * which span an old handle spoke of). */
+Status ObjectArena::spec(uint32_t handle, pymergetic_rxf_spec *row) {
+    pymergetic_rxf_spec *rows = nullptr;
+    uint32_t count = 0;
+    Status st = spec_rows(&rows, &count);
+    if (st != Status::Ok)
+        return st;
+    const uint32_t index = pymergetic_rxf_handle32_index(handle);
+    if (index >= count)
+        return Status::BadImage;
+    const pymergetic_rxf_slot *entry = index_entry(index);
+    if (entry->slot == 0)
+        return Status::BadHandle;
+    mem::copy(row, rows + index, sizeof(pymergetic_rxf_spec));
+    return Status::Ok;
+}
+
+Status ObjectArena::rebuild(ObjectArena &out, uint32_t *remap, uint32_t remap_count) {
     const pymergetic_rxf_slots *slots = index_table();
     if (memory_.base == nullptr || out.memory_.base == nullptr || &out == this ||
-        !model_ready(slots) || model_ready(out.index_table()))
+        !model_ready(slots) || model_ready(out.index_table()) || remap == nullptr ||
+        remap_count < slots->count)
         return Status::BadImage;
+    for (uint32_t i = 0; i < slots->count; i++)
+        remap[i] = PYMERGETIC_RXF_HANDLE32_NONE;
+    for (uint32_t i = 0; i < kWalkFirst && i < slots->count; i++) {
+        const pymergetic_rxf_slot *entry = index_entry(i);
+        remap[i] = pymergetic_rxf_handle32_pack(i, entry->gen);
+    }
     /* The superblock is replayed whole (docs/32 5.4 step 1 names it first): the
      * claim - the limit - is part of the bytes, and the tail marker's span is
      * the claim's tail. The rebuild's arena may sit in memory of another size;
@@ -1191,6 +1602,7 @@ Status ObjectArena::rebuild(ObjectArena &out) {
      * tail formula over again (init wrote it for the memory's own claim). */
     out.memory_.limit = super()->limit;
     out.super()->limit = super()->limit;
+    out.super()->entry = super()->entry; /* the entry is a handle (docs/32 2) */
     {
         pymergetic_rxf_object *marker = out.record_at(out.marker_offset());
         marker->payload =
@@ -1198,78 +1610,189 @@ Status ObjectArena::rebuild(ObjectArena &out) {
     }
     /* Step 1: the bootstrap is replayed whole - the same call the writer made
      * (tools/native/arena_export.py's place_world), so the interning order of
-     * the skeleton - "the index object is named `objects` third, `syms` is
-     * named last" - and with it every symbol id is the same. The capacity is
-     * the world's (the live slots plus the headroom, above): a world that grew
-     * answers the capacity it deserves, whatever the source claimed. */
-    Status st = out.bootstrap("boot", slots->count + kIndexHeadroom);
+     * the skeleton and with it every symbol id is the same. The capacity is
+     * the live slots plus the headroom: `slots->count` still names the dead
+     * slots a release leaves behind, and the writer's survey counts the world
+     * as it stands - one dead slot in the source would size the output one
+     * slot above the writer's and the canonical bytes would drift. */
+    uint32_t live = 0;
+    for (uint32_t i = 0; i < slots->count; i++) {
+        if (index_entry(i)->slot != 0)
+            live++;
+    }
+    Status st = out.bootstrap("boot", live + kIndexHeadroom);
     if (st != Status::Ok)
         return st;
     st = out.journal_detach(); /* the walk is a build: nothing to unwind */
     if (st != Status::Ok)
         return st;
-    /* Step 2: the objects in index order. A canonical source has no dead slot,
-     * so the output's handles are the source's and every handle a parent or a
-     * payload carries stands as it is - no remap. */
+    /* Step 2: the walk in the writer's order - the world's tree in name order,
+     * then sys/relations and its tables in the chain's order, then the genesis
+     * tree in the index order (docs/32 5.4: place_world's own). An object an
+     * apply created sits at the index end; the walk places it where the writer
+     * would have, and the handles its payload carries follow (step 3). */
+    const uint32_t root = super()->root;
+    uint16_t name_sys = PYMERGETIC_RXF_SYMS_ANONYMOUS;
+    uint16_t name_honors = PYMERGETIC_RXF_SYMS_ANONYMOUS;
+    if (!symbol_id("sys", &name_sys) || !symbol_id("honors", &name_honors))
+        return Status::BadImage;
+    uint16_t cursor = 0xFFFF;
+    for (;;) {
+        uint32_t child = PYMERGETIC_RXF_HANDLE32_NONE;
+        if (!next_child(root, cursor, &child))
+            return Status::BadImage;
+        if (child == PYMERGETIC_RXF_HANDLE32_NONE)
+            break;
+        pymergetic_rxf_object *kid = nullptr;
+        if (load(child, &kid) != Status::Ok)
+            return Status::BadImage;
+        cursor = kid->name;
+        if (kid->name == name_sys || kid->name == name_honors)
+            continue;
+        if (!walk_place(out, child, remap, remap_count))
+            return Status::BadImage;
+    }
+    uint32_t sys = PYMERGETIC_RXF_HANDLE32_NONE;
+    if (find(root, "sys", &sys) != Status::Ok || sys == PYMERGETIC_RXF_HANDLE32_NONE)
+        return Status::BadImage;
+    uint32_t relations = PYMERGETIC_RXF_HANDLE32_NONE;
+    if (find(sys, "relations", &relations) != Status::Ok ||
+        relations == PYMERGETIC_RXF_HANDLE32_NONE)
+        return Status::BadImage;
+    {
+        pymergetic_rxf_object *record = nullptr;
+        if (load(relations, &record) != Status::Ok)
+            return Status::BadImage;
+        if (!place_one(out, relations, remap, remap_count))
+            return Status::BadImage;
+        /* The tables in the writer's order (docs/32 5.4): `_relations` walks
+         * the world depth-first, and a depth-first walk of name-sorted
+         * children is the lexicographic order of the dotted paths - the
+         * tables' names. The chain is the creation order (an apply appends at
+         * its end), so the walk sorts by name instead of following links. */
+        uint16_t cursor = 0xFFFF;
+        for (;;) {
+            uint32_t at = PYMERGETIC_RXF_HANDLE32_NONE;
+            if (!next_child(relations, cursor, &at))
+                return Status::BadImage;
+            if (at == PYMERGETIC_RXF_HANDLE32_NONE)
+                break;
+            pymergetic_rxf_object *kid = nullptr;
+            if (load(at, &kid) != Status::Ok)
+                return Status::BadImage;
+            cursor = kid->name;
+            if (!genesis_table(at) && !place_one(out, at, remap, remap_count))
+                return Status::BadImage;
+        }
+    }
+    /* Segment 3: the genesis tree (docs/36's founding core) and then its own
+     * relation tables - the writer's _genesis appends the tables last. */
+    uint32_t genesis = PYMERGETIC_RXF_HANDLE32_NONE;
+    if (find(root, "honors", &genesis) == Status::Ok && genesis != PYMERGETIC_RXF_HANDLE32_NONE) {
+        for (int pass = 0; pass < 2; pass++) {
+            for (uint32_t index = kWalkFirst; index < slots->count; ++index) {
+                const pymergetic_rxf_slot *entry = index_entry(index);
+                if (entry->slot == 0)
+                    continue;
+                const uint32_t source = pymergetic_rxf_handle32_pack(index, entry->gen);
+                const bool table = genesis_table(source);
+                if ((pass == 0) == table)
+                    continue;
+                if (!table && !under(source, genesis))
+                    continue;
+                if (!place_one(out, source, remap, remap_count))
+                    return Status::BadImage;
+            }
+        }
+    }
+
+    /* Step 3: the handles the payloads and the rows carry, rewritten to the
+     * output's (the type's declared reference slots are the walk tools'
+     * world/export.py does). */
     for (uint32_t index = kWalkFirst; index < slots->count; ++index) {
         const pymergetic_rxf_slot *entry = index_entry(index);
         if (entry->slot == 0)
-            return Status::BadImage; /* dead slots: the compacting case, not this walk */
+            continue;
         const uint32_t source = pymergetic_rxf_handle32_pack(index, entry->gen);
-        pymergetic_rxf_object *record = nullptr;
-        st = load(source, &record);
-        if (st != Status::Ok)
-            return st;
-        const char *name = nullptr;
-        uint32_t length = 0;
-        if (record->name != PYMERGETIC_RXF_SYMS_ANONYMOUS) {
-            st = symbol(record->name, &name, &length);
-            if (st != Status::Ok)
-                return st;
-        }
-        uint32_t handle = PYMERGETIC_RXF_HANDLE32_NONE;
-        st = out.create(record->parent, name, record->kind, record->payload, &handle);
-        if (st != Status::Ok)
-            return st;
-        if (handle != source)
-            return Status::BadImage; /* the walk lands the same handles or it is not this walk */
-        if (record->payload != 0) {
-            const uint8_t *bytes = nullptr;
-            uint32_t size = 0;
-            st = payload(source, &bytes, &size);
-            if (st != Status::Ok)
-                return st;
-            /* A module's first bytes are its chain head (children, count): the
-             * appends own it, and the writer writes it empty
-             * (tools/native/arena_export.py's EMPTY_MODULE_HEAD). The object's
-             * own data is what follows the head. */
-            const uint64_t skip =
-                record->kind == PYMERGETIC_RXF_OBJ_MODULE && size >= sizeof(pymergetic_rxf_module)
-                    ? sizeof(pymergetic_rxf_module)
-                    : 0;
-            st = out.set_payload_at(handle, skip, bytes + skip, size - skip);
-            if (st != Status::Ok)
-                return st;
-        }
-        st = out.set_flags(handle, record->flags);
-        if (st != Status::Ok)
-            return st;
-    }
-    /* Step 3: the semantic rows, in the writer's pass order - a row cannot be
-     * written until sys/specs exists, which is itself one of the objects step 2
-     * just placed. The rows of the skeleton objects (0..8) come along too: the
-     * writer's pass writes the row of every object index, and the root's row
-     * carries the world's flags. */
-    for (uint32_t index = 0; index < slots->count; ++index) {
-        const pymergetic_rxf_slot *entry = index_entry(index);
-        const uint32_t source = pymergetic_rxf_handle32_pack(index, entry->gen);
+        const uint32_t where = remap[index];
+        if (where == PYMERGETIC_RXF_HANDLE32_NONE)
+            continue;
+        /* The semantic row: its type is a handle (docs/32 5). */
         pymergetic_rxf_spec row{};
         st = spec(source, &row);
         if (st != Status::Ok)
             return st;
-        st = out.set_spec(source, row);
+        const uint32_t type_source = row.type;
+        row.type = row.type == PYMERGETIC_RXF_HANDLE32_NONE
+                       ? PYMERGETIC_RXF_HANDLE32_NONE
+                       : remap[pymergetic_rxf_handle32_index(row.type)];
+        st = out.set_spec(where, row);
         if (st != Status::Ok)
             return st;
+        /* The payload's declared slots and the relation rows' two handles. */
+        pymergetic_rxf_object *record = nullptr;
+        st = load(source, &record);
+        if (st != Status::Ok)
+            return st;
+        const bool table = is_ref_table(source, relations, record);
+        /* The type's offsets are inside the world's value (tools/native/
+         * arena_export.py's _relink_payloads): a module's arena payload opens
+         * with the chain head, and the value follows it. A module the walk
+         * demoted to a leaf (place_one: its chain emptied and its row carries a
+         * world kind) dropped that head in the output - its value's slots sit
+         * `head` lower there. */
+        const uint64_t head =
+            record->kind == PYMERGETIC_RXF_OBJ_MODULE ? sizeof(pymergetic_rxf_module) : 0;
+        uint64_t shift = 0;
+        if (head != 0) {
+            pymergetic_rxf_object *placed = nullptr;
+            if (out.load(where, &placed) != Status::Ok)
+                return Status::BadImage;
+            if (placed->kind != PYMERGETIC_RXF_OBJ_MODULE)
+                shift = head;
+        }
+        if (table) {
+            for (uint64_t k = 0; k + sizeof(pymergetic_rxf_ref) <= record->payload;
+                 k += sizeof(pymergetic_rxf_ref)) {
+                if (!fixup_slot(out, where, source, k, 0, remap, remap_count) ||
+                    !fixup_slot(out, where, source, k + 8, 0, remap, remap_count))
+                    return Status::BadImage;
+            }
+        } else if (!fixup_refs(out, where, source, type_source, head, shift, remap, remap_count))
+            return Status::BadImage;
+    }
+
+    /* Step 4: the semantic rows of the skeleton (the writer's pass writes the
+     * row of every index and the root's row carries the world's flags). */
+    for (uint32_t index = 0; index < kWalkFirst; ++index) {
+        const pymergetic_rxf_slot *entry = index_entry(index);
+        const uint32_t source = pymergetic_rxf_handle32_pack(index, entry->gen);
+        const uint32_t where = remap[index];
+        if (where == PYMERGETIC_RXF_HANDLE32_NONE)
+            continue;
+        pymergetic_rxf_spec row{};
+        st = spec(source, &row);
+        if (st != Status::Ok)
+            return st;
+        row.type = row.type == PYMERGETIC_RXF_HANDLE32_NONE
+                       ? PYMERGETIC_RXF_HANDLE32_NONE
+                       : remap[pymergetic_rxf_handle32_index(row.type)];
+        st = out.set_spec(where, row);
+        if (st != Status::Ok)
+            return st;
+    }
+
+    /* The entry is a handle too (docs/32 2): when it names a live object it
+     * follows the remap; an entry that names nothing - the writer leaves the
+     * field zero - stands as it is. */
+    if (out.super()->entry != PYMERGETIC_RXF_HANDLE32_NONE) {
+        pymergetic_rxf_object *named = nullptr;
+        if (load(out.super()->entry, &named) == Status::Ok) {
+            const uint32_t mapped = remap[pymergetic_rxf_handle32_index(out.super()->entry)];
+            if (mapped == PYMERGETIC_RXF_HANDLE32_NONE)
+                return Status::BadImage;
+            out.super()->entry = mapped;
+        }
     }
     st = out.journal_commit();
     if (st != Status::Ok)

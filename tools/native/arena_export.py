@@ -219,6 +219,11 @@ def place_world(
     _specs(world, handles, arena)
     _relink_payloads(world, handles, arena)
     _genesis(arena, relations)
+    # The entry is part of the world (docs/32 2: the superblock's entry): what
+    # runs, as an arena handle like every other.
+    entry = getattr(world, "entry", None)
+    if entry is not None:
+        arena.set_entry(handles.get(entry, arena.root_handle))
     arena.journal_commit()
     arena.verify()
     return arena, handles

@@ -493,6 +493,15 @@ class Session {
                     const uint16_t kind = storage_role(o.flags, module);
                     const uint64_t room = (module ? sizeof(pymergetic_rxf_module) : 0) +
                                           ((uint64_t(o.payload_length) + 7) & ~uint64_t(7));
+                    /* A leaf that gains a child becomes a module (docs/32 1.2):
+                     * the parent's value moves behind a chain head first. */
+                    if (parent != PYMERGETIC_RXF_HANDLE32_NONE) {
+                        const arena::Status t = arena_.into_module(parent, &parent);
+                        if (t != arena::Status::Ok) {
+                            *reason = reason_of(t);
+                            return false;
+                        }
+                    }
                     const arena::Status s = arena_.create(parent, name, kind, room, &handle);
                     if (s != arena::Status::Ok) {
                         *reason = reason_of(s);
@@ -541,9 +550,19 @@ class Session {
                 row.flags = o.flags;
                 row.index = o.index;
                 row.generation = o.generation;
+                /* The delta's payload is the world's value (physical.py's
+                 * records); a module's arena payload opens with the chain head
+                 * (the writer's EMPTY_MODULE_HEAD), so the value follows it. */
+                pymergetic_rxf_object *made = nullptr;
+                if (!arena_record(handle, &made)) {
+                    *reason = PYMERGETIC_RXF_REASON_ARENA;
+                    return false;
+                }
+                const uint64_t head =
+                    made->kind == PYMERGETIC_RXF_OBJ_MODULE ? sizeof(pymergetic_rxf_module) : 0;
                 if (o.payload_length != 0) {
                     const arena::Status s =
-                        arena_.set_payload_at(handle, 0, body, o.payload_length);
+                        arena_.set_payload_at(handle, head, body, o.payload_length);
                     if (s != arena::Status::Ok) {
                         *reason = reason_of(s);
                         return false;
@@ -563,7 +582,7 @@ class Session {
                             *reason = reason_of(s);
                             return false;
                         }
-                    } else if (!pend_push(handle, kPendPatch, pt.offset, pt.path)) {
+                    } else if (!pend_push(handle, kPendPatch, pt.offset + head, pt.path)) {
                         *reason = PYMERGETIC_RXF_REASON_SCRATCH;
                         return false;
                     }
@@ -574,7 +593,11 @@ class Session {
                         return false;
                     tail += uint64_t(o.ref_count) * sizeof(pymergetic_rxf_delta_ref);
                 }
-                if (!pend_push(handle, kPendType, 0, o.type)) {
+                /* The type is a path like the patches (live.h): an object the
+                 * delta creates without one keeps no type at all - the root is
+                 * what an empty path resolves to and it is not a Type. */
+                if (o.type != PYMERGETIC_RXF_STRING_NONE &&
+                    !pend_push(handle, kPendType, 0, o.type)) {
                     *reason = PYMERGETIC_RXF_REASON_SCRATCH;
                     return false;
                 }
@@ -667,7 +690,13 @@ class Session {
         arena::ObjectArena out;
         if (out.init(into, 0, 0) != arena::Status::Ok)
             return false;
-        if (arena_.rebuild(out) != arena::Status::Ok)
+        /* The remap: one entry per source index, in the work region (the
+         * engine has no heap). */
+        const uint32_t count = arena_.handle_count();
+        auto *remap = static_cast<uint32_t *>(take(sizeof(uint32_t) * count));
+        if (remap == nullptr)
+            return false;
+        if (arena_.rebuild(out, remap, count) != arena::Status::Ok)
             return false;
         uint64_t need = 0;
         if (out.image(nullptr, 0, &need) != arena::Status::OutOfMemory || need > a_->emit_capacity)
@@ -720,7 +749,10 @@ class Session {
                 store<uint32_t>(rs, 0);
                 store<uint32_t>(rs + 4, reason);
                 *rsl = 8;
-                return PYMERGETIC_RXF_LIVE_REFUSED;
+                /* The delta was refused (frames.APPLY: "delta refused"): the
+                 * payload is its reason, and the client answers it as Refused.
+                 * "request refused" is the well-formed request not done. */
+                return PYMERGETIC_RXF_LIVE_APPLY;
             }
             arena_.journal_commit();
             a_->commits++;

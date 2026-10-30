@@ -20,6 +20,13 @@ class ObjectArena {
      * covers the tail) at PYMERGETIC_RXF_SUPER_SIZE. The region has to offer at least
      * one ring span behind the superblock. */
     Status init(const Memory &memory, uint32_t root, uint32_t entry);
+    /* A leaf that gains a child becomes a module (docs/32 1.2): its value
+     * moves behind a fresh chain head and the handle follows the regrow. */
+    Status into_module(uint32_t handle, uint32_t *fresh);
+    /* The entry of the image (docs/32 2: the superblock's entry): the handle
+     * of what runs. */
+    void set_entry(uint32_t handle);
+    uint32_t entry() const;
     /* An existing image in `memory`; checks the superblock only. */
     Status attach(const Memory &memory);
 
@@ -31,13 +38,20 @@ class ObjectArena {
     /* The canonical form of this arena (docs/32 5.4): a rebuild into `out`, an
      * arena the caller has made empty over its own memory (init, not yet
      * bootstrapped). The walk replays the bootstrap whole and then fills the
-     * output in index order from the first index the bootstrap does not make --
-     * the same order the writer creates in, so the symbol ids, the handles and
-     * the bytes come out the same. A rebuild of a canonical arena is the arena
-     * itself: `image()` of both is byte for byte equal. (A source with dead
-     * slots is the compacting case, docs/32 5.4's "compacted before it is
-     * dumped"; this is the walk, not that pass.) */
-    Status rebuild(ObjectArena &out);
+     * output in the writer's order - the world's tree, then the relation
+     * tables, then the genesis tree - and remaps the handles the payloads and
+     * the rows carry to the output's (`remap`, one entry per source index,
+     * room the caller provides: the engine's work region, the host's heap).
+     * A rebuild of a canonical arena is the arena itself, byte for byte. */
+    Status rebuild(ObjectArena &out, uint32_t *remap, uint32_t remap_count);
+    /* The declared reference slots of a type's payload (docs/32 5): its Field
+     * objects that carry FIELD_FLAG_REF tell which u64 words hold a handle.
+     * The fixups walk them and the relation rows, one slot at a time; `shift`
+     * is the chain head a demoted leaf dropped in the output. */
+    bool fixup_refs(ObjectArena &out, uint32_t where, uint32_t source, uint32_t type, uint64_t head,
+                    uint64_t shift, const uint32_t *remap, uint32_t remap_count);
+    bool fixup_slot(ObjectArena &out, uint32_t where, uint32_t source, uint64_t at, uint64_t shift,
+                    const uint32_t *remap, uint32_t remap_count);
     /* Every invariant of the layout and of the FREE ring. Walks the whole arena. */
     Status verify() const;
 
@@ -226,6 +240,16 @@ class ObjectArena {
     bool symbol_id(const char *text, uint16_t *id);
     /* The chain: the last child of `parent`, and a new head or link into it. */
     Status append_child(uint32_t parent, uint32_t child);
+    /* The rebuild's walk (docs/32 5.4): one object placed into the output and
+     * mapped, and the subtree of a node in the writer's order. */
+    bool place_one(ObjectArena &out, uint32_t source, uint32_t *remap, uint32_t remap_count);
+    bool walk_place(ObjectArena &out, uint32_t first, uint32_t *remap, uint32_t remap_count);
+    bool is_ref_table(uint32_t source, uint32_t relations, const pymergetic_rxf_object *record);
+    bool next_child(uint32_t parent, uint16_t after, uint32_t *next);
+    static bool name_less(const char *a, uint32_t an, const char *b, uint32_t bn);
+    bool name_of(uint32_t handle, uint16_t *name);
+    bool under(uint32_t source, uint32_t root);
+    bool genesis_table(uint32_t source);
     /* The sys/syms table in `capacity` ids and `room` bytes of payload: moved to a
      * larger object and its index entry repointed, so the handle stands. */
     Status syms_relocate(uint32_t capacity, uint32_t room);
