@@ -274,6 +274,11 @@ class Session {
             return PYMERGETIC_RXF_REASON_NAME;
         case arena::Status::Protected:
             return PYMERGETIC_RXF_REASON_PROTECTED;
+        case arena::Status::HasChildren:
+            /* The twin's own map (native/live.rxfs: status 10 answers 9):
+             * a parent with children stays until they are gone - what would
+             * point at them is why it refuses. */
+            return PYMERGETIC_RXF_REASON_DANGLING;
         case arena::Status::Dangling:
             return PYMERGETIC_RXF_REASON_DANGLING;
         case arena::Status::BadHandle:
@@ -303,6 +308,59 @@ class Session {
             cut = end + 1;
         }
         *handle = at;
+        return true;
+    }
+
+    /* Whether a name can be given to an object (the twin's good_name,
+     * native/live.rxfs): not empty, not '@', no '.' and no control bytes, and
+     * the whole of it a well-formed UTF-8 sequence. The model refuses the
+     * same names at add (Image::add), so the engine does too - a name a
+     * create carries is refused with its own reason (live.h: NAME), never
+     * taken as bytes the tree would then have to walk. */
+    static bool good_name(const uint8_t *p, uint32_t n) {
+        if (n == 0 || p[0] == '@')
+            return false;
+        uint32_t i = 0;
+        while (i < n) {
+            if (p[i] == '.' || p[i] < 32 || p[i] == 127)
+                return false;
+            i++;
+        }
+        i = 0;
+        while (i < n) {
+            const uint8_t b = p[i];
+            if (b < 128) {
+                i++;
+                continue;
+            }
+            uint32_t extra = 0;
+            uint32_t low = 0x80;
+            uint32_t code = 0;
+            if (b >= 0xC2 && b <= 0xDF) {
+                extra = 1;
+                code = b & 0x1F;
+            } else if (b >= 0xE0 && b <= 0xEF) {
+                extra = 2;
+                code = b & 0x0F;
+                low = 0x800;
+            } else if (b >= 0xF0 && b <= 0xF4) {
+                extra = 3;
+                code = b & 0x07;
+                low = 0x10000;
+            } else {
+                return false;
+            }
+            if (i + extra >= n)
+                return false;
+            for (uint32_t k = 1; k <= extra; k++) {
+                if ((p[i + k] & 0xC0) != 0x80)
+                    return false;
+                code = (code << 6) | (p[i + k] & 0x3F);
+            }
+            if (code < low || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF))
+                return false;
+            i += extra + 1;
+        }
         return true;
     }
 
@@ -470,6 +528,14 @@ class Session {
                         *reason = PYMERGETIC_RXF_REASON_PATH;
                         return false;
                     }
+                    /* A name the model would refuse (Image::add) is refused
+                     * here with the name's own reason (live.h: NAME): the
+                     * twin's good_name, the same bytes checked the same way
+                     * (native/live.rxfs). */
+                    if (!good_name(reinterpret_cast<const uint8_t *>(name), uint32_t(n - cut))) {
+                        *reason = PYMERGETIC_RXF_REASON_NAME;
+                        return false;
+                    }
                     /* The model refuses a taken name (Image::add: NameTaken)
                      * and the writer's world never places two objects under
                      * one parent of one name: a create that names an object
@@ -479,12 +545,23 @@ class Session {
                      * chain (arena find), not the lookup table: the table is
                      * a mirror built at attach and after each commit, and an
                      * object this delta created earlier is in the chain
-                     * already. */
-                    uint32_t taken = PYMERGETIC_RXF_HANDLE32_NONE;
-                    if (arena_.find(parent, name, &taken) != arena::Status::Ok ||
-                        taken != PYMERGETIC_RXF_HANDLE32_NONE) {
-                        *reason = PYMERGETIC_RXF_REASON_EXISTS;
-                        return false;
+                     * already. A parent that is a leaf has no chain yet -
+                     * its first child is what turns it into a module
+                     * (into_module, below) - so only a module parent's chain
+                     * can hold the name. */
+                    {
+                        pymergetic_rxf_object *parent_record = nullptr;
+                        uint32_t taken = PYMERGETIC_RXF_HANDLE32_NONE;
+                        if (arena_.load(parent, &parent_record) != arena::Status::Ok) {
+                            *reason = PYMERGETIC_RXF_REASON_PATH;
+                            return false;
+                        }
+                        if (parent_record->kind == PYMERGETIC_RXF_OBJ_MODULE &&
+                            (arena_.find(parent, name, &taken) != arena::Status::Ok ||
+                             taken != PYMERGETIC_RXF_HANDLE32_NONE)) {
+                            *reason = PYMERGETIC_RXF_REASON_EXISTS;
+                            return false;
+                        }
                     }
                     bool module = false;
                     for (uint64_t scan = pos; scan + sizeof(uint32_t) <= length && !module;) {
@@ -629,6 +706,29 @@ class Session {
                 if (!delta_resolve(p, n, &handle)) {
                     *reason = PYMERGETIC_RXF_REASON_PATH;
                     return false;
+                }
+                /* The trio the model pins (Image::remove: root, Type and
+                 * Field) is refused with its own reason (live.h: PROTECTED)
+                 * before any arena word is touched - the same refusal the
+                 * twin answers (native/live.rxfs: handles 1 and 2 are the
+                 * ground's, however the arena numbers its own). They are
+                 * found by path from the root, like the twin's own resolve. */
+                if (handle == arena_.root_handle()) {
+                    *reason = PYMERGETIC_RXF_REASON_PROTECTED;
+                    return false;
+                }
+                {
+                    uint32_t type_handle = PYMERGETIC_RXF_HANDLE32_NONE;
+                    uint32_t field_handle = PYMERGETIC_RXF_HANDLE32_NONE;
+                    if (arena_.find(arena_.root_handle(), "Type", &type_handle) ==
+                            arena::Status::Ok &&
+                        arena_.find(arena_.root_handle(), "Field", &field_handle) ==
+                            arena::Status::Ok) {
+                        if (handle == type_handle || handle == field_handle) {
+                            *reason = PYMERGETIC_RXF_REASON_PROTECTED;
+                            return false;
+                        }
+                    }
                 }
                 const arena::Status s = arena_.release_handle(handle);
                 if (s != arena::Status::Ok) {

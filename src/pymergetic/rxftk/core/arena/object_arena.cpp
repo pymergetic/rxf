@@ -310,21 +310,46 @@ Status ObjectArena::s_allocate(uint64_t room, uint64_t *offset) {
         room = best_span - sizeof(pymergetic_rxf_object);
     }
 
-    /* The fresh payload interior is filled without undo records: it is invisible
-     * to the model (only the record and its links are read back), and every later
-     * store into it - chain words, strings, ring records - records its own
-     * granules. The record header and the links are the span's bookkeeping and
-     * are undone like every write. */
+    /* The record header and the first payload bytes (the span's bookkeeping:
+     * header, links) are undone like every write; the payload interior below
+     * is the fresh grant. */
     const uint64_t bookkeeping =
         sizeof(pymergetic_rxf_object) +
         (room < PYMERGETIC_RXF_FREE_LINKS ? room : PYMERGETIC_RXF_FREE_LINKS);
     status = j_fill(record, 0, bookkeeping);
     if (status != Status::Ok)
         return status;
-    if (room > PYMERGETIC_RXF_FREE_LINKS)
-        mem::fill(reinterpret_cast<uint8_t *>(record) + sizeof(pymergetic_rxf_object) +
-                      PYMERGETIC_RXF_FREE_LINKS,
-                  0, room - PYMERGETIC_RXF_FREE_LINKS);
+    /* The fresh payload interior (the grant past the bookkeeping - the same
+     * coverage the plain fill always gave, FREE_LINKS bytes in and room minus
+     * FREE_LINKS wide) is part of the transaction when the span came from the
+     * ring: a refused apply would otherwise leave the previous occupant's
+     * bytes zeroed behind and the rollback could not put them back (the
+     * refusal the tests hold to: a refused delta leaves no trace). Its
+     * granules are reserved here, after the ring mutations and before the
+     * first interior byte, so the log cannot relocate mid-fill. A span taken
+     * from the end marker keeps the plain fill: its interior lies beyond the
+     * committed boundary of the last commit, so no snapshot ever saw those
+     * bytes - and the plain fill keeps the undo ring's growth, and with it the
+     * ring's own relocation moment, exactly where an allocation history the
+     * canonical form pins had it. While the log itself relocates
+     * (journal_growing_) the fill stays plain too: its bytes are the new
+     * span's own content, parked-exempt like the rest of the move. */
+    if (room > PYMERGETIC_RXF_FREE_LINKS) {
+        const uint64_t interior = room - PYMERGETIC_RXF_FREE_LINKS;
+        uint8_t *at = reinterpret_cast<uint8_t *>(record) + sizeof(pymergetic_rxf_object) +
+                      PYMERGETIC_RXF_FREE_LINKS;
+        if (!best_is_marker && !journal_growing_) {
+            status = journal_reserve(uint32_t((interior + PYMERGETIC_RXF_JOURNAL_GRANULE - 1) /
+                                              PYMERGETIC_RXF_JOURNAL_GRANULE));
+            if (status != Status::Ok)
+                return status;
+            status = j_fill(at, 0, interior);
+            if (status != Status::Ok)
+                return status;
+        } else {
+            mem::fill(at, 0, interior);
+        }
+    }
     status = j_set(&record->gen, gen);
     if (status != Status::Ok)
         return status;
