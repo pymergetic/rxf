@@ -43,6 +43,37 @@ if (which === "forks") {
     }
   }
   console.log(JSON.stringify({ sizes }));
+} else if (which === "commit") {
+  // the modification acts' first leg (U1 pre-work): stage a delta through the
+  // channel and commit it. The delta here is the empty one - the 64-byte wire
+  // form of live.h's header with no operations (a frame is bytes; the page's
+  // own codec packs it) - so this proves the seat takes staged bytes and
+  // answers a commit, whatever the image then says about the delta itself.
+  const { createHash } = await import("node:crypto");
+  const head = new Uint8Array(64);
+  const view = new DataView(head.buffer);
+  view.setUint32(0, 0x44465852, true); // "RXFD" (live.h PYMERGETIC_RXF_DELTA_MAGIC)
+  view.setUint32(4, 1, true); // version
+  view.setUint32(8, 0, true); // op_count
+  view.setUint32(12, 0, true); // string_bytes
+  view.setUint32(16, 0, true); // flags: no base check
+  rxf.send(Frames.encode(Frames.OP.STAGE_RESET, 1, 0));
+  rxf.turn();
+  rxf.drain();
+  rxf.send(Frames.encode(Frames.OP.STAGE_WRITE, 1, 0, head));
+  rxf.turn();
+  rxf.drain();
+  const ask = new Uint8Array(36); // the commit's body: length, then SHA-256
+  new DataView(ask.buffer).setUint32(0, head.length, true);
+  ask.set(createHash("sha256").update(head).digest(), 4);
+  rxf.send(Frames.encode(Frames.OP.STAGE_COMMIT, 1, 0, ask));
+  rxf.turn();
+  const { frames } = Frames.decode(rxf.drain());
+  console.log(
+    JSON.stringify(
+      frames.map((f) => ({ op: f.op, status: f.status, payload: [...f.payload] }))
+    )
+  );
 } else {
   // the page's handler: one frame into the line, one turn of the image's own
   // pump, the answer frames out of the drain (bytes in, bytes out)

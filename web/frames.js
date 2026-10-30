@@ -26,6 +26,9 @@ export const OP = {
   READ: 0x07,
   CHILDREN: 0x08,
   REFS: 0x09,
+  STAGE_RESET: 0x10,
+  STAGE_WRITE: 0x11,
+  STAGE_COMMIT: 0x12,
   DIGEST: 0x20,
   EMIT: 0x21,
   EMIT_READ: 0x22,
@@ -42,6 +45,26 @@ export const STATUS = {
   7: "delta refused",
   8: "image not usable",
   9: "request refused",
+};
+
+/* The refusal reasons of a refused delta (live.h PYMERGETIC_RXF_REASON_*),
+ * the payload a status-7 answer carries: (at operation, reason). */
+export const REASON = {
+  1: "the bytes are not a delta",
+  2: "the base digest is not the digest of the image",
+  3: "a path does not resolve",
+  4: "an object is already there",
+  5: "a name cannot be used",
+  6: "the arena has no room",
+  7: "the undo log is full",
+  8: "the work memory is full",
+  9: "something points at an object that is gone",
+  10: "root, Type and Field cannot be removed",
+  11: "the image does not link after the delta",
+  12: "a type is more than the live layer reads",
+  13: "an object is pinned",
+  14: "a size outside what is committed and what exists",
+  15: "the image has no context to link",
 };
 
 /* CRC32, the reflected form zlib uses: same polynomial, same table. */

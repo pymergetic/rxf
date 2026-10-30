@@ -148,6 +148,23 @@
         refresh(w);
       } },
     { name: "fork", what: "snapshot this image into a new tab", act: () => snapshot() },
+    { name: "digest", what: "the canonical digest of this image (docs/32 5.4)", act: (w) => {
+        /* The write slice's read face: DIGEST answers the digest of the
+         * canonical bytes the image would dump - the word a modification's
+         * answer is, so watching a change is asking this before and after. */
+        w.rxf.send(Frames.encode(Frames.OP.DIGEST, 1, 0));
+        w.rxf.turn();
+        const { frames } = Frames.decode(w.rxf.drain());
+        for (const f of frames) {
+          if (f.status === 0) {
+            const hex = [...f.payload].map((b) => b.toString(16).padStart(2, "0")).join("");
+            line(w, hex, "ok");
+          } else {
+            line(w, `${f.op} status ${f.status} ${Frames.STATUS[f.status]}`, "err");
+          }
+        }
+        if (!frames.length) line(w, "(the image answered no frame)", "sys");
+      } },
     { name: "bytes", what: "how big this image is in memory", act: (w) =>
         line(w, `${w.rxf.snapshot().length} bytes`, "ok") },
     { name: "honors", what: "the founding core", act: (w) => {
@@ -162,18 +179,26 @@
       } },
   ];
 
-  /* modifications: the acts that change the image from inside */
+  /* modifications: the acts that change the image from inside. The channel
+     has its write slice (web/frames.js: STAGE_RESET/WRITE/COMMIT - a commit
+     answers the digest of the result), and the image's `digest` command is
+     the word a change is watched by. What the acts still wait on is the write
+     body: a delta's bytes are compiled on the host (live/physical.py - one
+     defining language, never a second packer in the page) and the seat's own
+     apply is refused at the twin's post-commit relink (reason 12, the arena
+     lane's alignment - the same delta commits on the host engine). When those
+     two land, each act stages its delta, commits and prints the new digest. */
   const MODS = [
     { name: "rename an object", what: "pick one and give it a new name", act: (w) => {
-        line(w, "needs the live pump - the write side is still refused", "err");
+        line(w, "the channel commits deltas, but the acts need the host's compiler and the seat's apply alignment (the arena lane) - see night.log", "err");
         refresh(w);
       } },
     { name: "change a value", what: "write into a payload and watch the digest", act: (w) => {
-        line(w, "needs the live pump - the write side is still refused", "err");
+        line(w, "the channel commits deltas, but the acts need the host's compiler and the seat's apply alignment (the arena lane) - see night.log", "err");
         refresh(w);
       } },
     { name: "add an entry", what: "a new object under an existing one", act: (w) => {
-        line(w, "needs the live pump - the write side is still refused", "err");
+        line(w, "the channel commits deltas, but the acts need the host's compiler and the seat's apply alignment (the arena lane) - see night.log", "err");
         refresh(w);
       } },
   ];

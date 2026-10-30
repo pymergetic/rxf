@@ -402,14 +402,6 @@ def record(**kw):
     return physical.Record(**base)
 
 
-@pytest.mark.xfail(
-    reason="blocked on the arena lane: a delete of a parent with children and "
-    "the protected-path delete answer 'the arena has no room' (reason 6, the "
-    "slot-table grow the physical delete needs) before their own reasons 9 "
-    "and 10, and a duplicate create is accepted (a set, not a create - the "
-    "engine does not distinguish them yet)",
-    strict=False,
-)
 def test_every_refusal_leaves_the_arena_byte_for_byte(starter: bytes):
     host = HostImage(starter)
     digest = digest_of(tree.load(STARTER))
