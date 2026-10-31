@@ -38,6 +38,26 @@ macro m_call_depth() = 16;
 macro m_link_bytes() = 88;
 macro m_frames_bytes() = 1408;
 
+# ---- the value words (native/graph.h: RXF_WORD_NONE) ---------------------------------------------
+# The None word: bit 62 set and no other -- the word an absent argument binds and `is`
+# compares against. An int word has its bits 63 and 62 the same (the sign-extended 63-bit
+# range), so no int word is it.
+macro m_word_none() = 4611686018427387904;
+
+# none_fill(): the words of a parameter whose argument is absent are the None word. A
+# width that is not a whole number of words refuses 6 (the None word is never cut).
+macro m_none_fill(pd, pw) {
+  ok = 0;
+  if (((pw) & 7) == 0) {
+    ok = 1;
+    none_i = 0;
+    while (none_i < (pw)) {
+      store64((pd) + none_i, m_word_none());
+      none_i = none_i + 8;
+    }
+  }
+}
+
 # ---- words of the program: g->code ----------------------------------------------------------------
 
 # have(): graph.c:98 -- at <= count && words <= count - at
@@ -1013,7 +1033,7 @@ fn graph_run(c, h_id, h_gen, h_off, args, argc, out) {
   var so_id, shape, lay_n, lay_handles, lay_has_out;
   var v0, v1, v2, v3, v4, v5, h0_id, h0_gen, h0_off, h2_id, h2_gen, h2_off;
   var op, status, next, value, left, params, argwords, pc, used, ret_width, ret_at_depth;
-  var bind_i, bind_stop, bind_slot, bind_width;
+  var bind_i, bind_stop, bind_slot, bind_width, bind_have, none_i;
   var map_i, map_stop, map_found;
   var sw_i, sw_value, sw_chosen, sw_at;
   var branch_zero, branch_taken;
@@ -1070,7 +1090,7 @@ fn graph_run(c, h_id, h_gen, h_off, args, argc, out) {
   pc = load64(code + 32);
   status = 6;
   if ((frame_bytes & 7) == 0) {
-    if (argwords == argc) {
+    if (argc <= argwords) {
       if (params <= count) {
         m_have(5, params * 2);
         if (ok != 0) {
@@ -1083,7 +1103,12 @@ fn graph_run(c, h_id, h_gen, h_off, args, argc, out) {
   if (frame_bytes > m_cell_bytes()) { refuse 18; }
   m_zero_bytes(cell, frame_bytes);
 
-  # the entry's parameters bound from the arguments (graph.c:596).
+  # the entry's parameters bound from the arguments (graph.c:596). The words the arguments
+  # do not reach are the None word (native/graph.h, RXF_WORD_NONE): argc may be below the
+  # argument words the program declares, and the words of a parameter past argc are its
+  # `= None` default -- the same word a caller passes explicitly. A parameter whose width
+  # is not a whole number of words refuses 6 where its argument is absent: the None word
+  # is a frame word and is never cut.
   used = 0;
   bind_i = 0;
   bind_stop = 0;
@@ -1105,7 +1130,31 @@ fn graph_run(c, h_id, h_gen, h_off, args, argc, out) {
       }
     }
     if (bind_stop == 0) {
-      m_copy_bytes(cell + bind_slot, args + used, bind_width);
+      bind_have = 0;
+      if (argc * 8 > used) {
+        bind_have = argc * 8 - used;
+        if (bind_have > bind_width) {
+          bind_have = bind_width;
+        }
+      }
+      if (bind_have < bind_width) {
+        if ((bind_width & 7) != 0) {
+          status = 6;
+          bind_stop = 1;
+        }
+      }
+    }
+    if (bind_stop == 0) {
+      if (bind_have != 0) {
+        m_copy_bytes(cell + bind_slot, args + used, bind_have);
+      }
+      if (bind_have < bind_width) {
+        m_none_fill(cell + bind_slot + bind_have, bind_width - bind_have);
+        if (ok == 0) {
+          status = 6;
+          bind_stop = 1;
+        }
+      }
       used = used + ((bind_width + 7) & ~7);
     }
     bind_i = bind_i + 1;

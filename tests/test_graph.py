@@ -240,6 +240,34 @@ def host_run(case: world.Case) -> tuple[int, int]:
         )
 
 
+def test_none_is_a_word_of_its_own_and_reads_as_none_not_int_zero(cases, reference):
+    """The value words of a run (native/graph.h, RXF_WORD_NONE): the None word is not int
+    0 -- `is None` reads 1 for it and 0 for every int word -- and it travels as a value
+    and as the `= None` default of an argument a caller does not pass."""
+    runs = {c.name: r for c, r in zip(cases, reference, strict=True)}
+    none = graph_header.numbers()["RXF_WORD_NONE"]
+    assert none != 0
+    for name in ("none is none",):
+        assert runs[name].status == 0
+        assert int.from_bytes(runs[name].out[:8], "little") == 1, name
+    for name in ("none is not int 0", "none is not 5"):
+        assert runs[name].status == 0
+        assert int.from_bytes(runs[name].out[:8], "little") == 0, name
+    # None as a value: the answer word is the None word
+    assert runs["none value"].status == 0
+    assert int.from_bytes(runs["none value"].out[:8], "little") == none
+    # = None defaults: an absent argument binds the None word -- and a caller that
+    # passes the word explicitly is indistinguishable from one that omits the argument
+    for name in ("none default", "none default passed"):
+        assert runs[name].status == 0
+        assert int.from_bytes(runs[name].out[:8], "little") == none, name
+
+
+def test_the_none_word_is_the_same_word_on_the_host_c_runner():
+    for case, status, out in programs.none_cases():
+        assert host_run(case) == (status, out), case.name
+
+
 def test_a_frame_well_over_1024_bytes_runs_as_it_declares():
     """The variable-length cells of the run cell (graph.h): a program declares its exact
     frame bytes and the frames of the active call chain are carved (base, size) from the

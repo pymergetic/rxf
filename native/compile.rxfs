@@ -174,6 +174,22 @@ macro m_x_mov(pdst, psrc) {
   m_put(192 | (((psrc) & 7) << 3) | ((pdst) & 7));
 }
 
+# x_cmovbe(): cmovbe pdst, psrc -- pdst takes psrc where the flags say below-or-equal.
+macro m_x_cmovbe(pdst, psrc) {
+  m_x_rex(1, pdst, psrc);
+  m_put(15);
+  m_put(70);
+  m_put(192 | (((pdst) & 7) << 3) | ((psrc) & 7));
+}
+
+# x_cmp_imm(): cmp preg, pv -- a 32-bit immediate is enough for every word index.
+macro m_x_cmp_imm(preg, pv) {
+  m_x_rex(1, 7, preg);
+  m_put(129);
+  m_put(192 | (7 << 3) | ((preg) & 7));
+  m_put32(pv);
+}
+
 macro m_x_copy(pdb, pdst, psb, psrc, pcount) {
   xc_done = 0;
   while (xc_done < (pcount)) {
@@ -267,7 +283,7 @@ macro m_be_begin_x(pwords) {
   m_put(250);
   m_put32(pwords);
   m_put(15);
-  m_put(132);
+  m_put(134);
   bbx_at = o_size;
   m_put32(0);
   m_x_imm(0, 6);
@@ -276,8 +292,33 @@ macro m_be_begin_x(pwords) {
   m_x_zero(5, 0, cc_frame);
 }
 
+# be_param_x(): the entry's parameter words. An argument word the caller did not give
+# (argc is below the argument words the program declares) is the None word of
+# native/graph.h, never the word of int 0; a parameter whose width is not a whole number
+# of words is given whole or refuses 6, so the None word is never cut.
 macro m_be_param_x(pslot, pwidth, pused) {
-  m_x_copy(5, pslot, 6, pused, pwidth);
+  if (((pwidth) & 7) == 0) {
+    bpx_w = 0;
+    while (bpx_w < (pwidth)) {
+      m_x_load(8, 0, 6, (pused) + bpx_w);
+      m_x_imm(1, 4611686018427387904);
+      m_x_cmp_imm(2, ((pused) + bpx_w) / 8);
+      m_x_cmovbe(0, 1);
+      m_x_store(8, 0, 5, (pslot) + bpx_w);
+      bpx_w = bpx_w + 8;
+    }
+  }
+  else {
+    m_x_cmp_imm(2, (((pused) + (pwidth) + 7) / 8));
+    m_put(15);
+    m_put(131);
+    bpx_at = o_size;
+    m_put32(0);
+    m_x_imm(0, 6);
+    m_x_epilogue();
+    m_patch32(bpx_at, o_size - (bpx_at + 4));
+    m_x_copy(5, pslot, 6, pused, pwidth);
+  }
 }
 
 macro m_be_move_x(pslot, pwidth, psrc, pobject, phave) {
@@ -719,17 +760,42 @@ macro m_be_begin_a(pwords) {
   m_a_mov(21, 3);
   m_put32(0xF100001F | ((pwords) << 10) | (2 << 5));
   baa_at = o_size;
-  m_put32(0x54000000);
+  m_put32(0x54000009);
   m_put32(0x528000C0);
   m_a_epilogue();
   if (baa_at + 4 <= o_cap) {
-    m_patch32(baa_at, 0x54000000 | (((o_size - baa_at) / 4) << 5));
+    m_patch32(baa_at, 0x54000000 | (((o_size - baa_at) / 4) << 5) | 9);
   }
   m_a_zero(20, 0, cc_frame);
 }
 
+# be_param_a(): the entry's parameter words. An argument word the caller did not give
+# (argc is below the argument words the program declares) is the None word of
+# native/graph.h, never the word of int 0; a parameter whose width is not a whole number
+# of words is given whole or refuses 6, so the None word is never cut.
 macro m_be_param_a(pslot, pwidth, pused) {
-  m_a_copy(20, pslot, 1, pused, pwidth);
+  if (((pwidth) & 7) == 0) {
+    bpa_w = 0;
+    while (bpa_w < (pwidth)) {
+      m_a_load(8, 10, 1, (pused) + bpa_w);
+      m_a_imm(9, 4611686018427387904);
+      m_put32(0xF100001F | ((((pused) + bpa_w) / 8) << 10) | (2 << 5));
+      m_put32(0x9A800000 | (10 << 16) | (9 << 12) | (9 << 5) | 10);
+      m_a_store(8, 10, 20, (pslot) + bpa_w);
+      bpa_w = bpa_w + 8;
+    }
+  }
+  else {
+    m_put32(0xF100001F | (((((pused) + (pwidth) + 7) / 8)) << 10) | (2 << 5));
+    bpa_at = o_size;
+    m_put32(0x54000002);
+    m_put32(0x528000C0);
+    m_a_epilogue();
+    if (bpa_at + 4 <= o_cap) {
+      m_patch32(bpa_at, 0x54000000 | (((o_size - bpa_at) / 4) << 5) | 2);
+    }
+    m_a_copy(20, pslot, 1, pused, pwidth);
+  }
 }
 
 macro m_be_move_a(pslot, pwidth, psrc, pobject, phave) {
@@ -1198,7 +1264,7 @@ macro m_be_begin_w(pwords) {
   m_put(0);
   m_w_get(2);
   m_w_i64(pwords);
-  m_put(82);
+  m_put(86);
   m_put(4);
   m_put(64);
   m_w_i32(6);
@@ -1208,8 +1274,38 @@ macro m_be_begin_w(pwords) {
   m_w_zero(4, 0, cc_frame);
 }
 
+# be_param_w(): the entry's parameter words. An argument word the caller did not give
+# (argc is below the argument words the program declares) is the None word of
+# native/graph.h, never the word of int 0; a parameter whose width is not a whole number
+# of words is given whole or refuses 6, so the None word is never cut.
 macro m_be_param_w(pslot, pwidth, pused) {
-  m_w_copy(4, pslot, 1, pused, pwidth);
+  if (((pwidth) & 7) == 0) {
+    bpw_w = 0;
+    while (bpw_w < (pwidth)) {
+      m_w_base(4);
+      m_w_load(8, 1, 1, (pused) + bpw_w);
+      m_w_i64(4611686018427387904);
+      m_w_get(2);
+      m_w_i64(((pused) + bpw_w) / 8);
+      m_put(86);
+      m_put(27);
+      m_w_store_size(8);
+      m_w_mem(55, (pslot) + bpw_w);
+      bpw_w = bpw_w + 8;
+    }
+  }
+  else {
+    m_w_get(2);
+    m_w_i64(((pused) + (pwidth) + 7) / 8);
+    m_put(84);
+    m_put(4);
+    m_put(64);
+    m_w_i32(6);
+    m_w_leave();
+    m_put(15);
+    m_put(11);
+    m_w_copy(4, pslot, 1, pused, pwidth);
+  }
 }
 
 macro m_be_move_w(pslot, pwidth, psrc, pobject, phave) {
@@ -3265,6 +3361,7 @@ fn compile_program(c, request) {
   var cc_area, cc_safe;
   var xr_rex, xc_done, xc_size, xz_done, xz_left, xz_size, xv_kind, xv_size;
   var bbx_at, bmx_kind, bmx_done, bmx_size, bmx_piece, xar_r, xaw_w, xaw_op, xhw_word;
+  var bpx_w, bpx_at, bpa_w, bpa_at, bpw_w;
   var bcx_handles, bcx_i, bcx_registers, bcx_left, bcx_at, bisx_size, bspx_at;
   var aii_shift, aii_piece, aal_op, aas_op, ac_done, ac_size, az_done, az_size;
   var av_kind, av_size, baa_at, bma_kind, bma_done, bma_size, bma_piece;

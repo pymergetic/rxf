@@ -288,8 +288,7 @@ static rxf_u32 execute(rxf_runtime_context *c, rxf_object_handle program, rxf_u6
         return REFUSE_TYPE;
     g.frame_bytes = g.code[1];
     rxf_u64 parameters = g.code[2], words = g.code[3], pc = g.code[4];
-    if ((g.frame_bytes & 7) || words != argc || parameters > g.count ||
-        !have(&g, 5, parameters * 2))
+    if ((g.frame_bytes & 7) || argc > words || parameters > g.count || !have(&g, 5, parameters * 2))
         return REFUSE_RANGE;
     if (g.frame_bytes > CELL_BYTES) /* the chain of one must fit the cell too */
         return REFUSE_BUDGET;
@@ -300,7 +299,21 @@ static rxf_u32 execute(rxf_runtime_context *c, rxf_object_handle program, rxf_u6
         /* the reference refuses when width leaves the words the arguments bring */
         if (!in_frame(&g, slot, width) || used + width > words * 8)
             return REFUSE_RANGE;
-        copy_bytes(g.frame + slot, (const void *)(unsigned long)(args + used), width);
+        /* the words the arguments do not reach are the None word (graph.h,
+         * RXF_WORD_NONE): argc may be below the words the program declares and the
+         * tail of a parameter is its `= None` default. The None word is a frame
+         * word: a width that is not whole words is refused where it would be cut. */
+        rxf_u64 given = argc * 8 > used ? argc * 8 - used : 0;
+        if (given > width)
+            given = width;
+        if (given < width) {
+            if (width & 7)
+                return REFUSE_RANGE;
+            for (rxf_u64 at = 0; at < width - given; at += 8)
+                put_word(g.frame + slot + given + at, RXF_WORD_NONE);
+        }
+        if (given)
+            copy_bytes(g.frame + slot, (const void *)(unsigned long)(args + used), given);
         used += (width + 7) & ~(rxf_u64)7;
     }
     for (;;) {

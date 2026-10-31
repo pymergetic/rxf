@@ -76,17 +76,17 @@
         <ABIValueLocation name="hidden_context" association="@graph.run.signature.argument[0]" value_role="@kinds.AbiValueRole.HiddenContext" passing="@kinds.AbiPassing.Pointer" value_class="@kinds.AbiValueClass.Pointer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" flags="@kinds.AbiValueFlags.Synthetic" pointee_type="@model.Ref" rxf:data="000000000000000000000000" />
         <ABIValueLocation name="status" rxf:index="5" value_role="@kinds.AbiValueRole.Status" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Return" register_count="1" flags="@kinds.AbiValueFlags.Synthetic" pointee_type="uint32_t" rxf:data="000000000000000000000000" />
       </ABISignature>
-      <Code name="aarch64_linux" owner_function="@graph.run" runtime_target="@targets.aarch64_linux_aapcs64" signature="@graph.run.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="94528" semantic_digest="41e276d818d27af33d804ae89cb99ee5b0e42fcd3ebbb5ae98c3c6f9f024426e" source="@sources.graph" body="@graph.run.body_aarch64">
+      <Code name="aarch64_linux" owner_function="@graph.run" runtime_target="@targets.aarch64_linux_aapcs64" signature="@graph.run.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="95148" semantic_digest="41e276d818d27af33d804ae89cb99ee5b0e42fcd3ebbb5ae98c3c6f9f024426e" source="@sources.graph" body="@graph.run.body_aarch64">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@graph.run.aapcs64_linux_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <Code name="aarch64_uefi" owner_function="@graph.run" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@graph.run.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="94528" semantic_digest="41e276d818d27af33d804ae89cb99ee5b0e42fcd3ebbb5ae98c3c6f9f024426e" source="@sources.graph" body="@graph.run.body_aarch64">
+      <Code name="aarch64_uefi" owner_function="@graph.run" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@graph.run.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="95148" semantic_digest="41e276d818d27af33d804ae89cb99ee5b0e42fcd3ebbb5ae98c3c6f9f024426e" source="@sources.graph" body="@graph.run.body_aarch64">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@graph.run.aapcs64_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="94528" content_digest="51d8e9aedb033a0038340d64d9bba3d941fb2342a948f089a5714c7148aff593" />
-      <CodeBlob name="body_wasm32" byte_count="33710" content_digest="48218b96572b55ca68f2626f69a9c919d8d7345e4e62de4a04045605f3a2443a" />
-      <CodeBlob name="body_x86_64" byte_count="120268" content_digest="af86798d031c074a86465e51cb0d06151181fd674810df997eab4d249424e81e" />
+      <CodeBlob name="body_aarch64" byte_count="95148" content_digest="b5d96ffe021ecf1e86b2d282d923f6fd8050558d23ae4fec7ae2fc1b34be6355" />
+      <CodeBlob name="body_wasm32" byte_count="33951" content_digest="082f6b6bd0bb7b386039398d0dd16687d5cd5417bc85e05f585745cc999f9adf" />
+      <CodeBlob name="body_x86_64" byte_count="121048" content_digest="4d379f95177fc0f53bfb7f39905c765d727247187c4629e355e7608f8eb553c7" />
       <Signature name="signature" return_type="void" parameter_count="5" result_count="1" refusal_set="@foundation.StdlibRefusals">
         <Parameter name="argument[0]" value_type="@model.Ref" />
         <Parameter name="argument[1]" value_type="@model.Ref" index="1" />
@@ -119,7 +119,7 @@
         <ABIValueLocation name="hidden_context" association="@graph.run.signature.argument[0]" value_role="@kinds.AbiValueRole.HiddenContext" passing="@kinds.AbiPassing.Pointer" value_class="@kinds.AbiValueClass.Pointer" width="8" alignment="8" chunk_count="1" register_bank="@kinds.RegisterBank.Integer" register_count="1" flags="@kinds.AbiValueFlags.Synthetic" pointee_type="@model.Ref" rxf:data="000000000000000000000000" />
         <ABIValueLocation name="status" rxf:index="5" value_role="@kinds.AbiValueRole.Status" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Return" register_count="1" flags="@kinds.AbiValueFlags.Synthetic" pointee_type="uint32_t" rxf:data="000000000000000000000000" />
       </ABISignature>
-      <Code name="wasm32" owner_function="@graph.run" runtime_target="@targets.wasm32_wasm_c" signature="@graph.run.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="33710" semantic_digest="41e276d818d27af33d804ae89cb99ee5b0e42fcd3ebbb5ae98c3c6f9f024426e" source="@sources.graph" body="@graph.run.body_wasm32">
+      <Code name="wasm32" owner_function="@graph.run" runtime_target="@targets.wasm32_wasm_c" signature="@graph.run.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="33951" semantic_digest="41e276d818d27af33d804ae89cb99ee5b0e42fcd3ebbb5ae98c3c6f9f024426e" source="@sources.graph" body="@graph.run.body_wasm32">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@graph.run.wasm_c_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
@@ -131,15 +131,15 @@
         <ABIValueLocation name="hidden_context" association="@graph.run.signature.argument[0]" value_role="@kinds.AbiValueRole.HiddenContext" passing="@kinds.AbiPassing.Pointer" value_class="@kinds.AbiValueClass.Pointer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Local" register_count="1" flags="@kinds.AbiValueFlags.Synthetic" pointee_type="@model.Ref" rxf:data="000000000000000000000000" />
         <ABIValueLocation name="status" rxf:index="5" value_role="@kinds.AbiValueRole.Status" passing="@kinds.AbiPassing.Direct" value_class="@kinds.AbiValueClass.Integer" width="4" alignment="4" chunk_count="1" register_bank="@kinds.RegisterBank.Return" register_count="1" flags="@kinds.AbiValueFlags.Synthetic" pointee_type="uint32_t" rxf:data="000000000000000000000000" />
       </ABISignature>
-      <Code name="x86_64_bios" owner_function="@graph.run" runtime_target="@targets.x86_64_bios_sysv" signature="@graph.run.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="120268" semantic_digest="41e276d818d27af33d804ae89cb99ee5b0e42fcd3ebbb5ae98c3c6f9f024426e" source="@sources.graph" body="@graph.run.body_x86_64">
+      <Code name="x86_64_bios" owner_function="@graph.run" runtime_target="@targets.x86_64_bios_sysv" signature="@graph.run.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="121048" semantic_digest="41e276d818d27af33d804ae89cb99ee5b0e42fcd3ebbb5ae98c3c6f9f024426e" source="@sources.graph" body="@graph.run.body_x86_64">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@graph.run.sysv_bios_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
-      <Code name="x86_64_linux" owner_function="@graph.run" runtime_target="@targets.x86_64_linux_sysv" signature="@graph.run.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="120268" semantic_digest="41e276d818d27af33d804ae89cb99ee5b0e42fcd3ebbb5ae98c3c6f9f024426e" source="@sources.graph" body="@graph.run.body_x86_64">
+      <Code name="x86_64_linux" owner_function="@graph.run" runtime_target="@targets.x86_64_linux_sysv" signature="@graph.run.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="121048" semantic_digest="41e276d818d27af33d804ae89cb99ee5b0e42fcd3ebbb5ae98c3c6f9f024426e" source="@sources.graph" body="@graph.run.body_x86_64">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@graph.run.sysv_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
-      <Code name="x86_64_uefi" owner_function="@graph.run" runtime_target="@targets.x86_64_uefi_sysv" signature="@graph.run.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="120268" semantic_digest="41e276d818d27af33d804ae89cb99ee5b0e42fcd3ebbb5ae98c3c6f9f024426e" source="@sources.graph" body="@graph.run.body_x86_64">
+      <Code name="x86_64_uefi" owner_function="@graph.run" runtime_target="@targets.x86_64_uefi_sysv" signature="@graph.run.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="121048" semantic_digest="41e276d818d27af33d804ae89cb99ee5b0e42fcd3ebbb5ae98c3c6f9f024426e" source="@sources.graph" body="@graph.run.body_x86_64">
         <rxf:ref role="@call.AbiSignature" kind="RefKind.Data" target="@graph.run.sysv_uefi_status_out" />
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>

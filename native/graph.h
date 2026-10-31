@@ -96,6 +96,34 @@
 #define RXF_GRAPH_NONE (~0ULL)
 /* Word 1 of a CALL that names a program rather than a leaf: 0, the id no leaf has. */
 #define RXF_GRAPH_CALL 0ULL
+
+/* The value words of a run (docs/23 4.9 step 10): what a frame slot, an argument, a return
+ * and a literal carry is one word, and a word is read as one of two things:
+ *
+ *   - an int word: bits 63 and 62 are the same (the sign extension of bit 62), the
+ *     sign-extended 63-bit word. That is the int range the data model exposes,
+ *     [-2^62, 2^62 - 1] -- exactly where a MicroPython small int of a 64-bit port is the
+ *     same number as the word (docs/23 6: MicroPython is the reference).
+ *   - the None word, RXF_WORD_NONE: the one word with bit 62 set and no other. None is a
+ *     singleton -- `is` and `is not` lower to word equality with it -- and no int word is
+ *     it, so the read is exact for every value in the int range.
+ *
+ * The words the range does not take and None does not name are the wrap words: what an
+ * add, subtract or multiply leaves where MicroPython answers a bignum (docs/23 6, the
+ * one-sided pins). They are words like any other to the numeric leaves (they add and
+ * compare raw), and no value face reads one as a Python value.
+ *
+ * An absent argument binds the None word: a run entry whose argc is below the argument
+ * words the program declares fills every word of the parameters it does not reach with
+ * RXF_WORD_NONE -- so `= None` defaults fold to the very word a caller passes explicitly,
+ * and a callee cannot tell the two apart (which is what Python means). A call card is
+ * never short: its operand count is program text and a count that is not the callee's
+ * parameter count is refused 6, and a lowerer that stages a default stages the None word
+ * as the literal it is. A parameter whose width is not a whole number of words refuses
+ * OUT_OF_RANGE when its argument is absent: the None word is a frame word and is never
+ * cut.
+ */
+#define RXF_WORD_NONE 0x4000000000000000ULL
 /* The run cell: the payload that carries the frames of a run's active call chain. The
  * frames are variable-length cells carved (base, size) from it, their sizes the exact
  * frame bytes the programs declare; the arena's slot classes (base x factor) steer where

@@ -422,7 +422,7 @@ class Reference:
         parameters, words, pc = w[2], w[3], w[4]
         self.need(
             self.frame_bytes % 8 == 0
-            and words == argc
+            and argc <= words
             and parameters <= len(w)
             and self.have(5, parameters * 2)
         )
@@ -435,7 +435,20 @@ class Reference:
         for index in range(parameters):
             slot, width = w[5 + 2 * index], w[6 + 2 * index]
             self.need(self.in_frame(slot, width) and width <= words * 8 - used)
-            self.emulator.write(self.frame + slot, args[used : used + width])
+            # the words the arguments do not reach are the None word (native/graph.h,
+            # RXF_WORD_NONE): argc may be below the words the program declares and the
+            # tail of a parameter is its `= None` default. The None word is a frame
+            # word: a width that is not whole words is refused where it would be cut.
+            given = min(width, max(0, argc * 8 - used))
+            if given < width:
+                self.need(width % 8 == 0)
+                self.emulator.write(self.frame + slot, args[used : used + given])
+                self.emulator.write(
+                    self.frame + slot + given,
+                    n["RXF_WORD_NONE"].to_bytes(8, "little") * ((width - given) // 8),
+                )
+            else:
+                self.emulator.write(self.frame + slot, args[used : used + width])
             used += (width + 7) & ~7
         while True:
             if self.safe_point is not None:

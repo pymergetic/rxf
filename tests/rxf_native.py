@@ -275,7 +275,8 @@ def run(
     assert len(program) % 8 == 0 and len(program) >= 40
     magic, _frame_bytes, _parameters, words, _pc = struct.unpack_from("<5Q", program)
     assert magic == MAGIC
-    assert len(args) == words * 8
+    # an argument may be absent: the words past argc are the None word (native/graph.h)
+    assert len(args) <= words * 8 and len(args) % 8 == 0
     code = (ctypes.c_uint64 * (len(program) // 8)).from_buffer_copy(program)
     given = (ctypes.c_uint8 * max(len(args), 1)).from_buffer_copy(args or b"\0")
 

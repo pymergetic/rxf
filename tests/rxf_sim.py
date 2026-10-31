@@ -270,7 +270,8 @@ def run(
     code = struct.unpack(f"<{len(program) // 8}Q", program)
     assert code[0] == N["RXF_GRAPH_MAGIC"]
     frame_bytes, parameters, words, pc = code[1], code[2], code[3], code[4]
-    assert len(args) == words * 8
+    # an argument may be absent: the words past argc are the None word (native/graph.h)
+    assert len(args) <= words * 8 and len(args) % 8 == 0
     if (
         frame_bytes > N["RXF_GRAPH_CELL_BYTES"]
     ):  # the chain of one must fit the cell too
@@ -280,7 +281,16 @@ def run(
     used = 0
     for i in range(parameters):
         slot, width = code[5 + 2 * i], code[6 + 2 * i]
-        memory.write(frame + slot, args[used : used + width])
+        given = min(width, max(0, len(args) - used))
+        if given < width:
+            assert width % 8 == 0  # the None word is a frame word, never cut
+            memory.write(frame + slot, args[used : used + given])
+            memory.write(
+                frame + slot + given,
+                N["RXF_WORD_NONE"].to_bytes(8, "little") * ((width - given) // 8),
+            )
+        else:
+            memory.write(frame + slot, args[used : used + width])
         used += (width + 7) // 8 * 8
 
     depth = 0

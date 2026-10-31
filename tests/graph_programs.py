@@ -19,6 +19,7 @@ from .graph_world import PROGRAM_ID, Case
 N = graph_header.numbers()
 LEAF = graph_header.leaves()
 NONE = N["RXF_GRAPH_NONE"]
+WORD_NONE = N["RXF_WORD_NONE"]
 # The refusals of native/stdlib_runtime.h and native/basics.h that the interpreter itself returns.
 OUT_OF_RANGE, STALE_GENERATION, UNBOUND, TYPE_MISMATCH = 6, 12, 13, 14
 BUDGET = N["RXF_REFUSE_CELL_BUDGET"]
@@ -460,6 +461,36 @@ def object_value() -> bytes:
     return assemble(128, [], items)
 
 
+# ---- the value words: None (native/graph.h's RXF_WORD_NONE) --------------------------------------
+
+
+def none_identity() -> bytes:
+    """The `is None` the strand lowers: 1 where the argument word is the None word and 0
+    for every other word -- int 0 among them, which is the wall the None word exists to
+    clear (docs/23 4.9 step 10)."""
+    return assemble(
+        64,
+        [(0, 8)],
+        [
+            call("equal_uint64_t", [slot(0), lit(WORD_NONE)], (8, 8)),
+            [OP["RETURN"], *slot(8), 8],
+        ],
+    )
+
+
+def none_default() -> bytes:
+    """Two parameters and one argument word: the second parameter is its `= None`
+    default and the program answers it. The run entry binds the None word to the words
+    the arguments do not reach (native/graph.h) -- the very word a caller passes
+    explicitly, so a callee cannot tell an absent argument from a passed None."""
+    return assemble(64, [(0, 8), (8, 8)], [[OP["RETURN"], *slot(8), 8]])
+
+
+def none_value() -> bytes:
+    """None as a value: the answer word is the None word itself, out of a literal."""
+    return assemble(64, [], [[OP["RETURN"], *lit(WORD_NONE), 8]])
+
+
 BINDING = 700001
 
 
@@ -704,6 +735,28 @@ def linked_depth() -> bytes:
     )
 
 
+def none_cases() -> list[tuple[Case, int, int]]:
+    """The None word on the host runner (tests/host/runner.c): the same word-model
+    programs synthetic() runs on the interpreter bytes of the starter, with the status
+    and out word they must answer. The tuple is (the case, the status, the out word)."""
+    return [
+        (cases_of("host none is none", none_identity(), number(WORD_NONE)), 0, 1),
+        (cases_of("host none is not int 0", none_identity(), number(0)), 0, 0),
+        (cases_of("host none is not 5", none_identity(), number(5)), 0, 0),
+        (cases_of("host none default", none_default(), number(0x2A)), 0, WORD_NONE),
+        (
+            cases_of(
+                "host none default passed",
+                none_default(),
+                number(0x2A) + number(WORD_NONE),
+            ),
+            0,
+            WORD_NONE,
+        ),
+        (cases_of("host none value", none_value(), b""), 0, WORD_NONE),
+    ]
+
+
 def frame_cases() -> list[tuple[Case, int, int]]:
     """The variable-length cells of the run cell on purpose: a frame of 1608 bytes runs as
     it declares -- alone, five deep (8040 bytes of frames), ten deep (16080 bytes, well
@@ -895,6 +948,12 @@ def synthetic() -> list[Case]:
         ("overflow flags sadd", overflow_flags, number((1 << 63) - 1) + number(1)),
         ("overflow flags smul", overflow_flags, number(1 << 63) + number(MASK64)),
         ("overflow flags ssub", overflow_flags, number(1 << 63) + number(1)),
+        ("none is none", none_identity, number(WORD_NONE)),
+        ("none is not int 0", none_identity, number(0)),
+        ("none is not 5", none_identity, number(5)),
+        ("none default", none_default, number(0x2A)),
+        ("none default passed", none_default, number(0x2A) + number(WORD_NONE)),
+        ("none value", none_value, b""),
     ):
         found.append(cases_of(name, build(), args))
     for (

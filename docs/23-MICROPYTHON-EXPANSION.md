@@ -607,15 +607,71 @@ pbuf unpins it first (`runtime_unpin`, leaf 15), then releases it.
 Commit shape: one commit per numbered step from 1 to 8 with its prove numbers (a red test commit
 is allowed to precede its green partner only on a branch that is not merged), step 9 alone.
 
+#### Step 10: the value words — the None word (landed 2026-10-31)
+
+The word model (`native/graph.h`) has a value for `None` that is not `int 0`, so `is` / `is not`
+None is a readable word test and `= None` defaults and `None`-as-value work (the `ph_meld`,
+`ph_pairing`, `run_until_complete` and `open_connection` rows of the census below). The shape is
+a reserved word in the frame-word space, with the int range declared around it:
+
+* an **int word** is a word whose bits 63 and 62 are the same -- the sign-extended 63-bit word.
+  The int range the data model exposes is `[-2^62, 2^62 - 1]`, exactly where a MicroPython small
+  int of a 64-bit port is the same number as the word (section 6, decision 10: MicroPython is
+  the reference).
+* **`RXF_WORD_NONE` is `0x4000000000000000`** (bit 62 set and no other): the first word above
+  the int range. None is a **singleton** -- `is` / `is not` lower to word equality with it -- and
+  no int word equals it, so the read is exact for every value in the range. It is not the word of
+  `int 0` (the wall the census hit) and it is not `1 << 63`: that word is what a signed compare
+  lowers through (the bias add of `rxpy.py`) and it stays out of the value faces.
+* the words the int range does not take and None does not name are **wrap words** -- what a wrap
+  leaves where MicroPython answers a bignum (section 6's one-sided pins). They are raw words to
+  the numeric leaves and no Python value.
+
+An **absent argument binds the None word**. The run entry (`rxf_graph_run`'s argc, the shape
+run-entry ARGS takes) fills every word of the parameters the arguments do not reach with
+`RXF_WORD_NONE`, so a `= None` default folds to the very word a caller passes explicitly and a
+callee cannot tell the two apart (which is what Python means). A parameter whose width is not a
+whole number of words is refused `OUT_OF_RANGE` where its argument is absent: the None word is a
+frame word and is never cut. A **call card is never short** -- its operand count is program text,
+and a count that is not the callee's parameter count is refused 6 -- so a lowerer that stages a
+default stages the None word as the literal it is.
+
+Wired on every seat in one change (the module/Python/C face is `native/graph.h`, one header):
+
+* the interpreter (`native/graph.rxfs`, its one defining source) on host C
+  (`tests/host/runner.c`), x86_64 and aarch64 (the emulators of `tests/graph_world.py`) and
+  wasm32 in node: `tests/graph_programs.py`'s `none is none`, `none is not int 0`,
+  `none default`, `none default passed` and `none value` run on all of them against the Python
+  oracle (`tests/graph_reference.py`, which binds the same words).
+* the boot entry (`boot/image_stub/entry.c`, the subset run the four boot images share): a seat
+  answers the None word for the parameter its one argument word does not reach
+  (`tests/test_boot_words.py`, the wasm32 seat under node -- the entry is shared, so the other
+  seats compile the same code; `tests/test_boot_handle.py` holds the `RXFOK` control).
+* the sims the suites run (`tests/rxf_sim.py`, `tests/rxf_native.py`) take the same rule.
+* the compiler's emitted entry stub (`native/compile.rxfs`, the `m_be_param_x`/`_a`/`_w` of its
+  three backends): each parameter word is the argument word where `argc` reaches it and the
+  None word else -- one branchless select per word (`cmovbe`, `csel`, `select`), and a
+  parameter of a width that is not whole words is given whole or refuses 6 where the prologue
+  refuses an `argc` above the words. `tests/test_compile_cases.py`'s `none default` case is the
+  prove: the same case runs on the interpreter and on the compiled code and both answer the
+  None word.
+
+The machine face is the word and the equality that reads it; the lowering is the strand's
+(`tools/native/rxpy.py` owns `int_face` and the call sites): a default is staged as the
+`RXF_WORD_NONE` literal and `is None` is `equal_uint64_t` against it. No opcode and no leaf was
+added: a program that can compare words can read None.
+
 #### After the machine lane (the strand's half, not part of it)
 
 `rxpy` stops monomorphizing methods per instance: `self` becomes a `Parameter` of type `ObjectHandle`
 and the method is compiled **once per class**; `Foo(args)` becomes `runtime_allocate` + the field
 stores; an object passed to a function is a three-word argument; a node holding another node is a
-24-byte field copied with `memory_copy`. With handles `None` has a representation **for object-typed
-values only**: the zero handle (id 0, which no row has), so `x is None` on an object is an equality of
-the id word with 0 -- the strand needs type tracking to tell an object slot from an int slot before
-that is honest, and until then `None` as a value stays refused (section 7). Inheritance and
+24-byte field copied with `memory_copy`. `None` is the word of step 10 (`RXF_WORD_NONE` of
+`native/graph.h`): a value slot of any type reads it and `x is None` is an equality with the word,
+so no type tracking is needed to tell it from `int 0` (the zero-handle plan this paragraph used to
+carry is gone with it). A handle that is None is not dereferenceable -- every word of it is the
+None word and no row has that id, so a resolve answers `UNBOUND`, the same honest refusal the zero
+handle had. Inheritance and
 `isinstance` are i3 function words over a type id in the object's row (`type_id` is already a row
 field): a separate lane.
 
