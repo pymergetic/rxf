@@ -213,41 +213,41 @@ def middle(frame: int) -> bytes:
 
 
 def cases_budget():
-    """The cell is 8192 bytes and the frames of the chain carve it exactly; one byte over
+    """The cell is 16384 bytes and the frames of the chain carve it exactly; one byte over
     is refused RXF_REFUSE_CELL_BUDGET, never spilled. The base is
     frames[depth].base + frames[depth].frame_bytes at every link."""
     out = []
-    # frames of 1024: 8 of them fill the cell exactly (entry + 7 calls)
+    # frames of 1024: 16 of them fill the cell exactly (entry + 15 calls)
     r = counted(1024, 1024)
-    out.append((Case("budget 8 frames of 1024 exactly", r, number(7), {A: r}), 0, 1007))
-    # the 9th frame is refused at the depth bound before the budget is looked at
-    out.append((Case("depth 9th frame refused", r, number(8), {A: r}), DEPTH, 0))
-    # frames of 1600: 5 fit (8000), the 6th is over the cell but under the depth bound
+    out.append((Case("budget 16 frames of 1024 exactly", r, number(15), {A: r}), 0, 1015))
+    # the 17th frame is refused at the depth bound before the budget is looked at
+    out.append((Case("depth 17th frame refused", r, number(16), {A: r}), DEPTH, 0))
+    # frames of 1600: 10 fit (16000), the 11th is over the cell but under the depth bound
     r16 = counted(1600, 1600)
-    out.append((Case("budget 5 frames of 1600 fit", r16, number(4), {A: r16}), 0, 1004))
-    out.append((Case("budget 6th frame of 1600 refused", r16, number(5), {A: r16}), BUDGET, 0))
+    out.append((Case("budget 10 frames of 1600 fit", r16, number(9), {A: r16}), 0, 1009))
+    out.append((Case("budget 11th frame of 1600 refused", r16, number(10), {A: r16}), BUDGET, 0))
     # an entry that is the whole cell: alone it fits, its first call does not
-    fat = assemble(8192, [(0, 8)], [
-        call_card(A, [slot(0)], out=(8184, 8)),
-        [OP["RETURN"], *slot(8184), 8],
+    fat = assemble(16384, [(0, 8)], [
+        call_card(A, [slot(0)], out=(16376, 8)),
+        [OP["RETURN"], *slot(16376), 8],
     ])
     out.append((Case("budget entry frame of the whole cell", fat, number(3), {A: leaf_program()}), BUDGET, 0))
     # a zero-byte callee frame fits at the very end of the cell
-    zero_frame = assemble(8192, [(0, 8)], [
-        call_card(A, [], out=(8184, 8)),
-        [OP["RETURN"], *slot(8184), 8],
+    zero_frame = assemble(16384, [(0, 8)], [
+        call_card(A, [], out=(16376, 8)),
+        [OP["RETURN"], *slot(16376), 8],
     ])
     zero_callee = assemble(0, [], [[OP["RETURN"], *lit(9), 8]])
     out.append((Case("budget a zero frame at the end", zero_frame, number(3), {A: zero_callee}), 0, 9))
     # an entry frame past the cell is refused the budget on its own
-    over = assemble(8200, [(0, 8)], [[OP["RETURN"], *slot(0), 8]])
+    over = assemble(16400, [(0, 8)], [[OP["RETURN"], *slot(0), 8]])
     out.append((Case("budget entry frame past the cell", over, number(3), {}), BUDGET, 0))
     # the cell shrinks back at the answer: two 4096-byte callees one after the other
     out.append((Case("budget the cell shrinks back", two_calls(0, 0), number(5), {A: leaf_program(4096), B: leaf_program(4096)}), 0, 10))
-    # three regions at once: 64 + 4096 + 4032 = 8192 exactly
-    out.append((Case("budget 64 + 4096 + 4032 exactly", calls_callee_of(0), number(5), {A: middle(4096), B: leaf_program(4032)}), 0, 5))
-    # ... one byte more of inner frame and the third link is refused the budget
-    out.append((Case("budget 64 + 4096 + 4040 over", calls_callee_of(0), number(5), {A: middle(4096), B: leaf_program(4040)}), BUDGET, 0))
+    # three regions at once: 64 + 4096 + 12224 = 16384 exactly
+    out.append((Case("budget 64 + 4096 + 12224 exactly", calls_callee_of(0), number(5), {A: middle(4096), B: leaf_program(12224)}), 0, 5))
+    # ... one word more of inner frame and the third link is refused the budget
+    out.append((Case("budget 64 + 4096 + 12232 over", calls_callee_of(0), number(5), {A: middle(4096), B: leaf_program(12232)}), BUDGET, 0))
     return out
 
 

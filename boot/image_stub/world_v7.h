@@ -36,11 +36,11 @@
  *   base + 0x5800  ARGS         one argument word ("RXFOK")
  *   base + 0x5900  OUT          0x100 bytes of answer
  *   base + 0x8600  HANDLE_COPY  the 24-byte v7 handle the glue passes
- *   base + 0x8800  FRAME        0x2000: the run cell (RXF_GRAPH_CELL_BYTES)
- *   base + 0xA800  FIFO         0x240: the zero row the glue owns (the wasm
+ *   base + 0x8800  FRAME        0x4000: the run cell (RXF_GRAPH_CELL_BYTES)
+ *   base + 0xC800  FIFO         0x240: the zero row the glue owns (the wasm
  *                               seat's Uart block is the one the linked
  *                               image's capability names -- see FIFO below)
- *   base + 0xB000  ENTRY        the image's entry code (rxf_graph_run)
+ *   base + 0xD000  ENTRY        the image's entry code (rxf_graph_run)
  *   base + 0x10000 LINKED       the linked image: CONTEXT at its byte 0
  */
 #ifndef RXF_BOOT_WORLD_V7_H
@@ -57,12 +57,12 @@
 #define RXF_BOOT_OUT 0x5900u
 #define RXF_BOOT_HANDLE_COPY 0x8600u
 #define RXF_BOOT_FRAME 0x8800u
-#define RXF_BOOT_FRAME_SIZE 0x2000u /* RXF_GRAPH_CELL_BYTES */
-#define RXF_BOOT_FIFO 0xA800u
+#define RXF_BOOT_FRAME_SIZE 0x4000u /* RXF_GRAPH_CELL_BYTES */
+#define RXF_BOOT_FIFO 0xC800u
 #define RXF_BOOT_FIFO_SIZE 0x240u /* RXF_UART_FIFO_BLOCK */
-#define RXF_BOOT_ENTRY 0xB000u
+#define RXF_BOOT_ENTRY 0xD000u
 #define RXF_BOOT_BSS RXF_BOOT_FRAME
-#define RXF_BOOT_BSS_END 0xAB00u /* FRAME and FIFO: the rows that start zero */
+#define RXF_BOOT_BSS_END 0xCB00u /* FRAME and FIFO: the rows that start zero */
 #define RXF_BOOT_ARGC 1u         /* the smoke's program takes one word */
 
 /* The handle the glue passes is the v7 identity (docs/32 4): word 0 is the

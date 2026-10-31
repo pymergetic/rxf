@@ -18,13 +18,25 @@
 # in the instruction that uses it -- never cached, never written to a slot (S7, S8).
 #
 # The state mirrors rxf_graph (graph.c:37): code/count/frame/frame_bytes/depth as
-# words, the run cell `cell[8192]` and the frames of the chain `frames[704]` (8 frame
+# words, the run cell `cell[16384]` and the frames of the chain `frames[1408]` (16 frame
 # links of 11 words, rxf_call_frame of graph.c:21) as regions. The frames are the run's
 # own state -- no raw pointer outlives a step (S7).
 #
 # The helpers and the main loop carry the C line they mirror; where the C has a quirk
 # (the order of two checks, a width's cap at 8 bytes), the quirk is kept: the C is the
 # spec, and tests/graph_reference.py is the oracle.
+
+# ---- the machine budget (native/graph.h, docs/23 4.9 step 8) --------------------------------------
+# The run cell is RXF_GRAPH_CELL_BYTES bytes and the call chain RXF_GRAPH_CALL_DEPTH links
+# deep, one link being 11 words (88 bytes, rxf_call_frame of graph.c:21), so the links are
+# m_call_depth() * m_link_bytes() = 1408 bytes. The header is the number the C side compiles
+# with; these macros are the same budget inside the language, and tests/graph_programs.py
+# pins the two together by the refusals it provokes. A `var` size takes one token (no
+# arithmetic), so the frames region names its folded size.
+macro m_cell_bytes() = 16384;
+macro m_call_depth() = 16;
+macro m_link_bytes() = 88;
+macro m_frames_bytes() = 1408;
 
 # ---- words of the program: g->code ----------------------------------------------------------------
 
@@ -494,8 +506,8 @@ macro m_rebind() {
     rd_d = rd_d + 1;
   }
   if (rd_status == 0) {
-    code = load64(frames + depth * 88 + 24);
-    count = load64(frames + depth * 88 + 32);
+    code = load64(frames + depth * m_link_bytes() + 24);
+    count = load64(frames + depth * m_link_bytes() + 32);
   }
 }
 
@@ -513,7 +525,7 @@ macro m_answer(presult, phas, pbytes, pw) {
   an_width = (pw);
   an_status = 0;
   an_next = 0;
-  an_top = frames + depth * 88;
+  an_top = frames + depth * m_link_bytes();
   an_caller = frames + (depth - 1) * 88;
   an_frame = cell + load64(an_caller + 40);
   an_out_slot = load64(an_top + 64);
@@ -592,7 +604,7 @@ macro m_call_program(pat) {
     cp_status = 6;
   }
   if (cp_status == 0) {
-    if (depth + 1 >= 8) {
+    if (depth + 1 >= m_call_depth()) {
       cp_status = 17;
     }
   }
@@ -649,12 +661,12 @@ macro m_call_program(pat) {
       }
     }
     if (cp_status == 0) {
-      cp_base = load64(frames + depth * 88 + 40) + load64(frames + depth * 88 + 48);
-      if (cp_base > 8192) {
+      cp_base = load64(frames + depth * m_link_bytes() + 40) + load64(frames + depth * m_link_bytes() + 48);
+      if (cp_base > m_cell_bytes()) {
         cp_status = 18;
       }
       if (cp_status == 0) {
-        if (cp_fb > 8192 - cp_base) {
+        if (cp_fb > m_cell_bytes() - cp_base) {
           cp_status = 18;
         }
       }
@@ -721,8 +733,8 @@ macro m_call_program(pat) {
       store64(cp_frame + 72, cp_out_width);
       store64(cp_frame + 80, load64(code + 8 * (cp_at + 5)));
       depth = depth + 1;
-      code = load64(frames + depth * 88 + 24);
-      count = load64(frames + depth * 88 + 32);
+      code = load64(frames + depth * m_link_bytes() + 24);
+      count = load64(frames + depth * m_link_bytes() + 32);
       frame = cp_dst;
       frame_bytes = cp_fb;
       cp_next = cp_entry_pc;
@@ -979,7 +991,7 @@ macro m_call_leaf(pat) {
 
 fn graph_run(c, h_id, h_gen, h_off, args, argc, out) {
   var code, count, frame, frame_bytes, depth;
-  var cell[8192], staged[256], frames[704], sv[16];
+  var cell[m_cell_bytes()], staged[256], frames[m_frames_bytes()], sv[16];
   var ok, ent, ent_lo, ent_hi, ent_mi, ent_id;
   var rb_addr, rb_width, rb_value, rb_i;
   var wb_addr, wb_width, wb_value, wb_i;
@@ -1068,7 +1080,7 @@ fn graph_run(c, h_id, h_gen, h_off, args, argc, out) {
     }
   }
   if (status != 0) { refuse status; }
-  if (frame_bytes > 8192) { refuse 18; }
+  if (frame_bytes > m_cell_bytes()) { refuse 18; }
   m_zero_bytes(cell, frame_bytes);
 
   # the entry's parameters bound from the arguments (graph.c:596).

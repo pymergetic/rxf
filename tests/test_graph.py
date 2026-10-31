@@ -29,13 +29,17 @@ READ_FROM_OBJECTS = {
 # The pump of the live layer serves a channel; tests/test_live_native.py runs it.
 # The compiler writes machine code for a program; tests/test_compile.py runs it.
 # The run of a program is what compiled code calls (a call card, docs/20 S7);
-# tests/test_compile_cases.py runs it on every machine.
+# tests/test_compile_cases.py runs it on every machine. The one-step allocator is
+# called behind an Allocator capability no program is given (docs/23 4.9 step 4);
+# tests/test_runtime_allocate.py runs it.
 NOT_IN_PROGRAMS = {
     "live_pump",
     "uart_pump",
     "compile_program",
     "safe_point",
     "graph_run",
+    "runtime_allocate",
+    "runtime_release",
 }
 
 
@@ -248,7 +252,7 @@ def test_a_frame_well_over_1024_bytes_runs_as_it_declares():
 def test_a_call_chain_past_the_cell_budget_is_refused_honestly():
     """Budget = cell bytes: the sum of the active call chain's frames must fit the run cell,
     and a chain past it answers RXF_REFUSE_CELL_BUDGET -- a status code, never silent, never
-    spilled and never split. The depth-8 bound stays intact beside it as a link bound of its
+    spilled and never split. The depth-16 bound stays intact beside it as a link bound of its
     own (RXF_REFUSE_CALL_DEPTH), not a byte wall."""
     for case, status, out in programs.budget_cases():
         assert host_run(case) == (status, out), case.name

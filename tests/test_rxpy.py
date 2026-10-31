@@ -188,12 +188,15 @@ OUT_CASES = [
     (("words", "shl", (1, 70)), (SHIFT_COUNT, None), 1 << 70),
     (("words", "shl", (1, -1)), (SHIFT_COUNT, None), "!ValueError"),
     (("words", "shr", (-8, 64)), (SHIFT_COUNT, None), -1),
-    # the call-card budget vs the reference's recursion
-    (("chain", "triangle", (8,)), (CALL_DEPTH, None), 36),
+    # the call-card budget vs the reference's recursion: the budget is 16 links
+    # (native/graph.h, expanded 2026-10-31), so triangle(8) answers now where it
+    # refused at 8 links -- the pin carries both eras' answers
+    (("chain", "triangle", (8,)), (OK, 36), 36),
     (("chain", "triangle", (20,)), (CALL_DEPTH, None), 210),
-    # fact(8) is inside the budget (fact stops calling at 2: 8 frames counting the
-    # entry); fact(9) is the first word past it
-    (("chain", "fact", (9,)), (CALL_DEPTH, None), 362880),
+    # fact stops calling at 2, so fact(n) is n frames: 16 fit and fact(17) is the
+    # first word past the links (fact(9), the first past the old budget, answers now)
+    (("chain", "fact", (9,)), (OK, 362880), 362880),
+    (("chain", "fact", (17,)), (CALL_DEPTH, None), 355687428096000),
 ]
 
 # a sequence of calls on one image: the module's cell walks the same state the

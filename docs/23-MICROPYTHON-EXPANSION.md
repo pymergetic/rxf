@@ -57,7 +57,7 @@ five pieces, in this order of dependency:
 | blocking hal call (`mp_hal_delay_ms`) | a park (S4) with a timed edge wake (S9) | docs/20 S11 |
 | `import` / `mp_import_stat` | a lookup of named cells under root | docs/22, §4.6 |
 | coroutine / `uasyncio.Task` | a run cell (S1) whose coroutine frame chain lives in the heap | §4.5 |
-| C call chain | run-cell frame links: `(base, size)` frames carved from the run cell, at most `RXF_GRAPH_CALL_DEPTH` (8) open, their sum within `RXF_GRAPH_CELL_BYTES` (8192); a Python call chain is heap frames (`mp_code_state_t`), not links | docs/20 S6, `native/graph.h` |
+| C call chain | run-cell frame links: `(base, size)` frames carved from the run cell, at most `RXF_GRAPH_CALL_DEPTH` (16) open, their sum within `RXF_GRAPH_CELL_BYTES` (16384); a Python call chain is heap frames (`mp_code_state_t`), not links | docs/20 S6, `native/graph.h` |
 
 The C stack of a carrier is empty at every safe point; the guest's C-graph nesting is the bounded
 link stack of the run cell, and its Python nesting is the heap frame chain. The two do not share a
@@ -361,6 +361,7 @@ the machine says it is narrower than that:
 | release | `rxf_runtime_release` exists as a C-ABI function but **is not a leaf** (leaf ids stop at 49); it clears the row and returns no memory | `native/stdlib_runtime.h`, `native/graph.h` |
 | pins and compaction | `pin`/`unpin` are leaves 14/15 (`pin_count` of the row); the sliding pass of docs/20 S8 and docs/17 (decision 7: compaction, not free lists) skips pinned cells. The host runner has **no heap at all** (`runner.c` sets no `heap_*`, so `allocate_prepare` refuses there); `tests/graph_world.py` cases do carry a context with heap and journal | `tests/host/runner.c`, `tests/graph_world.py` |
 | two physical models of "an object" | the **runtime context** (`rxf_runtime_context`, 144 bytes, ABI 2: sorted 80-byte entries id/generation/type/payload/size/capacity/state/borrows/pins/owner) that `graph.rxfs`, `runtime.rxfs`, `compile.rxfs` and the host runner use; and the **v7 slot table** (docs/32 4) that `boot/image_stub/entry.c`'s mini interpreter (MOVE, RETURN, REFUSE, CALL of shape 6 only) and the live engine use. This design is written against the first; the second is named in section "Open" | |
+| the machine budget (measured 2026-10-31, after the expansion of this lane) | the run cell is **16384 bytes** (`RXF_GRAPH_CELL_BYTES`) and a call chain at most **16 links** (`RXF_GRAPH_CALL_DEPTH`), each link 88 bytes (11 words, `rxf_call_frame`), each frame variable-length and at most the cell itself. The budget is parameterized inside the language (`m_cell_bytes`, `m_call_depth`, `m_link_bytes`, `m_frames_bytes` of `native/graph.rxfs`) and as the `RXF_*` numbers `native/graph.h` compiles with; `tests/graph_programs.py` pins the two together by the refusals it provokes (a 16400-byte frame and a chain past 16384 bytes answer `RXF_REFUSE_CELL_BUDGET`, sixteen links answer `RXF_REFUSE_CALL_DEPTH`, and 16080 bytes of chain run). The boot carrier gives its guest one **16 KiB frame** at `RXF_BOOT_FRAME` (`0x8800`/`0x4000`), a 2 KiB FIFO at `0xC800` and an 8 KiB entry cell at `RXF_BOOT_ENTRY` (`0xD000`/`0x2000`) | `native/graph.h`, `native/graph.rxfs`, `boot/image_stub/world_v7.h`, `tests/graph_programs.py` |
 
 So the minimum that makes `Foo(...)`, `self.f` with `self` a parameter, and a node holding another
 node's handle lowerable **under S7** is two things, and only two: an operand that resolves a held
@@ -669,7 +670,7 @@ records each.** The items below stand as the risk statement that prompted them.
    word (32- vs 64-bit) is the one open piece" — `rximport.py`). Most MicroPython ports run
    32-bit `mp_int_t`. Until this is decided, the breadth claim is x86-64/wasm32-shaped.
 2. **The lowerers' frame budget is not flipped.** The run's variable-length frames landed
-   (`RXF_GRAPH_CELL_BYTES` 8192), but `RXF_GRAPH_FRAME` (1024) still refuses at import:
+   (`RXF_GRAPH_CELL_BYTES` 16384), but `RXF_GRAPH_FRAME` (1024) still refuses at import:
    `qstr_from_strn` is 1608 frame bytes and stays refused ("needs a frame"), and qstr interning
    is on every builtin's path. `native/graph.h` names the flip "the importer lane's follow-up" —
    breadth is blocked on it.
@@ -686,7 +687,7 @@ records each.** The items below stand as the risk statement that prompted them.
    ("a relocation it cannot know", `global_reloc.c`); the `obj_port_boot` boot-wiring idiom must
    be generalized (a boot card per subsystem) or the card has no dispatch words to find.
 6. **Recursion and call depth.** `calls.c` `ping`/`pong` still refuse as "recursion" although
-   call cards land cross-file (`qstr_str` is a call card), and `RXF_GRAPH_CALL_DEPTH` is 8 links
+   call cards land cross-file (`qstr_str` is a call card), and `RXF_GRAPH_CALL_DEPTH` is 16 links
    with `RXF_REFUSE_CALL_DEPTH` past it. C builtins that recurse (repr of nested structures,
    nested packages) need either graph-call recursion or a heap-frame story at the C level too.
    Note: the header's "next steps" list still names "graph calls" as missing — the tests say call
@@ -727,7 +728,7 @@ All fourteen are decided; two were answered by work that landed in the meantime.
    both first-class; the importer's operand policy carries the width. No deferral — the
    breadth claim stops being x86-64/wasm32-shaped when the lanes land.
 2. **Frame budget — resolved by landed work.** Frames measure against `RXF_GRAPH_CELL_BYTES`
-   (8192); `qstr_from_strn` (1608 B) is its own program and no longer refused for a frame.
+   (16384, expanded 2026-10-31); `qstr_from_strn` (1608 B) is its own program and no longer refused for a frame.
 3. **Wiring universe — decided: a link fact.** `function_wiring` survives import runs as
    objects; a boot and its bodies may be separate imports, so the per-module provenance knob
    stays clean.
@@ -737,7 +738,7 @@ All fourteen are decided; two were answered by work that landed in the meantime.
    `rximport.py` for structs of callbacks; the `obj_port_boot` idiom remains the fallback
    shape, not the only door.
 6. **Recursion — decided: one frame model.** C recursion uses heap frames like Python calls
-   (no depth-8 ceiling for it); the budgets stay honest (`RXF_GRAPH_CELL_BYTES`, the cell
+   (no frame-link ceiling for it); the budgets stay honest (`RXF_GRAPH_CELL_BYTES`, the cell
    budget) and a refused chain is still a budget refusal, never a stack overflow.
 7. **uasyncio semantics — decided: model everything.** The run model unifies threads and
    async (S11 is no-GIL): `run_in_executor` spawns a run cell — no OS threads, no second

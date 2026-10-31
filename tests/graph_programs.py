@@ -692,7 +692,7 @@ def frame_heavy() -> bytes:
 
 
 def linked_depth() -> bytes:
-    """A chain that spends the eight frame links on sixty-four byte frames: refused
+    """A chain that spends the sixteen frame links on sixty-four byte frames: refused
     RXF_REFUSE_CALL_DEPTH -- the depth bound of graph.h is a link bound, not a byte wall."""
     return assemble(
         64,
@@ -706,7 +706,8 @@ def linked_depth() -> bytes:
 
 def frame_cases() -> list[tuple[Case, int, int]]:
     """The variable-length cells of the run cell on purpose: a frame of 1608 bytes runs as
-    it declares -- alone, five deep (8040 bytes of frames, inside the cell), and as a callee
+    it declares -- alone, five deep (8040 bytes of frames), ten deep (16080 bytes, well
+    inside the cell), and as a callee
     under a small entry. These run on the host runner (tests/host/runner.c, which compiles
     native/graph.c per checkout), not in synthetic()/refusals(): those cases run on the
     interpreter bytes of the starter, which the importer lane regenerates. The tuple is
@@ -723,27 +724,28 @@ def frame_cases() -> list[tuple[Case, int, int]]:
     return [
         (Case("a frame of 1608 bytes", heavy, number(0), {FRAMED: heavy}), 0, 1000),
         (Case("five frames of 1608 bytes", heavy, number(4), {FRAMED: heavy}), 0, 1004),
+        (Case("ten frames of 1608 bytes", heavy, number(9), {FRAMED: heavy}), 0, 1009),
         (Case("a 1608-byte frame as a callee", called, b"", {FRAMED: heavy}), 0, 1004),
     ]
 
 
 def budget_cases() -> list[tuple[Case, int, int]]:
     """The budget is cell bytes and it refuses, never silently overruns: a declared frame the
-    cell cannot hold at all, and a call chain whose frames exceed the cell while the eight
+    cell cannot hold at all, and a call chain whose frames exceed the cell while the sixteen
     links are nowhere near spent (the refusal is RXF_REFUSE_CELL_BUDGET, not the link bound).
-    The link bound is proven beside it: eight links of tiny frames refuse CALL_DEPTH."""
+    The link bound is proven beside it: sixteen links of tiny frames refuse CALL_DEPTH."""
     heavy, budget = frame_heavy(), N["RXF_REFUSE_CELL_BUDGET"]
-    oversized = assemble(8200, [(0, 8)], [[OP["RETURN"], *slot(0), 8]])
+    oversized = assemble(16400, [(0, 8)], [[OP["RETURN"], *slot(0), 8]])
     return [
         (Case("a frame past the cell budget", oversized, number(3), {}), budget, 0),
         (
-            Case("a chain past the cell budget", heavy, number(6), {FRAMED: heavy}),
+            Case("a chain past the cell budget", heavy, number(10), {FRAMED: heavy}),
             budget,
             0,
         ),
         (
             Case(
-                "the eight links, not the bytes",
+                "the sixteen links, not the bytes",
                 linked_depth(),
                 number(1),
                 {LOOPED: linked_depth()},
@@ -771,8 +773,8 @@ def broken() -> dict[str, tuple[bytes, int]]:
         "unknown opcode": (program([99]), OUT_OF_RANGE),
         "past the end": (program(move(0, 8, slot(0))), OUT_OF_RANGE),
         # the frame is what the program declares, exactly (docs/20 S6): the refusal of a
-        # frame is the budget, not a wall -- 9000 bytes no run cell could hold
-        "frame": (program(ret, frame=9000), BUDGET),
+        # frame is the budget, not a wall -- 17000 bytes no run cell could hold
+        "frame": (program(ret, frame=17000), BUDGET),
         "frame not whole words": (program(ret, frame=60), OUT_OF_RANGE),
         "slot out of the frame": (program([OP["RETURN"], *slot(64), 8]), OUT_OF_RANGE),
         "unbound object": (program([OP["RETURN"], *obj(31337, 8), 8]), UNBOUND),

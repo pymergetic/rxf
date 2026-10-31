@@ -62,8 +62,9 @@ FRAME = BASE + SIZE + 0x800  # the run cell of the reference interpreter
 # the flat memory ends with the run cell of the reference interpreter: the frames of
 # the active call chain are carved (base, size) from its payload (the cell
 # rxf_graph_run keeps on its stack), so a nested call card writes its frame where it
-# is mapped
-MAPPED = SIZE + 0x800 + 0x2000
+# is mapped. The cell is what native/graph.h declares (RXF_GRAPH_CELL_BYTES), so the
+# mapping follows the header and not a number of its own.
+MAPPED = SIZE + 0x800 + graph_header.numbers()["RXF_GRAPH_CELL_BYTES"]
 PROGRAM_ID = 900001
 # Behind everything above: what the compiler (docs/19, WP12) is given and writes.
 REQUEST_AT = BASE + MAPPED

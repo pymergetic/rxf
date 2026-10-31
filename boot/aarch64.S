@@ -23,13 +23,13 @@
  * check-map` compares them against the header so they cannot drift.
  */
     .equ IMAGE_BASE, 0x40100000         /* QEMU virt DRAM: where the world runs */
-    .equ ENTRY, IMAGE_BASE + 0xB000     /* rxf_graph_run, in the carrier room */
+    .equ ENTRY, IMAGE_BASE + 0xD000     /* rxf_graph_run, in the carrier room */
     .equ CONTEXT, IMAGE_BASE + 0x10000  /* the linked image's context (link.py) */
     .equ ARGS, IMAGE_BASE + 0x5800      /* the argument words the program takes */
     .equ OUT, IMAGE_BASE + 0x5900       /* where the answer lands */
     .equ HANDLE, IMAGE_BASE + 0x8600    /* the 3-word handle copy */
     .equ BSS_START, IMAGE_BASE + 0x8800 /* FRAME and FIFO rows: never on disk */
-    .equ BSS_END, IMAGE_BASE + 0xAB00
+    .equ BSS_END, IMAGE_BASE + 0xCB00
     .equ ARGC, 1                        /* the smoke's program takes one word */
 
 /* The exception vectors: 16 entries of 128 bytes, the layout VBAR_EL1 expects.
