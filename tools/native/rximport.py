@@ -66,7 +66,10 @@ The subset of LLVM IR this prototype imports (anything else raises ``Unsupported
                select/phi of addresses -- the bytes move through the ``memory_copy`` leaf), a
                load/store of a ptr value (the address word read or written as 8 bytes), a
                call of a leaf-shaped
-               function, the intrinsics llvm.umin/umax/smin/smax.i64 (as select),
+               function, the intrinsics llvm.umin/umax/smin/smax.iN (a compare and a
+               select; the signed ones compare the sign-extended words), llvm.abs.iN (a
+               signed compare against zero, a negate and a select), llvm.bswap.i16/i32/i64
+               (one shift and one mask per byte, or'ed: the delta vocabulary is unchanged),
                llvm.fshl/fshr.iN (as two masked shifts and a select), llvm.memcpy and
                llvm.memset (as the ``memory_copy`` / ``memory_fill`` leaves),
                llvm.{uadd,sadd,usub,ssub}.with.overflow.iN (the sum is one wrapping leaf and
@@ -3399,7 +3402,13 @@ class Lowering:
                  for type_name, _ in inst.args],
                 result, name)
         )  # fmt: skip
-        self.note(inst.name, ("value", result.path))
+        answer: MOperand = ("value", result.path)
+        if inst.type == "ptr":
+            # a carrier is not a word: a leaf given a wide value that is no slot would be handed
+            # the carrier's own address (the frame's, not the flat address it carries), so the
+            # address word is copied out of its first bytes before anything reads it
+            answer = self.move_value(target, answer, width=8)
+        self.note(inst.name, answer)
         if inst.type == "ptr" and inst.name is not None:  # the result holds an address
             self.pointers.add(inst.name)
         return target
@@ -3444,6 +3453,13 @@ class Lowering:
         if found:
             self.lower_with_overflow(inst, target, found.group(1), int(found.group(2)))
             return None
+        if intrinsic.startswith("memmove."):
+            raise Unsupported(
+                f"{self.fn.name}: the intrinsic {inst.callee} (an overlap-safe copy: the "
+                "memory.copy leaf the graph has copies forward only, so a copy whose "
+                "ranges overlap would be a wrong word; the memory move of native/memory/"
+                "memory.rxfs is no leaf of the graph yet)"
+            )
         raise Unsupported(f"{self.fn.name}: the intrinsic {inst.callee}")
 
     def lower_with_overflow(

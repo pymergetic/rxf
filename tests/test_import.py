@@ -100,6 +100,20 @@ NARROW = (
     1 << 63, U64 - 1,
 )  # fmt: skip
 NARROW_PAIRS = [(a, b) for a in NARROW[::2] for b in NARROW[::2]]
+# the edges of the signed narrow widths the stride above skips: the extremes and their
+# neighbours, sign-extended and not, for the min/max/abs and byte-swap intrinsics
+MINMAX_WORDS = (
+    *NARROW, 0xFF80, 0xFFFFFF80, 0xFFFF8000, 0xFFFF7FFF, 0x80000001, 0x7F7F, 0x8081,
+    0x12345678, 0xFEDCBA9876543210,
+)  # fmt: skip
+MINMAX_PAIRS = [(a, b) for a in MINMAX_WORDS for b in MINMAX_WORDS]
+BSWAP_VALUES = [(a,) for a in MINMAX_WORDS]
+BSWAP_NAMES = ("bswap16", "bswap32", "bswap64", "htons_idiom", "htonl_idiom", "swap_twice32")
+MINMAX_NAMES = (
+    "umin8", "umin16", "umax16", "smin8", "smax8", "smin16", "smax16",
+    "umin32", "umax32", "smin32", "smax32_floor", "umin16_limit",
+)  # fmt: skip
+BSWAP_PAIRS = [(a, b) for a in MINMAX_WORDS[::2] for b in MINMAX_WORDS[::3]]
 NARROW_VALUES = [(a,) for a in NARROW]
 # the shift counts inside each width (at or past it is undefined in C, outside the contract)
 COUNTS_8 = (0, 1, 3, 7)
@@ -239,6 +253,16 @@ CASES: dict[str, tuple[str, list[tuple[int, ...]]]] = {
     # the funnel shifts: llvm.fshl.i8 and llvm.fshr.i8
     "rotl8": ("narrow.c", [(a, n) for a in NARROW[::2] for n in COUNTS_8]),
     "rotr8": ("narrow.c", [(a, n) for a in NARROW[::2] for n in COUNTS_8]),
+    # the intrinsics the lwIP lane found refused (docs/35): llvm.bswap.i16/i32/i64 (every
+    # header field of the echo path) and llvm.umin/umax/smin/smax/abs at the narrow widths
+    **{name: ("bswap.c", BSWAP_VALUES) for name in BSWAP_NAMES},
+    "swap_sum": ("bswap.c", BSWAP_PAIRS),
+    "swap_less": ("bswap.c", BSWAP_PAIRS),
+    **{name: ("minmax.c", MINMAX_PAIRS) for name in MINMAX_NAMES},
+    **{name: ("minmax.c", [(a,) for a in MINMAX_WORDS]) for name in ("abs8", "abs16")},
+    # abs() of INT_MIN is the poison form in C: the inputs stay off the one word it breaks
+    "abs32": ("minmax.c", [(a,) for a in MINMAX_WORDS if a & 0xFFFFFFFF != 0x80000000]),
+    "abs64": ("minmax.c", [(a,) for a in MINMAX_WORDS if a != 1 << 63]),
     # Rust (rustc --emit=llvm-ir -C opt-level=0 -C panic=abort): the integers of the flat
     # profile as #[no_mangle] pub extern "C" functions, plain SSA of the arguments
     "r_add8": ("rust_int.rs", NARROW_PAIRS),
@@ -990,6 +1014,88 @@ def test_outside_the_subset_is_refused(file: str, name: str):
     text = rximport.compile_source(CORPUS / file)
     with pytest.raises(rximport.Unsupported, match=REFUSED[(file, name)]):
         rximport.graphs_of(text, only={name})
+
+
+INTRINSICS_OF = {
+    "bswap.c": ("bswap.i16", "bswap.i32", "bswap.i64"),
+    "minmax.c": (
+        "umin.i8", "umin.i16", "umin.i32", "umax.i16", "umax.i32",
+        "smin.i8", "smin.i16", "smin.i32", "smax.i8", "smax.i16", "smax.i32",
+        "abs.i8", "abs.i16", "abs.i32", "abs.i64",
+    ),
+}  # fmt: skip
+
+
+@pytest.mark.parametrize("file", sorted(INTRINSICS_OF))
+def test_the_intrinsic_corpus_really_carries_its_intrinsics(file: str):
+    """The corpus of the byte-swap and min/max/abs lowerings is only a corpus while clang
+    still writes the intrinsics it was made for: each one is named in the compiled IR."""
+    text = rximport.compile_source(CORPUS / file)
+    for intrinsic in INTRINSICS_OF[file]:
+        assert f"@llvm.{intrinsic}(" in text, f"{file}: clang no longer writes llvm.{intrinsic}"
+
+
+def link_native(source: Path, directory: Path) -> ctypes.CDLL:
+    """One corpus file natively compiled into a shared library of the directory."""
+    shared = directory / f"{source.stem}.so"
+    link(source, shared)
+    return ctypes.CDLL(str(shared))
+
+
+@pytest.mark.parametrize("name", ["card_ptr_store", "card_ptr_offset"])
+def test_a_pointer_answered_by_a_call_card_is_an_address(tmp_path: Path, name: str):
+    """A pointer an out-of-line call card answers (cardptr.c's ``pick``, past the inline budget,
+    reached as a genuine RXF_GRAPH_CALL) is the flat address it carries: the caller stores
+    through it, subtracts the base it came from and compares it, and the bytes and the answer
+    equal the natively compiled calls. The card's answer arrives in a wide carrier; used as it
+    stood, a leaf was handed the carrier's own address in the frame (the defect this pins: it
+    surfaced where lwIP's pbuf_alloc answers a pbuf out of line, and read zeros through it)."""
+    image = tree.load(STARTER)
+    source = CORPUS / "cardptr.c"
+    rximport.import_source_file(
+        image, source, module="cardptr", only={"pick", "card_ptr_store", "card_ptr_offset"}
+    )
+    assert image.check() == []
+    programs = compose.programs(image)
+    named = [
+        op
+        for graph in rximport.graphs_of(
+            rximport.compile_source(source), "cardptr", {name}
+        ).values()
+        for block in graph.blocks
+        for op in block.ops
+        if op.opcode == "CallCallback" and (op.callee or "").endswith("pick")
+    ]
+    assert named, "no call card names pick (the inline path would hide the defect)"
+    handle = image.resolve("cardptr.pick")
+    assert handle is not None
+    objects: dict[int, bytes | bytearray] = {
+        compose.object_id(image, handle): programs["cardptr.pick"]
+    }
+    function = getattr(link_native(source, tmp_path), name)
+    function.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
+    function.restype = ctypes.c_uint64
+    offsets = set()
+    for first in FILLS:
+        for seed in (*VALUES_FOR_MEMORY, 3, 7, 12345, 0xABCDEF):
+            held = ctypes.create_string_buffer(first, 8)
+            expected = function(held, seed)
+            with rxf_native.Memory(1 << 16) as memory:
+                memory.write(0x200, first)
+                status, answer = rxf_native.run(
+                    programs[f"cardptr.{name}"],
+                    struct.pack("<2Q", memory.at(0x200), seed),
+                    memory,
+                    objects=objects,
+                )
+                wrote = bytes(memory.read(0x200, 8))
+            assert (status, answer) == (OK, expected), (
+                f"{name}({seed:#x}): the graph answered ({status}, {answer:#x}), natively "
+                f"it is ({OK}, {expected:#x})"
+            )
+            assert wrote == ctypes.string_at(held, 8), (name, seed, wrote.hex())
+            offsets.add(expected & 0xFF)
+    assert len(offsets) >= 4, f"the seeds reach only the offsets {sorted(offsets)}"
 
 
 @pytest.mark.parametrize("file", sorted(GLOBAL_CASES))
@@ -2559,9 +2665,18 @@ def test_the_narrow_integer_helpers_live_in_one_module():
 # seams are additive: a delta that names none of the new wiring is byte-identical to the
 # pre-seam corpus, text and digest -- status_value is None throughout this corpus (no C
 # lowering adopts the seam), so every one of these moved not one byte.
+#
+# One flip is recorded here, with its reason: obj.c's digest moved when a pointer answered by a
+# call card began to be copied out of its wide carrier before use (the defect pinned by
+# test_a_pointer_answered_by_a_call_card_is_an_address). The seven bodies of obj.c whose text
+# changed (bool_unary_op, uni_unary_op, mp_obj_get_type_str, mp_obj_is_true,
+# mp_obj_len_maybe, mp_obj_get_int_maybe, mp_unary_op) each gained one move op after a
+# pointer-answering card, and every differential over them passed before and after.
 CORPUS_DIGESTS = {
     "arith.c": "8309bcf5d386335b649f51d98a3c09314f4de02c0f82594abf0b946ea7dffbd8",
     "branch.c": "b157aa7f6a2f963afd8e962ebd075817f287aaf6413ca7025e35b1579108645a",
+    "bswap.c": "fe8011ce45cec65652949154cd7671bdae07545fd53e4b95b3d1c45459acce2e",
+    "cardptr.c": "e31338c8731d5f0792e45995f8e6f3d8256e89047d1d24d0c341a96f59ed8aee",
     "calls.c": "c45c19d08a2ec2fcf50beb6294b6177d48b776b74ca77eb52810381c5801febd",
     "compare.c": "6142c49cd601cb1940a74501e298e95c08c6333e61908f303cadc95aa6b3503a",
     "cpp_refs.cpp": "3dcc14d89bc29f684cc31e6407aed20cd1c11685095519477dda4f8a363b5b52",
@@ -2578,11 +2693,12 @@ CORPUS_DIGESTS = {
     "leaf.c": "7a282d38cf64fca4712d0808fd1e41c8aca22a6d21e24ce3d97a3403f7be0ee8",
     "loop.c": "f6b09ec86d153b96744fecab83911d6ae36091accf23ea366206ea9c0007c665",
     "memory.c": "f196586afdfb28d99b03eb2fba5d0638fd458b9dc3aa55c4328cdcd13d607012",
+    "minmax.c": "ac50cf6f5e9a78994f525eb947264e09c8f3f8e5824424489edf4bac8b0e9501",
     "narrow.c": "81bff9ac923e84740aeff7f468a4b6e8df9dda18d9327331d44db61f4f9fd9d7",
     "nlr_call.c": "4eb8820f1adb136a9cb1759a570643e1671ebb84dafd1e442d5ff5c2a5a41c0f",
     "nlr_stubs.c": "d06802b396276d81f9e67fd9f2e8d3b85a28866670b1d93328a79dcc257383ff",
     "noreturn.c": "9a04318044fcf5c5e2e89d755ca6979ae6cdfb4faeeca8e955a91998adea96a0",
-    "obj.c": "a54adf427a9a8ed38e0c90a2db6778166d484cac21ccdb6df729a878669911cf",
+    "obj.c": "4705853cd2822f91b2f6176e05c8ec48898f3c348cc6b69251498155e9241a82",
     "obj_stubs.c": "bc3177a3512e618596b9b8dc80001431a4bedfe0279115ff42af771a8cd15387",
     "outparam.c": "7402f13fe984964a000899a48ef55ee5b728bc65ba0ec1e532821953888590ef",
     "overflow.c": "0e25338b4aa9b2573d7dcfc3231b6cb43a794b9ebdf8f154fee708ac8fd65f95",
@@ -2639,7 +2755,7 @@ def test_the_corpus_deltas_keep_their_exact_text():
             continue
         digest = hashlib.sha256(corpus_delta(source).encode()).hexdigest()
         assert digest == CORPUS_DIGESTS[source.name], f"{source.name}: the delta text moved"
-    assert len(CORPUS_DIGESTS) == 48  # the whole corpus, no file silently dropped
+    assert len(CORPUS_DIGESTS) == 51  # the whole corpus, no file silently dropped
 
 
 def test_a_c_import_is_not_marked_was_once_python():
