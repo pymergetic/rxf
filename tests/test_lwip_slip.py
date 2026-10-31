@@ -13,8 +13,10 @@ stub that FAILS, named in ``SEATS`` (never a skipped seat).
 from __future__ import annotations
 
 import ctypes
+import errno
 import json
 import os
+import socket
 import struct
 import subprocess
 import sys
@@ -22,6 +24,8 @@ from pathlib import Path
 
 import lwip_import
 import pytest
+
+from pymergetic.rxftk.net.link import slip
 
 from . import lwip_udp_echo, rxf_native
 from .test_lwip_import import CORPUS, OK, Host
@@ -337,6 +341,210 @@ def test_the_face_is_imported_as_graphs_not_as_a_fill(line_host: Host):
     for name in FACE_BODIES:
         assert f"{lwip_import.MODULE}.{name}" in line_host.programs, name
     assert "rxf_slip_line" in line_host.named
+
+
+# ---- the unix seat's tap fill: a SLIP <-> packet bridge (slip_line_tap.c) ------------------------
+
+
+class TapFill(ctypes.Structure):
+    """struct rxf_slip_line_tap of native/lwip/slip_line_tap.h."""
+
+    _fields_ = (
+        ("fd", ctypes.c_int),
+        ("tx_escaped", ctypes.c_uint32),
+        ("tx_length", ctypes.c_uint32),
+        ("tx_overrun", ctypes.c_uint32),
+        ("rx_length", ctypes.c_uint32),
+        ("tx_packet", ctypes.c_uint8 * 2048),
+        ("rx_packet", ctypes.c_uint8 * 2048),
+    )
+
+
+class TapSeat:
+    """The tap fill, with a datagram socketpair standing in for the tun device: one packet per
+    read and per write, which is all the bridge asks of its descriptor. The peer is the IP side."""
+
+    name = "tap (datagram stand-in)"
+
+    def __init__(self, lib: ctypes.CDLL) -> None:
+        self.lib = lib
+        lib.rxf_slip_line_tap_pump.restype = ctypes.c_int64
+        lib.rxf_slip_line_tap_pump.argtypes = [ctypes.c_void_p, ctypes.POINTER(TapFill)]
+        self.fill = TapFill()
+        lib.rxf_slip_line_tap_init(ctypes.byref(self.fill))
+        near, self.far = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self.far.setblocking(False)
+        assert lib.rxf_slip_line_tap_adopt(ctypes.byref(self.fill), near.detach()) == 0
+
+    def close(self) -> None:
+        self.lib.rxf_slip_line_tap_deinit(ctypes.byref(self.fill))
+        self.far.close()
+
+    def pump(self, face: Face) -> int:
+        moved = self.lib.rxf_slip_line_tap_pump(face.address, ctypes.byref(self.fill))
+        assert moved >= 0, "the bridge's I/O failed"
+        return moved
+
+    def peer_send(self, packet: bytes) -> None:
+        self.far.send(packet)
+
+    def peer_recv(self) -> list[bytes]:
+        packets: list[bytes] = []
+        while True:
+            try:
+                packets.append(self.far.recv(4096))
+            except BlockingIOError:
+                return packets
+
+
+class PacketContract:
+    """The contract suite of a packet-device fill (tap, utun): the same line cell and face as
+    ``LineContract``, the device side judged by packets. What the guest sends as RFC 1055 frames
+    arrives at the device as the packets inside them; what the device delivers reaches the guest
+    as the frame the RFC 1055 model (``pymergetic.rxftk.net.link.slip.encode``) makes of it."""
+
+    def __init__(self, face: Face, seat: TapSeat) -> None:
+        self.face, self.seat = face, seat
+
+    def send_frame(self, payload: bytes) -> None:
+        for byte in slip.encode(payload):
+            self.face.send(byte)
+
+    def run(self) -> None:
+        face, seat = self.face, self.seat
+        assert face.open(0) == face.address
+        assert face.counters[:2] == (1, MTU)
+
+        # TX: whole packets, in order; END and ESC inside a packet survive the stuffing
+        packets = [
+            bytes([0x45]) + bytes(19),
+            bytes([END, ESC, ESC_END, ESC_ESC, 0x00, END, ESC] * 5),
+            bytes(range(256)) * 3 + bytes(232),  # 1000 bytes: exactly the MTU
+            b"\x01",
+        ]
+        for packet in packets:
+            self.send_frame(packet)
+        face.send(END)  # an empty frame (a doubled END) is a flush, not a packet
+        assert seat.pump(face) == len(packets)
+        assert seat.peer_recv() == packets
+        assert face.tx_waiting == 0 and face.counters[2:] == (0, 0)
+
+        # TX over the MTU: dropped whole, counted once, and the line goes on
+        self.send_frame(bytes(MTU + 1))
+        seat.pump(face)
+        assert seat.peer_recv() == [] and face.counters[2] == 1
+        self.send_frame(b"after")
+        seat.pump(face)
+        assert seat.peer_recv() == [b"after"]
+
+        # RX: every device packet is one RFC 1055 frame, byte for byte the model's
+        for packet in packets[:3]:
+            seat.peer_send(packet)
+            seat.pump(face)
+            assert face.tryread(RING) == slip.encode(packet)
+        assert face.ready() == 0
+
+        # RX backpressure: a full ring loses no packet; the rest wait for room
+        burst = [bytes([index]) * 900 for index in range(12)]
+        for packet in burst:
+            seat.peer_send(packet)
+        received = b""
+        for _ in range(40):
+            seat.pump(face)
+            received += face.tryread(RING)
+            if len(received) >= sum(len(slip.encode(packet)) for packet in burst):
+                break
+        assert received == b"".join(slip.encode(packet) for packet in burst)
+
+        # RX over the MTU: never enters the line, counted
+        before = face.counters[2]
+        seat.peer_send(bytes(MTU + 1))
+        seat.pump(face)
+        assert face.ready() == 0 and face.counters[2] == before + 1
+
+        face.close()
+        assert face.counters[0] == 0
+
+
+@pytest.fixture(scope="module")
+def tap_host(tmp_path_factory: pytest.TempPathFactory) -> Host:
+    return Host(
+        tmp_path_factory.mktemp("lwip_tap"),
+        CORPUS / "slip_line.c",
+        FACE_BODIES,
+        natives=(LINE / "slip_line_tap.c",),
+    )
+
+
+def test_the_tap_fill_meets_the_packet_contract_on_the_imported_face(tap_host: Host):
+    seat = TapSeat(tap_host.native)
+    try:
+        with rxf_native.Memory(1 << 16) as memory:
+            PacketContract(ImportedFace(tap_host, memory), seat).run()
+    finally:
+        seat.close()
+
+
+def test_the_tap_fill_meets_the_packet_contract_on_the_native_reference(tap_host: Host):
+    seat = TapSeat(tap_host.native)
+    try:
+        PacketContract(NativeFace(tap_host.native), seat).run()
+    finally:
+        seat.close()
+
+
+def test_the_tun_device_open_needs_net_admin(tap_host: Host):
+    """The one thing the stand-in cannot prove: TUNSETIFF. Without CAP_NET_ADMIN it is EPERM and
+    the test says so (an xfail, named); with it, the device opens and closes."""
+    lib = ctypes.CDLL(tap_host.native._name, use_errno=True)
+    fill = TapFill()
+    lib.rxf_slip_line_tap_init(ctypes.byref(fill))
+    lib.rxf_slip_line_tap_open.argtypes = [ctypes.POINTER(TapFill), ctypes.c_char_p]
+    lib.rxf_slip_line_tap_init.argtypes = [ctypes.POINTER(TapFill)]
+    lib.rxf_slip_line_tap_deinit.argtypes = [ctypes.POINTER(TapFill)]
+    if lib.rxf_slip_line_tap_open(ctypes.byref(fill), b"rxfslip0") == 0:
+        lib.rxf_slip_line_tap_deinit(ctypes.byref(fill))
+        return
+    code = ctypes.get_errno()
+    assert code in (errno.EPERM, errno.EACCES, errno.ENOENT), os.strerror(code)
+    pytest.xfail(
+        f"the tun device cannot be opened here ({os.strerror(code)}): the open is unproven"
+    )
+
+
+# ---- the seats whose fill is not written: named, failing (all-platforms: no dark ports) ----------
+
+UNPROVEN_SEATS = {
+    "browser (wasm32 FIFO block <-> WebSocket)": (
+        "slip_line_js.c",
+        (
+            "needs the wasm32 FIFO block bridged to a WebSocket gateway and a browser harness, "
+            "and the card is not in the wasm32 seat's image"
+        ),
+    ),
+    "firmware (UART 16550 / PL011)": (
+        "slip_line_uart.c",
+        "needs QEMU firmware images that carry the card (they do not) and a UART loopback harness",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("seat", "file", "why"),
+    [
+        pytest.param(
+            seat,
+            file,
+            why,
+            marks=pytest.mark.xfail(strict=True, reason=f"{file}: {why}"),
+        )
+        for seat, (file, why) in UNPROVEN_SEATS.items()
+    ],
+)
+def test_the_seat_has_a_fill_that_meets_the_contract(seat: str, file: str, why: str):
+    """A stub that fails its prove: the fill file does not exist, so the seat is not claimed. When
+    it is written this xpasses and the strict xfail forces the contract suite onto it."""
+    assert (LINE / file).is_file(), f"{seat}: {file} ({why})"
 
 
 # ---- the real UDP echo over the line (tests/lwip_udp_echo.py) -----------------------------------

@@ -21,6 +21,7 @@ of this file). The prose around the block is hand-written.
 | the line face lwIP calls (`sio_open`/`sio_send`/`sio_tryread`, close, readiness), imported with the card | `native/lwip/slip_line_face.c` | C |
 | the ring moves every native fill shares | `native/lwip/slip_line_fill.h` | C |
 | the host seat's fill (a socketpair to the harness) | `native/lwip/slip_line_host.c` | C |
+| the unix seat's tap fill (SLIP <-> IP packet bridge over a tun device) | `native/lwip/slip_line_tap.c`, `slip_line_tap.h` | C |
 | the real UDP echo corpus and its harness | `tests/lwip_corpus/udp_echo.c`, `tests/lwip_udp_echo.py`, `tests/test_lwip_slip.py` | C, Python |
 
 The slice is the smallest honest core: `NO_SYS=1` (the run-cell machine is the only scheduler: no
