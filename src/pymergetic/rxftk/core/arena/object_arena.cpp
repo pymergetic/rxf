@@ -1248,6 +1248,12 @@ Status ObjectArena::into_module(uint32_t handle, uint32_t *fresh) {
     const uint32_t parent = old->parent;
     const uint16_t name_id = old->name;
     const uint16_t flags = old->flags;
+    /* The object's identity is the index and the generation (docs/32 1.2): a
+     * reshape (leaf -> module) is the same object, so its handle never moves.
+     * The parent's children chain and the sibling links hold this handle, and
+     * the caller does not relink them - keeping the generation is what keeps
+     * them resolving (the mirror the walk's demotion reads). */
+    const uint16_t keep_gen = old->gen;
     const uint64_t value = old->payload;
     const uint64_t at_old = index_entry(pymergetic_rxf_handle32_index(handle))->slot;
     uint64_t at_new = 0;
@@ -1288,6 +1294,9 @@ Status ObjectArena::into_module(uint32_t handle, uint32_t *fresh) {
     st = j_set(&made->flags, flags);
     if (st != Status::Ok)
         return st;
+    st = j_set(&made->gen, keep_gen);
+    if (st != Status::Ok)
+        return st;
     /* The empty chain spells HANDLE32_NONE (docs/32 1.2): a zeroed head would
      * read children = 0, the index object's handle - the same hazard the
      * bootstrap and create spell out for a fresh module. */
@@ -1300,12 +1309,12 @@ Status ObjectArena::into_module(uint32_t handle, uint32_t *fresh) {
     st = s_release(at_old);
     if (st != Status::Ok)
         return st;
-    /* the index hands the entry out again (docs/32 1.2): the generation the
-     * span was handed is the one the entry and the record share (load() checks
-     * both). */
+    /* The index hands the entry out again (docs/32 1.2): the generation is the
+     * object's own, unchanged by the reshape, so the handle the entry and the
+     * record share is the handle every parent and sibling already holds. */
     const uint32_t index = pymergetic_rxf_handle32_index(handle);
     pymergetic_rxf_slot *entry = index_entry(index);
-    const uint16_t gen = record_at(at_new)->gen;
+    const uint16_t gen = keep_gen;
     st = j_set(&entry->slot, at_new);
     if (st != Status::Ok)
         return st;

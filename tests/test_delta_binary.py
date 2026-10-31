@@ -87,17 +87,27 @@ def test_the_physical_form_is_one_form(base: Image):
     }
 
 
-@pytest.mark.xfail(
-    reason="blocked on the arena lane: the engine's apply answers a digest "
-    "that is not the v7 canonical oracle's on these edits (the write side "
-    "is not the writer's allocation sequence, docs/32 5.4 - the walk of "
-    "5b1bb80 lands the dump of an untouched arena, not the apply's write "
-    "side) and a second delta is refused 'a path does not resolve'; the v7 "
-    "base check itself passes (the same delta with the oracle digest baked "
-    "in is taken when the edits stay within the arena's tested paths)",
+_WRITE_SIDE = pytest.mark.xfail(
+    reason="blocked on the arena lane: the apply's write side is not the "
+    "writer's allocation sequence (docs/32 5.4) for these edit sets - the "
+    "canonical digest is not the v7 oracle's (seeds 2, 4) or a second-round "
+    "delta is refused 'a path does not resolve' (seeds 1, 5); the gen-stable "
+    "reshape (docs/32 1.2) cleared seeds 0 and 3",
     strict=False,
 )
-@pytest.mark.parametrize("seed", range(6))
+
+
+@pytest.mark.parametrize(
+    "seed",
+    [
+        0,
+        pytest.param(1, marks=_WRITE_SIDE),
+        pytest.param(2, marks=_WRITE_SIDE),
+        3,
+        pytest.param(4, marks=_WRITE_SIDE),
+        pytest.param(5, marks=_WRITE_SIDE),
+    ],
+)
 def test_random_edits_give_the_same_image_both_ways(base: Image, seed: int):
     rng = random.Random(100 + seed)
     # the engine runs the filled model (tools/native/programs.py: the arena
