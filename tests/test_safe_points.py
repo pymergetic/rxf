@@ -187,17 +187,24 @@ def checked(base: Image, data: bytes) -> bytes:
 def test_a_change_that_is_committed_while_the_loop_runs_makes_its_code_stale(
     request: pytest.FixtureRequest, machine_name: str, image: Image
 ):
-    if machine_name != "wasm32":
-        # The twin's apply and dump are one source (native/live.rxfs) on every
-        # seat; the wasm32 seat proves them in node (this test and the web
-        # console's acts). The emulated seats are minutes to hours per run and
-        # are not re-proved with every change of the source: the mark stays on
-        # them until a run of theirs says it can go.
+    reasons = {
+        # The apply and the post-apply dump run to the end (~15 min of emulation);
+        # the commit is then refused `the image does not link after the delta`:
+        # the relink of the x86_64 seat ends with a function slot that has no
+        # address (native/live.rxfs, m_relink, the check behind the `run` object's
+        # leaf rows). The wasm32 seat has no function addresses and never gets
+        # there. The stale-code half of the test cannot be reached before it.
+        "x86_64": "the commit is refused: the x86_64 relink leaves a function slot "
+        "without an address",
+        # Every call into compiled code on the aarch64 emulator ends in
+        # UC_ERR_READ_UNMAPPED - the read-only requests of this module fail the
+        # same way - before any apply is reached.
+        "aarch64": "the aarch64 emulator faults (UC_ERR_READ_UNMAPPED) in every "
+        "compiled-code call",
+    }
+    if machine_name in reasons:
         request.applymarker(
-            pytest.mark.xfail(
-                reason="the emulated seat's run of the twin's apply is not re-proved",
-                strict=False,
-            )
+            pytest.mark.xfail(reason=reasons[machine_name], strict=False)
         )
     base = Image.from_bytes(image.to_bytes())
     old = the_value(base)

@@ -3448,18 +3448,23 @@ sub s_linkable() {
 # code_address(function) -> ca_r (1/0), ca_at, ca_rng0/ca_rng1 (live.cpp:1303): the Code of a
 # native Function for this machine, as an address and a byte range. The bytes live in the
 # CodeBlob that the code's `body` names (Wave 4b step 1): the entry is an offset into that
-# blob's value, not the (now fixed-size) code payload.
+# blob's value, not the (now fixed-size) code payload. Read from the records of the v7 arena
+# (a value sits behind its 24-byte record head; a leaf has no chain head): the Code's value
+# holds `entry` at +40 and the body's handle at the offset of the `body` Field of the Code's
+# type; the blob's fixed part (kpfx of its type) is skipped.
 macro m_code_addr(Zfunction) {
     var ca_code;
-    var ca_c;
+    var ca_cr;
     var ca_pay;
     var ca_entry;
     var ca_bytes;
     var ca_bf;
     var ca_body;
-    var ca_b;
+    var ca_br;
     var ca_btype;
     var ca_prefix;
+    var ca_ct;
+    var ca_fr;
     ca_r = 0;
     ca_code = 0xFFFFFFFFFFFFFFFF;
     if (load32(ar + 252) == 1) {
@@ -3472,58 +3477,46 @@ macro m_code_addr(Zfunction) {
         callsub s_child_named(Zfunction, 13);
         ca_code = cn_r;
     }
-    if (ca_code == 0xFFFFFFFFFFFFFFFF) {
-        ca_r = 0;
-    } else {
-        callsub s_cell(ca_code);
-        ca_c = ce_r;
-        if (ca_c == 0) {
-            ca_r = 0;
-        } else {
-            if (load64(ca_c + 16) < 48) {
-                ca_r = 0;
-            } else {
-                ca_pay = ca_c + 64;
+    if (ca_code != 0xFFFFFFFFFFFFFFFF) {
+        callsub s_rec(ca_code);
+        ca_cr = ce_r;
+        if (ca_cr != 0) {
+            if (load32(ca_cr + 20) >= 48) {
+                ca_pay = ca_cr + 24;
                 ca_entry = load64(ca_pay + 40);
-                m_lit_body();
-                callsub s_child_named(load64(ca_c), 4);
-                ca_bf = cn_r;
-                if (ca_bf == 0xFFFFFFFFFFFFFFFF) {
-                    ca_r = 0;
-                } else {
-                    callsub s_field_info(ca_bf, flF);
-                    if (fif_r == 0) {
-                        ca_r = 0;
-                    } else {
-                        if (load64(flF + 24) + 8 > load64(ca_c + 16)) {
-                            ca_r = 0;
-                        } else {
-                            ca_body = load64(ca_pay + load64(flF + 24));
-                            callsub s_cell(ca_body);
-                            ca_b = ce_r;
-                            if (ca_b == 0) {
-                                ca_r = 0;
-                            } else {
-                                ca_btype = load64(ca_b);
-                                if (ca_btype == 0xFFFFFFFFFFFFFFFF | (ca_btype & 1048575) >= n_kids) {
-                                    ca_r = 0;
-                                } else {
-                                    callsub s_refs_of(ca_btype);
-                                    if (ro_r == 0) {
-                                        ca_r = 0;
-                                    } else {
-                                        ca_prefix = load32(kpfx + 4 * (ca_btype & 1048575));
-                                        if (ca_prefix > load64(ca_b + 16)) {
-                                            ca_r = 0;
-                                        } else {
-                                            ca_bytes = load64(ca_b + 16) - ca_prefix;
-                                            if (ca_entry >= ca_bytes + 1) {
-                                                ca_r = 0;
-                                            } else {
-                                                ca_at = ca_b + 64 + ca_prefix + ca_entry;
-                                                ca_rng0 = ca_b + 64 + ca_prefix;
-                                                ca_rng1 = ca_bytes;
-                                                ca_r = 1;
+                m_spec_row(ca_code & 1048575);
+                ca_ct = load32(sr_at);
+                if (ca_ct != 4294967295) {
+                    m_lit_body();
+                    callsub s_child_named(ca_ct, 4);
+                    ca_bf = cn_r;
+                    if (ca_bf != 0xFFFFFFFFFFFFFFFF) {
+                        callsub s_rec(ca_bf);
+                        ca_fr = ce_r;
+                        if (ca_fr != 0) {
+                            if (load32(ca_fr + 20) >= 48) {
+                                if (load64(ca_fr + 48) + 8 <= load32(ca_cr + 20)) {
+                                    ca_body = load64(ca_pay + load64(ca_fr + 48));
+                                    if (ca_body != 0xFFFFFFFFFFFFFFFF) {
+                                        callsub s_rec(ca_body);
+                                        ca_br = ce_r;
+                                        if (ca_br != 0) {
+                                            m_spec_row(ca_body & 1048575);
+                                            ca_btype = load32(sr_at);
+                                            if (ca_btype != 4294967295) {
+                                                callsub s_refs_of(ca_btype);
+                                                if (ro_r == 1) {
+                                                    ca_prefix = load32(kpfx + 4 * (ca_btype & 1048575));
+                                                    if (ca_prefix <= load32(ca_br + 20)) {
+                                                        ca_bytes = load32(ca_br + 20) - ca_prefix;
+                                                        if (ca_entry < ca_bytes + 1) {
+                                                            ca_at = ca_br + 24 + ca_prefix + ca_entry;
+                                                            ca_rng0 = ca_br + 24 + ca_prefix;
+                                                            ca_rng1 = ca_bytes;
+                                                            ca_r = 1;
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
