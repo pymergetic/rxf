@@ -651,15 +651,23 @@ def test_a_forged_handshake_is_refused_at_mac1() -> None:
     wire, left, right = _two_devices()
     left.open()
     right.open()
+    left_public = right.peers[0].public_key  # right's peer cell names left's static key
     wire.deliver(LEFT_HOME, RIGHT_LOCAL, struct.pack("<II", 1, 1) + bytes(140))  # zero mac1
     with pytest.raises(MalformedMessage):
         right.pump()
+    # the refusal applied nothing: no handshake interval opened, nothing half-made
+    assert right.handshakes(left_public) == ()
+    assert right.last_handshake(left_public) is None
     wire.deliver(LEFT_HOME, RIGHT_LOCAL, b"\x04\x00\x00\x00short")
     with pytest.raises(MalformedMessage):
         right.pump()
     wire.deliver(LEFT_HOME, RIGHT_LOCAL, b"\x09\x00\x00\x00nonsense-message")
     with pytest.raises(MalformedMessage):
         right.pump()
+    with pytest.raises(WouldBlock):
+        right.receive()  # no plaintext queued by any refusal
+    with pytest.raises(NotConnected):
+        right.send(_inner(RIGHT_TEN, LEFT_TEN))  # and no session half-made
 
 
 def test_the_lifecycle_gates_every_face_by_name() -> None:
