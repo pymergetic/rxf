@@ -1098,6 +1098,63 @@ def test_a_pointer_answered_by_a_call_card_is_an_address(tmp_path: Path, name: s
     assert len(offsets) >= 4, f"the seeds reach only the offsets {sorted(offsets)}"
 
 
+@pytest.mark.parametrize("name", ["align8_flags", "align16_flags", "span_flags"])
+def test_integer_arithmetic_over_a_cell_address_is_computed_at_run(tmp_path: Path, name: str):
+    """A constant expression with integer arithmetic over ``ptrtoint`` of a static (the
+    ``LWIP_MEM_ALIGN(ram_heap)`` of lwIP's mem_init and lwip_init: ``and (sub (add (ptrtoint
+    @heap, N), 1), -16)``, the inner sums folded into the operand) lowers to one wrapping leaf
+    call per operator over the cell's address. The two sides place the static at addresses of
+    their own, so the answers are the properties any address has (aligned, at most one unit
+    past the base, inside the array), and the check that the imported side computed them from
+    the address of the cell it really ran on is that every one of them holds."""
+    image = tree.load(STARTER)
+    source = CORPUS / "constexpr.c"
+    only = {"align8_flags", "align16_flags", "span_flags"}
+    rximport.import_source_file(image, source, module="constexpr", only=only)
+    assert image.check() == []
+    programs = compose.programs(image)
+    composer = compose.Composer(image)
+    objects: dict[int, bytes | bytearray] = {}
+    for handle in range(image.handle_count):
+        if not image.live(handle):
+            continue
+        values = composer.fields(handle)
+        is_cell = compose.word(values.get("kind")) == "Object" and "object_id" in values
+        if is_cell and image.path(handle).startswith("constexpr."):
+            objects[int(values["object_id"])] = bytearray(bytes.fromhex(values.get("data", "")))
+    assert objects, "the cell of the static is no object of the image"
+    function = getattr(link_native(source, tmp_path), name)
+    function.argtypes = [ctypes.c_uint64]
+    function.restype = ctypes.c_uint64
+    for k in (0, 1, 2, 3):
+        expected = function(k)
+        with rxf_native.Memory(1 << 16) as memory:
+            status, answer = rxf_native.run(
+                programs[f"constexpr.{name}"], struct.pack("<Q", k), memory, objects=objects
+            )
+        assert (status, answer) == (OK, expected), (
+            f"{name}({k}): the graph answered ({status}, {answer:#x}), natively it is "
+            f"({OK}, {expected:#x})"
+        )
+        held = {"align8_flags": 3, "align16_flags": 7, "span_flags": 3}[name]
+        assert expected & held == held, f"{name}({k}): a property fails natively ({expected:#x})"
+
+
+def test_a_constant_expression_the_arithmetic_does_not_carry_is_refused_by_name():
+    """The lowering of a constant expression's arithmetic names its operators (add, sub, mul,
+    shl, lshr); one it does not carry is refused with the expression, never evaluated by
+    guess -- here an ``xor`` of an address, an operator with no leaf of the graph: the use
+    stays an instruction outside the subset and the message carries the expression."""
+    text = rximport.compile_source(CORPUS / "constexpr.c")
+    mutated = text.replace(
+        "and i64 add (i64 ptrtoint (ptr @heap to i64), i64 55), -16",
+        "and i64 xor (i64 ptrtoint (ptr @heap to i64), i64 55), -16",
+    )
+    assert mutated != text, "the IR no longer has the expression this test rewrites"
+    with pytest.raises(rximport.Unsupported, match=r"outside the subset.*xor \(i64 ptrtoint"):
+        rximport.graphs_of(mutated, only={"align16_flags"})
+
+
 @pytest.mark.parametrize("file", sorted(GLOBAL_CASES))
 def test_globals_are_arena_cells(world: World, file: str):
     """A module global is one named cell of the arena: the graph's loads and stores of the
@@ -2679,6 +2736,7 @@ CORPUS_DIGESTS = {
     "cardptr.c": "e31338c8731d5f0792e45995f8e6f3d8256e89047d1d24d0c341a96f59ed8aee",
     "calls.c": "c45c19d08a2ec2fcf50beb6294b6177d48b776b74ca77eb52810381c5801febd",
     "compare.c": "6142c49cd601cb1940a74501e298e95c08c6333e61908f303cadc95aa6b3503a",
+    "constexpr.c": "0b539ec5734dc0e3f68bee3548f13db4eba4fb917684913c39be72023f94a30c",
     "cpp_refs.cpp": "3dcc14d89bc29f684cc31e6407aed20cd1c11685095519477dda4f8a363b5b52",
     "cpp_refuse.cpp": "716454167825700dfd0a1abbed013f4e7ba8c44f1b305c8ecaa4ab108e4dcd95",
     "dispatch.c": "fec34e50d287e3dcc2606f1808a49fa6f0b071c9d4360bc418f84d2a6cc2624f",
@@ -2755,7 +2813,7 @@ def test_the_corpus_deltas_keep_their_exact_text():
             continue
         digest = hashlib.sha256(corpus_delta(source).encode()).hexdigest()
         assert digest == CORPUS_DIGESTS[source.name], f"{source.name}: the delta text moved"
-    assert len(CORPUS_DIGESTS) == 51  # the whole corpus, no file silently dropped
+    assert len(CORPUS_DIGESTS) == 52  # the whole corpus, no file silently dropped
 
 
 def test_a_c_import_is_not_marked_was_once_python():

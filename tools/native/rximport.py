@@ -547,6 +547,24 @@ def pointer_width(model: DataModel) -> int:
 # ---- the layout of the types a getelementptr walks -------------------------------------------
 
 
+def split_parenthesized(body: str) -> list[str]:
+    """The comma-separated items of the body of a constant expression, at the top level of its
+    parentheses (``i64 add (i64 x, i64 8), i64 1`` is two items: the first nests a pair)."""
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    for at, char in enumerate(body):
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        elif char == "," and depth == 0:
+            parts.append(body[start:at])
+            start = at + 1
+    parts.append(body[start:])
+    return parts
+
+
 def split_top(body: str) -> list[str]:
     """The comma-separated items of a bracketed body, at the top level only.
 
@@ -921,9 +939,22 @@ LABEL = r"(?:[A-Za-z0-9_.$-]+|\"(?:[^\"\\]|\\.)*\")"
 # address word N (the immediate objects of MicroPython's REPR A arrive this way), and a
 # ``getelementptr`` of a global names that global (the subset imports no globals: the use
 # refuses at lowering with the global's name, never a parse error of the whole module)
+def _balanced(depth: int) -> str:
+    """The text between one pair of parentheses, with up to ``depth`` pairs nested inside it
+    (the ``re`` module has no recursion: a constant expression nests to a fixed depth)."""
+    inner = r"[^()]"
+    for _ in range(depth):
+        inner = rf"(?:[^()]|\({inner}*\))"
+    return rf"{inner}*"
+
+
+# the integer arithmetic of a constant expression (``LWIP_MEM_ALIGN`` of a static array folds to
+# ``sub (i64 add (i64 ptrtoint (ptr @g to i64), i64 7), i64 1)`` in an operand): the cast and
+# getelementptr forms above, and the wrapping words of the arithmetic leaves
 CONST_EXPR = (
-    r"(?:inttoptr|addrspacecast|bitcast|ptrtoint|getelementptr(?:\s+inbounds)?)"
-    r"\s*\((?:[^()]|\([^()]*\))*\)"
+    r"(?:inttoptr|addrspacecast|bitcast|ptrtoint|getelementptr(?:\s+inbounds)?"
+    r"|(?:add|sub|mul|shl|lshr)(?:\s+(?:nuw|nsw))*)"
+    rf"\s*\({_balanced(4)}\)"
 )
 OPERAND = rf"(?:{CONST_EXPR}|{VALUE})"
 # one argument of a call: a type, its parameter attributes (``noundef``, ``align 8``,
@@ -2006,7 +2037,52 @@ class Lowering:
             return self.call(
                 self.current, "wrapping_add_uint64_t", [made, self.literal(offset & FULL)]
             )
+        arithmetic = re.fullmatch(
+            r"(add|sub|mul|shl|lshr)(?:\s+(?:nuw|nsw))*\s*\((.*)\)", text, re.DOTALL
+        )
+        if arithmetic:
+            return self.expr_arithmetic(
+                arithmetic.group(1), split_parenthesized(arithmetic.group(2)), text
+            )
         raise Unsupported(f"{self.fn.name}: a constant expression operand ({text})")
+
+    def expr_arithmetic(self, op: str, parts: list[str], text: str) -> MOperand:
+        """``add/sub/mul/shl/lshr (T a, T b)`` of a constant expression: the operands are
+        constants, casts of a cell's address or expressions of their own (nested to any depth),
+        and the answer is the wrapping word of the type -- folded here where both are
+        constants, one leaf call into the block being lowered where an address is in it (a
+        cell's address is known only when the run places it)."""
+        if len(parts) != 2:
+            raise Unsupported(f"{self.fn.name}: a constant expression of {op} needs two operands ({text})")
+        words: list[MOperand] = []
+        type_name = ""
+        for part in parts:
+            found = re.fullmatch(rf"({TYPE})\s+(.+)", part.strip(), re.DOTALL)
+            if found is None:
+                raise Unsupported(f"{self.fn.name}: a constant expression operand ({text})")
+            type_name = type_name or found.group(1)
+            words.append(self.narrow_operand(Operand.parse(found.group(2)), self.mask_of(type_name)))
+        mask = self.mask_of(type_name)
+        a, b = words
+        if a[0] == "literal" and b[0] == "literal":
+            x, y = a[1], b[1]
+            folded = {
+                "add": x + y, "sub": x - y, "mul": x * y,
+                "shl": x << y if y < 64 else 0, "lshr": x >> y if y < 64 else 0,
+            }[op]  # fmt: skip
+            return self.literal(folded & mask)
+        if self.current is None:
+            raise ParseError(f"{self.fn.name}: a constant expression outside a block")
+        key = {
+            "add": "wrapping_add_uint64_t", "sub": "wrapping_subtract_uint64_t",
+            "mul": "wrapping_multiply_uint64_t",
+            "shl": "shift_left_uint64_t", "lshr": "shift_right_uint64_t",
+        }[op]  # fmt: skip
+        if op in ("shl", "lshr"):
+            made = self.call(self.current, key, [a, b], input_types=[U64, U32])
+        else:
+            made = self.call(self.current, key, [a, b])
+        return rxemit.and_mask(self.at(self.current), made, mask)
 
     def gep_offset(self, ty: str, indices: list[int]) -> int:
         """The bytes a ``getelementptr``'s constant indices walk: the first index scales
