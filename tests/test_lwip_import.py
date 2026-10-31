@@ -14,8 +14,12 @@ Four things are pinned:
   (the pcb setup and one datagram's payload copied through the card's pbuf cells) answer the
   same as the same C compiled natively (the TEST REFERENCE of docs/23 3, never a seat fill).
 
-The UDP echo of the gate (slipif -> ip4_input -> udp_input -> udp_sendto -> slipif) is NOT
-imported yet: ``test_the_echo_path_is_refused_where_docs_35_says`` pins where it stops.
+The UDP echo of the gate (slipif -> ip4_input -> udp_input -> udp_sendto -> slipif) lowers body by
+body and is NOT composed yet (it waits for the SLIP line of each seat):
+``test_the_echo_path_lowers_and_waits_for_the_line_of_its_seat`` pins where it stops. The second
+differential (``tests/lwip_corpus/wire_words.c``) runs the words the byte-swap and min/max
+lowerings brought in: htons/htonl, the Internet checksum, pbuf_alloc from the pool and
+pbuf_copy_partial across its chain.
 """
 
 from __future__ import annotations
@@ -44,44 +48,16 @@ OK = 0
 
 # tier 1: refused by rximport, and the class of the importer's own reason
 REFUSED = {
-    "lwip_htons": "intrinsic",
-    "lwip_htonl": "intrinsic",
     "lwip_itoa": "intrinsic",
-    "lwip_standard_chksum": "intrinsic",
-    "inet_chksum_pseudo": "intrinsic",
-    "ip_chksum_pseudo": "intrinsic",
-    "inet_chksum_pseudo_partial": "intrinsic",
-    "ip_chksum_pseudo_partial": "intrinsic",
-    "inet_chksum": "intrinsic",
-    "inet_chksum_pbuf": "intrinsic",
     "lwip_init": "constant-expression",
     "mem_init": "constant-expression",
-    "icmp_input": "intrinsic",
-    "pbuf_alloc": "intrinsic",
-    "ip4_output_if": "intrinsic",
-    "icmp_dest_unreach": "intrinsic",
-    "ip4_input": "intrinsic",
-    "udp_input": "intrinsic",
-    "ip4_output_if_src": "intrinsic",
-    "ip4_output": "intrinsic",
-    "ip4_addr_netmask_valid": "intrinsic",
     "ipaddr_addr": "local-address",
     "ip4addr_aton": "local-address",
     "ip4addr_ntoa": "local-address",
     "ip4addr_ntoa_r": "local-address",
-    "netif_input": "intrinsic",
     "netif_add": "out-pointer",
     "netif_index_to_name": "intrinsic",
     "pbuf_dechain": "out-pointer",
-    "pbuf_copy_partial": "intrinsic",
-    "pbuf_get_contiguous": "intrinsic",
-    "pbuf_clone": "intrinsic",
-    "sys_timeouts_sleeptime": "intrinsic",
-    "udp_send": "intrinsic",
-    "udp_sendto": "intrinsic",
-    "udp_sendto_if": "intrinsic",
-    "udp_sendto_if_src": "intrinsic",
-    "slipif_poll": "intrinsic",
 }
 UNLINKED = {
     "lwip_strnstr": ("strlen", "strncmp"),
@@ -90,14 +66,36 @@ UNLINKED = {
     "netif_name_to_index": ("strtol",),
     "netif_find": ("strtol",),
     "pbuf_strstr": ("strlen",),
-    "sys_check_timeouts": ("lwip.slipif_output_v4",),
     "slipif_init": ("sio_open",),
     "slipif_output_v4": ("sio_send",),
+    "slipif_poll": ("sio_tryread",),
+    "icmp_input": ("lwip.slipif_output_v4",),
+    "udp_input": ("lwip.slipif_output_v4",),
+    "ip4_output_if_src": ("lwip.slipif_output_v4",),
+    "sys_check_timeouts": ("lwip.slipif_output_v4",),
+    "ip4_output_if": ("lwip.ip4_output_if_src",),
+    "icmp_dest_unreach": ("lwip.ip4_output_if_src",),
+    "ip4_input": ("lwip.icmp_input", "lwip.udp_input"),
+    "ip4_output": ("lwip.ip4_output_if_src",),
+    "udp_sendto_if_src": ("lwip.ip4_output_if_src",),
+    "netif_input": ("lwip.ip4_input",),
+    "udp_sendto": ("lwip.udp_sendto_if_src",),
+    "udp_sendto_if": ("lwip.udp_sendto_if_src",),
+    "udp_send": ("lwip.udp_sendto",),
 }
 COMPOSED = frozenset(
     {
+        "lwip_htons",
+        "lwip_htonl",
         "lwip_strnicmp",
         "lwip_stricmp",
+        "lwip_standard_chksum",
+        "inet_chksum_pseudo",
+        "ip_chksum_pseudo",
+        "inet_chksum_pseudo_partial",
+        "ip_chksum_pseudo_partial",
+        "inet_chksum",
+        "inet_chksum_pbuf",
         "memp_init",
         "netif_init",
         "udp_init",
@@ -105,11 +103,13 @@ COMPOSED = frozenset(
         "ip4_addr_isbroadcast_u32",
         "pbuf_free",
         "pbuf_add_header",
+        "pbuf_alloc",
         "pbuf_remove_header",
         "pbuf_copy",
         "ip4_route",
         "pbuf_realloc",
         "pbuf_header_force",
+        "ip4_addr_netmask_valid",
         "mem_free",
         "mem_trim",
         "mem_malloc",
@@ -140,10 +140,13 @@ COMPOSED = frozenset(
         "pbuf_cat",
         "pbuf_chain",
         "pbuf_copy_partial_pbuf",
+        "pbuf_copy_partial",
+        "pbuf_get_contiguous",
         "pbuf_skip",
         "pbuf_take",
         "pbuf_take_at",
         "pbuf_coalesce",
+        "pbuf_clone",
         "pbuf_get_at",
         "pbuf_try_get_at",
         "pbuf_put_at",
@@ -153,6 +156,7 @@ COMPOSED = frozenset(
         "sys_now",
         "sys_untimeout",
         "sys_restart_timeouts",
+        "sys_timeouts_sleeptime",
         "udp_bind",
         "udp_bind_netif",
         "udp_connect",
@@ -170,14 +174,16 @@ COMPOSED = frozenset(
 # the module: every body of native/lwip/core_slice.c at clang-18 -O1
 MODULE_BODIES = 115
 
-# the echo path (docs/35): the first refusal of each body is the byte swap of the header fields
-ECHO_PATH_REFUSED = {
-    "slipif_poll": "llvm.umin.i16",
-    "netif_input": "llvm.bswap.i16",
-    "ip4_input": "llvm.bswap.i16",
-    "udp_input": "llvm.bswap.i16",
-    "udp_sendto": "llvm.bswap.i16",
-    "ip4_output_if_src": "llvm.bswap.i16",
+# the echo path (docs/35): every body of it lowers; each waits for the callee named here (the SLIP
+# line of its seat, or the body of the path that waits for it)
+ECHO_PATH_WAITING = {
+    "slipif_poll": ("sio_tryread",),
+    "netif_input": ("lwip.ip4_input",),
+    "ip4_input": ("lwip.icmp_input", "lwip.udp_input"),
+    "udp_input": ("lwip.slipif_output_v4",),
+    "udp_sendto": ("lwip.udp_sendto_if_src",),
+    "ip4_output_if_src": ("lwip.slipif_output_v4",),
+    "slipif_output_v4": ("sio_send",),
 }
 
 
@@ -296,17 +302,21 @@ def test_exactly_what_imports_and_what_is_refused(lane):
 @pytest.mark.slow
 def test_the_refusal_reasons_are_the_importers_own_words(lane):
     reasons = lane.refused
-    for name in ("lwip_htons", "ip4_input", "udp_input", "inet_chksum"):
-        assert "the intrinsic llvm.bswap.i" in reasons[name], name
-    assert "llvm.umin.i16" in reasons["pbuf_alloc"]
-    assert "llvm.abs.i32" in reasons["lwip_itoa"]
-    assert "llvm.smax.i32" in reasons["sys_timeouts_sleeptime"]
+    # the intrinsics the importer lowers now are not among the refusals; what is left of the
+    # class is llvm.memmove, refused by name (the graph's copy leaf copies forward only)
+    assert not [
+        name for name, text in reasons.items() if "bswap" in text or "umin" in text
+    ]
+    for name in ("lwip_itoa", "netif_index_to_name"):
+        assert "the intrinsic llvm.memmove.p0.p0.i64" in reasons[name], name
+        assert "overlap-safe" in reasons[name], name
     assert "frame slot" in reasons["ip4addr_aton"]
     assert "a pointer to a value" in reasons["netif_add"]
     assert "an instruction outside the subset" in reasons["mem_init"]
     # the libc, the SLIP line and the refused siblings are what the unlinked bodies wait for
     assert lane.unresolved["sio_send"] == ["slipif_output_v4"]
     assert lane.unresolved["sio_open"] == ["slipif_init"]
+    assert lane.unresolved["sio_tryread"] == ["slipif_poll"]
     assert set(lane.unresolved["strlen"]) == {
         "lwip_strnistr",
         "lwip_strnstr",
@@ -316,15 +326,20 @@ def test_the_refusal_reasons_are_the_importers_own_words(lane):
 
 
 @pytest.mark.slow
-def test_the_echo_path_is_refused_where_docs_35_says(lane):
-    for name, intrinsic in ECHO_PATH_REFUSED.items():
-        assert name in lane.refused, (
-            f"{name} imports now: the echo path moved, update docs/35"
+def test_the_echo_path_lowers_and_waits_for_the_line_of_its_seat(lane):
+    """Every body of the UDP echo path imports as a graph now (the byte swaps and the narrow
+    clamps were what refused them). None is composed yet: the path ends at the SLIP line
+    (``sio_send`` / ``sio_tryread``, a fill per seat, docs/25 13) and every body above it waits
+    for the one below."""
+    for name, waiting in ECHO_PATH_WAITING.items():
+        assert name in lane.lowered, (
+            f"{name} no longer lowers: the echo path moved, update docs/35"
         )
-        assert f"the intrinsic {intrinsic}" in lane.refused[name], name
-    # the send side's last body lowers, and waits for the line of its seat
-    assert "slipif_output_v4" in lane.unlinked
-    assert lane.unlinked["slipif_output_v4"] == ["sio_send"]
+        assert name not in lane.refused, name
+        assert name not in lane.composed, (
+            f"{name} is composed: the echo path moved, update docs/35"
+        )
+        assert tuple(lane.unlinked[name]) == waiting, name
 
 
 @pytest.mark.slow
@@ -353,10 +368,12 @@ class Host:
     """The imported echo bodies on the host seat: the card's cells are live bytearrays the run
     writes through, the programs a call card names are bound by their object id."""
 
-    def __init__(self, tmp_path: Path) -> None:
-        report, image, programs = lwip_import.analyze(ECHO, set(ECHO_BODIES))
+    def __init__(
+        self, tmp_path: Path, source: Path = ECHO, bodies: tuple[str, ...] = ECHO_BODIES
+    ) -> None:
+        report, image, programs = lwip_import.analyze(source, set(bodies))
         assert report.unlinked == {}, report.unlinked
-        assert set(ECHO_BODIES) <= report.composed
+        assert set(bodies) <= report.composed
         self.programs = programs
         composer = compose.Composer(image)
         self.objects: dict[int, bytes | bytearray] = {}
@@ -383,13 +400,13 @@ class Host:
         # the host runner binds a bounded table (tests/host/runner.c): the callees the bodies
         # reach, not every program of the image
         reach: set[str] = set()
-        todo = [*ECHO_BODIES, "__wires_boot"]
+        todo = [*bodies, "__wires_boot"]
         while todo:
             name = todo.pop()
             if name not in reach:
                 reach.add(name)
                 todo.extend(calls.get(name, ()))
-        for name in reach - {"__wires_boot", *ECHO_BODIES}:
+        for name in reach - {"__wires_boot", *bodies}:
             handle = image.resolve(f"{lwip_import.MODULE}.{name}")
             assert handle is not None, name
             self.objects[compose.object_id(image, handle)] = programs[
@@ -401,11 +418,14 @@ class Host:
             [
                 CLANG, "-O1", "-shared", "-fPIC",
                 *(f"-I{path}" for path in lwip_import.INCLUDES),
-                str(ECHO), str(CORPUS / "native_line.c"), "-o", str(shared),
+                str(source), str(CORPUS / "native_line.c"), "-o", str(shared),
             ],
             check=True,
         )  # fmt: skip
         self.native = ctypes.CDLL(str(shared))
+        # the signatures of a corpus other than the echo are its test's
+        if source != ECHO:
+            return
         for name in ("echo_boot", "echo_close"):
             getattr(self.native, name).restype = ctypes.c_uint64
         self.native.echo_payload.restype = ctypes.c_uint64
@@ -495,3 +515,136 @@ def test_the_differential_runs_the_bodies_it_claims(host: Host):
     assert {"pbuf_copy_partial_pbuf", "mem_free"} <= host.reached
     for name in host.reached:
         assert f"{lwip_import.MODULE}.{name}" in host.programs, name
+
+
+# ---- the second differential: the words the intrinsic lowerings brought into the import -----
+
+WIRE = CORPUS / "wire_words.c"
+WIRE_BODIES = (
+    "wire_boot",
+    "wire_htons",
+    "wire_htonl",
+    "wire_chksum",
+    "wire_chksum_chain",
+    "wire_alloc",
+    "wire_chain_partial",
+)
+SWAPPED = (
+    0, 1, 0xFF, 0x100, 0x1234, 0x7FFF, 0x8000, 0xABCD, 0xFFFF, 0x10000, 0x12345678, 0x80000000,
+    0xDEADBEEF, 0xFFFFFFFF,
+)  # fmt: skip
+
+
+def pattern(length: int, seed: int) -> bytes:
+    """Deterministic bytes that are not all alike (a checksum of zeros proves nothing)."""
+    state = seed
+    out = bytearray()
+    for _ in range(length):
+        state = (state * 1103515245 + 12345) & 0x7FFFFFFF
+        out.append((state >> 16) & 0xFF)
+    return bytes(out)
+
+
+@pytest.fixture(scope="module")
+def wire(tmp_path_factory: pytest.TempPathFactory) -> Host:
+    made = Host(tmp_path_factory.mktemp("lwip_wire"), WIRE, WIRE_BODIES)
+    for name in ("wire_htons", "wire_htonl", "wire_alloc"):
+        getattr(made.native, name).restype = ctypes.c_uint64
+        getattr(made.native, name).argtypes = [ctypes.c_uint64]
+    made.native.wire_boot.restype = ctypes.c_uint64
+    made.native.wire_chksum.restype = ctypes.c_uint64
+    made.native.wire_chksum.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
+    made.native.wire_chksum_chain.restype = ctypes.c_uint64
+    made.native.wire_chksum_chain.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_uint64,
+        ctypes.c_uint64,
+    ]
+    made.native.wire_chain_partial.restype = ctypes.c_uint64
+    made.native.wire_chain_partial.argtypes = [
+        ctypes.c_void_p, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_uint64, ctypes.c_uint64,
+    ]  # fmt: skip
+    return made
+
+
+@pytest.mark.slow
+def test_the_byte_swap_words_match_the_native_reference(wire: Host):
+    """lwip_htons / lwip_htonl (llvm.bswap.i16/i32 of the card) answer what the natively
+    compiled card answers, on the edges of both widths and words past them."""
+    with rxf_native.Memory(1 << 16) as memory:
+        for name in ("wire_htons", "wire_htonl"):
+            for value in SWAPPED:
+                expected = getattr(wire.native, name)(value)
+                assert wire.run(memory, name, value) == (OK, expected), (
+                    name,
+                    hex(value),
+                )
+
+
+@pytest.mark.slow
+def test_the_internet_checksum_matches_the_native_reference(wire: Host):
+    """inet_chksum over flat buffers (odd and even lengths, an aligned and an odd start) and
+    inet_chksum_pbuf over a two-pbuf chain split at every kind of boundary."""
+    with rxf_native.Memory(1 << 16) as memory:
+        for length in (0, 1, 2, 3, 4, 7, 20, 21, 64, 255, 256, 999, 1000, 1401):
+            for skew in (0, 1):
+                data = pattern(length + 2, length + skew)[skew : skew + length]
+                place = 0x400 + skew
+                memory.write(place, data)
+                held = ctypes.create_string_buffer(b"\0" + data + b"\0", length + 2)
+                at = ctypes.addressof(held) + 1
+                expected = wire.native.wire_chksum(at, length)
+                got = wire.run(memory, "wire_chksum", memory.at(place), length)
+                assert got == (OK, expected), (length, skew, got, hex(expected))
+        for length, split in (
+            (2, 1),
+            (7, 3),
+            (20, 11),
+            (64, 33),
+            (255, 128),
+            (1000, 501),
+        ):
+            data = pattern(length, split)
+            memory.write(0x400, data)
+            held = ctypes.create_string_buffer(data, length)
+            expected = wire.native.wire_chksum_chain(held, length, split)
+            got = wire.run(memory, "wire_chksum_chain", memory.at(0x400), length, split)
+            assert got == (OK, expected), (length, split, got, hex(expected))
+
+
+@pytest.mark.slow
+def test_the_pool_pbufs_match_the_native_reference(wire: Host):
+    """pbuf_alloc from the pool (the length of each pbuf is the smaller of what is left and the
+    room of a cell: llvm.umin.i16) and pbuf_copy_partial across the chain it makes."""
+    with rxf_native.Memory(1 << 18) as memory:
+        status, wired = wire.run(memory, "__wires_boot")
+        assert (status, wired) == (OK, 0)
+        assert wire.native.wire_boot() == 0
+        assert wire.run(memory, "wire_boot") == (OK, 0)
+        for length in (0, 1, 100, 999, 1000, 1024, 1500, 2048, 3000, 7000, 9000):
+            expected = wire.native.wire_alloc(length)
+            assert wire.run(memory, "wire_alloc", length) == (OK, expected), length
+        taken = 0
+        for length, want, offset in (
+            (1, 1, 0), (100, 100, 0), (100, 30, 70), (100, 200, 50), (100, 5, 100),
+            (1500, 1500, 0), (1500, 300, 900), (3000, 2000, 500), (3000, 3000, 0),
+            (3000, 100, 2990),
+        ):  # fmt: skip
+            data = pattern(length, length + offset)
+            memory.write(0x400, data)
+            memory.write(0x4000, bytes(want + 8))
+            held = ctypes.create_string_buffer(data, length)
+            out = ctypes.create_string_buffer(want + 8)
+            expected = wire.native.wire_chain_partial(held, length, out, want, offset)
+            got = wire.run(
+                memory, "wire_chain_partial",
+                memory.at(0x400), length, memory.at(0x4000), want, offset,
+            )  # fmt: skip
+            assert got == (OK, expected), (length, want, offset, got, hex(expected))
+            assert bytes(memory.read(0x4000, want + 8)) == out.raw[: want + 8], (
+                length,
+                want,
+                offset,
+            )
+            taken += expected & 0xFFFF
+        assert taken > 0

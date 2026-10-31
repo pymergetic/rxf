@@ -1,10 +1,10 @@
 /* payload_echo.c -- the corpus of the lwIP differential: the card's cells and one datagram.
  *
  * The UDP echo of the gate (docs/23 4.4) is slipif -> netif_input -> ip4_input -> udp_input
- * -> recv -> udp_sendto -> ip4_output -> slipif_output. The importer refuses ip4_input,
- * udp_input and udp_sendto (docs/35: llvm.bswap.i16), so that path does not run as imported
- * graphs yet and this file does not pretend it does. What it runs is the part of the echo
- * that DOES import, end to end through the card's own cells:
+ * -> recv -> udp_sendto -> ip4_output -> slipif_output. Every body of that path lowers (docs/35),
+ * but the path ends at the SLIP line (sio_send / sio_tryread: a fill per seat), so it does not
+ * compose and this file does not pretend it runs. What it runs is the part of the echo that
+ * does compose, end to end through the card's own cells:
  *
  *   the boot      the module's wires (the memp pool table), the pools, the clock, the pcb
  *                 the echo service owns: udp_new + udp_bind to port 7

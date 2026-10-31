@@ -43,6 +43,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SLICE = ROOT / "native" / "lwip" / "core_slice.c"
 INCLUDES = (ROOT / "native" / "lwip", ROOT / "third_party" / "lwip" / "src" / "include")
 STARTER = ROOT / "starter"
+INDEX_CAPACITY = 1 << 17  # the handles the starter plus the whole card may take
 MODULE = "lwip"
 
 # the reference line of a delta that does not link:
@@ -128,7 +129,11 @@ def link(
     other and its callers are dropped."""
     live = {name: graph for name, graph in graphs.items() if name in report.lowered}
     while True:
-        image = tree.load(str(STARTER))
+        # the starter's own index directory holds ~20k handles and is 18987 full: a card that
+        # lowers fully (115 bodies, a signature, a type and the cells of each) is wider than
+        # that, so the image carries a directory of the card's size (compaction keeps every
+        # path and the digest, only the index capacity is the argument)
+        image = tree.load(str(STARTER)).compact(INDEX_CAPACITY)
         try:
             image.apply(rximport.emit_delta(list(live.values()), MODULE))
         except DeltaError as error:
@@ -212,11 +217,10 @@ CLASS_TEXT = {
     "intrinsic": (
         "an LLVM intrinsic the importer has no lowering for",
         (
-            "rximport `lower_intrinsic` knows umin/umax/smin/smax at i64 only, fshl/fshr, memcpy, "
-            "memset, lifetime and the `*.with.overflow` family; clang -O1 turns lwIP's byte swaps "
-            "(`lwip_htons`, `PP_HTONS`) into `llvm.bswap.iN` and its `LWIP_MIN`/`LWIP_MAX` "
-            "clamps of narrow types into `llvm.umin.i16`/`llvm.smax.i32`, `abs()` into "
-            "`llvm.abs.i32`"
+            "rximport `lower_intrinsic` lowers umin/umax/smin/smax/abs at every integer width, "
+            "bswap at i16/i32/i64, fshl/fshr, memcpy, memset, lifetime and the `*.with.overflow` "
+            "family; `llvm.memmove` stays refused, by name, because the graph's copy leaf copies "
+            "forward only and an overlapping copy would be a wrong word"
         ),
     ),
     "local-address": (
@@ -352,8 +356,8 @@ def render(report: Report) -> str:
         "One UDP datagram in and echoed out is `slipif_poll` (it carries the `static inline` "
         "`slipif_input` and its SLIP deframing) -> `netif_input` -> `ip4_input` -> `udp_input` -> "
         "the pcb's `recv` word -> `udp_sendto` -> `ip4_output_if_src` -> the netif's `output` "
-        "word -> `slipif_output_v4` -> `sio_send`. The first body of the path that the importer "
-        "refuses ends the imported path:"
+        "word -> `slipif_output_v4` -> `sio_send`. Where each body stands (a body that is "
+        "refused ends the imported path there; a body that lowers waits for the callee it names):"
     )
     emit("")
     emit("| body | status |")

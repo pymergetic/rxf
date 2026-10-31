@@ -16,7 +16,7 @@ of this file). The prose around the block is hand-written.
 | the port face (NO_SYS=1: the clock, `sys_now` = the edge timer S9) | `native/lwip/sys_arch.c` | C |
 | the card's translation unit (the verbatim upstream files, `#include`d) | `native/lwip/core_slice.c` | C |
 | the import tool | `tools/native/lwip_import.py` | Python (over `rximport`) |
-| differential corpus | `tests/lwip_corpus/payload_echo.c` (+ `native_line.c`, the native reference's SLIP line, never a seat fill) | C |
+| differential corpus | `tests/lwip_corpus/payload_echo.c` and `tests/lwip_corpus/wire_words.c` (+ `native_line.c`, the native reference's SLIP line, never a seat fill) | C |
 
 The slice is the smallest honest core: `NO_SYS=1` (the run-cell machine is the only scheduler: no
 tcpip thread, no mailbox, no semaphore), IPv4 + UDP + ICMP over one SLIP netif, and nothing above
@@ -24,9 +24,10 @@ it — no sockets API, no netconn, no TCP yet, no ARP/Ethernet, no IPv6, no DHCP
 
 `core_slice.c` is one translation unit because the importer lowers a module at a time and lwIP's
 globals (`ip_data`, `netif_list`, `ip_addr_any`, the memp pools) are defined in one file and used in
-the next; one unit is what a link of them has. The importer is used **as it is**: its own entrance
-(`compile_c`: clang-18 -O1 with `RXF_IMPORT_FACES`) compiles the unit, the include path rides the
-compiler's `CPATH`, and nothing in `rximport.py` changed.
+the next; one unit is what a link of them has. The importer's own entrance (`compile_c`: clang-18
+-O1 with `RXF_IMPORT_FACES`) compiles the unit and the include path rides the compiler's `CPATH`.
+Slice 1 found the importer as it was; package 1 of section 5 taught it the intrinsics the card
+needed (section 3.1 records how each step moved the table).
 
 ## 2. How a body is counted
 
@@ -44,11 +45,11 @@ compiler's `CPATH`, and nothing in `rximport.py` changed.
 | tier | what it asks | count |
 |---|---|---|
 | module | bodies in the module | 115 |
-| 1 lowered | `rximport.graphs_of` lowers the body to a `SemanticGraph` | 77 |
-| 1 refused | the importer raises, with its reason (table below) | 38 |
-| 2 linked | the lowered graphs apply as one delta: every call card resolves | 68 |
-| 2 unlinked | lowered, but a callee is no program of the image (table below) | 9 |
-| 3 composed | `compose.programs` makes program words of the linked body | 68 |
+| 1 lowered | `rximport.graphs_of` lowers the body to a `SemanticGraph` | 105 |
+| 1 refused | the importer raises, with its reason (table below) | 10 |
+| 2 linked | the lowered graphs apply as one delta: every call card resolves | 83 |
+| 2 unlinked | lowered, but a callee is no program of the image (table below) | 22 |
+| 3 composed | `compose.programs` makes program words of the linked body | 83 |
 
 A refused body is refused for the FIRST thing the importer cannot lower in it; a second reason may sit behind the one named. A body that inlines a refused callee carries that callee's refusal (`udp_send` is refused for the `htons` of `udp_sendto_if_src`).
 
@@ -56,47 +57,19 @@ A refused body is refused for the FIRST thing the importer cannot lower in it; a
 
 | class | bodies | what it is |
 |---|---|---|
-| intrinsic | 30 | an LLVM intrinsic the importer has no lowering for |
+| intrinsic | 2 | an LLVM intrinsic the importer has no lowering for |
 | local-address | 4 | address arithmetic on a local's own bytes |
 | out-pointer | 2 | a write through a pointer the caller gave, out of line |
 | constant-expression | 2 | a constant expression the operand parser does not carry |
 
 #### intrinsic: an LLVM intrinsic the importer has no lowering for
 
-rximport `lower_intrinsic` knows umin/umax/smin/smax at i64 only, fshl/fshr, memcpy, memset, lifetime and the `*.with.overflow` family; clang -O1 turns lwIP's byte swaps (`lwip_htons`, `PP_HTONS`) into `llvm.bswap.iN` and its `LWIP_MIN`/`LWIP_MAX` clamps of narrow types into `llvm.umin.i16`/`llvm.smax.i32`, `abs()` into `llvm.abs.i32`.
+rximport `lower_intrinsic` lowers umin/umax/smin/smax/abs at every integer width, bswap at i16/i32/i64, fshl/fshr, memcpy, memset, lifetime and the `*.with.overflow` family; `llvm.memmove` stays refused, by name, because the graph's copy leaf copies forward only and an overlapping copy would be a wrong word.
 
 | body | the importer's reason |
 |---|---|
-| `lwip_htons` | the intrinsic llvm.bswap.i16 |
-| `lwip_htonl` | the intrinsic llvm.bswap.i32 |
-| `lwip_itoa` | the intrinsic llvm.abs.i32 |
-| `lwip_standard_chksum` | the intrinsic llvm.bswap.i16 |
-| `inet_chksum_pseudo` | the intrinsic llvm.bswap.i16 |
-| `ip_chksum_pseudo` | the intrinsic llvm.bswap.i16 |
-| `inet_chksum_pseudo_partial` | the intrinsic llvm.umin.i16 |
-| `ip_chksum_pseudo_partial` | the intrinsic llvm.umin.i16 |
-| `inet_chksum` | the intrinsic llvm.bswap.i16 |
-| `inet_chksum_pbuf` | the intrinsic llvm.bswap.i16 |
-| `icmp_input` | the intrinsic llvm.bswap.i16 |
-| `pbuf_alloc` | the intrinsic llvm.umin.i16 |
-| `ip4_output_if` | the intrinsic llvm.bswap.i16 |
-| `icmp_dest_unreach` | the intrinsic llvm.umin.i16 |
-| `ip4_input` | the intrinsic llvm.bswap.i16 |
-| `udp_input` | the intrinsic llvm.bswap.i16 |
-| `ip4_output_if_src` | the intrinsic llvm.bswap.i16 |
-| `ip4_output` | the intrinsic llvm.bswap.i16 |
-| `ip4_addr_netmask_valid` | the intrinsic llvm.bswap.i32 |
-| `netif_input` | the intrinsic llvm.bswap.i16 |
-| `netif_index_to_name` | the intrinsic llvm.abs.i32 |
-| `pbuf_copy_partial` | the intrinsic llvm.umin.i16 |
-| `pbuf_get_contiguous` | the intrinsic llvm.umin.i16 |
-| `pbuf_clone` | the intrinsic llvm.umin.i16 |
-| `sys_timeouts_sleeptime` | the intrinsic llvm.smax.i32 |
-| `udp_send` | the intrinsic llvm.bswap.i16 |
-| `udp_sendto` | the intrinsic llvm.bswap.i16 |
-| `udp_sendto_if` | the intrinsic llvm.bswap.i16 |
-| `udp_sendto_if_src` | the intrinsic llvm.bswap.i16 |
-| `slipif_poll` | the intrinsic llvm.umin.i16 |
+| `lwip_itoa` | the intrinsic llvm.memmove.p0.p0.i64 (an overlap-safe copy: the memory.copy leaf the graph has copies forward only, so a copy whose ranges overlap would be a wrong word; the memory move of native/memory/memory.rxfs is no leaf of the grap... |
+| `netif_index_to_name` | the intrinsic llvm.memmove.p0.p0.i64 (an overlap-safe copy: the memory.copy leaf the graph has copies forward only, so a copy whose ranges overlap would be a wrong word; the memory move of native/memory/memory.rxfs is no leaf of the grap... |
 
 #### local-address: address arithmetic on a local's own bytes
 
@@ -133,48 +106,111 @@ the call-card frame cannot carry a raw pointer to a caller's value (docs/23 4.1:
 |---|---|
 | `lwip_strnstr` | `strlen`, `strncmp` |
 | `lwip_strnistr` | `strlen` |
+| `icmp_input` | `lwip.slipif_output_v4` |
+| `ip4_output_if` | `lwip.ip4_output_if_src` |
+| `icmp_dest_unreach` | `lwip.ip4_output_if_src` |
+| `ip4_input` | `lwip.icmp_input`, `lwip.udp_input` |
+| `udp_input` | `lwip.slipif_output_v4` |
+| `ip4_output_if_src` | `lwip.slipif_output_v4` |
+| `ip4_output` | `lwip.ip4_output_if_src` |
+| `netif_input` | `lwip.ip4_input` |
 | `netif_add_noaddr` | `lwip.netif_add` |
 | `netif_name_to_index` | `strtol` |
 | `netif_find` | `strtol` |
 | `pbuf_strstr` | `strlen` |
 | `sys_check_timeouts` | `lwip.slipif_output_v4` |
+| `udp_send` | `lwip.udp_sendto` |
+| `udp_sendto` | `lwip.udp_sendto_if_src` |
+| `udp_sendto_if` | `lwip.udp_sendto_if_src` |
+| `udp_sendto_if_src` | `lwip.ip4_output_if_src` |
 | `slipif_init` | `sio_open` |
 | `slipif_output_v4` | `sio_send` |
+| `slipif_poll` | `sio_tryread` |
 
 The unresolved names, by what they are:
 
 | callee | what it is | called by |
 |---|---|---|
+| `lwip.icmp_input` | a body of the card that did not link | `ip4_input` |
+| `lwip.ip4_input` | a body of the card that did not link | `netif_input` |
+| `lwip.ip4_output_if_src` | a body of the card that did not link | `icmp_dest_unreach`, `ip4_output`, `ip4_output_if`, `udp_sendto_if_src` |
 | `lwip.netif_add` | a body of the card that the importer refuses (out-pointer) | `netif_add_noaddr` |
-| `lwip.slipif_output_v4` | a body of the card that did not link | `sys_check_timeouts` |
+| `lwip.slipif_output_v4` | a body of the card that did not link | `icmp_input`, `ip4_output_if_src`, `sys_check_timeouts`, `udp_input` |
+| `lwip.udp_input` | a body of the card that did not link | `ip4_input` |
+| `lwip.udp_sendto` | a body of the card that did not link | `udp_send` |
+| `lwip.udp_sendto_if_src` | a body of the card that did not link | `udp_sendto`, `udp_sendto_if` |
 | `sio_open` | the SLIP line provider of `sio.h`: the per-seat fill (docs/25 §13), no card yet | `slipif_init` |
 | `sio_send` | the SLIP line provider of `sio.h`: the per-seat fill (docs/25 §13), no card yet | `slipif_output_v4` |
+| `sio_tryread` | the SLIP line provider of `sio.h`: the per-seat fill (docs/25 §13), no card yet | `slipif_poll` |
 | `strlen` | a libc face: the subset imports no libc; needs an IR body under `RXF_IMPORT_FACES` | `lwip_strnistr`, `lwip_strnstr`, `pbuf_strstr` |
 | `strncmp` | a libc face: the subset imports no libc; needs an IR body under `RXF_IMPORT_FACES` | `lwip_strnstr` |
 | `strtol` | a libc face: the subset imports no libc; needs an IR body under `RXF_IMPORT_FACES` | `netif_find`, `netif_name_to_index` |
 
 ### Tier 3: imported and composed
 
-68 bodies exist as programs of the image; each is one `lwip.<name>` of `compose.programs`:
+83 bodies exist as programs of the image; each is one `lwip.<name>` of `compose.programs`:
 
-`lwip_strnicmp`, `lwip_stricmp`, `memp_init`, `netif_init`, `udp_init`, `sys_timeouts_init`, `ip4_addr_isbroadcast_u32`, `pbuf_free`, `pbuf_add_header`, `pbuf_remove_header`, `pbuf_copy`, `ip4_route`, `pbuf_realloc`, `pbuf_header_force`, `mem_free`, `mem_trim`, `mem_malloc`, `mem_calloc`, `memp_init_pool`, `memp_malloc_pool`, `memp_malloc`, `memp_free_pool`, `memp_free`, `netif_null_output_ip4`, `netif_set_addr`, `netif_set_ipaddr`, `netif_set_netmask`, `netif_set_gw`, `netif_remove`, `netif_set_down`, `netif_set_default`, `netif_set_up`, `netif_set_link_up`, `netif_set_link_down`, `netif_get_by_index`, `pbuf_alloc_reference`, `pbuf_add_header_force`, `pbuf_header`, `pbuf_free_header`, `pbuf_clen`, `pbuf_ref`, `pbuf_cat`, `pbuf_chain`, `pbuf_copy_partial_pbuf`, `pbuf_skip`, `pbuf_take`, `pbuf_take_at`, `pbuf_coalesce`, `pbuf_get_at`, `pbuf_try_get_at`, `pbuf_put_at`, `pbuf_memcmp`, `pbuf_memfind`, `sys_timeout`, `sys_now`, `sys_untimeout`, `sys_restart_timeouts`, `udp_bind`, `udp_bind_netif`, `udp_connect`, `udp_disconnect`, `udp_recv`, `udp_remove`, `udp_new`, `udp_new_ip_type`, `udp_netif_ip_addr_changed`, `rxf_lwip_set_now`, `__wires_boot`.
+`lwip_htons`, `lwip_htonl`, `lwip_strnicmp`, `lwip_stricmp`, `lwip_standard_chksum`, `inet_chksum_pseudo`, `ip_chksum_pseudo`, `inet_chksum_pseudo_partial`, `ip_chksum_pseudo_partial`, `inet_chksum`, `inet_chksum_pbuf`, `memp_init`, `netif_init`, `udp_init`, `sys_timeouts_init`, `ip4_addr_isbroadcast_u32`, `pbuf_free`, `pbuf_add_header`, `pbuf_alloc`, `pbuf_remove_header`, `pbuf_copy`, `ip4_route`, `pbuf_realloc`, `pbuf_header_force`, `ip4_addr_netmask_valid`, `mem_free`, `mem_trim`, `mem_malloc`, `mem_calloc`, `memp_init_pool`, `memp_malloc_pool`, `memp_malloc`, `memp_free_pool`, `memp_free`, `netif_null_output_ip4`, `netif_set_addr`, `netif_set_ipaddr`, `netif_set_netmask`, `netif_set_gw`, `netif_remove`, `netif_set_down`, `netif_set_default`, `netif_set_up`, `netif_set_link_up`, `netif_set_link_down`, `netif_get_by_index`, `pbuf_alloc_reference`, `pbuf_add_header_force`, `pbuf_header`, `pbuf_free_header`, `pbuf_clen`, `pbuf_ref`, `pbuf_cat`, `pbuf_chain`, `pbuf_copy_partial_pbuf`, `pbuf_copy_partial`, `pbuf_get_contiguous`, `pbuf_skip`, `pbuf_take`, `pbuf_take_at`, `pbuf_coalesce`, `pbuf_clone`, `pbuf_get_at`, `pbuf_try_get_at`, `pbuf_put_at`, `pbuf_memcmp`, `pbuf_memfind`, `sys_timeout`, `sys_now`, `sys_untimeout`, `sys_restart_timeouts`, `sys_timeouts_sleeptime`, `udp_bind`, `udp_bind_netif`, `udp_connect`, `udp_disconnect`, `udp_recv`, `udp_remove`, `udp_new`, `udp_new_ip_type`, `udp_netif_ip_addr_changed`, `rxf_lwip_set_now`, `__wires_boot`.
 
 ### The echo path, named
 
-One UDP datagram in and echoed out is `slipif_poll` (it carries the `static inline` `slipif_input` and its SLIP deframing) -> `netif_input` -> `ip4_input` -> `udp_input` -> the pcb's `recv` word -> `udp_sendto` -> `ip4_output_if_src` -> the netif's `output` word -> `slipif_output_v4` -> `sio_send`. The first body of the path that the importer refuses ends the imported path:
+One UDP datagram in and echoed out is `slipif_poll` (it carries the `static inline` `slipif_input` and its SLIP deframing) -> `netif_input` -> `ip4_input` -> `udp_input` -> the pcb's `recv` word -> `udp_sendto` -> `ip4_output_if_src` -> the netif's `output` word -> `slipif_output_v4` -> `sio_send`. Where each body stands (a body that is refused ends the imported path there; a body that lowers waits for the callee it names):
 
 | body | status |
 |---|---|
-| `slipif_poll` | refused (intrinsic): the intrinsic llvm.umin.i16 |
-| `netif_input` | refused (intrinsic): the intrinsic llvm.bswap.i16 |
-| `ip4_input` | refused (intrinsic): the intrinsic llvm.bswap.i16 |
-| `udp_input` | refused (intrinsic): the intrinsic llvm.bswap.i16 |
-| `udp_sendto` | refused (intrinsic): the intrinsic llvm.bswap.i16 |
-| `ip4_output_if_src` | refused (intrinsic): the intrinsic llvm.bswap.i16 |
+| `slipif_poll` | lowered, not linked: `sio_tryread` |
+| `netif_input` | lowered, not linked: `lwip.ip4_input` |
+| `ip4_input` | lowered, not linked: `lwip.icmp_input`, `lwip.udp_input` |
+| `udp_input` | lowered, not linked: `lwip.slipif_output_v4` |
+| `udp_sendto` | lowered, not linked: `lwip.udp_sendto_if_src` |
+| `ip4_output_if_src` | lowered, not linked: `lwip.slipif_output_v4` |
 | `slipif_output_v4` | lowered, not linked: `sio_send` |
 
 
 <!-- lwip-import:end -->
+
+### 3.1 How the refusal table moved
+
+The importer reports the FIRST refusal of a body, so every step below re-ran the lane
+(`tools/native/lwip_import.py`) to see what stood behind the intrinsic it had just lowered.
+Nothing hid behind them but `llvm.memmove`.
+
+| step | importer change | refused | lowered | linked | composed |
+|---|---|---|---|---|---|
+| slice 1 (b07cbb7) | none: the importer as it was | 38 | 77 | 68 | 68 |
+| + `llvm.bswap.i16/i32/i64` | one shift and one mask per byte, or'ed (the delta vocabulary is unchanged: docs/23 4.8) | 23 | 92 | 76 | 76 |
+| + `llvm.umin/umax/smin/smax/abs` at every width | a compare and a select (signed: of the sign-extended words); abs is a signed compare against zero, a negate and a select | 10 | 105 | 83 | 83 |
+
+What the first step exposed behind the swaps: 12 bodies for `llvm.umin.i16`, two for
+`llvm.abs.i32`, one for `llvm.smax.i32`, and the second step cleared them. What the second step
+exposed: `lwip_itoa` and `netif_index_to_name` stand on `llvm.memmove.p0.p0.i64`, which stays
+refused by name with its reason (the graph's `memory.copy` leaf copies forward only, so an
+overlapping copy would be a wrong word; the memory move of `native/memory/memory.rxfs` is no
+leaf of the graph yet). The other eight refusals are the ones slice 1 named: four address
+arithmetics on a local array, two writes through a caller's pointer out of line
+(docs/23 4.1), two `ptrtoint` constant expressions.
+
+**A defect the new bodies uncovered, fixed in the same lane.** `pbuf_alloc` imported with the
+intrinsics lowered and answered a pbuf whose fields read zero. The cause was older than the
+intrinsics: a pointer answered by an out-of-line call card arrives in a wide carrier (its first
+8 bytes are the address word), and a lowering that used that carrier as an operand handed the
+leaf the carrier's own address in the frame, not the flat address it holds. Inlined callees
+and every earlier corpus body only passed such a pointer on, which copies bytes and was right
+by luck; the first body to add to it, subtract from it or store through it read the wrong
+word. `lower_card` now copies the address word out of the carrier before anything reads it
+(`tests/import_corpus/cardptr.c`, `test_a_pointer_answered_by_a_call_card_is_an_address`; the
+test fails without the fix). Seven bodies of `obj.c` changed text by one move op each and
+every differential over them passed before and after (`CORPUS_DIGESTS` records the flip).
+
+**The echo path, after the two steps.** All seven bodies of the path lower. None composes:
+`slipif_output_v4` waits for `sio_send` and `slipif_poll` for `sio_tryread` (the SLIP line of
+each seat, package 3), and every body above them waits for the one below. The refusals that
+stopped the path in slice 1 (`llvm.bswap.i16` in six bodies, `llvm.umin.i16` in `slipif_poll`)
+are gone.
+
+The lane also carries one non-importer change: `tools/native/lwip_import.py` applies the delta
+to a starter compacted with a larger index directory (`INDEX_CAPACITY`), because the starter's
+own directory (~20k handles, 18987 used) cannot hold a card that lowers whole.
 
 ## 4. The differential that runs today
 
@@ -189,22 +225,36 @@ equal, on the card's real options (8 KiB heap, 8 pbufs, 1 KiB pool buffers).
 
 This is the payload half of the echo through the card's own cells. It is **not** the UDP echo of
 the gate: the receive path (`netif_input` → `ip4_input` → `udp_input`) and the send path
-(`udp_sendto` → `ip4_output_if_src`) are in the refusal table above, every one of them for
-`llvm.bswap.i16`, and `tests/test_lwip_import.py` pins exactly that.
+(`udp_sendto` → `ip4_output_if_src`) lower but do not compose, because the SLIP line below
+them has no fill on any seat yet; `tests/test_lwip_import.py` pins exactly that.
 
-Seat status (all-platforms): the differential runs on the host seat only. The card is not wired
+`tests/lwip_corpus/wire_words.c` is the second differential, over the words the intrinsic
+lowerings brought into the import, imported with the card and run against the same C compiled
+natively: `lwip_htons` / `lwip_htonl` (`llvm.bswap.i16/i32`) on the edges of both widths,
+`inet_chksum` over flat buffers of odd and even lengths from an aligned and an odd start and
+`inet_chksum_pbuf` over a two-pbuf chain split at odd and even boundaries
+(`lwip_standard_chksum`'s swaps), `pbuf_alloc` from the pool (the length of each pbuf is
+`llvm.umin.i16` of what is left and the room of a cell) for lengths up to and past the pool,
+and `pbuf_copy_partial` across the chain it makes (`llvm.umin.i16` again), bytes included. No
+PBUF_RAM body runs there: `mem_init` is still refused for its constant expression.
+
+Seat status (all-platforms): the differentials run on the host seat only. The card is not wired
 on the unix µPy, emcc, firmware or wasmmod seats yet: there is no SLIP line fill on any seat and
-the echo path does not import, so every other seat is a stub that would fail its prove, not a dark
-port. The seat lines are package 3 below.
+the echo path does not compose, so every other seat is a stub that would fail its prove, not a
+dark port. The seat lines are package 3 below. The importer itself is a host tool: the
+byte-swap and min/max/abs lowerings, the carrier fix and their corpus (`bswap.c`, `minmax.c`,
+`cardptr.c`) are proven on the host seat of `tests/test_import.py`; the bodies they produce are
+the same graphs every seat's interpreter runs.
 
 ## 5. What remains for the card (the next packages)
 
-1. **The importer's missing lowerings** (`tools/native/rximport.py`, the importer's own lane): the
-   intrinsics `llvm.bswap.i16/i32`, `llvm.umin/umax/smin/smax.i16/i32`, `llvm.abs.i32` (30 of the
-   refusals, and every body of the echo path); a constant expression with integer arithmetic over
-   `ptrtoint` (`LWIP_MEM_ALIGN` of `ram_heap`: `mem_init`, `lwip_init`); address arithmetic on a
-   local's own bytes (`ip4addr_aton`/`ntoa`); the out-param call card (`netif_add`, `pbuf_dechain`:
-   docs/23 §4.1's open gate).
+1. **The importer's remaining lowerings** (`tools/native/rximport.py`, the importer's own lane).
+   Done (section 3.1): `llvm.bswap.i16/i32/i64`, `llvm.umin/umax/smin/smax/abs` at every width,
+   and the call-card pointer carrier. Open: `llvm.memmove` (an overlap-safe copy leaf: `lwip_itoa`,
+   `netif_index_to_name`); a constant expression with integer arithmetic over `ptrtoint`
+   (`LWIP_MEM_ALIGN` of `ram_heap`: `mem_init`, `lwip_init`); address arithmetic on a local's own
+   bytes (`ip4addr_aton`/`ntoa`); the out-param call card (`netif_add`, `pbuf_dechain`: docs/23
+   §4.1's open gate).
 2. **libc faces** as IR bodies under `RXF_IMPORT_FACES` (`strlen`, `strncmp`, `strtol`), the way
    `tests/import_corpus/qstr_faces.c` does it.
 3. **The SLIP line fills** (`sio_open`/`sio_send`/`sio_tryread`): one file per seat

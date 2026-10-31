@@ -209,10 +209,13 @@ Packet path (both directions are the same story reversed):
 
 **Status (slice 1, measured):** lwIP 2.2.0 is vendored and pinned (`third_party/lwip`), the NO_SYS=1 port
 face is `native/lwip/`, and the import lane has been run over IPv4 + UDP + ICMP + `slipif` as far as it
-honestly goes -- 68 of 115 bodies import and compose, 38 are refused with the importer's own reasons
-(30 of them for `llvm.bswap`/`umin`/`abs` intrinsics, which is the whole UDP echo path), 9 wait for
-libc faces or the SLIP line fills. The table, the differential that runs today and the next packages
-are [docs/35](35-LWIP-IMPORT-TABLE.md); `tests/test_lwip_import.py` pins them.
+honestly goes -- 83 of 115 bodies import and compose, 10 are refused with the importer's own reasons
+(two for `llvm.memmove`, four local-array address arithmetics, two out-pointer writes, two `ptrtoint`
+constant expressions), 22 wait for libc faces, the SLIP line fills or a body of the path that waits.
+Slice 1 first measured 68 / 38, 30 of the refusals for `llvm.bswap`/`umin`/`abs` intrinsics; the
+importer lowers those now (docs/35 §3.1) and every body of the UDP echo path lowers, the path ends
+at the SLIP line. The table, the differentials that run today and the next packages are
+[docs/35](35-LWIP-IMPORT-TABLE.md); `tests/test_lwip_import.py` pins them.
 
 The face is `net.io` **now** and the object world later (net as addressable objects, like
 everything else); that is a rename of the body's owner, not a second face (the platform rule:
