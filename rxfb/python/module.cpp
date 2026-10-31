@@ -255,6 +255,19 @@ Refs refs_of(nb::handle owner, rxfb_handle handle) {
     return Refs{nb::borrow(owner), rows, count};
 }
 
+/* The rows of one table object of sys/relations, checked to lie inside the image. */
+Refs table_of(nb::handle owner, rxfb_handle handle) {
+    const Image &image = image_of(owner);
+    const rxfb_ref *rows = nullptr;
+    uint32_t count = 0;
+    check(rxfb_table(&image.rx, handle, &rows, &count), "table of " + std::to_string(handle));
+    if (count > 0) {
+        const auto *begin = reinterpret_cast<const uint8_t *>(rows);
+        (void)slice_of(image, begin, static_cast<uint64_t>(count) * sizeof(rxfb_ref));
+    }
+    return Refs{nb::borrow(owner), rows, count};
+}
+
 Ref ref_row(const rxfb_ref &row) {
     return Ref{row.target, row.role, row.kind, row.binding, row.index};
 }
@@ -472,6 +485,10 @@ NB_MODULE(rxfb, m) {
         .def(
             "refs", [](const Object &o) { return refs_of(o.owner, o.handle); },
             "The reference rows of the object.")
+        .def(
+            "table", [](const Object &o) { return table_of(o.owner, o.handle); },
+            "The object read as a reference table: an object of sys/relations, named by the path of "
+            "the object whose rows it holds. Any other object is a BadHandle.")
         .def(
             "code",
             [](const Object &o, const std::string &machine) {

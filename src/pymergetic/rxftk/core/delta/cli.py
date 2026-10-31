@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from pymergetic.rxftk import source
-from pymergetic.rxftk.live import harness, physical
+from pymergetic.rxftk.live import arena_image, harness, physical
 
 
 def show(src: str, module: str | None = None) -> str:
@@ -41,7 +41,10 @@ def compile(src: str, *deltas: str, to: str, check_base: bool = True) -> dict[st
     """
     base = source.load(src)
     texts = [(name, Path(name).read_text(encoding="utf-8")) for name in deltas]
-    compiled = physical.from_xml(base, *texts, check_base=check_base)
+    base_digest = arena_image.digest_of(base) if check_base else None
+    compiled = physical.from_xml(
+        base, *texts, check_base=check_base, base_digest=base_digest
+    )
     Path(to).write_bytes(compiled.data)
     return {
         "target": to,
@@ -51,7 +54,7 @@ def compile(src: str, *deltas: str, to: str, check_base: bool = True) -> dict[st
         "sets": compiled.sets,
         "deletes": compiled.deletes,
         "entry": compiled.entry,
-        "base": base.digest() if check_base else None,
+        "base": base_digest,
     }
 
 
@@ -83,7 +86,9 @@ def patch(
     written as XML again with `--to=result.rxfd`.
     """
     image = source.load(src)
-    result = harness.replay(image.to_bytes(), Path(delta).read_bytes())
+    result = harness.replay(
+        arena_image.arena_of(image), Path(delta).read_bytes(), like=image
+    )
     report = source.report(result)
     if to is not None:
         report["format"] = source.save(result, to, overwrite)

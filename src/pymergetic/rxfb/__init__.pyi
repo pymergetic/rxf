@@ -194,6 +194,11 @@ class Object:
     def refs(self) -> Refs:
         """The reference rows of the object."""
 
+    def table(self) -> Refs:
+        """
+        The object read as a reference table: an object of sys/relations, named by the path of the object whose rows it holds. Any other object is a BadHandle.
+        """
+
     def code(self, machine: str) -> Code:
         """The bytes of this function for a machine (e.g. 'wasm32')."""
 

@@ -265,6 +265,34 @@ def test_objects_know_their_neighbours(starter_file):
     assert refs.view.obj is image.view.obj
 
 
+@pytest.mark.slow
+def test_every_relation_table_reads_as_the_refs_of_its_object(starter_file):
+    """`Object.table()` reads a table of sys/relations straight off its object - one pass over
+    the image, where `refs()` finds one object's table by walking the chain - and the rows are
+    the ones `refs()` answers for the object the table is named after."""
+    image = rxfb.attach(starter_file.read_bytes())
+    tables = list(image.lookup("sys.relations").children())
+    assert len(tables) > 1000, (
+        "the starter carries a table per object that has references"
+    )
+    for table in tables[
+        ::37
+    ]:  # `refs()` walks the chain: a sample keeps the proof short
+        rows = table.table()
+        name = table.name
+        assert name is not None  # a table is named after the object whose rows it holds
+        named = image.lookup(name)
+        assert len(rows) == len(named.refs())
+        assert bytes(rows.view) == bytes(named.refs().view)
+        assert [(r.target, r.role, r.kind, r.binding, r.index) for r in rows] == [
+            (r.target, r.role, r.kind, r.binding, r.index) for r in named.refs()
+        ]
+    with pytest.raises(rxfb.BadHandle):
+        image.root.table()  # an object that is no table of sys/relations
+    with pytest.raises(rxfb.BadHandle):
+        image.lookup("sys.relations").table()
+
+
 def rxfb_role(ref: rxfb.Ref) -> int:
     return (1 << 64) - 1 if ref.role is None else ref.role
 

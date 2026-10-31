@@ -14,6 +14,7 @@
  *   rxfb_path        ObjectArena::path_of
  *   rxfb_spec        ObjectArena::spec
  *   rxfb_refs        ObjectArena::refs_of       (relation_rows, path_matches: a view, not a copy)
+ *   rxfb_table       ObjectArena::relation_rows (the rows of one table, found by its handle)
  *   rxfb_slot_of     tools/native/link.py       (_leaf, _code: the seats' own resolution)
  *
  * Every chain walk is bounded by the number of handles the image holds, so a corrupt link cycle
@@ -437,6 +438,33 @@ static int path_matches(const rxfb *rx, const rxfb_syms *head, uint32_t room, rx
     return walk == rxfb_root(rx);
 }
 
+/* The rows of a relation table: the room of a table is a whole number of rows and may carry the
+ * zero padding of an 8-byte slot; a real row always names a target, and a live handle is never 0,
+ * so an all-zero row is padding. */
+static void table_rows(const rxfb_object *table, const rxfb_ref **rows, uint32_t *count) {
+    const rxfb_ref *found = (const rxfb_ref *)payload_of(table);
+    uint32_t held = table->payload / sizeof(rxfb_ref);
+    while (held > 0 && found[held - 1].target == 0 && found[held - 1].role == 0 &&
+           found[held - 1].kind == 0 && found[held - 1].binding == 0 &&
+           found[held - 1].index == 0)
+        --held;
+    *rows = found;
+    *count = held;
+}
+
+rxfb_status rxfb_table(const rxfb *rx, rxfb_handle table, const rxfb_ref **rows, uint32_t *count) {
+    *rows = 0;
+    *count = 0;
+    const rxfb_object *record = 0;
+    rxfb_status status = rxfb_record(rx, table, &record);
+    if (status != RXFB_OK)
+        return status;
+    if (rx->relations == RXFB_HANDLE_NONE || record->parent != rx->relations)
+        return RXFB_BAD_HANDLE; /* not a table of sys/relations */
+    table_rows(record, rows, count);
+    return RXFB_OK;
+}
+
 rxfb_status rxfb_refs(const rxfb *rx, rxfb_handle handle, const rxfb_ref **rows, uint32_t *count) {
     *rows = 0;
     *count = 0;
@@ -473,17 +501,7 @@ rxfb_status rxfb_refs(const rxfb *rx, rxfb_handle handle, const rxfb_ref **rows,
             if (status != RXFB_OK)
                 return status;
             if (path_matches(rx, head, room, handle, name, size)) {
-                const rxfb_ref *found = (const rxfb_ref *)payload_of(table);
-                /* The room of a table is a whole number of rows and may carry the zero padding of
-                 * an 8-byte slot; a real row always names a target, and a live handle is never 0,
-                 * so an all-zero row is padding. */
-                uint32_t held = table->payload / sizeof(rxfb_ref);
-                while (held > 0 && found[held - 1].target == 0 && found[held - 1].role == 0 &&
-                       found[held - 1].kind == 0 && found[held - 1].binding == 0 &&
-                       found[held - 1].index == 0)
-                    --held;
-                *rows = found;
-                *count = held;
+                table_rows(table, rows, count);
                 return RXFB_OK;
             }
         }

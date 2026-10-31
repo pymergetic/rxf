@@ -124,6 +124,11 @@ rxfb_status rxfb_children(const rxfb *rx, rxfb_handle handle, rxfb_handle *out, 
  * image (8-byte aligned, `*count` rows of 24 bytes). An object with no table has none. */
 rxfb_status rxfb_refs(const rxfb *rx, rxfb_handle handle, const rxfb_ref **rows, uint32_t *count);
 
+/* The same rows, read straight off a table object of sys/relations (its payload, padding trimmed):
+ * the way to walk every table of an image once, where `rxfb_refs` finds one object's table by
+ * walking the chain. Any other object is RXFB_BAD_HANDLE. */
+rxfb_status rxfb_table(const rxfb *rx, rxfb_handle table, const rxfb_ref **rows, uint32_t *count);
+
 /* ---- the code story ------------------------------------------------------------------------- */
 
 /* The interpreter whose Leaf references are the function slots of a linked image. */
