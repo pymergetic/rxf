@@ -17,6 +17,11 @@ of this file). The prose around the block is hand-written.
 | the card's translation unit (the verbatim upstream files, `#include`d) | `native/lwip/core_slice.c` | C |
 | the import tool | `tools/native/lwip_import.py` | Python (over `rximport`) |
 | differential corpus | `tests/lwip_corpus/payload_echo.c` and `tests/lwip_corpus/wire_words.c` (+ `native_line.c`, the native reference's SLIP line, never a seat fill) | C |
+| the SLIP line cell and its contract (rings, MTU 1000, `overrun`/`framing` words) | `native/lwip/slip_line.h` | C |
+| the line face lwIP calls (`sio_open`/`sio_send`/`sio_tryread`, close, readiness), imported with the card | `native/lwip/slip_line_face.c` | C |
+| the ring moves every native fill shares | `native/lwip/slip_line_fill.h` | C |
+| the host seat's fill (a socketpair to the harness) | `native/lwip/slip_line_host.c` | C |
+| the real UDP echo corpus and its harness | `tests/lwip_corpus/udp_echo.c`, `tests/lwip_udp_echo.py`, `tests/test_lwip_slip.py` | C, Python |
 
 The slice is the smallest honest core: `NO_SYS=1` (the run-cell machine is the only scheduler: no
 tcpip thread, no mailbox, no semaphore), IPv4 + UDP + ICMP over one SLIP netif, and nothing above
@@ -189,10 +194,8 @@ set: `echo_boot` (the module's wires, `memp_init`, `udp_init`, `udp_new` + `udp_
 as the TEST REFERENCE (docs/23 §3: never a seat fill): the answers and the bytes the echo wrote are
 equal, on the card's real options (8 KiB heap, 8 pbufs, 1 KiB pool buffers).
 
-This is the payload half of the echo through the card's own cells. It is **not** the UDP echo of
-the gate: the receive path (`netif_input` → `ip4_input` → `udp_input`) and the send path
-(`udp_sendto` → `ip4_output_if_src`) lower but do not compose, because the SLIP line below
-them has no fill on any seat yet; `tests/test_lwip_import.py` pins exactly that.
+That differential is the payload half of the echo through the card's own cells. The real echo is
+section 4.1.
 
 `tests/lwip_corpus/wire_words.c` is the second differential, over the words the intrinsic
 lowerings brought into the import, imported with the card and run against the same C compiled
@@ -208,13 +211,71 @@ answers up to a heap too small for the request, and a freed block that comes bac
 neighbour survives (the heap sits at an address of each side's own, so only address-free
 answers compare).
 
-Seat status (all-platforms): the differentials run on the host seat only. The card is not wired
-on the unix µPy, emcc, firmware or wasmmod seats yet: there is no SLIP line fill on any seat and
-the echo path does not compose, so every other seat is a stub that would fail its prove, not a
-dark port. The seat lines are package 3 below. The importer itself is a host tool: the
-byte-swap and min/max/abs lowerings, the carrier fix, the constant-expression arithmetic and
-their corpus (`bswap.c`, `minmax.c`, `cardptr.c`, `constexpr.c`) are proven on the host seat of `tests/test_import.py`; the bodies they produce are
-the same graphs every seat's interpreter runs.
+### 4.1 The real UDP echo over the SLIP line
+
+`tests/lwip_corpus/udp_echo.c` boots the stack (`lwip_init`), attaches the SLIP netif at
+10.0.0.2/24 and binds the echo service on UDP port 7 (the recv word is `udp_sendto` back to the
+sender). `tests/lwip_udp_echo.py` is the peer on the other end of the line: it puts SLIP-framed
+IPv4 datagrams on the host seat's socketpair (the RFC 1055 model of
+`pymergetic.rxftk.net.link.slip` frames them), pumps the fill, polls the stack (`slipif_poll`:
+the card reads the line through `sio_tryread`, `ip4_input` / `udp_input` / `icmp_input` answer,
+`slipif_output_v4` writes the reply through `sio_send`), pumps again and reads the reply bytes.
+The same scenarios run on the imported graphs and on the same lwIP C compiled natively (the
+TEST REFERENCE, through the same line face and the same fill); the reply bytes of every scenario
+and the counters of the line cell must be equal, and the peer reads each reply (addresses, ports,
+payload, IP/UDP/ICMP checksums).
+
+| scenario | what travels | result |
+|---|---|---|
+| udp text, one byte, 900 bytes | a datagram to port 7, echoed to the sender's port | bytes equal |
+| udp stuffed | a payload full of END/ESC bytes (stuffed both ways) | bytes equal |
+| icmp echo request | answered by `icmp_input` | bytes equal |
+| udp with a bad checksum | dropped by `udp_input`, no reply | none on both sides |
+| udp to a closed port | ICMP port unreachable by `icmp_dest_unreach` | **destination address differs** (below) |
+
+**The machine need (measured).** On the interpreter the repository ships (`native/graph.rxfs`:
+run cell 8192 bytes, call depth 8) the imported echo is **refused** (`RXF_REFUSE_CELL_BUDGET`,
+18): the chain from the harness entry down the real path — `slip_echo_poll` 24, `slipif_poll`
+1456, `ip4_input` 4680, `udp_input` 2896, `echo_recv` 312, `udp_sendto` 792,
+`udp_sendto_if_src` 1720, `ip4_output_if_src` 1384, `slipif_output_v4` 1696 — sums to **14960
+bytes of frames at depth 9**. The same graphs, on the same seed program with the run cell raised
+(`cell[8192]` and its four literals, `frames[704]`, the test `depth + 1 >= 8` of
+`native/graph.rxfs`), answer byte for byte what native lwIP answers: cell 15360 and depth 9 pass,
+cell 12288 and depth 12 (18) or cell 32768 and depth 8 (17) do not. The need is therefore
+`RXF_GRAPH_CELL_BYTES >= 16384` (32768 for margin) and `RXF_GRAPH_CALL_DEPTH >= 10` (16 for
+margin) in `native/graph.h` and `native/graph.rxfs`: a machine-lane change (the graph interpreter
+is a machine file, not this lane's). `tests/test_lwip_slip.py` pins the measurement, runs the
+differential on the enlarged interpreter (`lwip_udp_echo.enlarge_interpreter`, an experiment of
+the harness: it edits the seed's source text in the test process only), and carries a strict
+xfail for the shipped interpreter that flips when the budget is raised.
+
+**The importer defect the closed-port scenario shows.** `icmp_dest_unreach` keeps the sender's
+address in a local (`ip4_addr_t iphdr_src`) and hands `&iphdr_src` to `ip4_output_if_src`, which
+is a call card. The card reads the destination through a pointer to the caller's frame slot and
+gets 0.0.0.0 instead of 10.0.0.1: a **silent wrong word** in the importer's rule for a pointer to a
+local given to a call card (docs/23 §4.1; the same shape with a larger reader segfaults the
+host runner). It is not a line problem and not a machine budget problem. The fix is the importer's
+(refuse the body at import, or give such a local a cell the callee can resolve — the out-position
+mechanism of §4.1 for a read); it is pinned by a strict xfail in `tests/test_lwip_slip.py`.
+
+### 4.2 The seat fills of the SLIP line
+
+One contract (`native/lwip/slip_line.h`: open/close, TX byte, RX byte source and readiness word,
+MTU 1000, `overrun` and `framing` as words of the line cell), one imported face, and a fill per
+seat that only moves bytes between the cell and the seat's real line. `tests/test_lwip_slip.py`
+runs the contract suite (`LineContract`) on every fill against both the imported face and the
+natively compiled face. Status per seat, as proven in this run:
+
+| seat | fill | status |
+|---|---|---|
+| host (unix process, the harness) | `slip_line_host.c`, socketpair | **proven**: contract suite on the imported face and on the native reference; the real UDP echo over it (section 4.1) |
+| unix, tap/tun | `slip_line_tap.c` | the SLIP <-> IP packet bridge is proven against a datagram socketpair standing in for the tun fd; the **device open** (`TUNSETIFF`) fails with EPERM here (no `CAP_NET_ADMIN`) and is unproven; the lwIP card itself is not wired on the unix µPy seat |
+| browser (emcc / wasm32) | `slip_line_js.c` | **not written**: needs the wasm32 FIFO block bridged to a WebSocket and a browser harness, and the card is not on the wasm32 seat; a strict xfail names it |
+| firmware (UART 16550 / PL011) | `slip_line_uart.c` | **not written**: needs QEMU firmware images that carry the card, which they do not; a strict xfail names it |
+
+The card is not wired on the unix µPy, emcc, firmware or wasmmod seats (their images do not carry
+the imported graphs); a missing fill is a stub that fails its prove, not a dark port, and none of
+those seats is claimed.
 
 ## 5. What remains for the card (the next packages)
 
@@ -226,11 +287,21 @@ the same graphs every seat's interpreter runs.
    out-param call card (`netif_add`, `pbuf_dechain`: docs/23 §4.1's open gate).
 2. **libc faces** as IR bodies under `RXF_IMPORT_FACES` (`strlen`, `strncmp`, `strtol`), the way
    `tests/import_corpus/qstr_faces.c` does it.
-3. **The SLIP line fills** (`sio_open`/`sio_send`/`sio_tryread`): one file per seat
-   (`slip_line_host.c`, `slip_line_tap.c`, `slip_line_js.c`, `slip_line_uart.c`), docs/25 §13, with
-   the same contract suite on every seat.
+3. **The other seats' SLIP line fills and the card on those seats.** Done: the face, the host seat
+   (section 4.2). Open: the card in the unix µPy, emcc, firmware and wasmmod images, then
+   `slip_line_js.c` (browser, WebSocket bridge) and `slip_line_uart.c` (16550/PL011) with the same
+   contract suite, and the real `TUNSETIFF` open of `slip_line_tap.c` on a host with
+   `CAP_NET_ADMIN`.
 4. **Provenance**: the importer lifts the comments of the file it is given; the verbatim upstream
    files reach it through `#include`, so their comments and their per-file citations are not
    lifted yet (docs/22: one origin record, one citation per upstream file).
-5. **TCP and the socket echo** (`LWIP_TCP`; the pcb readiness park/wake of docs/25 §4), then the
+5. **Machine budget** (machine lane): `RXF_GRAPH_CELL_BYTES` >= 16384 and `RXF_GRAPH_CALL_DEPTH` >= 10
+   for the echo path (section 4.1); the readiness park/wake of docs/25 §4 for the RX byte source
+   (today `slipif_poll` polls `sio_tryread`; `rxf_slip_line_ready` is the word the run's
+   wait/notify will watch).
+6. **The importer's pointer-to-local rule for call cards** (section 4.1: a silent wrong word).
+7. **netif_add**: `slip_echo_boot` attaches the netif by hand in the order `netif_add` does it,
+   because `netif_add` is refused (out-pointer); it calls `netif_add` when the out-param call card
+   lands.
+8. **TCP and the socket echo** (`LWIP_TCP`; the pcb readiness park/wake of docs/25 §4), then the
    uasyncio binding (docs/23 §4.5).
