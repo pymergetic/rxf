@@ -88,12 +88,14 @@ def test_the_physical_form_is_one_form(base: Image):
 
 
 _WRITE_SIDE = pytest.mark.xfail(
-    reason="blocked on the arena lane: the apply's write side is not the "
-    "writer's allocation sequence (docs/32 5.4) for these edit sets - the "
-    "canonical digest is not the v7 oracle's (seeds 2, 4) or a second-round "
-    "delta is refused 'a path does not resolve' (seeds 1, 5); the gen-stable "
-    "reshape (docs/32 1.2) cleared seeds 0 and 3",
-    strict=False,
+    reason="blocked on the arena lane: the live engine refuses the two-round "
+    "delta at operation 0 ('a path does not resolve'). The same delta replays "
+    "to the right world at the model level, so the divergence is the engine's "
+    "arena resolution of freshly-placed nodes (docs/32 5.5), not the delta or "
+    "the v7 oracle. The world-survey capacity fix (arena: size the rebuilt "
+    "index from the world survey) cleared seed 1 and the canonical-digest "
+    "drift of seeds 2 and 4; these three still hit the resolution refusal.",
+    strict=True,
 )
 
 
@@ -101,7 +103,7 @@ _WRITE_SIDE = pytest.mark.xfail(
     "seed",
     [
         0,
-        pytest.param(1, marks=_WRITE_SIDE),
+        1,
         pytest.param(2, marks=_WRITE_SIDE),
         3,
         pytest.param(4, marks=_WRITE_SIDE),
