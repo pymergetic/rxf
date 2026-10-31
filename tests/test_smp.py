@@ -20,18 +20,16 @@ under ThreadSanitizer and AddressSanitizer/UBSan, and drives the runs the policy
   won + refused == raise events.
 """
 
-import hashlib
 import json
-import os
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from . import host_build
+
 HERE = Path(__file__).parent
 HOST = HERE / "host"
-BUILD = HOST / "build"
 SOURCES = [HOST / name for name in (
     "smp_prove.c", "smp_witness.c", "smp_sched.c", "smp_arena.c", "smp_mpmodel.c",
 )]
@@ -62,34 +60,9 @@ MP_DELIVERED, MP_PENDING_END, MP_SCHED, MP_UNWINDS, MP_POLLS = 119, 120, 121, 12
 MP_RAISE_DEPOSITS = 124
 
 
-def _compiler() -> str:
-    """The host C compiler: the clang the native sources are pinned to, else the system one."""
-    return "clang-18" if shutil.which("clang-18") else "cc"
-
-
 def _binary(mode: str = "") -> Path:
     """The proof binary for a mode ("" standard, "tsan", "asan"), compiled when sources changed."""
-    compiler = _compiler()
-    flags = ["-std=c11", "-O2", "-g", "-pthread",
-             "-Wall", "-Wextra", "-Werror", "-Wimplicit-function-declaration"]
-    if mode == "tsan":
-        flags += ["-fsanitize=thread"]
-    elif mode == "asan":
-        flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all",
-                  "-DRXF_SMP_ASAN"]
-    digest = hashlib.sha256()
-    for source in [*SOURCES, Path(compiler), Path(mode)]:
-        digest.update(source.name.encode())
-        if source.is_file():
-            digest.update(source.read_bytes())
-    digest.update(" ".join(flags).encode())
-    BUILD.mkdir(parents=True, exist_ok=True)
-    out = BUILD / f"smp_prove-{digest.hexdigest()[:16]}{('.' + mode) if mode else ''}"
-    if not out.exists():
-        made = out.with_suffix(f".{os.getpid()}")
-        subprocess.run([compiler, *flags, *map(str, SOURCES), "-o", str(made)], check=True)
-        os.replace(made, out)  # a build of another process is replaced whole, never half
-    return out
+    return host_build.binary(SOURCES, "smp_prove", mode)
 
 
 def prove(mode: str = "", **knobs) -> tuple[dict, str]:

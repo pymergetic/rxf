@@ -22,7 +22,6 @@ is the machine's, not a table of this file."""
 from __future__ import annotations
 
 import hashlib
-import os
 import struct
 import subprocess
 from pathlib import Path
@@ -37,6 +36,7 @@ import rxpy
 from pymergetic.rxftk.core import tree
 
 from . import rxf_native
+from .mp_reference import micropythons, seat_of
 from .snippets import STARTER
 
 CORPUS = Path(__file__).parent / "rxpy_corpus"
@@ -57,32 +57,7 @@ KNOWN = {"double_it": "chain.double_it"}
 
 # ---- the differential reference: MicroPython, really run --------------------------------------
 
-def micropythons() -> list[str]:
-    """The MicroPython unix binaries of the workspace: both seats where both exist.
-
-    ``RXPY_MPY`` names one to pin against explicitly; without it the wasmmod seat is
-    tried first, then the upstream checkout.  Nothing here is a golden table: where no
-    binary exists the differential tests skip and say so, and only the shape and
-    refusal pins run."""
-    named = os.environ.get("RXPY_MPY")
-    if named:
-        return [named]
-    root = Path(__file__).parents[2]  # .../os-sdk/packages
-    found = []
-    for seat in ("micropython-wasmmod", "micropython"):
-        binary = root / seat / "ports" / "unix" / "build-standard" / "micropython"
-        if binary.exists():
-            found.append(str(binary))
-    return found
-
-
 MPYS = micropythons()
-
-
-def seat_of(binary: str) -> str:
-    """The seat a binary belongs to (its checkout's name), for the test's ids."""
-    parts = Path(binary).parts
-    return parts[parts.index("ports") - 1] if "ports" in parts else Path(binary).name
 
 
 def mp_lines(mpy: str, modules: tuple[str, ...], cases: list[tuple[str, tuple[int, ...]]]):

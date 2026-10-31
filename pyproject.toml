@@ -80,6 +80,9 @@ extend-exclude = ["src/pymergetic/rxftk/core/*.pyi", "src/pymergetic/rxfb/*.pyi"
 # exec: pinned fixtures (tests/test_rxpy.py holds their digests), not library code.
 "tests/rxpy_corpus/*" = ["F821"]
 "tests/rxpy_mp_answer.py" = ["S102", "BLE001"]
+# the asyncio reference runs under MicroPython: it execs the corpus data like the mp answer script
+# does, and reads MicroPython's time.ticks_ms through getattr (CPython's typeshed has no such name).
+"tests/asyncio_corpus/reference.py" = ["S102", "B009"]
 
 [tool.pytest.ini_options]
 # The native tools are scripts (tools/native), not a package; tests import them by name.
