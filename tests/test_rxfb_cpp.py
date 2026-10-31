@@ -290,7 +290,7 @@ def test_objects_print_in_full_as_the_c_examples(c_dump, dump_cpp, starter):
 
 @pytest.mark.parametrize("machine", ["x86_64_linux", "aarch64_linux", "wasm32"])
 def test_function_slots_print_as_the_c_examples(c_dump, dump_cpp, starter, machine):
-    slots = [str(slot) for slot in range(1, 50)]
+    slots = [str(slot) for slot in (*range(1, 50), 51)]  # 50 is the operand's ref
     out = same_answer(c_dump, dump_cpp, starter, "code", machine, *slots)
     assert len(out.splitlines()) == len(slots)
 

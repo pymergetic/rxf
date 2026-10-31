@@ -189,7 +189,7 @@ def test_the_function_slots_read_as_the_c_example_prints_them(
     dump, starter_file, machine
 ):
     image = rxfb.attach(starter_file.read_bytes())
-    slots = range(1, 50)  # every leaf of the interpreter
+    slots = (*range(1, 50), 51)  # every leaf: 1..49 and 51 (50 is the operand's ref)
     result = run_dump(dump, starter_file, "code", machine, *map(str, slots))
     assert result.returncode == 0, result.stderr
     assert result.stdout == "".join(code_text(image, machine, slot) for slot in slots)
@@ -264,7 +264,7 @@ def test_objects_know_their_neighbours(starter_file):
         for ref in refs
         if ref.role is not None and image.get(ref.role).name == "Leaf"
     }
-    assert sorted(leaves) == list(range(1, 50))
+    assert sorted(leaves) == [*range(1, 50), 51]  # 50 is the operand's roleless ref
     rows = refs.view
     assert len(rows) == 24 * len(refs)
     target, role, kind, binding, index = struct.unpack_from("<QQHHI", rows, 24 * 3)

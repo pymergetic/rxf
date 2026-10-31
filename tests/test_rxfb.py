@@ -704,7 +704,9 @@ def test_a_function_slot_resolves_to_the_leafs_bytes(
     dump, starter_file, world, machine
 ):
     codes = leaf_codes(world, machine)
-    assert len(codes) == 49  # every leaf of the interpreter has code for the machine
+    # every leaf of the interpreter has code for the machine: the leaf slots are 1..49 and 51
+    # (index 50 is the handle operand's roleless ref, docs/23 4.9).
+    assert len(codes) == 50
     slots = sorted(codes)
     result = run_dump(dump, starter_file, "code", machine, *map(str, slots))
     assert result.returncode == 0, result.stderr

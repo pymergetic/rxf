@@ -45,7 +45,7 @@ ROOT = Path(__file__).parents[1]
 WORKSPACE = ROOT / "rxfb" / "rust"
 MACHINES = ("x86_64_linux", "aarch64_linux", "wasm32")
 # The interpreter's leaf slots (1..49 in the starter); 0 and 50 are not leaves.
-SLOTS = tuple(range(1, 50))
+SLOTS = (*range(1, 50), 51)  # every leaf slot: 50 is the operand's roleless ref
 FREESTANDING = ("wasm32-unknown-unknown", "x86_64-unknown-none")
 
 
