@@ -13,8 +13,8 @@ from .support import resolved
 STARTER = Path(__file__).parents[1] / "starter"
 
 # Bump these three together with the files in starter/, never one alone.
-DIGEST = "93e7d8b50a031f96b2ec37f4fc35c0ceccc979253b936172efe11707aeefe5e5"
-DELTA_DIGEST = "6dd54da3b59e9c20594605727645f5775979451d0dbf0a4fc626eddacb8a0a12"
+DIGEST = "9dcfa5c1b217ae1b0973fe9c9a661bfc96375448f334d982e0b6e1536f4f7060"
+DELTA_DIGEST = "e85528fb7fc9d1ba997f3394bcfa9688b34080fd81d85e8652e37cd509a46822"
 OBJECTS = 18987
 
 

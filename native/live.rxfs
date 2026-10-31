@@ -1679,6 +1679,68 @@ sub s_create() {
     }
 }
 
+# into_module(handle) -> im_r (0 or an arena status): a leaf that gains a child becomes a module
+# (docs/32 1.2; ObjectArena::into_module): the value moves behind a chain head - the writer's
+# EMPTY_MODULE_HEAD - into a span of its own, and the record's words and the index entry follow.
+# The engine hands the object the generation of its new span; here the object keeps its own: the
+# handle stands, so what holds it (the parent's chain, a relation row, a Type's slot, the lookup
+# table) stays true without a fixup of its own.
+macro m_into_module(Zh) {
+    var im_old;
+    var im_at;
+    var im_val;
+    var im_gen;
+    var im_oat;
+    im_r = 0;
+    callsub s_rec(Zh);
+    im_old = ce_r;
+    if (im_old == 0) {
+        im_r = 2;
+    } else {
+        if (load16(im_old) != 1) {
+            if ((Zh & 1048575) == 0) {
+                im_r = 6;
+            } else {
+                im_oat = im_old - ab;
+                im_val = load32(im_old + 20);
+                im_gen = load16(im_old + 2);
+                callsub s_allocate(8 + im_val);
+                im_r = al_r;
+                if (al_r == 0) {
+                    im_at = al_at;
+                    callsub s_before_write(im_at - ab, 32 + im_val);
+                    im_r = bw_r;
+                }
+                if (im_r == 0) {
+                    # the chain head first, then the value behind it
+                    store32(ab + im_at + 24, 4294967295);
+                    store32(ab + im_at + 28, 0);
+                    callsub s_cpy(ab + im_at + 32, ab + im_oat + 24, im_val);
+                    store16(ab + im_at, 1);
+                    store16(ab + im_at + 2, im_gen);
+                    store16(ab + im_at + 4, load16(ab + im_oat + 4));
+                    store16(ab + im_at + 6, load16(ab + im_oat + 6));
+                    store32(ab + im_at + 8, load32(ab + im_oat + 8));
+                    store32(ab + im_at + 12, load32(ab + im_oat + 12));
+                    store32(ab + im_at + 16, load32(ab + im_oat + 16));
+                    callsub s_release(im_oat);
+                    im_r = rl2_r;
+                }
+                if (im_r == 0) {
+                    m_entry(Zh & 1048575);
+                    callsub s_before_write(sp_r - ab, 16);
+                    im_r = bw_r;
+                    if (bw_r == 0) {
+                        store16(sp_r, 1);
+                        store16(sp_r + 2, im_gen);
+                        store64(sp_r + 8, im_at);
+                    }
+                }
+            }
+        }
+    }
+}
+
 # destroy(handle) -> de_r: the object leaves its parent's chain, the span frees, the index entry
 # dies, the spec row resets (ObjectArena::release_handle). A module that still has children
 # stays (status 10, HasChildren): what would point at them is why it refuses.
@@ -3001,166 +3063,106 @@ sub s_has_fields(Zt_has_fields) {
 }
 
 # refs_of(type) -> ro_r (1/0), ro_words (the u32 words: count, then the payload offsets; bit 31:
-# the reference may be unset). The frames of the depth-first walk are the 72-byte records of the
-# `rframes` region: type 0, pos 8, end 12, base 16, vtype 24, voff 32, vsize 40, vcount 48,
-# i 56, active 64.
+# the reference may be unset): the declared reference slots of a Type, the engine's rule
+# (ObjectArena::fixup_refs): the Field children of the type whose flags carry REF, each
+# `count` slots from its `offset` (ground.h pymergetic_rxf_field: flags at +4, value_type at
+# +16, offset at +24, count at +32 of the Field's value). The type is named by a handle (a
+# row's type) or by its index; the lists are indexed by the index. The layout is memoized per
+# type (kmemo/kpool), and kpfx carries the fixed part of a variable type: where its last
+# field ends (the Type's `size` of each field's value type, ground.h pymergetic_rxf_type).
 sub s_refs_of(Ztype_refs_of) {
+    var ro_ix;
     var ro_nrefs;
-    var ro_leaves;
-    var ro_none;
-    var ro_sp;
-    var ro_f;
-    var ro_g;
-    var ro_at;
-    var ro_fh;
-    var ro_end;
-    var ro_x;
-    var ro_y;
     var ro_k;
-    var ro_skip;
-    var ro_go_extent;
+    var ro_e;
+    var ro_tr;
+    var ro_fr;
+    var ro_vr;
+    var ro_var;
+    var ro_end;
+    var ro_off;
+    var ro_cnt;
+    var ro_fl;
+    var ro_i;
+    var ro_hx;
+    # The walk packs handles (hx_r): the caller's own is left as it was.
+    ro_hx = hx_r;
     ro_r = 1;
     store32(empty0, 0);
-    if (Ztype_refs_of == 0xFFFFFFFFFFFFFFFF | Ztype_refs_of >= n_kids) {
+    ro_ix = 0xFFFFFFFF;
+    if (Ztype_refs_of != 0xFFFFFFFFFFFFFFFF & Ztype_refs_of != 4294967295) {
+        ro_ix = Ztype_refs_of & 1048575;
+    }
+    if (ro_ix >= n_kids) {
         ro_words = empty0;
     } else {
-        if (load32(kmemo + 4 * Ztype_refs_of) != 0) {
-            if (load32(kmemo + 4 * Ztype_refs_of) == 1) {
+        if (load32(kmemo + 4 * ro_ix) != 0) {
+            if (load32(kmemo + 4 * ro_ix) == 1) {
                 ro_words = empty0;
             } else {
-                ro_words = kpool + 4 * (load32(kmemo + 4 * Ztype_refs_of) - 2);
+                ro_words = kpool + 4 * (load32(kmemo + 4 * ro_ix) - 2);
             }
         } else {
             ro_nrefs = 0;
-            ro_leaves = 0;
-            ro_none = 0;
-            callsub s_type_info(Ztype_refs_of, tyT);
-            if (tif_r == 0) {
-                ro_none = 1;
-            } else {
-                if (load32(tyT + 4) == 8) {
-                    ro_none = 1;
-                } else {
-                    callsub s_has_fields(Ztype_refs_of);
-                    if (hf_r == 0) {
-                        ro_none = 1;
+            ro_end = 0;
+            ro_var = 0;
+            m_pack_i(ro_ix);
+            callsub s_rec(hx_r);
+            ro_tr = ce_r;
+            if (ro_tr != 0) {
+                if (load32(ro_tr + 20) >= 48) {
+                    if (load32(ro_tr + 24) == 0x54595045) {
+                        ro_var = load32(ro_tr + 60) & 1;
                     }
                 }
             }
-            if (ro_none == 0) {
-                store64(rframes, Ztype_refs_of);
-                store32(rframes + 8, load32(kstart + 4 * Ztype_refs_of));
-                store32(rframes + 12, load32(kstart + 4 * (Ztype_refs_of + 1)));
-                store64(rframes + 16, 0);
-                store8(rframes + 64, 0);
-                ro_sp = 1;
-                while (ro_sp > 0 & ro_none == 0 & ro_r == 1) {
-                    ro_f = rframes + 72 * (ro_sp - 1);
-                    ro_skip = 0;
-                    ro_go_extent = 0;
-                    if (load8(ro_f + 64) != 0) {
-                        if (load64(ro_f + 56) < load64(ro_f + 48)) {
-                            ro_at = load64(ro_f + 16) + load64(ro_f + 32) +
-                                    load64(ro_f + 56) * load64(ro_f + 40);
-                            store64(ro_f + 56, load64(ro_f + 56) + 1);
-                            ro_g = rframes + 72 * ro_sp;
-                            store64(ro_g, load64(ro_f + 24));
-                            store32(ro_g + 8, load32(kstart + 4 * (load64(ro_f + 24) & 1048575)));
-                            store32(ro_g + 12, load32(kstart + 4 * (load64(ro_f + 24) + 1)));
-                            store64(ro_g + 16, ro_at);
-                            store8(ro_g + 64, 0);
-                            ro_sp = ro_sp + 1;
-                            ro_skip = 1;
-                        } else {
-                            store8(ro_f + 64, 0);
-                        }
-                    }
-                    if (ro_skip == 0) {
-                        if (load32(ro_f + 8) == load32(ro_f + 12)) {
-                            ro_sp = ro_sp - 1;
-                            ro_skip = 1;
-                        }
-                    }
-                    if (ro_skip == 0) {
-                        ro_fh = load32(klist + 4 * load32(ro_f + 8));
-                        store32(ro_f + 8, load32(ro_f + 8) + 1);
-                        callsub s_field_info(ro_fh, flF);
-                        if (fif_r == 0) {
-                            ro_skip = 1;
-                        }
-                    }
-                    if (ro_skip == 0) {
-                        callsub s_type_info(load64(flF + 16), tyV);
-                        if (tif_r == 0) {
-                            ro_none = 1;
-                        }
-                        if (load64(flF + 32) == 0 | load64(flF + 32) > 2147483648) {
-                            ro_none = 1;
-                        }
-                        if (load64(flF + 24) > 2147483648 | load64(tyV + 8) > 2147483648) {
-                            ro_none = 1;
-                        }
-                        if (ro_none == 0) {
-                            if ((load32(flF + 4) & 8) != 0) {
-                                if (ro_nrefs >= 128 | ro_leaves >= 256) {
-                                    ro_r = 0;
-                                } else {
-                                    if (load32(tyV + 4) != 3 | load64(tyV + 8) != 8) {
-                                        ro_none = 1;
-                                    } else {
-                                        if (load64(flF + 32) != 1) {
-                                            ro_none = 1;
-                                        } else {
-                                            if (load64(ro_f + 16) + load64(flF + 24) >= 1073741824) {
-                                                ro_none = 1;
-                                            } else {
-                                                ro_end = load64(ro_f + 16) + load64(flF + 24);
-                                                store32(roffsets + 4 * ro_nrefs, ro_end);
-                                                if ((load32(flF + 4) & 2) != 0) {
-                                                    store32(roffsets + 4 * ro_nrefs,
-                                                            load32(roffsets + 4 * ro_nrefs) | 0x80000000);
-                                                }
-                                                ro_nrefs = ro_nrefs + 1;
-                                                store64(rext_off + 8 * ro_leaves, ro_end);
-                                                store64(rext_end + 8 * ro_leaves, ro_end + 8);
-                                                ro_leaves = ro_leaves + 1;
-                                            }
-                                        }
-                                    }
-                                }
-                            } else {
-                                if (load32(tyV + 4) == 7) {
-                                    callsub s_has_fields(load64(flF + 16));
-                                    if (hf_r == 1) {
-                                        if (ro_sp - 1 >= 6) {
-                                            ro_none = 1;
-                                        } else {
-                                            store64(ro_f + 24, load64(flF + 16));
-                                            store64(ro_f + 32, load64(flF + 24));
-                                            store64(ro_f + 40, load64(tyV + 8));
-                                            store64(ro_f + 48, load64(flF + 32));
-                                            store64(ro_f + 56, 0);
-                                            store8(ro_f + 64, 1);
-                                        }
-                                    } else {
-                                        ro_go_extent = 1;
-                                    }
-                                } else {
-                                    ro_go_extent = 1;
-                                }
-                                if (ro_go_extent == 1) {
-                                    if (ro_leaves >= 256) {
+            ro_k = load32(kstart + 4 * ro_ix);
+            ro_e = load32(kstart + 4 * (ro_ix + 1));
+            while (ro_k < ro_e & ro_r == 1) {
+                m_pack_i(load32(klist + 4 * ro_k));
+                callsub s_rec(hx_r);
+                ro_fr = ce_r;
+                ro_k = ro_k + 1;
+                if (ro_fr != 0) {
+                    if (load32(ro_fr + 20) >= 48) {
+                        if (load32(ro_fr + 24) == 0x464C4420) {
+                            ro_fl = load32(ro_fr + 28);
+                            ro_off = load64(ro_fr + 48);
+                            ro_cnt = load64(ro_fr + 56);
+                            if (ro_off > 1073741824 | ro_cnt > 1073741824) {
+                                ro_cnt = 0;
+                            }
+                            if ((ro_fl & 8) != 0) {
+                                ro_i = 0;
+                                while (ro_i < ro_cnt & ro_r == 1) {
+                                    if (ro_nrefs >= 128) {
                                         ro_r = 0;
                                     } else {
-                                        if (load64(tyV + 8) == 0) {
-                                            ro_none = 1;
-                                        } else {
-                                            store64(rext_off + 8 * ro_leaves,
-                                                    load64(ro_f + 16) + load64(flF + 24));
-                                            store64(rext_end + 8 * ro_leaves,
-                                                    load64(ro_f + 16) + load64(flF + 24) +
-                                                        load64(tyV + 8) * load64(flF + 32));
-                                            ro_leaves = ro_leaves + 1;
+                                        store32(roffsets + 4 * ro_nrefs, ro_off + 8 * ro_i);
+                                        if ((ro_fl & 2) != 0) {
+                                            store32(roffsets + 4 * ro_nrefs,
+                                                    load32(roffsets + 4 * ro_nrefs) | 0x80000000);
+                                        }
+                                        ro_nrefs = ro_nrefs + 1;
+                                    }
+                                    ro_i = ro_i + 1;
+                                }
+                            }
+                            if (ro_var == 1) {
+                                # where this field ends: its value type's size
+                                # times the count (a reference is a handle: 8)
+                                ro_vr = 0;
+                                if (load64(ro_fr + 40) != 0xFFFFFFFFFFFFFFFF) {
+                                    if ((load64(ro_fr + 40) & 1048575) < n_kids) {
+                                        m_pack_i(load64(ro_fr + 40) & 1048575);
+                                        callsub s_rec(hx_r);
+                                        ro_vr = ce_r;
+                                    }
+                                }
+                                if (ro_vr != 0) {
+                                    if (load32(ro_vr + 24) == 0x54595045) {
+                                        if (ro_off + load64(ro_vr + 32) * ro_cnt > ro_end) {
+                                            ro_end = ro_off + load64(ro_vr + 32) * ro_cnt;
                                         }
                                     }
                                 }
@@ -3170,65 +3172,21 @@ sub s_refs_of(Ztype_refs_of) {
                 }
             }
             if (ro_r == 1) {
-                # fields that overlap are a union in disguise: raw bytes, no references
-                if (ro_none == 0) {
-                    ro_x = 0;
-                    while (ro_x < ro_leaves & ro_none == 0) {
-                        ro_y = ro_x + 1;
-                        while (ro_y < ro_leaves & ro_none == 0) {
-                            if (load64(rext_off + 8 * ro_x) < load64(rext_end + 8 * ro_y)) {
-                                if (load64(rext_off + 8 * ro_y) < load64(rext_end + 8 * ro_x)) {
-                                    ro_none = 1;
-                                }
-                            }
-                            ro_y = ro_y + 1;
-                        }
-                        ro_x = ro_x + 1;
+                if (ro_var == 1) {
+                    if (ro_end > 0xFFFFFFFF) {
+                        store32(kpfx + 4 * ro_ix, 0xFFFFFFFF);
+                    } else {
+                        store32(kpfx + 4 * ro_ix, ro_end);
                     }
                 }
-                if (ro_none == 0) {
-                    if (load64(tyT + 8) != 0) {
-                        if ((load32(tyT + 36) & 1) == 0) {
-                            ro_end = 0;
-                            ro_x = 0;
-                            while (ro_x < ro_leaves) {
-                                if (load64(rext_end + 8 * ro_x) > ro_end) {
-                                    ro_end = load64(rext_end + 8 * ro_x);
-                                }
-                                ro_x = ro_x + 1;
-                            }
-                            if (ro_end > load64(tyT + 8)) {
-                                ro_none = 1;
-                            }
-                        }
-                    }
-                }
-                if (ro_none == 0) {
-                    if ((load32(tyT + 36) & 1) != 0) {
-                        # the fixed part of a variable type ends where its last field ends
-                        ro_end = 0;
-                        ro_x = 0;
-                        while (ro_x < ro_leaves) {
-                            if (load64(rext_end + 8 * ro_x) > ro_end) {
-                                ro_end = load64(rext_end + 8 * ro_x);
-                            }
-                            ro_x = ro_x + 1;
-                        }
-                        if (ro_end > 0xFFFFFFFF) {
-                            store32(kpfx + 4 * Ztype_refs_of, 0xFFFFFFFF);
-                        } else {
-                            store32(kpfx + 4 * Ztype_refs_of, ro_end);
-                        }
-                    }
-                }
-                if (ro_none == 1 | ro_nrefs == 0) {
-                    store32(kmemo + 4 * Ztype_refs_of, 1);
+                if (ro_nrefs == 0) {
+                    store32(kmemo + 4 * ro_ix, 1);
                     ro_words = empty0;
                 } else {
                     if (pool_len + 1 + ro_nrefs > 16384) {
                         ro_r = 0;
                     } else {
-                        store32(kmemo + 4 * Ztype_refs_of, pool_len + 2);
+                        store32(kmemo + 4 * ro_ix, pool_len + 2);
                         store32(kpool + 4 * pool_len, ro_nrefs);
                         ro_k = 0;
                         while (ro_k < ro_nrefs) {
@@ -3243,6 +3201,7 @@ sub s_refs_of(Ztype_refs_of) {
             }
         }
     }
+    hx_r = ro_hx;
 }
 
 # prepare_types() -> pt_r (1/0): the memo, the pool of reference layouts, the prefixes.
@@ -3546,14 +3505,14 @@ macro m_code_addr(Zfunction) {
                                 ca_r = 0;
                             } else {
                                 ca_btype = load64(ca_b);
-                                if (ca_btype == 0xFFFFFFFFFFFFFFFF | ca_btype >= n_kids) {
+                                if (ca_btype == 0xFFFFFFFFFFFFFFFF | (ca_btype & 1048575) >= n_kids) {
                                     ca_r = 0;
                                 } else {
                                     callsub s_refs_of(ca_btype);
                                     if (ro_r == 0) {
                                         ca_r = 0;
                                     } else {
-                                        ca_prefix = load32(kpfx + 4 * ca_btype);
+                                        ca_prefix = load32(kpfx + 4 * (ca_btype & 1048575));
                                         if (ca_prefix > load64(ca_b + 16)) {
                                             ca_r = 0;
                                         } else {
@@ -4588,7 +4547,7 @@ macro m_relink() {
                                     }
                                     store64(rl_rows + 32 * rl_count, rl_id);
                                     store64(rl_rows + 32 * rl_count + 8,
-                                            load64(rl_type_ids + 8 * rl_type));
+                                            load64(rl_type_ids + 8 * rl_tix));
                                     store64(rl_rows + 32 * rl_count + 16,
                                             rl_c + 24 + rl_f + rl_prefix);
                                     store64(rl_rows + 32 * rl_count + 24,
@@ -5199,6 +5158,18 @@ macro m_apply_replay() {
                         }
                     }
                     if (ar_ok == 1) {
+                        # A leaf that gains a child becomes a module first (docs/32
+                        # 1.2): the parent's value moves behind a chain head.
+                        if (ar_parent != 0xFFFFFFFFFFFFFFFF) {
+                            m_into_module(ar_parent);
+                            if (im_r != 0) {
+                                callsub s_reason_of(im_r);
+                                jb_reason = ro2_r;
+                                ar_ok = 0;
+                            }
+                        }
+                    }
+                    if (ar_ok == 1) {
                         # The module rule is the writer's (live.cpp apply): an
                         # object the delta itself gives children is a Module,
                         # found by scanning the ops behind this one for a
@@ -5578,6 +5549,9 @@ macro m_check_all() {
     var ck_words;
     var ck_off;
     var ck_val;
+    var ck_t;
+    var ck_rec;
+    var ck_head;
     callsub s_scratch_reset();
     ck_n = load32(ab + 4120);
     jb_reason = 8;
@@ -5637,28 +5611,39 @@ macro m_check_all() {
                         }
                     }
                     if (ck_r == 1) {
-                        if (load64(ck_c + 16) != 0) {
-                            if (load64(ck_c) != 0xFFFFFFFFFFFFFFFF) {
-                                callsub s_refs_of(load64(ck_c));
-                                if (ro_r == 0) {
-                                    jb_reason = 12;
-                                    ck_r = 0;
-                                } else {
-                                    ck_words = ro_words;
-                                    ck_k = 0;
-                                    while (ck_k < load32(ck_words)) {
-                                        ck_off = load32(ck_words + 4 + 4 * ck_k) & 0x7FFFFFFF;
-                                        if (ck_off + 8 <= load64(ck_c + 16)) {
-                                            ck_val = load64(ck_c + 64 + ck_off);
-                                            if (ck_val != 0xFFFFFFFFFFFFFFFF) {
-                                                callsub s_cell(ck_val);
-                                                if (ce_r == 0) {
-                                                    ck_r = 0;
-                                                }
+                        # The declared reference slots of the object's value (the
+                        # row's type names them: refs_of, the engine's
+                        # fixup_refs rule): each one that is set names an object
+                        # that is there.
+                        m_spec_row(ck_h);
+                        ck_t = load32(sr_at);
+                        if (ck_t != 4294967295) {
+                            callsub s_refs_of(ck_t);
+                            if (ro_r == 0) {
+                                jb_reason = 12;
+                                ck_r = 0;
+                            } else {
+                                ck_words = ro_words;
+                                m_pack_i(ck_h);
+                                callsub s_rec(hx_r);
+                                ck_rec = ce_r;
+                                ck_head = 0;
+                                if (load16(ck_rec) == 1) {
+                                    ck_head = 8;
+                                }
+                                ck_k = 0;
+                                while (ck_k < load32(ck_words) & ck_r == 1) {
+                                    ck_off = (load32(ck_words + 4 + 4 * ck_k) & 0x7FFFFFFF) + ck_head;
+                                    if (ck_off + 8 <= load32(ck_rec + 20)) {
+                                        ck_val = load64(ck_rec + 24 + ck_off);
+                                        if (ck_val != 0xFFFFFFFFFFFFFFFF) {
+                                            callsub s_rec(ck_val);
+                                            if (ce_r == 0) {
+                                                ck_r = 0;
                                             }
                                         }
-                                        ck_k = ck_k + 1;
                                     }
+                                    ck_k = ck_k + 1;
                                 }
                             }
                         }
@@ -6480,7 +6465,7 @@ fn live_pump(context, area) {
     var bk_r, bt_r, rv_r, vf_r, po_n, po_r, tif_r, fif_r, hf_r, bk_par;
     var n_kids, kstart, klist, kmemo, kpool, kpfx, pool_len;
     var ro_r, ro_words, ro2_r, sa_r, sa_p, sa_n, ni_r, em_r, em_rsn, em_len, em_state;
-    var lk_r, ca_r, ca_at, ca_rng0, ca_rng1, rl_r, rl_entries, rl_slots;
+    var lk_r, ca_r, ca_at, ca_rng0, ca_rng1, rl_r, rl_entries, rl_slots, im_r;
     var sv_status, sv_rsl, sv_rarg, jok, jb_le, jb_ls, jb_override, jemit_next, jrelink_next;
     var jb_at_op, jb_len, jb_ssize, jb_fixups, jb_reason, jb_emitted, jb_reclaimed;
     var jguard, jdry, jops_start, ap_r, ap_len, ap_s, ap_op, ap_ops_start, ap_strings_end;
