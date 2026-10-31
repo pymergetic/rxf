@@ -128,6 +128,10 @@ def interpreter(
             child.set("semantic_digest", digest)
     leaves = graph_header.leaves()
     for name, number in sorted(leaves.items(), key=lambda item: item[1]):
+        if name not in leaf_paths:
+            # the header may name a leaf the starter has no Function for yet (docs/23 4.9: an
+            # image wires the leaves it has; step 9 adds the Function and this line wires it)
+            continue
         ET.SubElement(
             function,
             REF,

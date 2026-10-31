@@ -146,30 +146,41 @@ macro m_locate(pow, pneed) {
       loc_where = code + 8 * (loc_ow + 1);
     }
   }
+  loc_search = 0;
   if (loc_kind == 2) {
-    m_entry(load64(code + 8 * (loc_ow + 1)));
-    if (ent == 0) {
-      loc_status = 13;
-    }
-    if (ent != 0) {
-      if (loc_need <= load64(ent + 32)) {
-        loc_status = 0;
-        loc_where = load64(ent + 24);
-      }
-    }
+    loc_id = load64(code + 8 * (loc_ow + 1));
+    loc_search = 1;
   }
   if (loc_kind == 3) {
     # HANDLE (docs/23 4.9): the handle lies in the frame and is resolved NOW, by the
-    # instruction that uses it -- the same halving search as OBJECT, never cached. The
-    # generation is checked (12, never rebound to a reused row), the row must be LIVE (13: a
-    # PENDING row is not readable here), the offset and `need` bytes must lie in its size (6).
+    # instruction that uses it -- the same halving search as OBJECT, never cached.
     loc_a = load64(code + 8 * (loc_ow + 1));
     m_in_frame(loc_a, 24);
     if (ok != 0) {
+      loc_id = load64(frame + loc_a);
       loc_hoff = load64(frame + loc_a + 16);
-      m_entry(load64(frame + loc_a));
+      loc_search = 1;
+    }
+  }
+  if (loc_search != 0) {
+    m_entry(loc_id);
+    if (loc_kind == 2) {
+      if (ent == 0) {
+        loc_status = 13;
+      }
+      if (ent != 0) {
+        if (loc_need <= load64(ent + 32)) {
+          loc_status = 0;
+          loc_where = load64(ent + 24);
+        }
+      }
+    }
+    if (loc_kind == 3) {
       loc_status = 13;
       if (ent != 0) {
+        # the generation is checked (12, never rebound to a reused row), the row must be LIVE
+        # (13: a PENDING row is not readable here), the offset and `need` bytes must lie in its
+        # size (6)
         loc_status = 12;
         if (load64(ent + 8) == load64(frame + loc_a + 8)) {
           loc_status = 13;
@@ -195,17 +206,6 @@ macro m_load(pow) {
   ld_value = 0;
   ld_kind = load64(code + 8 * ld_ow);
   ld_b = load64(code + 8 * (ld_ow + 2));
-  if (ld_kind == 2) {
-    m_locate(ld_ow, 0);
-    ld_status = loc_status;
-    ld_value = loc_where;
-  }
-  if (ld_kind == 3) {
-    # HANDLE, as OBJECT: the address it resolves to, for this one instruction
-    m_locate(ld_ow, 0);
-    ld_status = loc_status;
-    ld_value = loc_where;
-  }
   if (ld_kind == 1) {
     ld_value = load64(code + 8 * (ld_ow + 1));
     ld_status = 6;
@@ -213,17 +213,26 @@ macro m_load(pow) {
       ld_status = 0;
     }
   }
-  if (ld_kind != 2) {
-    if (ld_kind != 1) {
+  if (ld_kind != 1) {
+    # an object, or a handle resolved at this use, is the address its payload is at (the
+    # `need` is nothing: the leaf or the reader that gets the address bounds what it touches);
+    # a slot is read for as many bytes as it denotes, at most 8
+    ld_need = 0;
+    if (ld_kind != 2) {
       if (ld_kind != 3) {
         ld_need = 8;
         if (ld_b < 8) {
           ld_need = ld_b;
         }
-        m_locate(ld_ow, ld_need);
-        ld_status = loc_status;
-        ld_value = 0;
-        if (loc_status == 0) {
+      }
+    }
+    m_locate(ld_ow, ld_need);
+    ld_status = loc_status;
+    ld_value = 0;
+    if (loc_status == 0) {
+      ld_value = loc_where;
+      if (ld_kind != 2) {
+        if (ld_kind != 3) {
           m_read_bytes(loc_where, ld_b);
           ld_value = rb_value;
         }
@@ -976,7 +985,7 @@ fn graph_run(c, h_id, h_gen, h_off, args, argc, out) {
   var wb_addr, wb_width, wb_value, wb_i;
   var cb_dst, cb_src, cb_n, cb_i;
   var zb_dst, zb_n, zb_i;
-  var loc_ow, loc_need, loc_status, loc_where, loc_kind, loc_a, loc_hoff;
+  var loc_ow, loc_need, loc_status, loc_where, loc_kind, loc_a, loc_hoff, loc_id, loc_search;
   var ld_ow, ld_status, ld_value, ld_kind, ld_b, ld_need;
   var ptr_kind, ptr_b, ptr_status, ptr_value;
   var st_slot, st_width, st_off, st_status, st_from;

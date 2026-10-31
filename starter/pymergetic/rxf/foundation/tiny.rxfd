@@ -5,8 +5,8 @@
     <Alias name="kinds" target="pymergetic.rxf.kinds" />
     <Alias name="model" target="pymergetic.rxf.model" />
     <Alias name="tiny" target="pymergetic.rxf.foundation.tiny" />
-    <Function name="compile" implementation="@kinds.FunctionImplementation.Semantic" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@tiny.compile.signature" semantic_digest="07520a55101a02370bc129880591e8abffe0556bd4283a48ba28f53d4877059d">
-      <Code name="bytecode" owner_function="@tiny.compile" signature="@tiny.compile.signature" format="@kinds.CodeFormat.Bytecode" semantic_version="1" byte_count="697144" semantic_digest="07520a55101a02370bc129880591e8abffe0556bd4283a48ba28f53d4877059d">
+    <Function name="compile" implementation="@kinds.FunctionImplementation.Semantic" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@tiny.compile.signature" semantic_digest="7fa5823a5b9a75ea422de143d1c1aaadda1062f38b00e7beaeb69a467e88c0a9">
+      <Code name="bytecode" owner_function="@tiny.compile" signature="@tiny.compile.signature" format="@kinds.CodeFormat.Bytecode" semantic_version="1" byte_count="697624" semantic_digest="7fa5823a5b9a75ea422de143d1c1aaadda1062f38b00e7beaeb69a467e88c0a9">
         <rxf:ref role="pymergetic.rxf.roles.call.Interpreter" kind="RefKind.Data" target="@foundation.graph.run" />
       </Code>
       <Signature name="signature" return_type="void" parameter_count="2" result_count="1" refusal_set="@foundation.StdlibRefusals">

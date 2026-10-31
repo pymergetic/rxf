@@ -134,6 +134,7 @@ const NONE = RXF_GRAPH_NONE;
 const SLOT = RXF_OPERAND_SLOT;
 const LITERAL = RXF_OPERAND_LITERAL;
 const OBJECT = RXF_OPERAND_OBJECT;
+const HANDLE = RXF_OPERAND_HANDLE;
 # the program opcodes and jump modes of native/graph.h (what a word of the program carries)
 const CALL = RXF_OP_CALL;
 const MOVE = RXF_OP_MOVE;
@@ -395,6 +396,8 @@ const NX_ESIZE = 824;                # "size" (of a type)
 const NX_ESIG = 832;                 # "signature"
 const NX_EARGT = 848;                # "Argument" (the type of a call's arguments)
 const NX_ECALLT = 864;               # "Call" (the type of the body of a Semantic function)
+const NX_EINTYPE = 880;              # "InputType" (the role of the type of an input; 2 words)
+const NX_EOBJHANDLE = 896;           # "ObjectHandle" (the marker type of a handle read through; 2 words)
 
 # ---- the Expression face: what it keeps while it lays a Function out (a region of its own) -----
 # Clear of the plan (W_PLAN) and of the hash (W_HMSG), and inside the work the request declares.

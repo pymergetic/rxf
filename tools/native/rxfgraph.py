@@ -336,6 +336,13 @@ class GraphOf:
         if kind == N["RXF_OPERAND_SLOT"]:
             self.value(first, width)
             return ("value", self.values[first].path)
+        if kind == N["RXF_OPERAND_HANDLE"]:
+            raise Refused(
+                "a handle operand",
+                self.name,
+                "kind 3 is read through a handle at run time (docs/23 4.9): the graph form "
+                "of it is the ObjectHandle marker of the composer, not a slot or a literal",
+            )
         raise Refused("an operand", self.name, f"kind {kind} is not a slot or a literal")
 
     def make_values(self) -> None:

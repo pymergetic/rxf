@@ -605,6 +605,9 @@ proc names_init {
     store64(work + W_NAM + 584, 0x6369746e616d6553);  store64(work + W_NAM + 592, 0x6f6974617265704f);  store64(work + W_NAM + 600, 0x6e);  # "SemanticOperation"
     store64(work + W_NAM + 608, 0x6369746e616d6553);  store64(work + W_NAM + 616, 0x65756c6156);  # "SemanticValue"
     store64(work + W_NAM + 624, 0x6369746e616d6553);  store64(work + W_NAM + 632, 0x6b636f6c42);  # "SemanticBlock"
+    # the marker of docs/23 4.9: the role InputType and the type name ObjectHandle
+    store64(work + W_NAM + NX_EINTYPE, 0x7079547475706e49);  store64(work + W_NAM + NX_EINTYPE + 8, 0x65);        # "InputType"
+    store64(work + W_NAM + NX_EOBJHANDLE, 0x61487463656a624f);  store64(work + W_NAM + NX_EOBJHANDLE + 8, 0x656c646e);  # "ObjectHandle"
     ret;
 }
 
@@ -925,6 +928,77 @@ proc variant_tag {
     ret;
 }
 
+# ---- the inputs an operation reads through (docs/23 4.9) -----------------------------------------
+# g0 = the operation. R = a mask: bit i is set when input i has an InputType reference to a type named
+# ObjectHandle -- a 24-byte handle in a slot that is dereferenced where it is used. compose.py's
+# Plan.marked is the same rule over the Image model.
+proc op_handle_marks {
+    store64(work + W_INS + 72, g0);
+    g0 = load64(work + W_INS + 72);
+    g1 = work + W_NAM + NX_EINTYPE;
+    g2 = 9;
+    call refs_role;
+    store64(work + W_INS + 80, R);
+    store64(work + W_INS + 88, 0);
+    store64(work + W_INS + 96, 0);
+    while load64(work + W_INS + 88) < load64(work + W_INS + 80) {
+        g0 = load64(work + W_EREF + (load64(work + W_INS + 88) << 4));
+        call cell_of;
+        g0 = R;
+        call name_of;
+        g0 = R;
+        g1 = work + W_NAM + NX_EOBJHANDLE;
+        g2 = 12;
+        call name_eq;
+        if R == 1 {
+            store64(work + W_INS + 96, load64(work + W_INS + 96) | (1 << load64(work + W_EREF + (load64(work + W_INS + 88) << 4) + 8)));
+        }
+        store64(work + W_INS + 88, load64(work + W_INS + 88) + 1);
+    }
+    R = load64(work + W_INS + 96);
+    ret;
+}
+
+# g0 = a leaf id. R = a mask: bit i is set when operand i of the leaf is taken as a handle by value
+# (the letter H of its shape, graph.h): there a handle stays a slot and is never read through.
+proc leaf_handles {
+    R = 0;
+    if g0 == 5 { R = 1; }
+    if g0 == 6 { R = 1; }
+    if g0 == 7 { R = 1; }
+    if g0 == 8 { R = 1; }
+    if g0 == 12 { R = 1; }
+    if g0 == 13 { R = 1; }
+    if g0 == 14 { R = 1; }
+    if g0 == 15 { R = 1; }
+    if g0 == 16 { R = 1; }
+    if g0 == 17 { R = 1; }
+    if g0 == 18 { R = 1; }
+    if g0 == 19 { R = 1; }
+    if g0 == 20 { R = 5; }
+    if g0 == 51 { R = 1; }
+    ret;
+}
+
+# g0 = a value, g1 = 1 when the input is read through (an ObjectHandle in a place that takes no handle
+# by value): a slot becomes the HANDLE operand (a = the slot, b = RXF_GRAPH_NONE: the type does not say
+# what it points at). Its three operand words go to the program.
+proc emit_input {
+    store64(work + W_OPR + 40, g1);
+    call val_operand;
+    g0 = load64(work + W_OPR);
+    g1 = load64(work + W_OPR + 8);
+    g2 = load64(work + W_OPR + 16);
+    if load64(work + W_OPR + 40) == 1 {
+        if g0 == SLOT {
+            g0 = HANDLE;
+            g2 = NONE;
+        }
+    }
+    call put_operand;
+    ret;
+}
+
 # ---- a call (an operation that names a callee) ----------------------------------------------------
 # g0 = the operation. The words of a CALL and its operands.
 proc emit_call {
@@ -972,10 +1046,20 @@ proc emit_call {
     w = load64(work + W_INS + 32);         call putq;
     w = load64(work + W_INS + 40);         call putq;
     w = load64(work + W_INS + 48);         call putq;
+    store64(work + W_INS + 104, 0);
+    if load64(work + W_INS + 16) != HANDLE_NONE {
+        g0 = load64(work + W_INS);
+        call op_handle_marks;
+        store64(work + W_INS + 104, R);
+        g0 = load64(work + W_INS + 16);
+        call leaf_handles;
+        store64(work + W_INS + 104, load64(work + W_INS + 104) & ~R);
+    }
     store64(work + W_INS + 56, 0);
     while load64(work + W_INS + 56) < load64(work + W_INS + 8) {
         g0 = load64(work + W_EIN + (load64(work + W_INS + 56) << 3));
-        call emit_operand;
+        g1 = (load64(work + W_INS + 104) >> load64(work + W_INS + 56)) & 1;
+        call emit_input;
         store64(work + W_INS + 56, load64(work + W_INS + 56) + 1);
     }
     ret;
@@ -1032,8 +1116,11 @@ proc emit_field {
     w = FIELD;                             call putq;
     w = load64(work + W_INS + 32);         call putq;
     w = load64(work + W_INS + 40);         call putq;
+    g0 = load64(work + W_INS);
+    call op_handle_marks;
+    g1 = R & 1;
     g0 = load64(work + W_EIN);
-    call emit_operand;
+    call emit_input;
     w = load64(work + W_INS + 48);         call putq;
     w = load64(work + W_INS + 40);         call putq;
     ret;

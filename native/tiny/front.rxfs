@@ -141,6 +141,10 @@ proc check {
         } else if nd <= load64(R + ENTRY_SIZE) {
             st = 0;
         }
+    } else if ok == HANDLE {
+        # resolved at each use by the interpreter (docs/23 4.9); compiled code bakes object
+        # addresses, which a handle in a slot cannot be: the program is left to the interpreter
+        st = UNSUPPORTED;
     }
 }
 
@@ -155,6 +159,10 @@ proc value_check {
     if ok == OBJECT {
         nd = 0;
         call check;
+        ret;
+    }
+    if ok == HANDLE {
+        st = UNSUPPORTED;
         ret;
     }
     if ok != SLOT {

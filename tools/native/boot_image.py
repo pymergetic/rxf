@@ -241,9 +241,16 @@ def honors_present(arena: bytes) -> list[str]:
 
 
 def build(
-    out: Path, entry: bytes = b"", machine: str = "x86_64", start: Path = STARTER
+    out: Path,
+    entry: bytes = b"",
+    machine: str = "x86_64",
+    start: Path = STARTER,
+    probe_words: bytes | None = None,
 ) -> tuple[int, int]:
     """The seat's image at ``out``: the carrier rows and the linked image.
+
+    ``probe_words`` are the words of the program the seat runs (default: the console's turn,
+    ``pump_program``); a test hands the seat a program of its own to see what the seat answers.
 
     Returns the packed size and the probe object's handle32 -- the words at the
     map's HANDLE_COPY row. The arena the linker places must be the arena the
@@ -255,7 +262,9 @@ def build(
     map_rows = rows()
     image = tree.load(start)
     parent = image.handle(PROGRAM_PARENT)
-    probe = image.add(parent, PROGRAM_NAME, payload=pump_program())
+    probe = image.add(
+        parent, PROGRAM_NAME, payload=pump_program() if probe_words is None else probe_words
+    )
 
     filled = programs.filled(image)
     made, placed = arena_export.place_world(filled)

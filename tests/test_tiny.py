@@ -18,6 +18,7 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
+import graph_header
 import programs
 import pytest
 import rxfc
@@ -197,7 +198,17 @@ def test_what_it_cannot_compile_it_refuses_where_it_stopped(stages):
     unaligned = assemble(
         16, [], [[OP["LESS"], 8, *slot(1), *lit(5)], [OP["RETURN"], *slot(8, 1), 1]]
     )
-    for sample in (middle, unaligned):
+    # a HANDLE operand is resolved at each use by the interpreter (docs/23 4.9); neither compiler
+    # can bake it, and both leave the program to the interpreter at the same word
+    handle = assemble(
+        32,
+        [(0, 24)],
+        [
+            [OP["FIELD"], 24, 8, graph_header.numbers()["RXF_OPERAND_HANDLE"], 0, 8, 8, 8],
+            [OP["RETURN"], *slot(24, 8), 8],
+        ],
+    )
+    for sample in (middle, unaligned, handle):
         want = stages_compile(stages, sample)
         assert want.status == UNSUPPORTED
         assert by_code(session, compiler, sample) == want

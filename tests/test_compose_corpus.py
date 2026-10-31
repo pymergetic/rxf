@@ -27,6 +27,7 @@ from pymergetic.rxftk.core import tree
 
 from . import rxf_native
 from .snippets import STARTER
+from .test_compose import with_object_handle
 
 COMPOSE = Path(__file__).parents[1] / "native" / "compose" / "compose.rxfs"
 REQUEST_AT = 0x10000
@@ -272,6 +273,44 @@ def test_the_in_image_plan_writes_the_program_word_for_word(program, starter, ar
     assert len(words) == len(expected), f"{len(words)} words vs {len(expected)}"
     for i, (got, want) in enumerate(zip(words, expected)):
         assert got == want, f"word {i}: got {got}, want {want}"
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("variant", ["pointer", "handle", "field"])
+def test_the_in_image_plan_writes_the_marked_inputs_word_for_word(
+    program, starter, tmp_path, variant
+):
+    """An input whose InputType is ObjectHandle is the HANDLE operand of the program where its
+    callee takes a pointer or a word (and the source of a FIELD), and a slot where the callee takes a
+    handle by value (docs/23 4.9): the composer as a program writes those words, byte for byte, as
+    tools/native/compose.py does -- on every graph the marker changes, and the ``handle`` variant
+    changes none (the same words as the starter's)."""
+    patched = tree.load(
+        with_object_handle(
+            tmp_path,
+            pointer=variant == "pointer",
+            handle=variant == "handle",
+            field=variant == "field",
+        )
+    )
+    before = compose.programs(starter)
+    after = compose.programs(patched)
+    changed = {name for name in after if after[name] != before[name]}
+    assert bool(changed) == (variant != "handle"), (variant, sorted(changed))
+    arena = patched.to_bytes()
+    c = compose.Composer(patched)
+    graphs = [
+        h
+        for h in graph_handles(patched)
+        if c.fields(h).get("function") in changed
+        or (variant == "handle" and patched.path(h).endswith("heap_resize_graph"))
+    ]
+    assert graphs
+    for target in graphs:
+        status, words = run_compose(program, arena, target, kind=4)
+        assert status == 0, f"refused with status {status} on {patched.path(target)}"
+        expected = list(compose.describe(compose.Plan(c, target).encode()))
+        assert words == expected, patched.path(target)
 
 
 def expression_handles(image) -> list[int]:

@@ -1921,7 +1921,15 @@ macro m_check(pop, pneed) {
         }
       }
       else {
-        ck_st = 6;
+        # a HANDLE operand (3) is resolved at each use by the interpreter (docs/23 4.9); the
+        # compiler bakes object addresses at compile time, which a handle in a slot cannot be:
+        # the program is left to the interpreter. Any other kind is out of range.
+        if (ck_kind == 3) {
+          ck_st = 16;
+        }
+        else {
+          ck_st = 6;
+        }
       }
     }
   }
@@ -1946,34 +1954,39 @@ macro m_value_check(pop, pwide) {
       vc_obj = ck_obj;
     }
     else {
-      if (vc_kind != 0) {
-        vc_st = 6;
+      if (vc_kind == 3) {
+        vc_st = 16;
       }
       else {
-        if ((pwide != 0) & (load64((pop) + 16) > 8)) {
-          m_check(pop, load64((pop) + 16));
-          vc_st = ck_st;
-          vc_obj = ck_obj;
+        if (vc_kind != 0) {
+          vc_st = 6;
         }
         else {
-          vc_need = load64((pop) + 16);
-          if (vc_need >= 8) {
-            vc_need = 8;
+          if ((pwide != 0) & (load64((pop) + 16) > 8)) {
+            m_check(pop, load64((pop) + 16));
+            vc_st = ck_st;
+            vc_obj = ck_obj;
           }
-          m_check(pop, vc_need);
-          vc_st = ck_st;
-          vc_obj = ck_obj;
-          if (vc_st == 0) {
-            vc_size = load64((pop) + 16);
-            if (vc_size >= 8) {
-              vc_size = 8;
+          else {
+            vc_need = load64((pop) + 16);
+            if (vc_need >= 8) {
+              vc_need = 8;
             }
-            if ((vc_size != 1) & (vc_size != 2) & (vc_size != 4) & (vc_size != 8)) {
-              vc_st = 16;
-            }
-            else {
-              if ((load64((pop) + 8) & (vc_size - 1)) != 0) {
+            m_check(pop, vc_need);
+            vc_st = ck_st;
+            vc_obj = ck_obj;
+            if (vc_st == 0) {
+              vc_size = load64((pop) + 16);
+              if (vc_size >= 8) {
+                vc_size = 8;
+              }
+              if ((vc_size != 1) & (vc_size != 2) & (vc_size != 4) & (vc_size != 8)) {
                 vc_st = 16;
+              }
+              else {
+                if ((load64((pop) + 8) & (vc_size - 1)) != 0) {
+                  vc_st = 16;
+                }
               }
             }
           }
