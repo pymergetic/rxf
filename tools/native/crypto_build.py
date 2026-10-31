@@ -228,6 +228,10 @@ def build(*, force: bool = False, compiler: str | None = None, card: Path = CARD
     words = make_words(card)
     runtime = runtime_object(card)
     library.parent.mkdir(parents=True, exist_ok=True)
+    # Link to a private temp path and swap it in whole: a parallel worker crossing
+    # crypto.load() must never open a half-written library. Same discipline as the
+    # part artifacts above (os.replace), now for the final link too.
+    made = library.parent / f".{library.name}.{os.getpid()}.tmp"
     command = [
         cc,
         "-std=c11",
@@ -239,18 +243,20 @@ def build(*, force: bool = False, compiler: str | None = None, card: Path = CARD
         str(words),
         str(runtime),
         "-o",
-        str(library),
+        str(made),
     ]
     try:
         ran = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=False)
     except FileNotFoundError as error:
         raise BuildError(f"{cc!r} not found on PATH") from error
     if ran.returncode != 0:
+        made.unlink(missing_ok=True)
         raise BuildError(
             f"{cc} failed (exit {ran.returncode}):\n{ran.stderr.strip() or ran.stdout.strip()}"
         )
-    if not library.is_file():
-        raise BuildError(f"{cc} reported success but {library} does not exist")
+    if not made.is_file():
+        raise BuildError(f"{cc} reported success but {made} does not exist")
+    os.replace(made, library)  # a build of another process is replaced whole, never half
     return library
 
 
