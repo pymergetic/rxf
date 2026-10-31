@@ -30,6 +30,11 @@ SEAT = {
     "rxf_leaves.wasm": BUILD / "rxf_leaves.wasm",
 }
 
+# The one arena reader (the world's client face) served beside the console: the
+# panes (web/tree.js) parse the canonical bytes with it - one reader file, never
+# a copy of it in web/.
+READER = ROOT / "src" / "pymergetic" / "rxftk" / "world" / "static" / "scene" / "rxf-reader.js"
+
 
 def host_compiler() -> ModuleType:
     """web/acts.py - the host's compiler door - imported whether this file runs
@@ -47,6 +52,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         name = self.path.lstrip("/").split("?")[0]
+        if name == READER.name:
+            if not READER.exists():
+                self.send_error(404, f"{READER} is not there")
+                return
+            body = READER.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/javascript; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if name in SEAT:
             artifact = SEAT[name]
             if not artifact.exists():

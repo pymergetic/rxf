@@ -47,6 +47,31 @@ export function digest(rxf) {
   return hex(answer.payload);
 }
 
+/** COMPACT (live.h): the arena compacted in place. The words it answers are
+ *  the counts and the digest of the compacted image; a seat whose pump does
+ *  not carry the op yet answers `unknown op`, which the console shows. */
+export function compact(rxf) {
+  const answer = exchange(rxf, Frames.OP.COMPACT);
+  if (answer.status !== 0) throw new Refusal(Frames.OP.COMPACT, answer);
+  const view = new DataView(answer.payload.buffer, answer.payload.byteOffset);
+  return {
+    handles: view.getBigUint64(0, true),
+    body: view.getBigUint64(8, true),
+    digest: hex(answer.payload.subarray(16, 48)),
+    reclaimed: view.getBigUint64(48, true),
+  };
+}
+
+/** The empty delta's wire form (live.h's header, no operations): the bytes the
+ *  stage actions write when the console stages no change of its own. */
+export function emptyDelta() {
+  const head = new Uint8Array(64);
+  const view = new DataView(head.buffer);
+  view.setUint32(0, 0x44465852, true); // "RXFD" (live.h's delta magic)
+  view.setUint32(4, 1, true); // version
+  return head;
+}
+
 /** An answer that is not OK: the status, and for a refused delta the reason. */
 export class Refusal extends Error {
   constructor(op, answer) {
@@ -61,20 +86,45 @@ export class Refusal extends Error {
   }
 }
 
-/** Stage `delta` and commit it with the host's SHA-256 of it; the digest of the result. */
-export function commit(rxf, delta, sha256) {
+/** One visible stage action: the console shows what the seat answered about it. */
+function step(onStep, name, detail, failure) {
+  if (onStep) onStep({ name, ok: !failure, detail, failure: failure ? failure.message : "" });
+}
+
+/** Stage `delta` and commit it with the host's SHA-256 of it; the digest of
+ *  the result. `onStep` (optional) sees every stage action - STAGE_RESET, one
+ *  STAGE_WRITE per chunk, STAGE_COMMIT - with its result, so the page shows
+ *  each action and never fails silently. */
+export function commit(rxf, delta, sha256, onStep) {
   let answer = exchange(rxf, Frames.OP.STAGE_RESET);
-  if (answer.status !== 0) throw new Refusal(Frames.OP.STAGE_RESET, answer);
+  if (answer.status !== 0) {
+    const refusal = new Refusal(Frames.OP.STAGE_RESET, answer);
+    step(onStep, "stage_reset", "the stage is cleared", refusal);
+    throw refusal;
+  }
+  step(onStep, "stage_reset", "the stage is cleared");
   for (let at = 0; at < delta.length; at += CHUNK) {
-    answer = exchange(rxf, Frames.OP.STAGE_WRITE, at, delta.subarray(at, at + CHUNK));
-    if (answer.status !== 0) throw new Refusal(Frames.OP.STAGE_WRITE, answer);
+    const chunk = delta.subarray(at, at + CHUNK);
+    answer = exchange(rxf, Frames.OP.STAGE_WRITE, at, chunk);
+    if (answer.status !== 0) {
+      const refusal = new Refusal(Frames.OP.STAGE_WRITE, answer);
+      step(onStep, "stage_write", `${chunk.length} bytes at ${at}`, refusal);
+      throw refusal;
+    }
+    step(onStep, "stage_write", `${chunk.length} bytes at ${at}`);
   }
   const ask = new Uint8Array(36); // the commit's body: length, then SHA-256
   new DataView(ask.buffer).setUint32(0, delta.length, true);
   ask.set(unhex(sha256), 4);
   answer = exchange(rxf, Frames.OP.STAGE_COMMIT, 0, ask);
-  if (answer.status !== 0) throw new Refusal(Frames.OP.STAGE_COMMIT, answer);
-  return hex(answer.payload.subarray(0, 32));
+  if (answer.status !== 0) {
+    const refusal = new Refusal(Frames.OP.STAGE_COMMIT, answer);
+    step(onStep, "stage_commit", `${delta.length} bytes committed`, refusal);
+    throw refusal;
+  }
+  const digest = hex(answer.payload.subarray(0, 32));
+  step(onStep, "stage_commit", `${delta.length} bytes committed, digest ${digest}`);
+  return digest;
 }
 
 /** The host's compiler: the delta of `act` after the acts already committed. */
@@ -92,14 +142,15 @@ export async function compile(base, history, act, from = "") {
 }
 
 /** One act, whole: its delta compiled on the host, staged, committed. The
- *  answer is {before, after, bytes}; `history` gains the act only when the
- *  seat took it, so a refused act leaves nothing behind. */
-export async function perform(rxf, history, act, from = "") {
+ *  answer is {before, after, bytes, delta, sha256}; `history` gains the act
+ *  only when the seat took it, so a refused act leaves nothing behind.
+ *  `onStep` sees every stage action (web/index.html shows them). */
+export async function perform(rxf, history, act, from = "", onStep) {
   const before = digest(rxf);
   const { delta, sha256 } = await compile(before, history, act, from);
-  const after = commit(rxf, delta, sha256);
+  const after = commit(rxf, delta, sha256, onStep);
   history.push(act);
-  return { before, after, bytes: delta.length };
+  return { before, after, bytes: delta.length, delta, sha256 };
 }
 
 /** The acts the console offers, as the commands that carry them out: name,

@@ -32,6 +32,10 @@ export const OP = {
   DIGEST: 0x20,
   EMIT: 0x21,
   EMIT_READ: 0x22,
+  COMPACT: 0x23,
+  GROW: 0x24,
+  RELINK: 0x25,
+  BREAK: 0x30,
 };
 
 export const STATUS = {

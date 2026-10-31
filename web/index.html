@@ -9,12 +9,12 @@
   /* the side: what this image is, and the acts you can perform on it */
   .side { width:250px; flex:none; display:flex; flex-direction:column;
           background:#12161b; border-right:1px solid #22272e; overflow-y:auto; }
-  .side h2 { margin:0; padding:10px 12px 6px; font-size:11px; letter-spacing:.08em;
+  .side h2, .view h2 { margin:0; padding:10px 12px 6px; font-size:11px; letter-spacing:.08em;
              text-transform:uppercase; color:#5f6b78; font-weight:600; }
-  .side .item { padding:6px 12px; cursor:pointer; color:#9aa7b4; }
-  .side .item:hover { background:#1b2128; color:#dfe6ee; }
-  .side .item .sub { display:block; color:#4a545f; font-size:11px; }
-  .side hr { border:none; border-top:1px solid #22272e; margin:8px 0; }
+  .side .item, .view .item { padding:6px 12px; cursor:pointer; color:#9aa7b4; }
+  .side .item:hover, .view .item:hover { background:#1b2128; color:#dfe6ee; }
+  .side .item .sub, .view .item .sub { display:block; color:#4a545f; font-size:11px; }
+  .side hr, .view hr { border:none; border-top:1px solid #22272e; margin:8px 0; }
 
   /* the right: tabs, one console per image */
   .main { flex:1; display:flex; flex-direction:column; min-width:0; }
@@ -50,6 +50,31 @@
                   border-radius:5px; background:#1b2128; color:#c9d3dd; cursor:pointer; }
   .strip button:hover { background:#232a32; }
   .strip .grow { margin-left:auto; }
+
+  /* the view: the digest and what it covers - the module tree and the object
+     list of the seat's image, refreshed after every act and every drag */
+  .view { width:330px; flex:none; display:flex; flex-direction:column;
+          background:#12161b; border-left:1px solid #22272e; overflow-y:auto; }
+  .view .digest { padding:6px 12px; color:#4ade80; font-size:11px; word-break:break-all; }
+  .view .digest .was { color:#4a545f; }
+  .view .checked { color:#5f6b78; font-size:11px; padding:0 12px 6px; }
+  .view .pane { overflow-y:auto; }
+  .view .node { padding:3px 12px; cursor:pointer; color:#9aa7b4; white-space:nowrap;
+                overflow:hidden; text-overflow:ellipsis; }
+  .view .node:hover { background:#1b2128; }
+  .view .node.sel { background:#1b2128; color:#dfe6ee; }
+  .view .node .twisty { display:inline-block; width:14px; color:#4a545f; }
+  .view .node .count { color:#4a545f; font-size:11px; }
+  .view .row { display:grid; grid-template-columns:1fr auto auto; gap:8px;
+               padding:3px 12px; cursor:pointer; color:#9aa7b4; }
+  .view .row:hover { background:#1b2128; }
+  .view .row .name { overflow:hidden; text-overflow:ellipsis; }
+  .view .row .value { color:#c9d3dd; cursor:ew-resize; user-select:none;
+                      padding:0 4px; border:1px solid transparent; border-radius:4px; }
+  .view .row .value:hover { border-color:#2b323a; }
+  .view .row .value.drag { border-color:#4ade80; color:#4ade80; }
+  .view .row .size { color:#4a545f; font-size:11px; }
+  .view .row.pinned .name::after { content:" (pinned)"; color:#4a545f; }
 </style>
 
 <div class="side">
@@ -58,6 +83,9 @@
   <hr>
   <h2>modifications</h2>
   <div id="mods"></div>
+  <hr>
+  <h2>the write slice</h2>
+  <div id="channel"></div>
   <hr>
   <h2>this image</h2>
   <div class="item" id="state">-</div>
@@ -71,14 +99,29 @@
   <div class="strip">
     <button id="snap">Snapshot</button>
     <span id="where">boots</span>
-    <span class="grow" id="bytes">-</span>
+    <span class="grow" id="digest-mini">digest -</span>
+    <span id="bytes">-</span>
   </div>
+</div>
+
+<div class="view">
+  <h2>the digest and what it covers</h2>
+  <div class="digest" id="digest-line">-</div>
+  <div class="digest" id="digest-was"></div>
+  <div class="checked" id="digest-checked">the bytes are not read yet</div>
+  <hr>
+  <h2>module tree</h2>
+  <div class="pane" id="tree"></div>
+  <hr>
+  <h2>objects</h2>
+  <div class="pane" id="objects"></div>
 </div>
 
 <script type="module">
   import { Rxf } from "./rxf.js";
   import * as Frames from "./frames.js";
   import * as Acts from "./acts.js";
+  import * as Tree from "./tree.js";
 
   const tabs = document.getElementById("tabs");
   const newtab = document.getElementById("newtab");
@@ -87,6 +130,12 @@
   const stateEl = document.getElementById("state");
   const where = document.getElementById("where");
   const bytes = document.getElementById("bytes");
+  const digestMini = document.getElementById("digest-mini");
+  const digestLine = document.getElementById("digest-line");
+  const digestWas = document.getElementById("digest-was");
+  const digestChecked = document.getElementById("digest-checked");
+  const treeEl = document.getElementById("tree");
+  const objectsEl = document.getElementById("objects");
 
   /* one console per image: each tab owns its own stream and prompt */
   const windows = [];
@@ -133,6 +182,59 @@
     line(w, `no command ${name}`, "err");
   }
 
+  /* the channel's stage actions, as one visible round: every step reports
+     what the seat answered (ok or the refusal in words), never silently. */
+  function reportStep(w) {
+    return (s) => {
+      if (s.ok) line(w, `${s.name} ok: ${s.detail}`, "ok");
+      else line(w, `${s.name} refused: ${s.failure}`, "err");
+    };
+  }
+
+  async function stageAction(w, which) {
+    try {
+      if (which === "reset") {
+        const answer = Acts.exchange(w.rxf, Frames.OP.STAGE_RESET);
+        if (answer.status !== 0) throw new Acts.Refusal(Frames.OP.STAGE_RESET, answer);
+        line(w, "stage_reset ok: the stage is cleared", "ok");
+      } else if (which === "write") {
+        const staged = w.stage.bytes;
+        for (let at = 0; at < staged.length; at += Acts.CHUNK) {
+          const chunk = staged.subarray(at, at + Acts.CHUNK);
+          const answer = Acts.exchange(w.rxf, Frames.OP.STAGE_WRITE, at, chunk);
+          if (answer.status !== 0) throw new Acts.Refusal(Frames.OP.STAGE_WRITE, answer);
+          line(w, `stage_write ok: ${chunk.length} bytes at ${at}`, "ok");
+        }
+      } else if (which === "commit") {
+        const sha = await stageSha(w);
+        const digest = Acts.commit(w.rxf, w.stage.bytes, sha, reportStep(w));
+        line(w, `the image is at ${digest}`, "ok");
+        await changed(w, digest);
+        return;
+      } else if (which === "compact") {
+        const done = Acts.compact(w.rxf);
+        line(w, `compact ok: ${done.handles} handles, ${done.body} bytes, ${done.reclaimed} reclaimed`, "ok");
+        line(w, `the image is at ${done.digest}`, "ok");
+        await changed(w, done.digest);
+        return;
+      }
+      refresh(w);
+    } catch (error) {
+      line(w, `${error.message}`, "err");
+      refresh(w);
+    }
+  }
+
+  /* the staged bytes' SHA-256: recomputed here over the bytes that are
+     actually staged (the empty delta's word is not the last delta's), with
+     the host's word only when this page cannot hash (no secure context). */
+  async function stageSha(w) {
+    const subtle = globalThis.crypto && globalThis.crypto.subtle;
+    if (subtle) return Acts.hex(new Uint8Array(await subtle.digest("SHA-256", w.stage.bytes)));
+    if (w.stage.sha256) return w.stage.sha256;
+    throw new Error("the page cannot hash the staged bytes here (no subtle crypto)");
+  }
+
   const COMMANDS = [
     { name: "help", what: "what you can do here", act: (w) => {
         for (const c of COMMANDS) line(w, `  ${c.name.padEnd(10)} ${c.what}`, "sys");
@@ -165,6 +267,9 @@
         }
         if (!frames.length) line(w, "(the image answered no frame)", "sys");
       } },
+    { name: "stage", what: "stage reset|write|commit: the staged bytes, one action at a time",
+      act: (w, text) => stageAction(w, text.split(/\s+/)[1] || "commit") },
+    { name: "compact", what: "compact the arena in place", act: (w) => stageAction(w, "compact") },
     { name: "bytes", what: "how big this image is in memory", act: (w) =>
         line(w, `${w.rxf.snapshot().length} bytes`, "ok") },
     { name: "honors", what: "the founding core", act: (w) => {
@@ -189,18 +294,21 @@
      one defining language, never a packer in the page); web/acts.js carries
      them. Typed at the prompt an act takes its arguments (`set PATH VALUE`);
      clicked in the side panel it takes defaults that make a new change each
-     time. */
+     time. Every stage action of the round is its own visible line. */
   async function modify(w, act, args) {
     const given = args.length ? args : act.defaults(w.history);
     const request = act.make(given);
     line(w, `${act.name} ${given.join(" ")}`, "sys");
     try {
-      const done = await Acts.perform(w.rxf, w.history, request);
+      const done = await Acts.perform(w.rxf, w.history, request, "", reportStep(w));
       line(w, `committed ${done.bytes} bytes of delta`, "sys");
       line(w, `was ${done.before}`, "sys");
       line(w, `now ${done.after}`, "ok");
+      w.stage = { bytes: done.delta, sha256: done.sha256 };
+      await changed(w, done.after, done.before);
     } catch (error) {
       line(w, `${error.message}`, "err");
+      await refreshView(w);
     }
     refresh(w);
   }
@@ -211,9 +319,19 @@
     { name: "add an entry", what: "a new object under an existing one", act: (w) => modify(w, Acts.ACTS[2], []) },
   ];
 
+  const CHANNEL = [
+    { name: "stage reset", what: "clear the stage", act: (w) => stageAction(w, "reset") },
+    { name: "stage write", what: "write the staged bytes (the last delta, or the empty one)",
+      act: (w) => stageAction(w, "write") },
+    { name: "stage commit", what: "commit the staged bytes, digest as the answer",
+      act: (w) => stageAction(w, "commit") },
+    { name: "compact", what: "compact the arena in place", act: (w) => stageAction(w, "compact") },
+  ];
+
   for (const c of COMMANDS) {
     const el = document.createElement("div");
     el.className = "item";
+    el.dataset.name = c.name;
     el.innerHTML = `${c.name}<span class="sub">${c.what}</span>`;
     el.onclick = () => { const w = windows[current]; if (w) {
       w.prompt?.remove(); w.prompt = null;
@@ -225,6 +343,7 @@
   for (const m of MODS) {
     const el = document.createElement("div");
     el.className = "item";
+    el.dataset.name = m.name;
     el.innerHTML = `${m.name}<span class="sub">${m.what}</span>`;
     el.onclick = () => { const w = windows[current]; if (w) {
       w.prompt?.remove(); w.prompt = null;
@@ -232,6 +351,18 @@
       Promise.resolve(m.act(w)).finally(() => ask(w));
     } };
     document.getElementById("mods").appendChild(el);
+  }
+  for (const c of CHANNEL) {
+    const el = document.createElement("div");
+    el.className = "item";
+    el.dataset.name = c.name;
+    el.innerHTML = `${c.name}<span class="sub">${c.what}</span>`;
+    el.onclick = () => { const w = windows[current]; if (w) {
+      w.prompt?.remove(); w.prompt = null;
+      line(w, `rxf> ${c.name}`, "cmd");
+      Promise.resolve(c.act(w)).finally(() => ask(w));
+    } };
+    document.getElementById("channel").appendChild(el);
   }
 
   function render() {
@@ -261,6 +392,167 @@
     if (!w) return;
     bytes.textContent = `${w.rxf.snapshot().length} bytes in memory`;
     stateEl.textContent = w.parent ? `fork of ${w.parent}` : "the one that booted";
+    const now = w.view ? w.view.digest : "-";
+    digestMini.textContent = `digest ${now.slice(0, 16)}…`;
+  }
+
+  /* the digest and the panes follow every act and every drag: after any of
+     them the browser-side view is re-read from the seat's own bytes - the
+     module tree and the object list show the new state with no reload. */
+  async function changed(w, now, was = "") {
+    if (was) {
+      digestWas.textContent = `was ${was}`;
+      digestWas.className = "digest was";
+    }
+    digestLine.textContent = now;
+    digestMini.textContent = `digest ${now.slice(0, 16)}…`;
+    await refreshView(w);
+    refresh(w);
+  }
+
+  async function refreshView(w) {
+    if (!w || windows[current] !== w) return;
+    digestChecked.textContent = "reading the canonical bytes…";
+    try {
+      const seen = await Tree.view(w.rxf);
+      w.view = seen;
+      digestLine.textContent = seen.digest;
+      digestChecked.textContent =
+        `${seen.length} canonical bytes · SHA-256 ${seen.verified ? "checked against the digest" : "not checked here"}`;
+      renderTree(w);
+      renderObjects(w);
+    } catch (error) {
+      digestChecked.textContent = `the view failed: ${error.message}`;
+    }
+    refresh(w);
+  }
+
+  function renderTree(w) {
+    treeEl.textContent = "";
+    const seen = w.view;
+    if (!seen) return;
+    const expanded = w.expanded;
+    const draw = (node, depth) => {
+      const el = document.createElement("div");
+      el.className = "node" + (node.handle === w.selected ? " sel" : "");
+      el.style.paddingLeft = `${12 + depth * 12}px`;
+      const twisty = document.createElement("span");
+      twisty.className = "twisty";
+      const kids = node.children.length;
+      twisty.textContent = kids ? (expanded.has(node.handle) ? "▾" : "▸") : "·";
+      el.appendChild(twisty);
+      const name = document.createElement("span");
+      name.textContent = node.name || "(anonymous)";
+      el.appendChild(name);
+      if (kids) {
+        const count = document.createElement("span");
+        count.className = "count";
+        count.textContent = ` ${kids}`;
+        el.appendChild(count);
+      }
+      twisty.onclick = (e) => {
+        e.stopPropagation();
+        if (!kids) return;
+        if (expanded.has(node.handle)) expanded.delete(node.handle);
+        else expanded.add(node.handle);
+        renderTree(w);
+      };
+      el.onclick = () => {
+        w.selected = node.handle;
+        renderTree(w);
+        renderObjects(w);
+      };
+      treeEl.appendChild(el);
+      if (expanded.has(node.handle)) {
+        for (const child of Tree.children(seen.arena, node.handle)) draw(child, depth + 1);
+      }
+    };
+    draw(Tree.root(seen.arena), 0);
+  }
+
+  function renderObjects(w) {
+    objectsEl.textContent = "";
+    const seen = w.view;
+    if (!seen) return;
+    const at = w.selected ?? seen.arena.root;
+    for (const node of Tree.children(seen.arena, at)) {
+      const el = document.createElement("div");
+      el.className = "row" + (node.path ? "" : " pinned");
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = node.name || "(anonymous)";
+      const value = document.createElement("span");
+      value.className = "value";
+      value.textContent = node.value === null ? `-${node.size}B` : String(node.value);
+      value.onclick = (e) => e.stopPropagation(); // dragging the value is not a click on the row
+      const size = document.createElement("span");
+      size.className = "size";
+      size.textContent = `${node.size}B`;
+      el.append(name, value, size);
+      if (node.children.length) {
+        el.onclick = () => {
+          w.selected = node.handle;
+          w.expanded.add(node.handle);
+          renderTree(w);
+          renderObjects(w);
+        };
+      }
+      if (node.value !== null && node.size <= 6 && node.path) dragValue(w, node, value);
+      objectsEl.appendChild(el);
+    }
+    if (!objectsEl.children.length) {
+      const el = document.createElement("div");
+      el.className = "item";
+      el.textContent = "(no objects under this node)";
+      objectsEl.appendChild(el);
+    }
+  }
+
+  /* the browser's own modification (U2): drag a value and the bytes and the
+     digest change while the hand moves. Each settled value is one `set` act
+     through the host's compiler - the same chain a typed act takes - and the
+     panes re-read the seat's bytes when the drag ends. */
+  function dragValue(w, node, el) {
+    const max = 2 ** (8 * node.size) - 1;
+    el.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      el.setPointerCapture(e.pointerId);
+      el.classList.add("drag");
+      const start = { x: e.clientX, value: Number(node.value), at: 0, valueNow: Number(node.value), last: Number(node.value) };
+      const settle = (force) => {
+        const now = Date.now();
+        if (!force && now - start.at < 250) return;
+        if (start.valueNow === start.last) return;
+        start.at = now;
+        start.last = start.valueNow;
+        const value = start.valueNow;
+        const request = { act: "set", path: node.path, value };
+        w.queue = w.queue.then(async () => {
+          const answer = await Acts.perform(w.rxf, w.history, request, "", () => {});
+          el.textContent = String(value);
+          line(w, `drag set ${node.name} ${answer.bytes} bytes · now ${answer.after.slice(0, 16)}…`, "ok");
+          digestLine.textContent = answer.after;
+          digestWas.textContent = `was ${answer.before}`;
+          digestWas.className = "digest was";
+          digestMini.textContent = `digest ${answer.after.slice(0, 16)}…`;
+        }).catch((error) => line(w, `drag set ${node.name}: ${error.message}`, "err"));
+      };
+      const move = (ev) => {
+        const steps = Math.round((ev.clientX - start.x) / 4);
+        start.valueNow = Math.min(max, Math.max(0, start.value + steps));
+        el.textContent = String(start.valueNow);
+        settle(false);
+      };
+      const up = () => {
+        el.classList.remove("drag");
+        el.removeEventListener("pointermove", move);
+        el.removeEventListener("pointerup", up);
+        settle(true);
+        Promise.resolve(refreshView(w));
+      };
+      el.addEventListener("pointermove", move);
+      el.addEventListener("pointerup", up);
+    });
   }
 
   function showCurrent() {
@@ -272,6 +564,12 @@
     stateEl.textContent = w.parent ? `fork of ${w.parent}` : "the one that booted";
     where.textContent = w.parent ? `forked from ${w.parent}` : "boots";
     bytes.textContent = `${w.rxf.snapshot().length} bytes in memory`;
+    if (w.view) {
+      digestLine.textContent = w.view.digest;
+      renderTree(w);
+      renderObjects(w);
+    }
+    Promise.resolve(refreshView(w));
   }
 
   function close(i) {
@@ -291,7 +589,15 @@
       : term;
     stream.className = "term";
     if (stream !== term) termwrap.appendChild(stream);
-    const w = { rxf, stream, parent, history: [...history], title: parent ? `fork ${windows.length}` : "image", prompt: null };
+    const w = {
+      rxf, stream, parent, history: [...history], title: parent ? `fork ${windows.length}` : "image",
+      prompt: null,
+      view: null,
+      selected: null,
+      expanded: new Set(),
+      stage: { bytes: Acts.emptyDelta(), sha256: null },
+      queue: Promise.resolve(),
+    };
     windows.push(w);
     current = windows.length - 1;
     line(w, parent ? `forked from ${parent}` : "the image is up", parent ? "ok" : "sys");
@@ -299,6 +605,7 @@
     line(w, "");
     ask(w);
     render();
+    await refreshView(w);
     return w;
   }
 
