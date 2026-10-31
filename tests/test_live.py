@@ -485,6 +485,22 @@ def physical_digest_after(starter: bytes, data: bytes) -> str:
     return other.client.apply(data)
 
 
+def test_a_set_of_a_module_with_its_own_record_changes_nothing(starter: bytes):
+    """The patches of a delta are offsets into the object's VALUE, which sits behind a
+    module's chain head (docs/32 1.2, the writer's EMPTY_MODULE_HEAD): the NONE patch (an
+    unset slot) writes there too. `Type` is a module (it has Fields) whose value has unset
+    slots; setting it to the record the writer itself reads out of it leaves the world as it
+    is, and the digest is the model's (docs/32 5.4)."""
+    host = HostImage(starter)
+    records, _entry = physical.records(WORLD)
+    record = records["Type"]
+    assert any(target is None for _offset, target in record.patches)
+    builder = physical.Builder()
+    builder.set("Type", record)
+    assert host.client.apply(builder.build(digest_of(WORLD))) == digest_of(WORLD)
+    assert host.client.digest() == digest_of(WORLD)
+
+
 @pytest.mark.xfail(
     reason="blocked on the arena lane: the mass state-word delta answers 'the "
     "arena has no room' (reason 6, the slot-table grow a set needs) where "

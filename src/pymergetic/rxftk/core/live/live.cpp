@@ -671,8 +671,10 @@ class Session {
                     tail += sizeof(pt);
                     if (pt.path == PYMERGETIC_RXF_STRING_NONE) {
                         const uint64_t none = PYMERGETIC_RXF_HANDLE_NONE;
+                        /* An offset into the VALUE, like the path patches' (the
+                         * module head stands in front of it). */
                         const arena::Status s = arena_.set_payload_at(
-                            handle, pt.offset, reinterpret_cast<const uint8_t *>(&none), 8);
+                            handle, pt.offset + head, reinterpret_cast<const uint8_t *>(&none), 8);
                         if (s != arena::Status::Ok) {
                             *reason = reason_of(s);
                             return false;
