@@ -207,6 +207,13 @@ Packet path (both directions are the same story reversed):
 | unrefuses (gate) | i2 + i3 first; then the corpus gate: `slipif` + `tcpip` core + one socket echo **as imported graphs** on H, with the seat proves of §2 |
 | docs | upstream lwIP comments lift through §4.7's tool (definition comments and free-floating ones, TODOs as `DocKind.Todo`); at `cite` level the citations are the permalinks into the pinned upstream commit |
 
+**Status (slice 1, measured):** lwIP 2.2.0 is vendored and pinned (`third_party/lwip`), the NO_SYS=1 port
+face is `native/lwip/`, and the import lane has been run over IPv4 + UDP + ICMP + `slipif` as far as it
+honestly goes -- 68 of 115 bodies import and compose, 38 are refused with the importer's own reasons
+(30 of them for `llvm.bswap`/`umin`/`abs` intrinsics, which is the whole UDP echo path), 9 wait for
+libc faces or the SLIP line fills. The table, the differential that runs today and the next packages
+are [docs/35](35-LWIP-IMPORT-TABLE.md); `tests/test_lwip_import.py` pins them.
+
 The face is `net.io` **now** and the object world later (net as addressable objects, like
 everything else); that is a rename of the body's owner, not a second face (the platform rule:
 never `net.fetch` beside `io.fetch`).
