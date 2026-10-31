@@ -41,18 +41,25 @@ async function arenaOf(bytes, length, digest) {
     }
     const view = new DataView(bytes.buffer, bytes.byteOffset + at);
     if (view.getUint32(4, true) !== 1) continue; // the superblock's version
-    if (Number(view.getBigUint64(8, true)) !== length) continue; // committed = EMIT's length
-    if (at + length > bytes.length) continue;
+    const committed = Number(view.getBigUint64(8, true));
+    /* The EMIT length and the superblock's committed word name the same dump and can
+     * disagree by the emit region's own tail - the words only nominate candidates,
+     * the SHA-256 is what says which window IS the canonical form the digest names. */
+    const windows = [[at, at + length]];
+    if (committed > 0 && committed !== length) windows.push([at, at + committed]);
+    const over = length - committed;
+    if (over > 0 && at - over >= 0) windows.push([at - over, at + committed]);
+    for (const [from, to] of windows) {
+      if (to > bytes.length || from < 0) continue;
+      const form = bytes.subarray(from, to);
+      const hashed = await sha256(form);
+      if (hashed !== null && hashed !== digest) continue; // not the bytes the word names
+      const arena = new RxfArena(form);
+      return { arena, verified: hashed !== null };
+    }
     found.push(at);
   }
-  for (const at of found) {
-    const form = bytes.subarray(at, at + length);
-    const hashed = await sha256(form);
-    if (hashed !== null && hashed !== digest) continue; // not the bytes the word names
-    const arena = new RxfArena(form);
-    return { arena, verified: hashed !== null };
-  }
-  const seen = found.length ? `${found.length} region(s), none hashes to the digest` : "no dump in the seat's memory";
+  const seen = `${found.length} region(s), none hashes to the digest`;
   throw new Error(`the canonical bytes are not found: ${seen}`);
 }
 
