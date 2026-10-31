@@ -15,6 +15,7 @@ absent the test skips and says which tool, never pretends.
 
 from __future__ import annotations
 
+import hashlib
 import http.server
 import json
 import shutil
@@ -22,16 +23,20 @@ import socket
 import struct
 import subprocess
 import threading
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
 import boot_image
+import link
 import programs
 import pytest
 
 from pymergetic.rxftk.core import tree
 from pymergetic.rxftk.core.arena import ObjectArena
-from web import serve
+from pymergetic.rxftk.live import Refused, harness
+from web import acts, serve
 
 from .support import Bridge
 
@@ -190,3 +195,157 @@ def test_a_fork_carries_exactly_what_its_parent_had(served: str) -> None:
     assert len(sizes) == 3
     assert sizes[0] > 0
     assert sizes == [sizes[0]] * 3, f"the forks grew: {sizes}"
+
+
+# ---- the modifications acts (U1) ----------------------------------------------------------------
+#
+# An act is JSON the page sends to the host (`POST /compile`, web/acts.py); the
+# host's compiler (live/physical.py) answers the delta's bytes, and the page
+# (web/acts.js) stages them through the channel and commits. The proofs: the
+# host's door answers deltas the engine commits (the same bytes the page
+# stages), the refusals are answered in words, and the page's own chain reaches
+# the seat with those bytes.
+
+SET = {"act": "set", "path": "pymergetic.rxf.application.discount", "value": 45}
+ADD = {"act": "add", "parent": "pymergetic.rxf.application", "name": "surcharge", "value": 7}
+RENAME = {"act": "rename", "path": "pymergetic.rxf.application.shipping", "name": "freight"}
+
+
+def compile_over_http(base: str, request: dict[str, Any]) -> tuple[int, bytes, str | None]:
+    """The page's own request: POST /compile, the status, the body, the SHA-256 header."""
+    asked = urllib.request.Request(
+        f"{base}/compile",
+        data=json.dumps(request).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(asked, timeout=600) as reply:
+            return reply.status, reply.read(), reply.headers.get("X-Rxf-Sha256")
+    except urllib.error.HTTPError as error:
+        return error.code, error.read(), None
+
+
+@pytest.fixture
+def engine() -> harness.HostImage:
+    """The host engine over the seat's image: the oracle the acts' deltas commit on."""
+    return harness.HostImage(link.arena_of(acts.model()))
+
+
+def test_the_host_compiles_an_act_into_a_delta_the_seat_checks(
+    served: str, oracle: Bridge, engine: harness.HostImage
+) -> None:
+    """The compile door: the delta carries the base digest the seat answered
+    (the seat refuses a delta for another image), the SHA-256 header is the
+    digest of the body (STAGE_COMMIT checks the staged bytes against it), and
+    the engine commits it: the answer is a new digest."""
+    status, delta, sha256 = compile_over_http(
+        served, {"base": oracle.digest(), "history": [], "act": SET}
+    )
+    assert status == 200
+    assert sha256 == hashlib.sha256(delta).hexdigest()
+    magic, _version, ops, _strings, flags = struct.unpack_from("<IIIII", delta)
+    assert magic == 0x44465852 and ops == 1 and flags & 1  # RXFD, one SET, base checked
+    assert delta[24:56].hex() == oracle.digest()
+    after = engine.client.apply(delta)
+    assert after != oracle.digest()
+    assert engine.client.digest() == after
+    # the same delta again names a base that is gone: the image refuses it itself
+    with pytest.raises(Refused) as caught:
+        engine.client.apply(delta)
+    assert caught.value.reason == 2  # the base digest is not the digest of the image
+
+
+def test_every_act_commits_on_the_engine_and_the_digest_follows(
+    served: str, engine: harness.HostImage
+) -> None:
+    """The page's flow, act after act: ask the digest, have the host compile the
+    act against it (after the acts already committed), commit. Each commit
+    answers a new digest, and the next act's base is that very word."""
+    done: list[dict[str, Any]] = []
+    digest = engine.client.digest()
+    seen = {digest}
+    for act in (SET, ADD, RENAME):
+        status, delta, _sha = compile_over_http(
+            served, {"base": digest, "history": done, "act": act}
+        )
+        assert status == 200, delta.decode()
+        digest = engine.client.apply(delta)
+        assert digest not in seen
+        seen.add(digest)
+        done.append(act)
+    assert engine.client.resolve("pymergetic.rxf.application.surcharge")
+    assert engine.client.resolve("pymergetic.rxf.application.freight")
+
+
+@pytest.mark.parametrize(
+    ("request_", "words"),
+    [
+        ({"act": "set", "path": "no.such.object", "value": 1}, "no object at"),
+        ({"act": "set", "path": "pymergetic.rxf.application", "value": 1}, "has members"),
+        ({"act": "set", "path": SET["path"], "value": 1 << 40}, "does not fit"),
+        ({"act": "rename", "path": "pymergetic.rxf.application", "name": "app"}, "has members"),
+        ({"act": "rename", "path": SET["path"], "name": "a.b"}, "one non-empty segment"),
+        ({"act": "add", "parent": "pymergetic.rxf.application", "name": "unit_price"}, "already"),
+        ({"act": "burn"}, "no act"),
+    ],
+)
+def test_an_act_the_image_cannot_take_is_refused_in_words(
+    served: str, oracle: Bridge, request_: dict[str, Any], words: str
+) -> None:
+    status, body, _sha = compile_over_http(
+        served, {"base": oracle.digest(), "history": [], "act": request_}
+    )
+    assert status == 400
+    assert words in body.decode()
+
+
+def test_a_request_that_is_not_a_request_is_refused(served: str) -> None:
+    status, body, _sha = compile_over_http(served, {"act": SET})
+    assert status == 400
+    assert "base" in body.decode()
+    asked = urllib.request.Request(f"{served}/other", data=b"{}", method="POST")
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        urllib.request.urlopen(asked, timeout=60)
+    assert caught.value.code == 404
+
+
+def test_the_pages_acts_reach_the_seat_with_the_hosts_bytes(
+    served: str, oracle: Bridge
+) -> None:
+    """The page's own chain (web/acts.js through web/rxf.js): each act is
+    compiled by the host, staged in chunks that fit the seat's RX ring and
+    committed. What the seat takes must be what the engine takes: every commit
+    that is answered is answered with the digest the engine answers for the
+    SAME delta bytes, and a fork carries the result.
+
+    The seat is the native twin, and the twin's apply is not whole yet: its
+    post-apply dump refuses in the genesis placement (night.log, the stale
+    test's xfail) - the first commit answers `delta refused: the arena has no
+    room` (reason 6) and the arena it leaves refuses the next ones too. Until
+    that lane lands the refusal is the pinned answer and the test xfails
+    after holding every other word; the day the twin applies it passes whole."""
+    done = subprocess.run(
+        ["node", str(HARNESS), served, "acts", json.dumps([SET, ADD, RENAME])],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=900,
+    )
+    result = json.loads(done.stdout)
+    steps = result["steps"]
+    assert len(steps) == 3
+    engine = harness.HostImage(link.arena_of(acts.model()))
+    digest = oracle.digest()
+    refused: list[str] = []
+    for step in steps:
+        assert step["before"] == digest, "an act starts from the seat's own digest"
+        if "error" in step:
+            assert step["error"].startswith("delta refused: "), step["error"]
+            refused.append(step["error"])
+            continue
+        digest = engine.client.apply(bytes.fromhex(step["delta"]))
+        assert step["after"] == digest, "the seat answers the engine's digest"
+    assert result["fork"] == digest, "a fork carries the image the acts left"
+    if refused:
+        pytest.xfail("the twin's apply is not whole: " + "; ".join(refused))

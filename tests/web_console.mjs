@@ -4,6 +4,7 @@
  *
  * Usage: node tests/web_console.mjs BASE OP PAYLOAD
  *        node tests/web_console.mjs BASE forks
+ *        node tests/web_console.mjs BASE acts '[{"act": "set", ...}, ...]'
  *
  * BASE is where web/serve.py serves the page and the seat's artifacts. OP is
  * the name of a frames.js OP (RESOLVE, PING, ...), PAYLOAD its text: stdout is
@@ -13,6 +14,7 @@
  */
 import { Rxf } from "../web/rxf.js";
 import * as Frames from "../web/frames.js";
+import * as Acts from "../web/acts.js";
 
 const [base, which, payload = ""] = process.argv.slice(2);
 const rxf = await Rxf.open(
@@ -43,6 +45,32 @@ if (which === "forks") {
     }
   }
   console.log(JSON.stringify({ sizes }));
+} else if (which === "acts") {
+  // the console's modifications acts, through the page's own web/acts.js: each
+  // act is compiled by the host (POST /compile), staged and committed. Reported
+  // per act: the digest before, the digest the commit answered, the delta's
+  // bytes (so a test can hand the same delta to the host engine) - or the
+  // refusal's words. A fork of the result then answers its digest: what the
+  // snapshot button carries after a modification.
+  const history = [];
+  const steps = [];
+  for (const act of JSON.parse(payload)) {
+    const before = Acts.digest(rxf);
+    try {
+      const { delta, sha256 } = await Acts.compile(before, history, act, base);
+      const after = Acts.commit(rxf, delta, sha256);
+      history.push(act);
+      steps.push({ before, after, delta: Acts.hex(delta) });
+    } catch (error) {
+      steps.push({ before, error: error.message });
+    }
+  }
+  const fork = await Rxf.forkFrom(
+    `${base}/rxf_boot.wasm`,
+    `${base}/rxf_leaves.wasm`,
+    rxf.snapshot()
+  );
+  console.log(JSON.stringify({ steps, fork: Acts.digest(fork) }));
 } else if (which === "commit") {
   // the modification acts' first leg (U1 pre-work): stage a delta through the
   // channel and commit it. The delta here is the empty one - the 64-byte wire

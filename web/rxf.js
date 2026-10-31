@@ -124,6 +124,9 @@ export class Rxf {
     const words = new Uint32Array(this.memory.buffer, fifo, 4);
     const ring = new Uint8Array(this.memory.buffer, fifo, 576);
     const mask = 255;
+    if (words[0] - words[1] + bytes.length > mask + 1) {
+      throw new Error(`the RX ring holds ${mask + 1} bytes: ${bytes.length} more do not fit`);
+    }
     for (let i = 0; i < bytes.length; i++) {
       ring[64 + ((words[0] + i) & mask)] = bytes[i];
     }

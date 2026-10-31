@@ -78,6 +78,7 @@
 <script type="module">
   import { Rxf } from "./rxf.js";
   import * as Frames from "./frames.js";
+  import * as Acts from "./acts.js";
 
   const tabs = document.getElementById("tabs");
   const newtab = document.getElementById("newtab");
@@ -118,8 +119,7 @@
       el.remove();
       w.prompt = null;
       line(w, `rxf> ${text}`, "cmd");
-      run(w, text.trim());
-      ask(w);
+      Promise.resolve(run(w, text.trim())).finally(() => ask(w));
     });
     input.focus();
     term.scrollTop = term.scrollHeight;
@@ -177,30 +177,38 @@
         }
         if (!frames.length) line(w, "(the image answered no frame)", "sys");
       } },
+    ...Acts.ACTS.map((a) => ({ name: a.name, what: `${a.what}  (${a.usage})`, act: (w, text) =>
+        modify(w, a, text.split(/\s+/).slice(1)) })),
   ];
 
-  /* modifications: the acts that change the image from inside. The channel
-     has its write slice (web/frames.js: STAGE_RESET/WRITE/COMMIT - a commit
-     answers the digest of the result), and the image's `digest` command is
-     the word a change is watched by. What the acts still wait on is the write
-     body: a delta's bytes are compiled on the host (live/physical.py - one
-     defining language, never a second packer in the page) and the seat's own
-     apply is refused at the twin's post-commit relink (reason 12, the arena
-     lane's alignment - the same delta commits on the host engine). When those
-     two land, each act stages its delta, commits and prints the new digest. */
+  /* modifications: the acts that change the image from inside. Each stages
+     its delta through the channel (web/frames.js: STAGE_RESET/WRITE/COMMIT),
+     commits, and prints the digest the commit answered - the same word the
+     `digest` command asks for, so a change is watched before and after. The
+     delta's bytes are compiled on the host (web/acts.py behind POST /compile:
+     one defining language, never a packer in the page); web/acts.js carries
+     them. Typed at the prompt an act takes its arguments (`set PATH VALUE`);
+     clicked in the side panel it takes defaults that make a new change each
+     time. */
+  async function modify(w, act, args) {
+    const given = args.length ? args : act.defaults(w.history);
+    const request = act.make(given);
+    line(w, `${act.name} ${given.join(" ")}`, "sys");
+    try {
+      const done = await Acts.perform(w.rxf, w.history, request);
+      line(w, `committed ${done.bytes} bytes of delta`, "sys");
+      line(w, `was ${done.before}`, "sys");
+      line(w, `now ${done.after}`, "ok");
+    } catch (error) {
+      line(w, `${error.message}`, "err");
+    }
+    refresh(w);
+  }
+
   const MODS = [
-    { name: "rename an object", what: "pick one and give it a new name", act: (w) => {
-        line(w, "the channel commits deltas, but the acts need the host's compiler and the seat's apply alignment (the arena lane) - see night.log", "err");
-        refresh(w);
-      } },
-    { name: "change a value", what: "write into a payload and watch the digest", act: (w) => {
-        line(w, "the channel commits deltas, but the acts need the host's compiler and the seat's apply alignment (the arena lane) - see night.log", "err");
-        refresh(w);
-      } },
-    { name: "add an entry", what: "a new object under an existing one", act: (w) => {
-        line(w, "the channel commits deltas, but the acts need the host's compiler and the seat's apply alignment (the arena lane) - see night.log", "err");
-        refresh(w);
-      } },
+    { name: "rename an object", what: "pick one and give it a new name", act: (w) => modify(w, Acts.ACTS[0], []) },
+    { name: "change a value", what: "write into a payload and watch the digest", act: (w) => modify(w, Acts.ACTS[1], []) },
+    { name: "add an entry", what: "a new object under an existing one", act: (w) => modify(w, Acts.ACTS[2], []) },
   ];
 
   for (const c of COMMANDS) {
@@ -210,7 +218,7 @@
     el.onclick = () => { const w = windows[current]; if (w) {
       w.prompt?.remove(); w.prompt = null;
       line(w, `rxf> ${c.name}`, "cmd");
-      run(w, c.name); ask(w);
+      Promise.resolve(run(w, c.name)).finally(() => ask(w));
     } };
     document.getElementById("cmds").appendChild(el);
   }
@@ -221,7 +229,7 @@
     el.onclick = () => { const w = windows[current]; if (w) {
       w.prompt?.remove(); w.prompt = null;
       line(w, `rxf> ${m.name}`, "cmd");
-      m.act(w); ask(w);
+      Promise.resolve(m.act(w)).finally(() => ask(w));
     } };
     document.getElementById("mods").appendChild(el);
   }
@@ -274,7 +282,7 @@
     render();
   }
 
-  async function open(saved, parent) {
+  async function open(saved, parent, history = []) {
     const rxf = saved
       ? await Rxf.forkFrom("rxf_boot.wasm", "rxf_leaves.wasm", saved)
       : await Rxf.open("rxf_boot.wasm", "image_wasm32.bin", "rxf_leaves.wasm");
@@ -283,7 +291,7 @@
       : term;
     stream.className = "term";
     if (stream !== term) termwrap.appendChild(stream);
-    const w = { rxf, stream, parent, title: parent ? `fork ${windows.length}` : "image", prompt: null };
+    const w = { rxf, stream, parent, history: [...history], title: parent ? `fork ${windows.length}` : "image", prompt: null };
     windows.push(w);
     current = windows.length - 1;
     line(w, parent ? `forked from ${parent}` : "the image is up", parent ? "ok" : "sys");
@@ -297,7 +305,7 @@
   async function snapshot() {
     const w = windows[current];
     if (!w) return;
-    await open(w.rxf.snapshot(), w.title);
+    await open(w.rxf.snapshot(), w.title, w.history);
   }
 
   document.getElementById("snap").onclick = snapshot;
