@@ -449,3 +449,112 @@ All fourteen are decided; two were answered by work that landed in the meantime.
     (2026-10-15); the "slices 4-5"/"slice 1" wording is retired there.
 14. **docs/19 — resolved by landed work.** `docs/19-SELF-EDITING-PATH.md` is in the tree
     (verified 2026-10-15; its links resolve).
+
+## 7. Measured status of the pieces (2026-10-31)
+
+The design above was written before several lanes landed. This section is a **measurement**, not
+a plan: for every piece of docs/23, whether code exists, where, which test proves it, and the gap.
+It supersedes the prose of the status block and §5 ("`rximport.py` has neither the knob nor the
+debug-info parse") where they disagree: the `--provenance` knob, the Python strand and the shared
+emitter exist (below); the debug-info citation does not.
+
+| piece | exists? | where | proven by | gap |
+|---|---|---|---|---|
+| (a) lwIP card, SLIP/netif bridge | in flight (another worker; not measured here) | `third_party/lwip`, `native/lwip`, `tools/native/lwip_import.py` (uncommitted) | — | everything past the vendored import |
+| i2 out cells | **landed** | `rximport.py` `lower()`, `native/graph.h` | `tests/test_import.py` (`test_the_out_param_callee_is_a_call_card`) | — |
+| i3 runtime dispatch | **landed** | `rximport.py` `lower_indirect`/`function_wiring`, `native/graph.c` | `tests/test_import.py` (`test_the_unary_slot_dispatch_routes_to_the_type_body`) | — |
+| MicroPython seam model (S11) | **landed** (a model, not MicroPython) | `tests/host/smp_mpmodel.c`, docs/20 S11 | `tests/test_smp.py` (10 passed) | the real interpreter does not run on the image yet |
+| value width (decision 1) | **landed** | `rxemit.DataModel`, `rximport.module_model` | `tests/test_import_width.py` | — |
+| shared emitter (decision 9) | **landed** (extracted) | `tools/native/rxemit.py` (`emit_delta`; `rximport` and `rxpy` both call it) | `tests/test_import.py`, `tests/test_rxpy.py` | — |
+| Python-import strand (4.3) | **landed, a subset** | `tools/native/rxpy.py` (`import_py_file(image, source, module, known=, provenance=)`; ints, `if`/`while`/`break`/`continue`, calls, tuple returns as out cells, module cells) | `tests/test_rxpy.py`: 2253 passed (both MicroPython seats, 1076 in-domain differential pins and the one-sided out-of-domain pins per seat, 91 shape/refusal pins) | the subset: no imports, classes, attributes, `try`, `raise`, `for`, generators, `async`/`await`, strings, floats, subscripts — see the census below |
+| Python differential (decision 10) | **landed** | `tests/rxpy_mp_answer.py` runs the corpus under a real MicroPython unix port | `tests/test_rxpy.py`. Until 2026-10-31 it **skipped silently in every worktree**: the binary search used `parents[2]`, which is `worktrees/` there. `tests/mp_reference.py` now walks up to `packages/`; the 1086 pins run | — |
+| provenance knob, `was once Python` marker (5) | **landed** | `rximport.Provenance`, `--provenance` of `rximport.py` and `rxpy.py` | `tests/test_import.py` (C import not marked), `tests/test_rxpy.py` (marker set, report shape) | per-object citations from debug info (`!DILocation`): the citation spans the whole file ("the importer never guesses") |
+| comment lifting (4.7) | partly | `rximport.py` comment capture, `Provenance` | `tests/test_import.py` | the call-site contract of 4.7 as a separate tool |
+| hybrid module tree (4.6), host side | **landed** | `Image.resolve_module`/`module_children`/`module_roots`, `src/pymergetic/rxftk/mount/` | `tests/test_module_tree.py` (10), `tests/test_module_tree_view.py`, `tests/test_mount.py` | — |
+| `mp_import_stat` fill, guest side | **no** | none: no RXF hook in `packages/micropython`'s `py/builtinimport.c` or `packages/metalpython/extmod` | — | the guest import face on every seat (unix, emcc, firmware); needs the interpreter on the image |
+| uasyncio: semantics of the mapping (4.5) | **landed as a model (this lane)** | `tests/host/smp_asyncio.{h,c}`, `smp_asyncio_prove.c`; corpus `tests/asyncio_corpus/` | `tests/test_smp_asyncio.py` (110 passed) | the model is not uasyncio compiled; see the next row |
+| uasyncio: the source as imported graphs | **no** | `tests/test_rxpy_asyncio_gap.py` pins the distance | the same file (8 passed): all six upstream `extmod/asyncio` files are refused at line 1 ("an import") | census below |
+| S3 ready-ring binding of asyncio tasks | **landed as a model (this lane)** | `smp_asyncio.c`: a Task is a run cell, `create_task`/yield push `smp_ring_push`, an await is `smp_park`, a task end / `Event.set` is `smp_wake` on the run | `tests/test_smp_asyncio.py` (the reference differential and the S10 differential, below) | the product binding of `mp_sched_*` inside the compiled loop |
+| world picture: tram count = ring occupancy (4.5) | **landed** | `server`/world export | `tests/test_world3d.py` (36), `tests/test_reader_js.py` | — |
+| breadth: corpus (e) | partial | `tests/import_corpus` (48 digests), `tests/rxpy_corpus` (8 modules) | `tests/test_import.py`, `tests/test_rxpy.py` | MicroPython `py/*.c`, `extmod/uasyncio`, lwIP |
+
+The census of the gap to uasyncio's source (`tests/test_rxpy_asyncio_gap.py`, AST node kinds in
+the pinned `extmod/asyncio`, six files). The work list of the Python-import lane for uasyncio, in
+the order the strand has to learn them:
+
+| construct | where it occurs (nodes) | what the strand needs |
+|---|---|---|
+| `import` / `from . import` | 1+3 core, 1 task, 2 event, 1 funcs, 1 lock, 5 stream | the module tree as the import face (4.6): a name resolves to a `Module` cell, not a file |
+| `class` | 13 over all six files (Task, TaskQueue, Event, Lock, Loop, streams) | a type cell with methods as function words (i3 dispatch) |
+| attributes (`self.x`) | 377 | fields of a heap object cell (i2 handle operands) |
+| `try`/`raise`/`assert`/`del` | 12/18/7/1 | the nlr seam of S11 (`try/except` is a handler chain; `raise` a Refuse leaf) |
+| `yield`, `yield from`, `async def`, `await` | 11 / 1 / 13 / 9 | the coroutine frame of 4.5: a generator is a run cell's heap frame chain |
+| `for`, comprehension, `nonlocal` | 4 / 1 / 1 | `for` over a protocol, closures (a cell captured by handle) |
+| subscripts | 51 | heap list/dict cells |
+
+**What this lane landed (2026-10-31): the binding as a tested model.** Option (1) of the lane's
+priority list: nothing of the ring binding existed, so the model came first (the compiler strand
+exists; the semantics it must reach did not have a pin).
+
+`tests/host/smp_asyncio.c` maps the table of 4.5 onto `smp_sched.c` (unchanged scheduler, shared
+with the S10 witness): a **Task is a run cell** (pc and the result fold live in the cell);
+`create_task`/`call_soon` is `READY` plus `smp_ring_push` — **the ring is the loop's ready
+deque**, there is no second queue; `await` on a Task or an Event registers the waiter on the
+object's list under one loop lock and calls `smp_park` (**`PARKED`**); a task's end or `Event.set`
+calls `smp_wake` on each waiting **run** (never a carrier); `sleep` is the **edge timer** — the
+edge fires it on a virtual clock that advances only when the world is quiescent (no run `READY`
+or `RUNNING`, an epoch re-check closes the scan against a wake in flight), so the answer never
+depends on which carrier ran what; `Task.cancel` is a **raise deposit** into `mp_raise_slot`
+(`smp_mp_schedule_raise`) plus a wake, consumed at the head of the next step by
+`smp_mp_handle_pending` — the safe point — and it is forwarded to the task the target awaits,
+exactly as uasyncio forwards it; `run_until_complete` is the main run reaching `TERMINAL`.
+
+The corpus (`tests/asyncio_corpus/programs.py`, 15 programs) is **data** — tasks of ops, no code
+in strings — run by two executors: MicroPython's real `asyncio` (`reference.py`, the reference of
+decision 10, both unix seats) and the model. What is pinned:
+
+- **reference differential**: at one carrier the model's report (every task's end state and
+  result fold, and the shared trace in order) equals MicroPython's for all 15 programs: the
+  ring's FIFO order is uasyncio's queue order, timers, event fan-out, cancel and forwarded
+  cancel included;
+- **the S10 differential extended to task-level results** (risk 7, decision 7): at 1, 2, 4, 8
+  carriers, with and without the sliding compaction pass running under the live tasks, results are
+  byte-identical to one carrier and equal MicroPython's; the trace's multiset and each task's own
+  sequence are equal (the total order across tasks is the interleaving: evidence, not result);
+  900 additional runs at 2 to 8 carriers were byte-identical in a stress loop; ThreadSanitizer and
+  AddressSanitizer/UBSan clean;
+- **the mapping as evidence**: ring pops equal steps, parks equal wakes (plus the tasks left
+  pending), a cancel is one deposit plus a wake, the clock moves only by edge-timer fires, a
+  deadlock is a report (never a hang), and 10 refusals are named by the parser.
+
+Two defects the corpus found in the shared scheduler (`tests/host/smp_sched.c`), fixed in the
+same lane:
+
+1. **Lost wake under compaction.** `smp_wake` resolved the target with a plain resolve and
+   answered "not parked" when the compactor held the cell for its copy: no token, no wake. The
+   S10 witness hid it behind its watchdog; an asyncio program has none. The wake (and the
+   cancel's deposit, and the retract) now resolve through `smp_run_resolve`, which waits out the
+   claim and answers NULL only for a stale handle.
+2. **The token outlives a successful wake.** `smp_wake` stores the token before the
+   `PARKED to READY` attempt and nothing takes it back when the attempt wins, so the run's *next*
+   park returns at once. The binding's rule is the condvar's: a wake is a hint and the condition
+   is data — a blocked op re-checks its registration (the waker clears it under the lock before
+   it wakes) and parks again when it has not been served (`spurious_resumes` is the evidence,
+   pinned). Whether `smp_wake` should consume its own token is a protocol question for docs/20 S4;
+   the model does not depend on the answer.
+
+**Seats (all-platforms, honestly):** host C only. This is a model proof like `smp_mpmodel.c`.
+The unix/emcc/firmware/upywm seats run the real interpreter lane (4.3 and 4.6); none of them has
+uasyncio on the image, and none is claimed. The model's report format is the contract those
+seats reproduce when the lane lands.
+
+**What remains, in dependency order:**
+
+1. the Python strand learns the constructs above — `import`/`class`/attributes first (they unlock
+   `task.py`, `event.py`, `lock.py`), then `try`/`raise`, then generators and `async` (they unlock
+   `core.py` and `stream.py`); each construct that leaves the census flips
+   `test_the_blocking_constructs_are_the_measured_work_list` on purpose;
+2. the guest `mp_import_stat` fill on every seat over `Image.resolve_module`;
+3. per-object citations from debug info (`!DILocation`) in `rximport`, and from the AST in `rxpy`;
+4. the net card's line events into the shim's wait/notify (docs/25), which this model leaves as
+   the edge timer's sibling (the `Readiness` frame is another wake targeting a run).
