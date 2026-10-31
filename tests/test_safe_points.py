@@ -184,18 +184,21 @@ def checked(base: Image, data: bytes) -> bytes:
     return bytes(out)
 
 
-@pytest.mark.xfail(
-    reason="the post-apply dump of the twin's canonical walk refuses in its "
-    "genesis placement (segment C, pass 0): the apply's second m_emit runs on "
-    "the changed arena and a placement there fails with REASON_ARENA, where the "
-    "committed engine's dump of the same arena answers digest_of(result) -- "
-    "the write-side replay of the apply path, not the walk itself (the "
-    "untouched-arena dump is byte-identical to link.arena_of)",
-    strict=False,
-)
 def test_a_change_that_is_committed_while_the_loop_runs_makes_its_code_stale(
-    machine_name: str, image: Image
+    request: pytest.FixtureRequest, machine_name: str, image: Image
 ):
+    if machine_name != "wasm32":
+        # The twin's apply and dump are one source (native/live.rxfs) on every
+        # seat; the wasm32 seat proves them in node (this test and the web
+        # console's acts). The emulated seats are minutes to hours per run and
+        # are not re-proved with every change of the source: the mark stays on
+        # them until a run of theirs says it can go.
+        request.applymarker(
+            pytest.mark.xfail(
+                reason="the emulated seat's run of the twin's apply is not re-proved",
+                strict=False,
+            )
+        )
     base = Image.from_bytes(image.to_bytes())
     old = the_value(base)
     result = edited(base, old - 5)

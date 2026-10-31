@@ -319,12 +319,7 @@ def test_the_pages_acts_reach_the_seat_with_the_hosts_bytes(
     that is answered is answered with the digest the engine answers for the
     SAME delta bytes, and a fork carries the result.
 
-    The seat is the native twin, and the twin's apply is not whole yet: its
-    post-apply dump refuses in the genesis placement (night.log, the stale
-    test's xfail) - the first commit answers `delta refused: the arena has no
-    room` (reason 6) and the arena it leaves refuses the next ones too. Until
-    that lane lands the refusal is the pinned answer and the test xfails
-    after holding every other word; the day the twin applies it passes whole."""
+    """
     done = subprocess.run(
         ["node", str(HARNESS), served, "acts", json.dumps([SET, ADD, RENAME])],
         capture_output=True,
@@ -337,15 +332,9 @@ def test_the_pages_acts_reach_the_seat_with_the_hosts_bytes(
     assert len(steps) == 3
     engine = harness.HostImage(link.arena_of(acts.model()))
     digest = oracle.digest()
-    refused: list[str] = []
     for step in steps:
         assert step["before"] == digest, "an act starts from the seat's own digest"
-        if "error" in step:
-            assert step["error"].startswith("delta refused: "), step["error"]
-            refused.append(step["error"])
-            continue
+        assert "error" not in step, step["error"]
         digest = engine.client.apply(bytes.fromhex(step["delta"]))
         assert step["after"] == digest, "the seat answers the engine's digest"
     assert result["fork"] == digest, "a fork carries the image the acts left"
-    if refused:
-        pytest.xfail("the twin's apply is not whole: " + "; ".join(refused))

@@ -3411,13 +3411,15 @@ class Lowering:
         intrinsic = callee[len("llvm.") :]
         if intrinsic.startswith("lifetime."):
             return None
-        if intrinsic in ("umin.i64", "umax.i64", "smin.i64", "smax.i64"):
-            a = self.operand(inst.args[0][1])
-            b = self.operand(inst.args[1][1])
-            signed = intrinsic[0] == "s"
-            if intrinsic.startswith(("umin", "smin")):
-                return self.lower_select(self.less(target, a, b, signed), a, b, inst.name, target)
-            return self.lower_select(self.less(target, b, a, signed), a, b, inst.name, target)
+        extreme = re.fullmatch(r"([us])(min|max)\.i(\d+)", intrinsic)
+        if extreme and f"i{extreme.group(3)}" in MASKS:
+            return self.lower_extreme(inst, target, extreme.group(1) == "s", extreme.group(2) == "min")
+        absolute = re.fullmatch(r"abs\.i(\d+)", intrinsic)
+        if absolute and f"i{absolute.group(1)}" in MASKS:
+            return self.lower_abs(inst, target, int(absolute.group(1)))
+        swap = re.fullmatch(r"bswap\.i(\d+)", intrinsic)
+        if swap and int(swap.group(1)) in (16, 32, 64):
+            return self.lower_bswap(inst, target, int(swap.group(1)))
         if intrinsic.startswith(("fshl.i", "fshr.i")):
             width = int(intrinsic.rsplit(".i", 1)[1])
             a = self.operand(inst.args[0][1])
@@ -3665,6 +3667,78 @@ class Lowering:
             f"{self.fn.name}: a C++ exception edge ({inst.raw!r}): the subset refuses "
             "exceptions (invoke, landingpad and resume never lower)"
         )
+
+    def lower_extreme(self, inst: Inst, target: LBlock, signed: bool, least: bool) -> LBlock:
+        """``llvm.{u,s}{min,max}.iN(a, b)`` of every width of the subset: one compare and
+        a select between the two operands as they stand (a narrow value is already the
+        low bits of its word, and the answer is one of them, so it stays in that form).
+        The unsigned order compares the words; the signed one compares the sign-extended
+        words (the 64-bit ones take the flip of ``less``)."""
+        if len(inst.args) != 2:
+            raise ParseError(f"{self.fn.name}: {inst.callee} without both operands")
+        mask = self.mask_of(inst.args[0][0])
+        a = self.narrow_operand(inst.args[0][1], mask)
+        b = self.narrow_operand(inst.args[1][1], mask)
+        left, right = a, b
+        if signed:
+            left = rxemit.sext_value(self.at(target), a, mask)
+            right = rxemit.sext_value(self.at(target), b, mask)
+        first, second = (left, right) if least else (right, left)
+        return self.lower_select(self.less(target, first, second, signed), a, b, inst.name, target)
+
+    def lower_abs(self, inst: Inst, target: LBlock, width: int) -> LBlock:
+        """``llvm.abs.iN(x, int_min_is_poison)``: ``x`` where its sign bit is clear and
+        ``0 - x`` (in the width) where it is set. INT_MIN negates to itself, which is the
+        answer of the form that does not poison it and a legal one of the form that does."""
+        if len(inst.args) != 2:
+            raise ParseError(f"{self.fn.name}: {inst.callee} without its operand and flag")
+        mask = self.mask_of(f"i{width}")
+        x = self.narrow_operand(inst.args[0][1], mask)
+        negative = self.less(
+            target, rxemit.sext_value(self.at(target), x, mask), self.literal(0), signed=True
+        )
+        flipped = rxemit.and_mask(
+            self.at(target), self.call(target, "wrapping_subtract_uint64_t", [self.literal(0), x]), mask
+        )
+        return self.lower_select(negative, flipped, x, inst.name, target)
+
+    def lower_bswap(self, inst: Inst, target: LBlock, width: int) -> LBlock:
+        """``llvm.bswap.iN(x)`` for N = 16, 32, 64: the bytes of the word in the opposite
+        order, as one shift and one mask per byte or'ed together -- the delta vocabulary
+        gains nothing (the shift leaves, the mask and the or are the ones every other
+        lowering of the subset uses). Byte ``i`` of the input (bits 8i..8i+7) lands at
+        bits ``N-8-8i``: a left shift by the difference where that is a gain, a right
+        shift where it is a loss, and the byte's own mask keeps the neighbours out (the
+        one byte the shift already isolates takes none)."""
+        if len(inst.args) != 1:
+            raise ParseError(f"{self.fn.name}: {inst.callee} without its operand")
+        mask = self.mask_of(f"i{width}")
+        x = self.narrow_operand(inst.args[0][1], mask)
+        total: MOperand | None = None
+        for index in range(width // 8):
+            source = 8 * index
+            landing = width - 8 - 8 * index
+            if landing == source:  # the bytes of the middle of a word that stay put
+                part = rxemit.and_mask(self.at(target), x, 0xFF << landing)
+            elif landing > source:
+                part = self.call(
+                    target, "shift_left_uint64_t", [x, self.literal(landing - source)],
+                    input_types=[U64, U32],
+                )  # fmt: skip
+                if landing + 8 != 64:  # past the word's top the shift already dropped it
+                    part = rxemit.and_mask(self.at(target), part, 0xFF << landing)
+            else:
+                part = self.call(
+                    target, "shift_right_uint64_t", [x, self.literal(source - landing)],
+                    input_types=[U64, U32],
+                )  # fmt: skip
+                if source + 8 != width:  # the top byte is alone after its shift
+                    part = rxemit.and_mask(self.at(target), part, 0xFF << landing)
+            total = part if total is None else self.call(target, "bit_or_uint64_t", [total, part])
+        if total is None:
+            raise ParseError(f"{self.fn.name}: a byte swap of no bytes")
+        self.note(inst.name, total)
+        return target
 
     def funnel(
         self, target: LBlock, inst: Inst, a: MOperand, b: MOperand, c: MOperand, width: int, left: bool

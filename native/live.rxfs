@@ -992,6 +992,7 @@ sub s_release(Zoff_rel) {
     var rel_prev;
     var rel_next;
     var rel_room;
+    var rel_clear;
     rl2_r = 3;
     if (Zoff_rel >= 4096) {
         if (Zoff_rel < load64(ab + 8)) {
@@ -1043,11 +1044,19 @@ sub s_release(Zoff_rel) {
                                 }
                             }
                         } else {
+                            # A ring span carries 16 link bytes behind its header
+                            # (40 bytes or more); a smaller one stays linkless and
+                            # clears only the room it has - the 16 would run over
+                            # the next record's header (ObjectArena::s_release).
                             rel_room = rel_span - 24;
-                            callsub s_before_write(Zoff_rel + 24, 16);
+                            rel_clear = 16;
+                            if (rel_room < 16) {
+                                rel_clear = rel_room;
+                            }
+                            callsub s_before_write(Zoff_rel + 24, rel_clear);
                             rl2_r = bw_r;
                             if (bw_r == 0) {
-                                callsub s_zero(ab + Zoff_rel + 24, 16);
+                                callsub s_zero(ab + Zoff_rel + 24, rel_clear);
                                 callsub s_before_write(Zoff_rel, 4);
                                 rl2_r = bw_r;
                                 if (bw_r == 0) {
@@ -1549,7 +1558,12 @@ sub s_create() {
                         store32(ab + al_at + 8, cs_parent);
                         store32(ab + al_at + 12, 4294967295);
                         store32(ab + al_at + 16, cs_refc);
-                        store32(ab + al_at + 20, cs_payload);
+                        # The record carries the room the allocator GRANTED
+                        # (ObjectArena::create: the span minus its header): a
+                        # span taken whole absorbs the slack that was too small
+                        # to split off, and a record that claimed less than its
+                        # span leaves a gap the stream walk cannot cross.
+                        store32(ab + al_at + 20, al_room);
                         if (cr_free == 1) {
                             cr_ix = cr_at;
                         }
@@ -1665,34 +1679,99 @@ sub s_create() {
     }
 }
 
-# destroy(handle) -> de_r: the span frees, the index entry dies, the spec row resets.
+# destroy(handle) -> de_r: the object leaves its parent's chain, the span frees, the index entry
+# dies, the spec row resets (ObjectArena::release_handle). A module that still has children
+# stays (status 10, HasChildren): what would point at them is why it refuses.
 macro m_destroy(Zh) {
     var de_off;
     var de_ix;
     var de_spc;
+    var de_par;
+    var de_pr;
+    var de_prev;
+    var de_cur;
+    var de_next;
+    var de_stop;
     callsub s_rec(Zh);
     de_r = 2;
     if (ce_r != 0) {
-        de_off = ce_r - ab;
-        de_ix = Zh & 1048575;
-        m_entry(de_ix);
-        callsub s_before_write(sp_r - ab, 16);
-        de_r = bw_r;
-        if (bw_r == 0) {
-            store16(sp_r, 0);
-            store16(sp_r + 2, 0);
-            store64(sp_r + 8, 0);
-            de_spc = aspec + 24 * de_ix;
-            callsub s_before_write(de_spc - ab, 24);
+        de_r = 0;
+        if (load16(ce_r) == 1) {
+            if (load32(ce_r + 24) != 4294967295) {
+                de_r = 10;
+            }
+        }
+        if (de_r == 0) {
+            de_off = ce_r - ab;
+            de_ix = Zh & 1048575;
+            de_par = load32(ce_r + 8);
+            # Unlink from the parent's chain first: a walk must never meet a
+            # dead link (docs/32 1.2 release semantics).
+            if (de_par != 4294967295) {
+                callsub s_rec(de_par);
+                de_pr = ce_r;
+                if (de_pr != 0) {
+                    if (load16(de_pr) == 1) {
+                        de_prev = 4294967295;
+                        de_cur = load32(de_pr + 24);
+                        de_stop = 0;
+                        while (de_cur != 4294967295 & de_stop == 0 & de_r == 0) {
+                            callsub s_rec(de_cur);
+                            if (ce_r == 0) {
+                                de_stop = 1;
+                            } else {
+                                de_next = load32(ce_r + 12);
+                                if (de_cur == Zh) {
+                                    if (de_prev == 4294967295) {
+                                        callsub s_before_write(de_pr + 24 - ab, 8);
+                                        de_r = bw_r;
+                                        if (bw_r == 0) {
+                                            store32(de_pr + 24, de_next);
+                                        }
+                                    } else {
+                                        callsub s_rec(de_prev);
+                                        callsub s_before_write(ce_r + 12 - ab, 4);
+                                        de_r = bw_r;
+                                        if (bw_r == 0) {
+                                            store32(ce_r + 12, de_next);
+                                        }
+                                    }
+                                    if (de_r == 0) {
+                                        if (load32(de_pr + 28) > 0) {
+                                            store32(de_pr + 28, load32(de_pr + 28) - 1);
+                                        }
+                                    }
+                                    de_stop = 1;
+                                } else {
+                                    de_prev = de_cur;
+                                    de_cur = de_next;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (de_r == 0) {
+            m_entry(de_ix);
+            callsub s_before_write(sp_r - ab, 16);
             de_r = bw_r;
             if (bw_r == 0) {
-                store32(de_spc, 4294967295);
-                store32(de_spc + 4, 0);
-                store32(de_spc + 8, 0);
-                store32(de_spc + 12, 0);
-                store64(de_spc + 16, 0);
-                callsub s_release(de_off);
-                de_r = rl2_r;
+                store16(sp_r, 0);
+                store16(sp_r + 2, 0);
+                store64(sp_r + 8, 0);
+                de_spc = aspec + 24 * de_ix;
+                callsub s_before_write(de_spc - ab, 24);
+                de_r = bw_r;
+                if (bw_r == 0) {
+                    store32(de_spc, 4294967295);
+                    store32(de_spc + 4, 0);
+                    store32(de_spc + 8, 0);
+                    store32(de_spc + 12, 0);
+                    store64(de_spc + 16, 0);
+                    callsub s_release(de_off);
+                    de_r = rl2_r;
+                }
             }
         }
     }
@@ -1839,6 +1918,18 @@ macro m_commit() {
         aj = 0;
         cm_r = 0;
     }
+}
+
+# rebind() -> asyms, acursor: the session's own views of the arena, derived again from the bytes
+# a rollback put back. The syms table is a record the bytes may have moved (a growth in the
+# refused apply) and the first free slot is a cursor the refused creates advanced: a view that
+# is not re-derived points at the span the rollback just freed, and the next apply (or dump)
+# reads names out of it.
+macro m_rebind() {
+    m_entry(1);
+    asyms = ab + load64(sp_r + 8) + 24;
+    src_syms = asyms;
+    acursor = 0;
 }
 
 macro m_rollback() {
@@ -3803,9 +3894,17 @@ macro m_emit() {
     var em_init_r;
     var em_fo;
     var em_nref;
+    var em_fk;
+    var em_fe;
+    var em_fr;
+    var em_fc;
+    var em_fi;
     em_r = 0;
     em_rsn = 6;
     callsub s_scratch_reset();
+    # The source's names are the syms table the arena holds NOW: an apply that
+    # interned a name may have grown (moved) it since the attach.
+    src_syms = asyms;
     em_n = load32(ab + 4120);
     em_go = 0;
     if (em_n < 0xFFFFFFF0) {
@@ -4181,24 +4280,46 @@ macro m_emit() {
                             }
                         } else {
                             # The type's declared reference slots (fixup_refs):
-                            # the offsets are the world's value (the head is
-                            # the source's own), and a slot that points at an
-                            # object that is gone is unset in the canonical
-                            # image (compaction does the same).
-                            em_t = em_rowt;
-                            callsub s_refs_of(em_t);
-                            if (ro_r == 0) {
-                                em_go = 0;
-                            } else {
-                                em_k = 0;
-                                while (em_k < load32(ro_words) & em_go == 1) {
-                                    em_off2 = load32(ro_words + 4 + 4 * em_k) & 2147483647;
-                                    if (em_head2 + em_off2 + 8 > em_pay2) {
-                                        em_go = 0;
-                                    } else {
-                                        m_fixup_slot();
+                            # the Field children of the object's type whose flags
+                            # carry REF, each `count` slots from its `offset`
+                            # (ground.h pymergetic_rxf_field: flags at +4, offset
+                            # at +24, count at +32 of the Field's value). The
+                            # offsets are the world's value (the head is the
+                            # source's own), and a slot that points at an object
+                            # that is gone is unset in the canonical image
+                            # (compaction does the same). The row's type is a
+                            # handle: the kids lists are indexed by its low bits.
+                            if (em_rowt != 4294967295) {
+                                em_fk = em_rowt & 1048575;
+                                if (em_fk >= em_n) {
+                                    em_go = 0;
+                                } else {
+                                    em_fe = load32(kstart + 4 * (em_fk + 1));
+                                    em_fk = load32(kstart + 4 * em_fk);
+                                    while (em_fk < em_fe & em_go == 1) {
+                                        m_pack_i(load32(klist + 4 * em_fk));
+                                        callsub s_rec(hx_r);
+                                        em_fr = ce_r;
+                                        em_fk = em_fk + 1;
+                                        if (em_fr != 0) {
+                                            if (load32(em_fr + 20) >= 48) {
+                                                if ((load32(em_fr + 28) & 8) != 0) {
+                                                    em_fc = load64(em_fr + 56);
+                                                    em_fo = load64(em_fr + 48);
+                                                    em_fi = 0;
+                                                    while (em_fi < em_fc & em_go == 1) {
+                                                        em_off2 = em_fo + 8 * em_fi;
+                                                        if (em_head2 + em_off2 + 8 > em_pay2) {
+                                                            em_go = 0;
+                                                        } else {
+                                                            m_fixup_slot();
+                                                        }
+                                                        em_fi = em_fi + 1;
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
-                                    em_k = em_k + 1;
                                 }
                             }
                         }
@@ -4986,7 +5107,17 @@ macro m_apply_replay() {
     var ar_name;
     var ar_name_len;
     var ar_parent;
-    var ar_old;
+    var ar_rec;
+    var ar_head;
+    var ar_want;
+    var ar_nm;
+    var ar_nl;
+    var ar_kd;
+    var ar_scan;
+    var ar_si;
+    var ar_mod;
+    var ar_sp2;
+    var ar_sn2;
     var ar_to;
     var ar_nref;
     var ar_k;
@@ -5068,14 +5199,64 @@ macro m_apply_replay() {
                         }
                     }
                     if (ar_ok == 1) {
+                        # The module rule is the writer's (live.cpp apply): an
+                        # object the delta itself gives children is a Module,
+                        # found by scanning the ops behind this one for a
+                        # create under this path. The storage role is the
+                        # record's, not the semantic kind's (docs/32 2), and
+                        # the room is the module head's 8 bytes plus the
+                        # value rounded to a slot.
+                        ar_mod = 0;
+                        ar_scan = ar_pos;
+                        ar_si = ar_i + 1;
+                        while (ar_si < load32(jdhead + 8) & ar_mod == 0) {
+                            if (load32(ar_d + ar_scan) == 1 | load32(ar_d + ar_scan) == 2) {
+                                callsub s_string_at(load32(ar_d + ar_scan + 4), ar_strings, jb_ssize);
+                                ar_sp2 = sa_p;
+                                ar_sn2 = sa_n;
+                                if (load32(ar_d + ar_scan) == 1 & ar_sn2 > ar_n + 1) {
+                                    callsub s_cmp(ar_sp2, ar_p, ar_n);
+                                    if (cmp_r == 0 & load8(ar_sp2 + ar_n) == 46) {
+                                        ar_mod = 1;
+                                    }
+                                }
+                                ar_scan = ar_scan + 48 +
+                                          ((load32(ar_d + ar_scan + 32) + 7) & ~7) +
+                                          8 * load32(ar_d + ar_scan + 40) +
+                                          16 * load32(ar_d + ar_scan + 36);
+                            } else {
+                                ar_scan = ar_scan + 8;
+                            }
+                            ar_si = ar_si + 1;
+                        }
+                        cs_flags = load32(ar_d + ar_opos + 12);
+                        # LEAF_KIND (arena_export.py): fn and code are FUNC, the
+                        # typed layouts SPEC, the names SYM, the rest BLOB.
+                        ar_kd = 6;
+                        ar_want = cs_flags & 255;
+                        if (ar_want == 6 | ar_want == 7) {
+                            ar_kd = 2;
+                        }
+                        if (ar_want == 4 | ar_want == 5 | ar_want == 20) {
+                            ar_kd = 4;
+                        }
+                        if (ar_want == 12 | ar_want == 13 | ar_want == 21) {
+                            ar_kd = 5;
+                        }
+                        ar_want = (load32(ar_d + ar_opos + 32) + 7) & ~7;
+                        if (ar_mod == 1) {
+                            ar_kd = 1;
+                            ar_want = ar_want + 8;
+                        }
+                        cs_kind = ar_kd;
+                        cs_refc = 1;
                         cs_type = 0xFFFFFFFFFFFFFFFF;
                         cs_parent = ar_parent;
                         cs_name = ar_name;
                         cs_name_len = ar_name_len;
-                        cs_flags = load32(ar_d + ar_opos + 12);
                         cs_generation = load64(ar_d + ar_opos + 24);
                         cs_index = load32(ar_d + ar_opos + 16);
-                        cs_payload = load32(ar_d + ar_opos + 32);
+                        cs_payload = ar_want;
                         cs_refs = load32(ar_d + ar_opos + 36);
                         callsub s_create();
                         ar_h = cr_h;
@@ -5099,24 +5280,59 @@ macro m_apply_replay() {
                         ar_ok = 0;
                     }
                     if (ar_ok == 1) {
-                        callsub s_cell(ar_h);
-                        ar_old = ce_r;
-                        if (load64(ar_old + 16) != load32(ar_d + ar_opos + 32)) {
-                            callsub s_resize(ar_h, load32(ar_d + ar_opos + 32),
-                                     load32(ar_d + ar_opos + 36));
-                            if (rz_r != 0) {
-                                callsub s_reason_of(rz_r);
+                        # A record that outgrows its room is freed and re-grown
+                        # (docs/32 1.2; live.cpp apply): the index is handed out
+                        # again and the generation bumps. A value that fits the
+                        # room stays where it is - the room is the record's own
+                        # (rounded, a module's head included), never the exact
+                        # length of the delta's value.
+                        callsub s_rec(ar_h);
+                        ar_rec = ce_r;
+                        ar_head = 0;
+                        if (load16(ar_rec) == 1) {
+                            ar_head = 8;
+                        }
+                        ar_want = ar_head + ((load32(ar_d + ar_opos + 32) + 7) & ~7);
+                        if (ar_want > load32(ar_rec + 20)) {
+                            ar_parent = load32(ar_rec + 8);
+                            ar_kd = load16(ar_rec);
+                            callsub s_sym_addr(load16(ar_rec + 6));
+                            ar_nm = sa_r;
+                            ar_nl = 0;
+                            if (ar_nm != 0) {
+                                callsub s_len(ar_nm);
+                                ar_nl = len_r;
+                            }
+                            m_table_del(ar_h);
+                            m_destroy(ar_h);
+                            if (de_r != 0) {
+                                callsub s_reason_of(de_r);
                                 jb_reason = ro2_r;
                                 ar_ok = 0;
-                            }
-                        } else {
-                            if (load32(ar_old + 44) != load32(ar_d + ar_opos + 36)) {
-                                callsub s_resize(ar_h, load32(ar_d + ar_opos + 32),
-                                         load32(ar_d + ar_opos + 36));
-                                if (rz_r != 0) {
-                                    callsub s_reason_of(rz_r);
+                            } else {
+                                cs_type = 0xFFFFFFFFFFFFFFFF;
+                                cs_parent = ar_parent;
+                                cs_name = ar_nm;
+                                cs_name_len = ar_nl;
+                                cs_kind = ar_kd;
+                                cs_refc = 1;
+                                cs_flags = load32(ar_d + ar_opos + 12);
+                                cs_generation = load64(ar_d + ar_opos + 24);
+                                cs_index = load32(ar_d + ar_opos + 16);
+                                cs_payload = ar_want;
+                                cs_refs = 0;
+                                callsub s_create();
+                                ar_h = cr_h;
+                                if (cr_r != 0) {
+                                    callsub s_reason_of(cr_r);
                                     jb_reason = ro2_r;
                                     ar_ok = 0;
+                                } else {
+                                    callsub s_table_ins(ar_h);
+                                    if (tin_r == 0) {
+                                        jb_reason = 4;
+                                        ar_ok = 0;
+                                    }
                                 }
                             }
                         }
@@ -5139,13 +5355,22 @@ macro m_apply_replay() {
                     }
                 }
                 if (ar_ok == 1) {
+                    # The value lands behind the head the appends own (live.cpp:
+                    # a module's first 8 bytes are its chain).
+                    callsub s_rec(ar_h);
+                    ar_head = 0;
+                    if (ce_r != 0) {
+                        if (load16(ce_r) == 1) {
+                            ar_head = 8;
+                        }
+                    }
                     if (load32(ar_d + ar_opos + 32) != 0) {
                         callsub s_payload_w(ar_h);
                         if (pw_r == 0) {
                             jb_reason = 7;
                             ar_ok = 0;
                         } else {
-                            callsub s_cpy(pw_r, ar_body, load32(ar_d + ar_opos + 32));
+                            callsub s_cpy(pw_r + ar_head, ar_body, load32(ar_d + ar_opos + 32));
                         }
                     }
                 }
@@ -5174,12 +5399,14 @@ macro m_apply_replay() {
                                 jb_reason = 7;
                                 ar_ok = 0;
                             } else {
-                                store64(pw_r + load32(ar_patches + 8 * ar_k), 0xFFFFFFFFFFFFFFFF);
+                                store64(pw_r + ar_head + load32(ar_patches + 8 * ar_k),
+                                        0xFFFFFFFFFFFFFFFF);
                             }
                         } else {
                             store32(ar_pend + 20 * ar_npend, ar_h);
                             store32(ar_pend + 20 * ar_npend + 4, 1);
-                            store32(ar_pend + 20 * ar_npend + 8, load32(ar_patches + 8 * ar_k));
+                            store32(ar_pend + 20 * ar_npend + 8,
+                                    ar_head + load32(ar_patches + 8 * ar_k));
                             store32(ar_pend + 20 * ar_npend + 12, load32(ar_patches + 8 * ar_k + 4));
                             store32(ar_pend + 20 * ar_npend + 16, ar_i);
                             ar_npend = ar_npend + 1;
@@ -5628,6 +5855,7 @@ macro m_run_job(Zjob) {
                                                     if (rj_ph == 12) {
                                                         if (aj != 0) {
                                                             m_rollback();
+                                                            m_rebind();
                                                             callsub s_build_table();
                                                             if (bt_r == 1) {
                                                                 store32(ar + 140, 1);
