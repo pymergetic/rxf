@@ -1208,13 +1208,28 @@
     /* ---- city blocks: the massing the wide views read (block > building > floors) -------- */
     say("the city blocks", 0, 0);
     await breathe();
+    /* the district band a point of the city sits in, by the region plots' geometry */
+    function bandAt(x, z) {
+      for (var region of doc.regions) {
+        var p = region.plot;
+        if (x >= p.x && x <= p.x + p.w && z >= p.z && z <= p.z + p.d) return region.band;
+      }
+      return "cells";
+    }
     var blockMatrices = [];
     var blockColors = [];
     var massMatrices = [];
     var massColors = [];
     for (var cityBlock of doc.blocks || []) {
       var blockPlot = cityBlock.plot;
-      var blockTint = color(FAMILY_COLORS[cityBlock.family] || FAMILY_COLORS.block, 0.5);
+      /* the L0 city layout wears the palette's band tints - the district, cells, and
+       * header/index colors the floor reads as districts by. The neon family colors are
+       * the anatomy buildings' read (the towers' cyan, the monuments' gold), never the
+       * block plates: a violet block pad glares through the tiles' street gaps and bands
+       * the horizon with torn purple streaks. */
+      var blockBand = bandAt(blockPlot.x + blockPlot.w / 2, blockPlot.z + blockPlot.d / 2);
+      var blockDistrict = tintOf(blockBand, Math.round(blockPlot.x * 13 + blockPlot.z));
+      var blockTint = blockDistrict.scale(0.72);
       blockMatrices.push(
         placed(
           blockPlot.x + blockPlot.w / 2,
@@ -1228,7 +1243,7 @@
       blockColors.push(blockTint.r, blockTint.g, blockTint.b, 1);
       /* the aggregate massing: the block's shaded volume, visible where buildings are dots */
       var massHeight = cityBlock.height * 0.55 + 1.2;
-      var massTint = color(FAMILY_COLORS[cityBlock.family] || FAMILY_COLORS.block, 0.82);
+      var massTint = blockDistrict.scale(1.12);
       massMatrices.push(
         placed(
           blockPlot.x + blockPlot.w / 2,
