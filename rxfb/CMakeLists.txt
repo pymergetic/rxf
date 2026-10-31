@@ -18,6 +18,20 @@ target_include_directories(rxfb PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options(rxfb PRIVATE -ffreestanding -fno-builtin -Wall -Wextra -Werror)
 set_target_properties(rxfb PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# The C++ face: rxfb.hpp, header-only, C++20, over the same C symbols (rxfb_cpp links the C core
+# in). It is built the way the engine is built (no exceptions, no RTTI), and so is everything that
+# links it. rxfb_cpp_probe is a program that touches the whole face with no standard library: a
+# freestanding object that must need nothing but the rxfb_* symbols.
+add_library(rxfb_cpp INTERFACE)
+target_include_directories(rxfb_cpp INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/cpp)
+target_compile_features(rxfb_cpp INTERFACE cxx_std_20)
+target_compile_options(rxfb_cpp INTERFACE -fno-exceptions -fno-rtti)
+target_link_libraries(rxfb_cpp INTERFACE rxfb)
+
+add_library(rxfb_cpp_probe OBJECT cpp/test/probe.cpp)
+target_link_libraries(rxfb_cpp_probe PRIVATE rxfb_cpp)
+target_compile_options(rxfb_cpp_probe PRIVATE -ffreestanding -Wall -Wextra -Werror)
+
 # The hosted example: maps an image and prints path/payload/digest. Its SHA-256 is the engine's own,
 # so it is built where the engine's sources are (this repository); the library does not need it.
 set(RXFB_ENGINE_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../src)
@@ -31,4 +45,13 @@ if(EXISTS ${RXFB_ENGINE_SRC}/pymergetic/rxftk/core/hash/sha256.cpp)
   target_link_libraries(rxfb_dump PRIVATE rxfb)
   target_include_directories(rxfb_dump PRIVATE ${RXFB_ENGINE_SRC})
   target_compile_options(rxfb_dump PRIVATE -Wall -Wextra -Werror)
+
+  # The same program against the C++ face: its output is the C program's, byte for byte.
+  add_executable(rxfb_dump_cpp
+    cpp/example/rxfb_dump.cpp
+    example/sha256_engine.cpp
+    ${RXFB_ENGINE_SRC}/pymergetic/rxftk/core/hash/sha256.cpp)
+  target_link_libraries(rxfb_dump_cpp PRIVATE rxfb_cpp)
+  target_include_directories(rxfb_dump_cpp PRIVATE ${RXFB_ENGINE_SRC})
+  target_compile_options(rxfb_dump_cpp PRIVATE -Wall -Wextra -Werror)
 endif()
