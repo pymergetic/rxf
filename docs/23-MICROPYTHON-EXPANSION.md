@@ -209,9 +209,8 @@ Packet path (both directions are the same story reversed):
 
 **Status (slice 1, measured):** lwIP 2.2.0 is vendored and pinned (`third_party/lwip`), the NO_SYS=1 port
 face is `native/lwip/`, and the import lane has been run over IPv4 + UDP + ICMP + `slipif` as far as it
-honestly goes -- 83 of 115 bodies import and compose, 10 are refused with the importer's own reasons
-(two for `llvm.memmove`, four local-array address arithmetics, two out-pointer writes, two `ptrtoint`
-constant expressions), 22 wait for libc faces, the SLIP line fills or a body of the path that waits.
+honestly goes -- 85 of 115 bodies import and compose, 8 are refused with the importer's own reasons
+(two for `llvm.memmove`, four local-array address arithmetics, two out-pointer writes), 22 wait for libc faces, the SLIP line fills or a body of the path that waits.
 Slice 1 first measured 68 / 38, 30 of the refusals for `llvm.bswap`/`umin`/`abs` intrinsics; the
 importer lowers those now (docs/35 §3.1) and every body of the UDP echo path lowers, the path ends
 at the SLIP line. The table, the differentials that run today and the next packages are
@@ -469,9 +468,10 @@ emitter exist (below); the debug-info citation does not.
 | MicroPython seam model (S11) | **landed** (a model, not MicroPython) | `tests/host/smp_mpmodel.c`, docs/20 S11 | `tests/test_smp.py` (10 passed) | the real interpreter does not run on the image yet |
 | value width (decision 1) | **landed** | `rxemit.DataModel`, `rximport.module_model` | `tests/test_import_width.py` | — |
 | shared emitter (decision 9) | **landed** (extracted) | `tools/native/rxemit.py` (`emit_delta`; `rximport` and `rxpy` both call it) | `tests/test_import.py`, `tests/test_rxpy.py` | — |
-| Python-import strand (4.3) | **landed, a subset** | `tools/native/rxpy.py` (`import_py_file(image, source, module, known=, provenance=)`; ints, `if`/`while`/`break`/`continue`, calls, tuple returns as out cells, module cells, imports of modules of the image, simple classes as named instance cells) | `tests/test_rxpy.py`: 2253 passed (both MicroPython seats, 1076 in-domain differential pins and the one-sided out-of-domain pins per seat, 91 shape/refusal pins); `tests/test_rxpy_imports.py` 202; `tests/test_rxpy_objects.py` 43 | no `try`, `raise`, `for`, generators, `async`/`await`, strings, floats, subscripts; an instance is a named cell only (nothing made at run time, no object in a name or a parameter) — see the census below |
+| Python-import strand (4.3) | **landed, a subset** | `tools/native/rxpy.py` (`import_py_file(image, source, module, known=, provenance=)`; ints, `if`/`while`/`break`/`continue`, calls with default parameters and keyword arguments, tuple returns as out cells, procedures (a def that answers None), module cells, tables (tuple / list / bytes data cells), imports of modules of the image, simple classes as named instance cells) | `tests/test_rxpy.py`: 2253 passed (both MicroPython seats, 1076 in-domain differential pins and the one-sided out-of-domain pins per seat, 91 shape/refusal pins); `tests/test_rxpy_imports.py` 202; `tests/test_rxpy_objects.py` 43; `tests/test_rxpy_subset.py` 255 | no `try`, `raise`, `for`, generators, `async`/`await`, strings, floats, `None` as a value, slices, dict/set; an instance is a named cell only (nothing made at run time, no object in a name or a parameter) — see the census below |
 | imports as a lookup of named cells (4.6, compile side) | **landed (2026-10-31)** | `rxpy.Resolver` (reads `Image.resolve_module`, the children of a `Module` cell, a Function's Signature), `bind_import`, `nest` (dotted modules as nested Modules, `rxf:parent` onto an existing package), `rxemit.LValue.foreign` | `tests/test_rxpy_imports.py` (202 passed on both MicroPython seats: the reference IMPORTS the corpus `tests/rxpy_corpus/imports` with its own machinery, packages and relative imports included; 18 named refusals) | a cell no def reads or writes is not in the image, so it cannot be imported (the emitter writes cells from their uses); the guest side is the next row |
 | simple classes (1, 4.3) | **landed (2026-10-31)** | `rxpy.declare_class`/`declare_instance`: `NAME = C(constants)` is one named cell of the fields' words, a method is a graph per instance over that cell | `tests/test_rxpy_objects.py` (43 passed on both seats: three call streams incl. methods called directly as `m.a.bump`, layout, 30 named refusals) | no run-time construction and no object held in a name or a parameter: the graph machine's one cell operand (`OBJECT`) names a cell by a constant id, no operand resolves a handle held in a slot (docs/23 4.1 "resolve at use", risk 4) and no allocation leaf exists; no inheritance; an instance of another module is reached through that module's functions only (the layout is not in the image) |
+| in-subset closures (2026-10-31): defaults, procedures, tables, every cell emitted, probed classes | **landed** | `rxpy.py`: `Sig.defaults/names/procedure`, `return_shape`, `DataCell`/`table_of`, `with_cells`, `probe_classes`, `compile_module` | `tests/test_rxpy_subset.py` (255 passed on both MicroPython seats: pure cases, three call streams, one-sided out-of-domain pins for a table index past the length, 31 named refusals) | `None` has no word (a word cannot be told from the int 0, so `is None` would answer wrong words): only the absence of an answer is representable (a procedure: a Signature with no Result), so `NAME = None` cells and `None` as a value stay refused; an imported function carries neither parameter names nor defaults (the Signature has none), so it takes its words by position; a table of another module is not readable by an importer (its length is not in the image); strings have no operation in the subset |
 | Python differential (decision 10) | **landed** | `tests/rxpy_mp_answer.py` runs the corpus under a real MicroPython unix port | `tests/test_rxpy.py`. Until 2026-10-31 it **skipped silently in every worktree**: the binary search used `parents[2]`, which is `worktrees/` there. `tests/mp_reference.py` now walks up to `packages/`; the 1086 pins run | — |
 | provenance knob, `was once Python` marker (5) | **landed** | `rximport.Provenance`, `--provenance` of `rximport.py` and `rxpy.py` | `tests/test_import.py` (C import not marked), `tests/test_rxpy.py` (marker set, report shape) | per-object citations from debug info (`!DILocation`): the citation spans the whole file ("the importer never guesses") |
 | comment lifting (4.7) | partly | `rximport.py` comment capture, `Provenance` | `tests/test_import.py` | the call-site contract of 4.7 as a separate tool |
@@ -507,51 +507,51 @@ import": the guest stdlib is not in the module tree. With every import served (t
 <!-- rxpy_gap:begin (generated: python -m tests.rxpy_gap) -->
 | file | statements of the file served | compiles (ok / refused) | first refusal against the image |
 |---|---|---|---|
-| `core.py` | 2 imports, 6 dropped | def 0/9, class 1/4, method 1/14 | line 4: from time import ...: the image has no module time (the image is the module tree: import it first) |
-| `task.py` | 1 imports, 0 dropped | def 0/3, class 1/1, method 0/6 | line 7: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
-| `event.py` | 1 imports, 1 dropped | def 0/0, class 1/0, method 0/4 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
-| `funcs.py` | 1 imports, 2 dropped | def 0/2, class 0/1, method 0/1 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
+| `core.py` | 2 imports, 6 dropped | def 0/9, class 0/5, method 2/13 | line 4: from time import ...: the image has no module time (the image is the module tree: import it first) |
+| `task.py` | 1 imports, 0 dropped | def 0/3, class 0/2, method 0/6 | line 7: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
+| `event.py` | 1 imports, 1 dropped | def 0/0, class 0/1, method 0/4 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
+| `funcs.py` | 1 imports, 2 dropped | def 0/2, class 0/1, method 1/0 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
 | `lock.py` | 1 imports, 0 dropped | def 0/0, class 0/1, method 0/3 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
-| `stream.py` | 1 imports, 7 dropped | def 0/1, class 0/2, method 0/9 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
+| `stream.py` | 1 imports, 7 dropped | def 0/1, class 0/2, method 1/8 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
 
 | reason (first refusal of a def, a method, a class or a statement) | count |
 |---|---|
-| an object held in a name or a parameter (no cell the graph can resolve) | 8 |
+| a module-level binding that is not an integer constant | 10 |
+| an object held in a name or a parameter (no cell the graph can resolve) | 10 |
 | async def (the coroutine frame of 4.5) | 8 |
-| a default parameter | 7 |
-| a module-level binding that is not an integer constant | 5 |
-| yield (the coroutine frame of 4.5) | 5 |
-| a call of a name the strand does not compile (a builtin or a face) | 4 |
-| an attribute store on an object held in a name | 4 |
+| a call of a name the strand does not compile (a builtin or a face) | 6 |
+| yield (the coroutine frame of 4.5) | 6 |
 | raise (the exception seam) | 4 |
-| a function that falls off the end (None is not a word) | 3 |
 | a module-level binding that is not NAME = constant | 3 |
-| a subscript (a sequence cell) | 3 |
+| an attribute store on an object held in a name | 3 |
+| assert (the panic seam) | 3 |
 | global of a name that is not an integer cell | 3 |
 | try/except (the nlr seam of S11) | 3 |
-| None as a value (a value is a word) | 2 |
 | a special method (only __init__ is of the subset) | 2 |
 | for (the subset loops with while) | 2 |
 | inheritance | 2 |
-| a bare return (None is not a word) | 1 |
+| is / is not / in / not in (identity and membership) | 2 |
+| *args, **kwargs or a keyword-only parameter | 1 |
+| None as a value (no word of its own) | 1 |
 | a callee that is not a name or an attribute | 1 |
 | a class attribute or a nested class | 1 |
 | a conditional expression | 1 |
 | a decorator | 1 |
+| a name the subset cannot bind (a class or a global of no cell) | 1 |
+| a subscript (a sequence cell) | 1 |
 | an expression or a control statement at module level | 1 |
-| assert (the panic seam) | 1 |
 | del | 1 |
-| is / is not / in / not in (identity and membership) | 1 |
 <!-- rxpy_gap:end -->
 
-Reading it: **0 of 15 top-level defs and 1 of 38 methods compile**; 3 of 12 top-level classes have
-an acceptable layout (`Event`, one of `core.py`'s and one of `task.py`'s: a class is accepted by
-its shape, its methods are checked per instance). `event.py` and `lock.py` do not become
-importable: their methods read `self.x` of an object **held in a name** (the largest single reason:
-the machine has no operand that resolves a handle in a slot — the i2 follow-up of risk 4), and
-`wait`/`acquire` are generators / `async def` (the coroutine frame of 4.5). A smaller class of
-blockers is the strand's subset (default parameters, module-level bindings that are not integer
-constants, `global` of a non-integer cell, a function that falls off the end with `None`).
+Reading it: **0 of 15 top-level defs, 0 of 12 top-level classes and 4 of 38 methods compile.**
+Before the in-subset closures (defaults, procedures, tables, probed classes) it read 0 / 3 of 12
+(by layout only) / 1 of 38; a class now counts as compiled only when its methods pass over a probe
+instance, which is why the class column fell to 0 while the method column rose to 4. `event.py`
+and `lock.py` do not become importable: their methods read `self.x` of an object **held in a
+name** (the largest single reason, with module-level bindings that are not integer constants —
+chiefly `NAME = None` and dict literals: `None` has no word) and `wait`/`acquire` are generators /
+`async def` (the coroutine frame of 4.5). Default parameters, which were 7 of the first refusals,
+are gone from the table.
 
 **What this lane landed (2026-10-31): the binding as a tested model.** Option (1) of the lane's
 priority list: nothing of the ring binding existed, so the model came first (the compiler strand
@@ -612,11 +612,12 @@ seats reproduce when the lane lands.
 **What remains, in dependency order:**
 
 1. the graph machine learns an operand that resolves a handle held in a slot (and an allocation
-   leaf): it unlocks instances made at run time, objects passed to functions, and the 8 + 4
+   leaf): it unlocks instances made at run time, objects passed to functions, and the 10 + 3
    "object held in a name" refusals above; then the strand's `try`/`raise` (the nlr seam), then
    generators and `async` (they unlock `core.py` and `stream.py`); each construct that leaves the
    census flips `test_the_blocking_constructs_are_the_measured_work_list` on purpose;
-   default parameters and `None` as a value are the strand's own subset, closable first;
+   (default parameters, procedures, tables, emitted cells and probed classes are done: the
+   in-subset closures row above);
 2. the guest `mp_import_stat` fill on every seat over `Image.resolve_module`;
 3. per-object citations from debug info (`!DILocation`) in `rximport`, and from the AST in `rxpy`;
 4. the net card's line events into the shim's wait/notify (docs/25), which this model leaves as

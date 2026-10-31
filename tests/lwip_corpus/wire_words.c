@@ -8,8 +8,10 @@
  * next to the card's own bodies and compared against the same C compiled natively
  * (tests/test_lwip_import.py), on the card's real options.
  *
- * The pbufs come from the pbuf pool and from references: the heap (mem_init) is still refused
- * for its constant expression (docs/35), so no PBUF_RAM body is run here.
+ * The pbufs come from the pbuf pool, from references and from the heap: mem_init and lwip_init
+ * lowered once the importer carried the integer arithmetic of a constant expression over the
+ * address of ram_heap (LWIP_MEM_ALIGN), so wire_init runs the whole boot of the stack and the
+ * PBUF_RAM bodies run over the heap it aligned.
  */
 #include "../../native/lwip/core_slice.c"
 
@@ -75,5 +77,50 @@ uint64_t wire_chain_partial(const uint8_t *in, uint16_t length, uint8_t *out, ui
     uint64_t answer =
         (uint64_t)copied | ((uint64_t)pbuf_clen(p) << 16) | ((uint64_t)(uint8_t)err << 24);
     pbuf_free(p);
+    return answer;
+}
+
+/* the whole boot of the stack: mem_init (the aligned heap), memp_init, netif, udp, the timers */
+uint64_t wire_init(void) {
+    lwip_init();
+    return 0;
+}
+
+/* pbuf_alloc from the heap: one pbuf of the whole length (the lengths the answer holds are the
+ * same for any address the heap has) or none when the heap cannot hold it */
+uint64_t wire_ram(uint16_t length) {
+    struct pbuf *p = pbuf_alloc(PBUF_RAW, length, PBUF_RAM);
+    if (p == NULL) {
+        return ~(uint64_t)0;
+    }
+    uint64_t answer =
+        (uint64_t)p->len | ((uint64_t)p->tot_len << 16) | ((uint64_t)pbuf_clen(p) << 32);
+    pbuf_free(p);
+    return answer;
+}
+
+/* the heap's free list, observed without an address: a block freed and asked for again comes
+ * back (same pointer: bit 0), the second block survived the free of the first (bit 2), the
+ * alloc did not fail (bit 1); the heap is whole again afterwards (bit 3: one more of the first
+ * size still fits) */
+uint64_t wire_ram_reuse(uint16_t first, uint16_t second) {
+    struct pbuf *a = pbuf_alloc(PBUF_RAW, first, PBUF_RAM);
+    struct pbuf *b = pbuf_alloc(PBUF_RAW, second, PBUF_RAM);
+    if (a == NULL || b == NULL) {
+        return ~(uint64_t)0;
+    }
+    pbuf_free(a);
+    struct pbuf *c = pbuf_alloc(PBUF_RAW, first, PBUF_RAM);
+    uint64_t answer =
+        (uint64_t)(c == a) | ((uint64_t)(c != NULL) << 1) | ((uint64_t)(b->len == second) << 2);
+    pbuf_free(b);
+    if (c != NULL) {
+        pbuf_free(c);
+    }
+    struct pbuf *d = pbuf_alloc(PBUF_RAW, first, PBUF_RAM);
+    answer |= (uint64_t)(d != NULL) << 3;
+    if (d != NULL) {
+        pbuf_free(d);
+    }
     return answer;
 }

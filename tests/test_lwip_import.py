@@ -49,8 +49,6 @@ OK = 0
 # tier 1: refused by rximport, and the class of the importer's own reason
 REFUSED = {
     "lwip_itoa": "intrinsic",
-    "lwip_init": "constant-expression",
-    "mem_init": "constant-expression",
     "ipaddr_addr": "local-address",
     "ip4addr_aton": "local-address",
     "ip4addr_ntoa": "local-address",
@@ -167,6 +165,8 @@ COMPOSED = frozenset(
         "udp_new_ip_type",
         "udp_netif_ip_addr_changed",
         "rxf_lwip_set_now",
+        "mem_init",
+        "lwip_init",
         "__wires_boot",
     }
 )
@@ -312,7 +312,6 @@ def test_the_refusal_reasons_are_the_importers_own_words(lane):
         assert "overlap-safe" in reasons[name], name
     assert "frame slot" in reasons["ip4addr_aton"]
     assert "a pointer to a value" in reasons["netif_add"]
-    assert "an instruction outside the subset" in reasons["mem_init"]
     # the libc, the SLIP line and the refused siblings are what the unlinked bodies wait for
     assert lane.unresolved["sio_send"] == ["slipif_output_v4"]
     assert lane.unresolved["sio_open"] == ["slipif_init"]
@@ -528,6 +527,9 @@ WIRE_BODIES = (
     "wire_chksum_chain",
     "wire_alloc",
     "wire_chain_partial",
+    "wire_init",
+    "wire_ram",
+    "wire_ram_reuse",
 )
 SWAPPED = (
     0, 1, 0xFF, 0x100, 0x1234, 0x7FFF, 0x8000, 0xABCD, 0xFFFF, 0x10000, 0x12345678, 0x80000000,
@@ -552,6 +554,11 @@ def wire(tmp_path_factory: pytest.TempPathFactory) -> Host:
         getattr(made.native, name).restype = ctypes.c_uint64
         getattr(made.native, name).argtypes = [ctypes.c_uint64]
     made.native.wire_boot.restype = ctypes.c_uint64
+    made.native.wire_init.restype = ctypes.c_uint64
+    made.native.wire_ram.restype = ctypes.c_uint64
+    made.native.wire_ram.argtypes = [ctypes.c_uint64]
+    made.native.wire_ram_reuse.restype = ctypes.c_uint64
+    made.native.wire_ram_reuse.argtypes = [ctypes.c_uint64, ctypes.c_uint64]
     made.native.wire_chksum.restype = ctypes.c_uint64
     made.native.wire_chksum.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
     made.native.wire_chksum_chain.restype = ctypes.c_uint64
@@ -648,3 +655,39 @@ def test_the_pool_pbufs_match_the_native_reference(wire: Host):
             )
             taken += expected & 0xFFFF
         assert taken > 0
+
+
+@pytest.mark.slow
+def test_the_heap_boot_and_ram_pbufs_match_the_native_reference(wire: Host):
+    """lwip_init (mem_init over the aligned ram_heap: the constant expression the importer
+    carries now) boots the whole stack, and the PBUF_RAM pbufs live in the heap it made: the
+    lengths pbuf_alloc answers, the failure when the heap cannot hold a block, and the free
+    list (a freed block comes back, a live neighbour survives) equal the natively compiled
+    card's. The heap is placed at an address of each side's own, so only address-free answers
+    compare."""
+    with rxf_native.Memory(1 << 18) as memory:
+        status, wired = wire.run(memory, "__wires_boot")
+        assert (status, wired) == (OK, 0)
+        assert wire.native.wire_init() == 0
+        assert wire.run(memory, "wire_init") == (OK, 0), "lwip_init refused or differs"
+        for length in (0, 1, 100, 1000, 1500, 3000, 6000, 8000, 9000, 60000):
+            expected = wire.native.wire_ram(length)
+            assert wire.run(memory, "wire_ram", length) == (OK, expected), length
+        for first, second in (
+            (10, 20),
+            (100, 100),
+            (500, 1000),
+            (1000, 500),
+            (2000, 3000),
+        ):
+            expected = wire.native.wire_ram_reuse(first, second)
+            assert wire.run(memory, "wire_ram_reuse", first, second) == (
+                OK,
+                expected,
+            ), (
+                first,
+                second,
+            )
+            assert expected & 0xF == 0xF, (
+                f"the native heap reuses the freed block ({expected:#x})"
+            )
