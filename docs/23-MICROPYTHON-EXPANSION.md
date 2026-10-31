@@ -812,26 +812,46 @@ named instance is a field or a cell); the kinds still blocking are `try`, `raise
 `del`, `yield`, `yield from`, `async def`, `await`, `for`, comprehension, `nonlocal`, subscripts
 (same counts as before). Against the image as it is, **no file moves past its first import** — but
 the refusal now names the module the tree lacks (`time`, the package `asyncio`) instead of "an
-import": the guest stdlib is not in the module tree. With every import served (the measurement's
-`Served` resolver) the answer per top-level statement is:
+import": the guest stdlib is not in the module tree. With every import served **and the file's own
+defs bound where the file binds them** (the measurement's `Served` resolver plus a `known` map of
+the file's defs: a call of a sibling def names the function the file defines, so a def's refusal is
+a construct of the def, not of the file's glue) the answer per top-level statement is:
 
 <!-- rxpy_gap:begin (generated: python -m tests.rxpy_gap) -->
 | file | statements of the file served | compiles (ok / refused) | first refusal against the image |
 |---|---|---|---|
-| `core.py` | 2 imports, 6 dropped | def 0/9, class 0/5, method 2/13 | line 4: from time import ...: the image has no module time (the image is the module tree: import it first) |
+| `core.py` | 2 imports, 6 dropped | def 2/7, class 0/5, method 3/12 | line 4: from time import ...: the image has no module time (the image is the module tree: import it first) |
 | `task.py` | 1 imports, 0 dropped | def 0/3, class 0/2, method 0/6 | line 7: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
 | `event.py` | 1 imports, 1 dropped | def 0/0, class 0/1, method 0/4 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
 | `funcs.py` | 1 imports, 2 dropped | def 0/2, class 0/1, method 1/0 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
 | `lock.py` | 1 imports, 0 dropped | def 0/0, class 0/1, method 0/3 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
 | `stream.py` | 1 imports, 7 dropped | def 0/1, class 0/2, method 1/8 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
 
+| def | the first construct that refuses it |
+|---|---|
+| `sleep_ms` (`core.py`) | a default that folds to no word (None or a call) |
+| `sleep` (`core.py`) | compiles |
+| `_promote_to_task` (`core.py`) | a conditional expression |
+| `create_task` (`core.py`) | raise (the exception seam) |
+| `run_until_complete` (`core.py`) | a default that folds to no word (None or a call) |
+| `run` (`core.py`) | compiles |
+| `get_event_loop` (`core.py`) | a name the subset cannot bind (a class or a global of no cell) |
+| `current_task` (`core.py`) | raise (the exception seam) |
+| `new_event_loop` (`core.py`) | global of a name that is not an integer cell |
+| `ph_meld` (`task.py`) | is / is not / in / not in (identity and membership) |
+| `ph_pairing` (`task.py`) | None as a value (no word of its own) |
+| `ph_delete` (`task.py`) | is / is not / in / not in (identity and membership) |
+| `wait_for_ms` (`funcs.py`) | a function as a value (a callee is not a word) |
+| `gather` (`funcs.py`) | *args, **kwargs or a keyword-only parameter |
+| `open_connection` (`stream.py`) | a default that folds to no word (None or a call) |
+
 | reason (first refusal of a def, a method, a class or a statement) | count |
 |---|---|
-| a module-level binding that is not an integer constant | 10 |
-| an object held in a name or a parameter (no cell the graph can resolve) | 10 |
+| an object held in a name or a parameter (no cell the graph can resolve) | 11 |
 | async def (the coroutine frame of 4.5) | 8 |
-| a call of a name the strand does not compile (a builtin or a face) | 6 |
 | yield (the coroutine frame of 4.5) | 6 |
+| a default that folds to no word (None or a call) | 5 |
+| a module-level binding that is not an integer constant | 5 |
 | raise (the exception seam) | 4 |
 | a module-level binding that is not NAME = constant | 3 |
 | an attribute store on an object held in a name | 3 |
@@ -844,25 +864,64 @@ import": the guest stdlib is not in the module tree. With every import served (t
 | is / is not / in / not in (identity and membership) | 2 |
 | *args, **kwargs or a keyword-only parameter | 1 |
 | None as a value (no word of its own) | 1 |
+| a call of a name the strand does not compile (a builtin or a face) | 1 |
 | a callee that is not a name or an attribute | 1 |
 | a class attribute or a nested class | 1 |
 | a conditional expression | 1 |
 | a decorator | 1 |
+| a function as a value (a callee is not a word) | 1 |
 | a name the subset cannot bind (a class or a global of no cell) | 1 |
 | a subscript (a sequence cell) | 1 |
 | an expression or a control statement at module level | 1 |
 | del | 1 |
 <!-- rxpy_gap:end -->
 
-Reading it: **0 of 15 top-level defs, 0 of 12 top-level classes and 4 of 38 methods compile.**
-Before the in-subset closures (defaults, procedures, tables, probed classes) it read 0 / 3 of 12
-(by layout only) / 1 of 38; a class now counts as compiled only when its methods pass over a probe
-instance, which is why the class column fell to 0 while the method column rose to 4. `event.py`
-and `lock.py` do not become importable: their methods read `self.x` of an object **held in a
-name** (the largest single reason, with module-level bindings that are not integer constants —
-chiefly `NAME = None` and dict literals: `None` has no word) and `wait`/`acquire` are generators /
-`async def` (the coroutine frame of 4.5). Default parameters, which were 7 of the first refusals,
-are gone from the table.
+Reading it: **2 of 15 top-level defs, 0 of 12 top-level classes and 5 of 38 methods compile.**
+The per-def rows are this census' contract: every still-refused def names the first construct of
+*the def* that refuses it, and a def counts as compiled when every construct of the def lowers --
+a callee's own refusal is the callee's row (`run` calls `run_until_complete` and `create_task`,
+whose rows name their blockers).
+
+| census | before this package | after this package | why it moved |
+|---|---|---|---|
+| top-level defs compiling | 0 of 15 | 2 of 15 (`run`, `sleep`) | `run` moved when the measurement started binding the file's own defs (the old measurement compiled each def alone and refused `run`, `sleep` and `wait_for_ms` at a call of a function of their own file -- a call, not a construct); `sleep` moved on the `int` builtin this package lowered |
+| top-level classes compiling | 0 of 12 | 0 of 12 | no class's methods pass over its probe instance yet |
+| methods compiling | 4 of 38 | 5 of 38 | `Loop.create_task` binds its sibling `create_task` the same honest way |
+
+**The construct that unblocks the most defs is measured, and it is not `async def`/`await` nor
+generators**: none of the fifteen plain defs is refused at one -- uasyncio's coroutines are the
+five `async def` top-level defs the census does not count (`_stopper`, `_run`, `wait_for`,
+`start_server`, `stream_awrite`; `wait_for` is the name the earlier table listed as a plain def)
+and `yield` inside methods, which are the 8 + 6 histogram rows above and the first refusal of no
+plain def. Measured per def, the construct that carries the most first refusals is **a default
+that folds to no word** (3 of the 15 rows: `sleep_ms`'s `SingletonGenerator()` default, a
+run-time allocation, and the `= None` defaults of `run_until_complete` and `open_connection`);
+behind the two `= None` rows stands the **None word**, which in total stands behind 4 rows
+(`None` as a value in `ph_pairing`, `is None` in `ph_meld`, and those two defaults). Lowering the
+default alone does not compile one of the three, and that is measured too (every default of the
+three folded to a word, then re-compiled): `sleep_ms` then stops at `assert` (the panic seam),
+`run_until_complete` at a body that answers a word on one path and `None` on another,
+`open_connection` at an import inside a def. Both walls are machine-lane decisions and not this
+strand's to make: the word ABI has no spare word for `None` (a word cannot be told from the int 0
+-- the refusal says so by name) and a class-call default needs the handle-resolving operand and
+heap allocation of 4.1. This package therefore lowered the construct it can reach and pin
+honestly: **the `int` builtin**, `sleep`'s one construct -- the word-coercion face, `int` of a
+word is the word, differentially pinned against real MicroPython (`tests/rxpy_corpus/words.py`
+`coerce*`, in-domain answers identical). The next single item is the **None word** (with
+`is`/`is not` against it and `= None` defaults): it stands behind 4 of the 15 rows and unblocks
+`ph_pairing`, `ph_meld`'s first line and the two default rows -- but it is an ABI decision the
+machine lane must take first.
+
+Earlier (the imports / attributes / classes lane), for the record: before the in-subset closures
+(defaults, procedures, tables, probed classes) the reading was 0 / 3 of 12 (by layout only) / 1 of
+38; a class now counts as compiled only when its methods pass over a probe instance, which is why
+the class column reads 0 while the method column is at 5. `event.py` and `lock.py` do not become
+importable: their methods read `self.x` of an object **held in a name** (the largest single reason
+of the histogram, with the module-level bindings that are not integer constants -- chiefly
+`NAME = None` and dict literals: `None` has no word) and `wait`/`acquire` are generators /
+`async def` (the coroutine frame of 4.5). Integer default parameters, which were 7 of the first
+refusals, are gone from the table; what stays of defaults is named for what it is, a default that
+folds to no word.
 
 **What this lane landed (2026-10-31): the binding as a tested model.** Option (1) of the lane's
 priority list: nothing of the ring binding existed, so the model came first (the compiler strand

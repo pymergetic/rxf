@@ -9,13 +9,15 @@ is the measurement; ``tests/rxpy_asyncio_gap.json`` the pinned answer):
 - against the image as it is, every upstream asyncio source stops at its first import, and the
   refusal names the module the tree lacks (``time``, the package ``asyncio``): the module tree
   of the image has no guest stdlib yet;
-- with every import served, the strand's answer per top-level statement (a def, a class, a method
-  tried as a def over a parameter ``self``) is the pinned table: which compile, and the first
-  reason each is refused;
+- with every import served and the file's own defs bound where the file binds them (a call of a
+  sibling def is a call of the file's function, so a def's refusal is a construct of the def), the
+  strand's answer per top-level statement (a def, a class, a method tried as a def over a parameter
+  ``self``) is the pinned table: which compile, and the first reason each is refused -- per def by
+  name, the contract of the census;
 - the census of construct kinds still blocking the six files is the work list of the
   Python-import lane for uasyncio. A construct leaves the set when the strand learns to lower it
   and these tests go red on purpose; ``PYTHONPATH=tools/native:. python -m tests.rxpy_gap
-  --write`` regenerates the pin and prints the rows of the docs/23 table from the one measurement.
+  --write`` regenerates the pin and writes the rows of the docs/23 table from the one measurement.
 
 The model of the S3 ring binding (tests/test_smp_asyncio.py) proves what uasyncio's primitives
 MEAN on the run-cell machine; this file proves how far the compiler still is from reading the

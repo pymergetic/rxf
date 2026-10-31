@@ -157,6 +157,12 @@ IN_CASES: list[tuple[str, str, tuple[int, ...]]] = [
     *cases_of("chain", "triangle", [(n,) for n in range(8)]),
     # a face of another import (borrow.py, against chain.double_it)
     *cases_of("borrow", "borrow", [(x,) for x in GRID]),
+    # the word-coercion face (words.py): int of a word is the word, wherever it stands
+    *cases_of("words", "coerce", [(x,) for x in GRID]),
+    *cases_of("words", "coerce_ms", [(t,) for t in (0, 1, 2, 5, -1, -3, 7, -7, 100, -100)]),
+    *cases_of("words", "coerce_sum", PAIRS),
+    *cases_of("words", "coerce_twice", [(x,) for x in GRID]),
+    *cases_of("words", "coerce_statement", [(x,) for x in GRID]),
 ]
 
 # Outside the domain both sides are pinned exactly, one-sidedly: what the run really
@@ -234,6 +240,9 @@ REFUSALS = [
     ("def f(x):\n    return x @ x\n", "the @ operator"),
     ("def f(x):\n    print(x)\n    return x\n", "print"),
     ("def f(x):\n    return len(x)\n", "a call of"),
+    ("def f(x):\n    return int()\n", "int takes one word"),
+    ("def f(x):\n    return int(x, 16)\n", "int takes one word"),
+    ("def f(x):\n    return int(x, base=16)\n", "int takes one word"),
     ("def f(x):\n    y = x = 1\n    return y\n", "chained assignment"),
     ("def f(x):\n    if x:\n        return 1\n    return\n", "a word on one path and None"),
     ("def f(x):\n    if x:\n        return 1, 2\n    return 3\n", "on one path"),
@@ -541,7 +550,9 @@ DELTA_DIGESTS = {
     "loops.py": "59a43506ca958b30f91dd22b78e2446b07f1bd08b581c0c89012de66240ec304",
     "pair.py": "c87bc7d78b02ca880803f9fe82fb9ae6aa19d358ee6a5ec3ae1ebb07fabfc30d",
     # flipped to the status branch (was 3325828d099b12951bbf9b210d2b222440b6b33500628a4ea59a76836aa01503)
-    "words.py": "f9b592b31cb7dad5134e6734fbefeb26e741f47d4ddcbfafba84df6dfec8c3d1",
+    # flipped again for the word-coercion face: the coerce* defs of the int builtin (was
+    # f9b592b31cb7dad5134e6734fbefeb26e741f47d4ddcbfafba84df6dfec8c3d1)
+    "words.py": "bacbd55da11d64f43602bada6f94444c5e24d70caba547a8e23709a1a2995563",
 }
 
 

@@ -514,12 +514,17 @@ def parse(text: str, module: str = "imported", resolver: Resolver | None = None)
     return src
 
 
-def taken(src: Source, name: str, lineno: int) -> None:
-    """A module-level name binds once: a def, a cell and an import share one namespace."""
-    if (
+def bound(src: Source, name: str) -> bool:
+    """A module-level name is taken: a def, a cell, an import, a class, an instance or a table."""
+    return (
         name in src.signatures or name in src.cells or name in src.imports
         or name in src.classes or name in src.instances or name in src.data
-    ):
+    )
+
+
+def taken(src: Source, name: str, lineno: int) -> None:
+    """A module-level name binds once: a def, a cell and an import share one namespace."""
+    if bound(src, name):
         raise Refused(f"{src.module}: line {lineno}: {name} is bound twice")
 
 
@@ -1679,10 +1684,31 @@ class Lowering:
                 )
         return made
 
+    def int_face(self, node: ast.Call) -> ast.expr | None:
+        """``int(word)`` as the word itself, when ``int`` is the builtin this module does not
+        shadow.  The subset's values are whole words -- integers already -- so the coercion
+        MicroPython performs is the word (``int`` of an int answers that int, and the reference
+        agrees on every word); a float or a string it would convert is refused where it stands,
+        and a ``base`` is a string's digits.  None where the call is not this face: the name is
+        bound by this module or held by a local, and the ordinary call rules take it."""
+        if not isinstance(node.func, ast.Name) or node.func.id != "int":
+            return None
+        if self.local("int") or bound(self.src, "int") or "int" in self.known:
+            return None
+        if node.keywords or len(node.args) != 1:
+            raise Refused(
+                f"line {node.lineno}: int takes one word (a base names a string's digits: no "
+                "string value is of the subset)"
+            )
+        return node.args[0]
+
     def call_expression(self, env: dict[str, MOperand], node: ast.Call) -> MOperand:
         """A call of a function of the module (or a face ``known`` of another import): one
         call card, its answer one word.  A callee that answers a tuple is refused here --
         a tuple call is unpacked (``lo, hi = f(x)``) or discarded as a statement."""
+        argument = self.int_face(node)
+        if argument is not None:
+            return self.operand(env, argument)
         if (
             isinstance(node.func, ast.Name) and node.func.id == "len" and not self.local("len")
             and len(node.args) == 1 and not node.keywords
@@ -1941,6 +1967,10 @@ class Lowering:
             if is_string(node.value):
                 return  # a docstring: it documents, it does not run
             if isinstance(node.value, ast.Call):
+                argument = self.int_face(node.value)
+                if argument is not None:
+                    self.operand(env, argument)  # the coercion answers the word: drop it here
+                    return
                 callee, outs = self.callee_of(node.value)
                 self.call_card(env, node.value, callee, outs)
                 return

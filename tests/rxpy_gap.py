@@ -1,16 +1,22 @@
 """The measured gap between the Python strand and upstream uasyncio (docs/23 4.3, 4.5 and 7).
 
 ``measure()`` compiles the six pinned ``extmod/asyncio`` sources the way the strand would if their
-imports were served and reports, per file, what it takes and what it refuses, by name:
+imports were served and the file's own defs were bound where the file binds them (the file stands
+as it is: a call of a sibling def names the function the file defines), and reports, per file, what
+it takes and what it refuses, by name:
 
 * ``imports`` -- the import statements of the file, and the first refusal of the file against the
   image as it is (the starter: none of ``time``, ``sys``, ``select``, ``io``, the package
   ``asyncio`` itself is in the module tree);
-* ``statements`` -- every top-level statement and what became of it with its imports served: a
-  ``def`` compiles or is refused (the first reason), a ``class`` is a layout the strand accepts or
-  refuses (its methods are checked per instance, and no instance of these exists, so each method
-  is also tried as a def over a parameter ``self``, which is what a method of an instance held in
-  a name is), anything else at module level is dropped by the strand's own rule;
+* ``statements`` -- every top-level statement and what became of it with its imports served and
+  the file's own defs bound: a ``def`` compiles or is refused (the first reason), a ``class`` is a
+  layout the strand accepts or refuses (its methods are checked per instance, and no instance of
+  these exists, so each method is also tried as a def over a parameter ``self``, which is what a
+  method of an instance held in a name is), anything else at module level is dropped by the
+  strand's own rule;
+* ``defs`` -- the contract of docs/23 section 7: each top-level def by name, and the first
+  construct of the def that refuses it (``"compiles"`` where every construct of the def lowers --
+  a callee's own refusal is the callee's row);
 * ``reasons`` -- the histogram of the first refusals.
 
 ``tests/rxpy_asyncio_gap.json`` is the pinned answer; ``tests/test_rxpy_asyncio_gap.py`` compares
@@ -18,6 +24,9 @@ the measurement with it, and goes red the day the strand learns a construct. The
 is this module's command line (the JSON and the rows of the docs/23 table, from one measurement):
 
     PYTHONPATH=tools/native:. python -m tests.rxpy_gap --write
+
+``--raw`` prints the verbatim refusal message per statement instead (the inspection behind the
+stable reason names of the pin).
 """
 
 import ast
@@ -65,6 +74,7 @@ REASONS = (
     ("a string", "a string as a value"),
     ("a call of", "a call of a name the strand does not compile (a builtin or a face)"),
     ("takes a default", "a default parameter"),
+    ("'s default is not an integer constant", "a default that folds to no word (None or a call)"),
     ("a decorator", "a decorator"),
     ("a conditional expression", "a conditional expression"),
     ("a list", "a list or dict or set value"),
@@ -76,6 +86,7 @@ REASONS = (
     ("None as a value", "None as a value (no word of its own)"),
     ("takes *args, **kwargs", "*args, **kwargs or a keyword-only parameter"),
     ("is a name the subset cannot bind", "a name the subset cannot bind (a class or a global of no cell)"),
+    ("is a function, not a word", "a function as a value (a callee is not a word)"),
     ("a bare return", "a bare return (None is not a word)"),
     ("falls off the end", "a function that falls off the end (None is not a word)"),
     ("a NoneType as a value", "None as a value (a value is a word)"),
@@ -121,10 +132,12 @@ def reason_of(message: str) -> str:
     return "other: " + re.sub(r"line \d+: ", "", message.split(": ", 1)[-1])[:60]
 
 
-def tried(text: str, module: str, only: set[str] | None = None) -> str | None:
+def tried(
+    text: str, module: str, only: set[str] | None = None, known: dict[str, str] | None = None
+) -> str | None:
     """None when the text compiles with its imports served, else the refusal's message."""
     try:
-        rxpy.graphs_of(text, module, only=only, resolver=Served())
+        rxpy.graphs_of(text, module, only=only, known=known, resolver=Served())
     except rxpy.Refused as problem:
         return str(problem)
     return None
@@ -137,14 +150,23 @@ def source_of(text: str, node: ast.AST) -> str:
     return "\n".join(line[indent:] for line in lines)
 
 
-def survey(path: Path, name: str) -> dict:
+def survey(path: Path, name: str, raws: dict[str, str] | None = None) -> dict:
     """What the strand does with one source: its imports against the image as it is, then every
-    top-level statement with the imports served."""
+    top-level statement with its imports served and the file's own defs bound where the file
+    binds them (the file stands as it is: a call of a sibling def names the function the file
+    defines, so a def's refusal is a construct OF THE DEF).  ``raws``, when given, collects the
+    verbatim refusal message per statement (the inspection the ``--raw`` mode prints; the pin
+    stores the stable reason name instead)."""
     text = path.read_text()
     module = ast.parse(text)
     imports = [n for n in module.body if isinstance(n, (ast.Import, ast.ImportFrom))]
     header = "\n".join(ast.unparse(n) for n in imports)
     package = f"asyncio.{name}"
+    known = {
+        node.name: f"{package}.{node.name}"
+        for node in module.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
     image = tree.load(STARTER)
     first = None
     try:
@@ -153,33 +175,43 @@ def survey(path: Path, name: str) -> dict:
         first = str(problem).split(": ", 1)[-1]
     reasons: Counter[str] = Counter()
     kinds = {"def": [0, 0], "class": [0, 0], "method": [0, 0], "dropped": 0}
+    defs: list[list[str]] = []  # pairs in the file's order: the pin's keys sort, the table does not
     for node in module.body:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             continue
-        segment = source_of(text, node)
+        segment = f"{header}\n{source_of(text, node)}\n"
         if isinstance(node, ast.FunctionDef):
-            bad = tried(f"{header}\n{segment}\n", package)
+            bad = tried(segment, package, known=known)
             kinds["def"][1 if bad else 0] += 1
-            if bad:
-                reasons[reason_of(bad)] += 1
+            defs.append([node.name, reason_of(bad) if bad else "compiles"])
+            key = node.name
         elif isinstance(node, ast.ClassDef):
-            bad = tried(f"{header}\n{segment}\n", package)
+            bad = tried(segment, package, known=known)
             kinds["class"][1 if bad else 0] += 1
+            key = f"class {node.name}"
+        else:
+            bad = tried(segment, package, known=known)
             if bad:
-                reasons[reason_of(bad)] += 1
+                kinds["dropped"] += 1
+            key = f"line {node.lineno}"
+        if bad:
+            reasons[reason_of(bad)] += 1
+            if raws is not None:
+                raws[f"{name}.{key}"] = bad
+        if isinstance(node, ast.ClassDef):
             for method in (m for m in node.body if isinstance(m, ast.FunctionDef)):
                 if method.name.startswith("__") and method.name.endswith("__"):
                     continue
-                bad = tried(f"{header}\n{source_of(text, method)}\n", package)
+                bad = tried(f"{header}\n{source_of(text, method)}\n", package, known=known)
                 kinds["method"][1 if bad else 0] += 1
                 if bad:
                     reasons[reason_of(bad)] += 1
-        elif tried(f"{header}\n{segment}\n", package) is not None:
-            kinds["dropped"] += 1
-            reasons[reason_of(tried(f"{header}\n{segment}\n", package) or "")] += 1
+                    if raws is not None:
+                        raws[f"{name}.{node.name}.{method.name}"] = bad
     return {
         "imports": {"statements": len(imports), "first_refusal": first},
         "compiles": {k: v for k, v in kinds.items() if k != "dropped"},
+        "defs": defs,
         "dropped": kinds["dropped"],
         "reasons": dict(sorted(reasons.items(), key=lambda item: (-item[1], item[0]))),
     }
@@ -206,6 +238,10 @@ def rows(measured: dict[str, dict]) -> list[str]:
     total: Counter[str] = Counter()
     for name in FILES:
         total.update(measured[name]["reasons"])
+    out += ["", "| def | the first construct that refuses it |", "|---|---|"]
+    for name in FILES:
+        for fn, reason in measured[name]["defs"]:
+            out.append(f"| `{fn}` (`{name}.py`) | {reason} |")
     out += ["", "| reason (first refusal of a def, a method, a class or a statement) | count |", "|---|---|"]
     out += [
         f"| {reason} | {count} |"
@@ -215,9 +251,25 @@ def rows(measured: dict[str, dict]) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
+    if "--raw" in argv:
+        root = upstream()
+        assert root is not None, "no upstream MicroPython checkout in the workspace"
+        for name in FILES:
+            raws: dict[str, str] = {}
+            survey(root / f"{name}.py", name, raws)
+            for key, message in raws.items():
+                sys.stdout.write(f"{key}: {message}\n")
+        return 0
     measured = measure()
     if "--write" in argv:
         PINNED.write_text(json.dumps(measured, indent=2, sort_keys=True) + "\n")
+        docs = Path(__file__).parents[1] / "docs" / "23-MICROPYTHON-EXPANSION.md"
+        text = docs.read_text()
+        begin = text.index("<!-- rxpy_gap:begin")
+        made = "\n".join(rows(measured)) + "\n"
+        head = text[: text.index("\n", begin) + 1]
+        tail = text[text.index("<!-- rxpy_gap:end -->") :]
+        docs.write_text(head + made + tail)
     sys.stdout.write("\n".join(rows(measured)) + "\n")
     return 0
 
