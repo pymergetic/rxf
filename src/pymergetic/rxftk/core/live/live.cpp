@@ -246,6 +246,106 @@ class Session {
         arena_.super()->entry = handle;
     }
 
+    /* Whether a handle a payload slot or a row holds names an object that is there: none is
+     * fine (an unset slot), anything else must pass the index entry's generation check. */
+    bool holds_live(uint64_t value) {
+        if (value == PYMERGETIC_RXF_HANDLE_NONE)
+            return true;
+        pymergetic_rxf_object *record = nullptr;
+        return value <= 0xFFFFFFFFULL &&
+               arena_.load(static_cast<uint32_t>(value), &record) == arena::Status::Ok;
+    }
+
+    /* Every handle that something holds points at an object that is there (the twin's
+     * check_all, native/live.rxfs): the entry, the parent and the type of each object, the
+     * target and role of each row of its relation table, and each declared reference slot
+     * of its value. The declared slots are ObjectArena::fixup_refs's rule: the Field
+     * children of the row's type that carry FIELD_FLAG_REF, each `count` slots from its
+     * `offset` (behind the module head when the object is a module). The dump unsets such
+     * a handle silently (docs/32 5.4: the canonical form drops what is gone), so the
+     * replay must refuse it before the commit. The reason stays DANGLING unless the type's
+     * layout is more than the walk reads (LAYOUT). */
+    bool check_all(uint32_t *reason) {
+        *reason = PYMERGETIC_RXF_REASON_DANGLING;
+        if (arena_.super()->entry != PYMERGETIC_RXF_HANDLE32_NONE &&
+            !holds_live(arena_.super()->entry))
+            return false;
+        const uint32_t count = arena_.handle_count();
+        for (uint32_t index = 0; index < count; index++) {
+            const uint64_t h = packed(index);
+            if (h == 0)
+                continue;
+            const uint32_t handle = static_cast<uint32_t>(h);
+            pymergetic_rxf_object *record = nullptr;
+            if (arena_.load(handle, &record) != arena::Status::Ok)
+                return false;
+            if (record->parent != PYMERGETIC_RXF_HANDLE32_NONE && !holds_live(record->parent))
+                return false;
+            pymergetic_rxf_spec row{};
+            if (arena_.spec(handle, &row) != arena::Status::Ok)
+                return false;
+            if (row.type != PYMERGETIC_RXF_HANDLE32_NONE && !holds_live(row.type))
+                return false;
+            uint32_t held = 0;
+            Status st = arena_.refs_of(handle, nullptr, 0, &held);
+            if (st != Status::Ok && st != Status::OutOfMemory)
+                return false;
+            if (held != 0) {
+                /* The rows come out of the arena once, into the work region; the
+                 * mark gives the room back before the next object. */
+                uint8_t *mark = scratch_at_;
+                auto *rows = static_cast<pymergetic_rxf_ref *>(
+                    take(sizeof(pymergetic_rxf_ref) * uint64_t(held)));
+                if (rows == nullptr) {
+                    *reason = PYMERGETIC_RXF_REASON_SCRATCH;
+                    return false;
+                }
+                if (arena_.refs_of(handle, rows, held, &held) != Status::Ok)
+                    return false;
+                for (uint32_t k = 0; k < held; k++)
+                    if (!holds_live(rows[k].target) || !holds_live(rows[k].role))
+                        return false;
+                scratch_at_ = mark;
+            }
+            if (row.type == PYMERGETIC_RXF_HANDLE32_NONE || record->payload == 0)
+                continue;
+            uint32_t fields[64];
+            uint32_t fields_held = 0;
+            if (arena_.children(row.type, fields, 64, &fields_held) != arena::Status::Ok ||
+                fields_held > 64) {
+                *reason = PYMERGETIC_RXF_REASON_LAYOUT;
+                return false;
+            }
+            const uint8_t *value = nullptr;
+            uint32_t size = 0;
+            if (arena_.payload(handle, &value, &size) != arena::Status::Ok)
+                return false;
+            const uint64_t head =
+                record->kind == PYMERGETIC_RXF_OBJ_MODULE ? sizeof(pymergetic_rxf_module) : 0;
+            for (uint32_t k = 0; k < fields_held; k++) {
+                const uint8_t *bytes = nullptr;
+                uint32_t field_size = 0;
+                if (arena_.payload(fields[k], &bytes, &field_size) != arena::Status::Ok ||
+                    field_size < sizeof(pymergetic_rxf_field))
+                    continue;
+                pymergetic_rxf_field field{};
+                mem::copy(&field, bytes, sizeof(field));
+                if ((field.flags & PYMERGETIC_RXF_FIELD_FLAG_REF) == 0)
+                    continue;
+                for (uint64_t i = 0; i < field.count; i++) {
+                    const uint64_t at = head + field.offset + 8 * i;
+                    if (at + 8 > size)
+                        break;
+                    uint64_t slot = 0;
+                    mem::copy(&slot, value + at, 8);
+                    if (!holds_live(slot))
+                        return false;
+                }
+            }
+        }
+        return true;
+    }
+
     /* A string of the delta's block: the id is its offset, 0xFFFFFFFF = none. */
     static bool delta_string(const uint8_t *strings, uint32_t size, uint32_t id, const uint8_t **p,
                              uint32_t *n) {
@@ -792,6 +892,11 @@ class Session {
                 }
             }
         }
+        /* Pass 4: nothing may point at what is gone (the twin's check_all):
+         * the dump would unset such a slot and the commit would answer a
+         * digest of a world the delta did not describe. */
+        if (!check_all(reason))
+            return false;
         *reason = 0;
         return true;
     }

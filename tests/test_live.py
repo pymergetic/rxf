@@ -501,6 +501,25 @@ def test_a_set_of_a_module_with_its_own_record_changes_nothing(starter: bytes):
     assert host.client.digest() == digest_of(WORLD)
 
 
+def test_a_delete_that_leaves_a_declared_slot_dangling_is_refused(starter: bytes):
+    """Every Field of the value type `uint8_t` holds a handle to it in a declared reference
+    slot (docs/32 5): the delete would leave them pointing at nothing, and the dump would
+    unset them silently. The apply refuses it (DANGLING), rolls back, and the next delta
+    applies."""
+    host = HostImage(starter)
+    digest = digest_of(WORLD)
+    gone = physical.Builder()
+    gone.delete("uint8_t")
+    refused(host, gone.build(digest), 9)
+    assert host.client.digest() == digest, "the refusal changed nothing"
+    result = model_copy(WORLD)
+    result.set_payload(
+        resolved(result, "pymergetic.rxf.application.discount"), struct.pack("<I", 45)
+    )
+    compiled = physical.compile(model_copy(WORLD), result, check_base=False)
+    assert host.client.apply(compiled.data) == digest_of(result)
+
+
 @pytest.mark.xfail(
     reason="blocked on the arena lane: the mass state-word delta answers 'the "
     "arena has no room' (reason 6, the slot-table grow a set needs) where "
