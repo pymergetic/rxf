@@ -39,13 +39,6 @@ BOOT = "slip_echo_boot"
 POLL = "slip_echo_poll"
 BODIES = (BOOT, POLL)
 
-# what the divergent scenario shows (docs/35): icmp_dest_unreach keeps the sender's address in a
-# local (``ip4_addr_t iphdr_src``) and hands ``&iphdr_src`` to ip4_output_if_src, which is a call
-# card; the card reads the destination through the pointer to the caller's frame slot and gets
-# 0.0.0.0 instead of 10.0.0.1 -- a silent wrong word of the importer's pointer-to-local rule
-# for call cards (docs/23 4.1), not a line or a machine problem
-KNOWN_DIVERGENCE = "a pointer to a caller's local read by a call card"
-
 # the refusals of a run that does not fit the machine (native/graph.h)
 CALL_DEPTH = 17
 CELL_BUDGET = 18
@@ -92,9 +85,6 @@ class Scenario:
     packet: bytes
     reply: str  # "udp" (echoed), "icmp-echo", "icmp-unreachable", or "none"
     payload: bytes = b""
-    # the imported graphs answer different bytes than the native reference: a defect of the
-    # importer named in docs/35 (see KNOWN_DIVERGENCE), pinned by a strict xfail, never hidden
-    divergent: bool = False
 
 
 def scenarios() -> list[Scenario]:
@@ -130,7 +120,6 @@ def scenarios() -> list[Scenario]:
             "udp to a closed port",
             ipv4(17, udp(5004, 9, b"nobody home"), 6),
             "icmp-unreachable",
-            divergent=True,
         ),
         Scenario(
             "udp with a bad checksum",

@@ -44,8 +44,9 @@
  * cleared by it -- one run at a time in a process, like the tests run them. The room
  * is what the imports of one world bind: the pools and strings of the qstr corpus
  * (16 cells), the type cells and the arena of the obj corpus (10), and the callee
- * programs of their call cards. */
-#define RXF_HOST_OBJECTS 48
+ * programs of their call cards. The lwIP echo binds 49 (27 cells and 22 programs, measured in
+ * tests/test_lwip_slip.py): 64 leaves room for the cell a caller's local rides in. */
+#define RXF_HOST_OBJECTS 64
 /* The rows of the pool the Allocator capability names (graph.h): free rows of the sorted entry
  * table that rxf_host_configure reserves for a run. */
 #define RXF_HOST_POOL 16

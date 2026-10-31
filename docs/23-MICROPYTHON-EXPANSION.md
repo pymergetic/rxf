@@ -156,6 +156,23 @@ caller holds — never through a raw pointer to a caller's value.
 | unrefuses (gate) | a corpus body where the out-param callee is a **call card**, not an inlined body, and its writes land in the caller's slot; then the out-param half of `mp_obj_get_int_maybe` |
 | docs | out cells and imported bodies are named objects (the paths `import_into` fixes); the lift places on them by path. No new contract |
 
+**Status of the local route (2026-10-31).** The gate above has a second half the first slice did not
+draw: a pointer to a LOCAL of the caller's frame handed to a call card. A callee runs in a frame of its
+own and the call copies the bytes of the value it is handed, so the callee used to receive the local's
+*content* where it expected an address (lwIP's `icmp_dest_unreach` sent its ICMP reply to 0.0.0.0, a
+larger reader segfaulted the host runner: a silent wrong word, the same family as the card's pointer
+carrier). Landed in `rximport.lower_card` (`local_cell_argument`) with the **existing operands**: the
+local rides in a cell the caller owns, an Object like a static (`<module>.localcell<i>`, one per
+argument position, 16 bytes); the bytes go in before the call, the callee gets the flat address the
+cell has, they come back after it, and the cell's previous bytes are saved in the frame and put back
+so a re-entering callee finds it as its own activation left it. `tests/import_corpus/localptr.c` pins
+read, write, both, two calls in a row, two locals in one call and three levels of re-entry; every one
+crashed or answered wrong before. What this does NOT cover, and what it needs: two runs of one graph in
+flight at once share the cell as statics do (the SMP policy); the block-per-activation answer is the
+allocation leaf of §4.9, which would replace the cell. A local larger than 16 bytes is refused where
+its slot is made (it used to overflow into the next value of the frame), and the address of a local
+derived by getelementptr (local arrays and structs) stays refused by name.
+
 ### 4.2 i3 — runtime dispatch (function words)
 
 `lower_indirect` already dispatches a call through a function word where the **same import** wires

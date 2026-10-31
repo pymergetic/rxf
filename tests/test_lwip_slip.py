@@ -551,7 +551,7 @@ def test_the_seat_has_a_fill_that_meets_the_contract(seat: str, file: str, why: 
 
 # the interpreter with room the echo path needs (see lwip_udp_echo.echo_path_budget): the 8-link,
 # 8 KiB budget of native/graph.h is short of lwIP's call chain; this is the smallest round
-# numbers over what the chain measures (14960 bytes of frames at depth 9 on the C path)
+# numbers over what the chain measures (15008 bytes of frames at depth 9 on the C path)
 EXPERIMENT_CELL = 32768
 EXPERIMENT_DEPTH = 16
 SHIPPED_CELL = 8192
@@ -568,8 +568,6 @@ def assert_same(
 ) -> None:
     assert imported.status == 0, f"the imported run was refused ({imported.status})"
     for scenario in lwip_udp_echo.scenarios():
-        if scenario.divergent:
-            continue
         assert imported.replies[scenario.name] == reference.replies[scenario.name], (
             f"{scenario.name}: the imported graphs put {imported.replies[scenario.name].hex()} "
             f"on the line, natively it is {reference.replies[scenario.name].hex()}"
@@ -589,7 +587,7 @@ def test_the_echo_path_needs_more_than_the_shipped_interpreter_has(echo_host: Ho
     the run cell (8192 bytes) and over the call depth (8 links) of native/graph.h, and the
     shipped interpreter refuses it with the budget refusals, never a wrong answer."""
     frames, links = lwip_udp_echo.echo_path_budget(echo_host)
-    assert (frames, links) == (14960, 9), "the frames of the echo path, measured"
+    assert (frames, links) == (15008, 9), "the frames of the echo path, measured"
     assert links > SHIPPED_DEPTH, "the path is deeper than the depth budget"
     assert frames > SHIPPED_CELL, "the frames of the echo path exceed the run cell"
     assert frames <= 16384, "...and fit a 16 KiB cell"
@@ -606,7 +604,7 @@ def test_the_echo_path_needs_more_than_the_shipped_interpreter_has(echo_host: Ho
     reason=(
         "machine need (docs/35): RXF_GRAPH_CELL_BYTES 8192 -> >= 16384 and RXF_GRAPH_CALL_DEPTH "
         "8 -> >= 9 in native/graph.h and native/graph.rxfs; the echo path's frames sum to "
-        "14960 bytes at depth 9"
+        "15008 bytes at depth 9"
     ),
 )
 def test_the_udp_echo_matches_native_on_the_shipped_interpreter(echo_host: Host):
@@ -636,8 +634,10 @@ def echo_with_room() -> dict:
 def test_the_udp_echo_matches_native_on_an_interpreter_with_room(echo_with_room: dict):
     """The real UDP echo: SLIP-framed IPv4/UDP and ICMP datagrams in over the line, the imported
     graphs of the card answer, the reply bytes out over the line equal what the same lwIP C
-    compiled natively puts there, scenario by scenario (the one divergent scenario is pinned
-    below). The replies are also read by the peer: right addresses, ports, payloads, checksums."""
+    compiled natively puts there, scenario by scenario -- all eight, the ICMP port-unreachable
+    included (its destination used to be 0.0.0.0: a pointer to the caller's local, read by a call
+    card, was no address the callee could name; the local rides in a cell now, docs/35). The
+    replies are also read by the peer: right addresses, ports, payloads, checksums."""
     answer = echo_with_room
     assert answer["status"] == 0, f"the imported run was refused ({answer['status']})"
     scenarios = lwip_udp_echo.scenarios()
@@ -647,25 +647,14 @@ def test_the_udp_echo_matches_native_on_an_interpreter_with_room(echo_with_room:
             scenario,
             lwip_udp_echo.decode(bytes.fromhex(answer["replies"][scenario.name])),
         )
-        if not scenario.divergent:
-            assert answer["same"][scenario.name], (
-                f"{scenario.name}: the reply bytes differ"
-            )
+        assert answer["same"][scenario.name], f"{scenario.name}: the reply bytes differ"
     imported, reference = answer["counters"]
     assert imported == reference and imported[2:] == [0, 0]
 
 
 @pytest.mark.slow
-def test_the_divergent_scenario_is_exactly_the_one_named(echo_with_room: dict):
-    """Only the ICMP port-unreachable differs, and it differs in the destination address."""
-    differing = [name for name, same in echo_with_room["same"].items() if not same]
-    assert differing == ["udp to a closed port"], differing
-
-
-@pytest.mark.slow
-@pytest.mark.xfail(
-    strict=True,
-    reason="importer defect (docs/35): " + lwip_udp_echo.KNOWN_DIVERGENCE,
-)
-def test_the_icmp_unreachable_matches_native(echo_with_room: dict):
-    assert echo_with_room["same"]["udp to a closed port"]
+def test_no_scenario_differs_from_native(echo_with_room: dict):
+    """The scenario that used to differ (the ICMP port-unreachable, whose destination was
+    0.0.0.0) is byte-equal to native now: no scenario of the echo differs."""
+    assert "udp to a closed port" in echo_with_room["same"]
+    assert [name for name, same in echo_with_room["same"].items() if not same] == []

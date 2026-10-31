@@ -478,6 +478,9 @@ GRAPH_COPY = graph_header.numbers()["RXF_GRAPH_COPY"]  # what one edge's copies 
 # a program of its own, not a body the caller's frame was never meant to hold (only a
 # callee whose frame would not fit a whole run cell is refused outright in lower_inline)
 INLINE_WORDS = 48
+# the bytes of a wide local's slot of the frame, and of the cell a local rides in across a call
+# card (an address-taken local is one 16-byte slot: a larger one is refused where it is made)
+LOCAL_CELL_BYTES = 16
 FULL = rxemit.FULL  # the word's mask, one home (the emitter's narrow-integer helpers)
 # what a narrow (i1/i8/i16/i32) value is: the low bits of its word. Every operation of the
 # subset leaves its result in this form, so a value is always the zero-extension of the
@@ -1749,6 +1752,7 @@ class Lowering:
         self.pointers: set[str] = set()  # names that hold an address (ptr params and results)
         self.ptr_params: set[str] = set()  # the pointer parameters: a pointer to a caller's value
         self.stored_params: set[str] = set()  # the pointer params written through (an out cell)
+        self.card_answer: MOperand | None = None  # the answer of the call card lowered last
         self.out_cells: dict[str, LValue] = {}  # the out cell of each written-through param
         self.out_alias: dict[str, str] = {}  # caller local -> the out cell key it reads
         self.standalone = False  # a program of its own (an inline call takes its params)
@@ -2409,6 +2413,18 @@ class Lowering:
                     name = argument.name
                     if position in pointers and name is not None and name in allocas:
                         taken.add(name)
+        for block in self.fn.blocks:
+            for inst in block.insts:
+                if inst.op == "alloca" and inst.name in taken and inst.type is not None:
+                    size = type_size(inst.type, self.structs, self.model)
+                    if size > LOCAL_CELL_BYTES:
+                        # a wide local is one slot of the frame: its bytes past the slot
+                        # would be the next values' -- refused where the slot is made
+                        raise Unsupported(
+                            f"{self.fn.name}: the address of the local {inst.name} "
+                            f"({inst.type}, {size} bytes) is taken, and a local this pass "
+                            f"can address is one slot of {LOCAL_CELL_BYTES} bytes"
+                        )
         self.wide_names = taken
         self.narrow_names = allocas - taken
         # where each local is stored, by block: a load must see a store of its own block, so
@@ -3416,6 +3432,51 @@ class Lowering:
             self.pointers.add(inst.name)
         return join
 
+    def local_cell_argument(
+        self, target: LBlock, slot: MOperand,
+        copies: list[tuple[MOperand, LValue, MOperand]],
+    ) -> MOperand:
+        """The argument a call card gets for a pointer to one of this frame's locals.
+
+        A callee runs in a frame of its own: a slot of the caller's frame is no address it can
+        name (the call copies the bytes of the value it is handed, not the place it stands),
+        and the run cell is no memory a callee may point into (S7). So the local rides in a
+        CELL this body owns -- an Object of the arena, the way a static is -- and the call
+        passes the flat address the cell has, which is what the callee reads and writes
+        through like any pointer. The bytes go in before the call (the slot into the cell)
+        and come back after it (the cell into the slot): what the callee reads is what the
+        caller held and what it wrote is what the caller reads next, over one call or many.
+
+        The cell is one place per argument position, not one per activation, and a body that
+        reaches itself (through the callee, or through a function word) must find it as it left it: so
+        the call SAVES what the cell held before it fills it and puts that back after the bytes
+        have come home -- an inner activation hands the cell back exactly as the outer one had
+        it, the discipline of a stack kept in the frame (the allocation leaf of docs/23 4.9
+        replaces the cell with a block per activation; until then the save is what keeps a
+        recursive run right). The one thing it does not cover is two runs of one graph in
+        flight at once (a static is shared the same way)."""
+        # one cell per argument position of a call, shared by every call of the module: each
+        # call fills it and hands it back, so the cell of the first local of any call is one
+        # place (the registry is the globals' own, so an undone inline takes it back with them)
+        index = len(copies)
+        cell = self.global_values.get(f"localcell{index}")
+        if cell is None:
+            cell = self.value(
+                "Object", self.graph, f"localcell{index}",
+                width=LOCAL_CELL_BYTES, type_path=WIDE,
+                object_id=object_id_of(f"{self.module}.localcell{index}"),
+                payload=bytes(LOCAL_CELL_BYTES),
+            )  # fmt: skip
+            self.global_values[f"localcell{index}"] = cell
+            self.object_paths.add(cell.path)
+        saved = self.move_value(target, self.literal(0), width=LOCAL_CELL_BYTES)
+        self.slots.add(saved[1])  # a slot: the copies take its own address
+        size = self.literal(LOCAL_CELL_BYTES)
+        self.call_void(target, "memory_copy", [saved, size, ("value", cell.path), size, size])
+        self.call_void(target, "memory_copy", [("value", cell.path), size, slot, size, size])
+        copies.append((slot, cell, saved))
+        return self.address_value(target, ("value", cell.path))
+
     def lower_card(self, inst: Inst, target: LBlock, name: str) -> LBlock:
         """A call of a program: the call card of ``native/graph.h`` -- the callee's
         words are named by their object id, its parameters are the call's arguments as
@@ -3426,6 +3487,8 @@ class Lowering:
         function of another module (the composer resolves it against the image)."""
         self.card_calls = True  # the body calls a program: it is a program of its own
         arguments = []
+        # (the local's slot, the cell it rode in, the slot that kept the cell's bytes meanwhile)
+        copies: list[tuple[MOperand, LValue, MOperand]] = []
         for index, (type_name, argument) in enumerate(inst.args):
             local = argument.name
             if (
@@ -3453,6 +3516,14 @@ class Lowering:
                 self.pointers.add(local)
                 arguments.append(("value", self.out_cell(key, index).path))
                 continue
+            if type_name == "ptr":
+                given = self.frame_moperand(target, argument)
+                if given[0] == "value" and given[1] in self.slots:
+                    # a pointer to a LOCAL of this frame: the callee has a frame of its own and
+                    # no way to name a slot of ours, so the bytes ride in a cell this body owns
+                    # (docs/23 4.1) and the callee gets the address that cell has
+                    arguments.append(self.local_cell_argument(target, given, copies))
+                    continue
             arguments.append(
                 self.address_value(
                     target,
@@ -3478,12 +3549,19 @@ class Lowering:
                  for type_name, _ in inst.args],
                 result, name)
         )  # fmt: skip
+        for slot, cell, saved in copies:
+            size = self.literal(LOCAL_CELL_BYTES)
+            # what the callee wrote into the cell is the local's now; the cell is handed back as
+            # it was found
+            self.call_void(target, "memory_copy", [slot, size, ("value", cell.path), size, size])
+            self.call_void(target, "memory_copy", [("value", cell.path), size, saved, size, size])
         answer: MOperand = ("value", result.path)
         if inst.type == "ptr":
             # a carrier is not a word: a leaf given a wide value that is no slot would be handed
             # the carrier's own address (the frame's, not the flat address it carries), so the
             # address word is copied out of its first bytes before anything reads it
             answer = self.move_value(target, answer, width=8)
+        self.card_answer = answer  # what the card answered (the copies back follow its op)
         self.note(inst.name, answer)
         if inst.type == "ptr" and inst.name is not None:  # the result holds an address
             self.pointers.add(inst.name)
@@ -3706,10 +3784,10 @@ class Lowering:
                         Inst("call", type=inst.type, callee=card, args=list(inst.args)),
                         target, card,
                     )
-                    made = arm.ops[-1].result
+                    made = self.card_answer
                     if made is None:
                         raise ParseError(f"{self.fn.name}: a call card that produced no result")
-                    self.note(inst.name, ("value", made.path))
+                    self.note(inst.name, made)
                     if inst.type == "ptr" and inst.name is not None:
                         self.pointers.add(inst.name)
                     return target
@@ -3728,14 +3806,14 @@ class Lowering:
         for index, (word, card) in enumerate(arms):
             same = self.call(current, "equal_uint64_t", [callee, self.literal(word & FULL)])
             arm = self.new_block()
-            called = self.lower_card(
+            self.lower_card(
                 Inst("call", type=inst.type, callee=card, args=list(inst.args)), arm, card
             )
-            made = called.ops[-1].result
+            made = self.card_answer
             if made is None:
                 raise ParseError(f"{self.fn.name}: a call card that produced no result")
             arm.terminator = "Goto"
-            arm.successors = [(join.path, [("value", made.path)])]
+            arm.successors = [(join.path, [made])]
             if index == len(arms) - 1:
                 # the fall-through: a word no arm names (the refuse of the boundary above)
                 fall = self.new_block()

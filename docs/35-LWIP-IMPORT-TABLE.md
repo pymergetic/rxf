@@ -232,13 +232,13 @@ payload, IP/UDP/ICMP checksums).
 | udp stuffed | a payload full of END/ESC bytes (stuffed both ways) | bytes equal |
 | icmp echo request | answered by `icmp_input` | bytes equal |
 | udp with a bad checksum | dropped by `udp_input`, no reply | none on both sides |
-| udp to a closed port | ICMP port unreachable by `icmp_dest_unreach` | **destination address differs** (below) |
+| udp to a closed port | ICMP port unreachable by `icmp_dest_unreach` | bytes equal (it was **destination 0.0.0.0** until the importer fix below) |
 
 **The machine need (measured).** On the interpreter the repository ships (`native/graph.rxfs`:
 run cell 8192 bytes, call depth 8) the imported echo is **refused** (`RXF_REFUSE_CELL_BUDGET`,
 18): the chain from the harness entry down the real path — `slip_echo_poll` 24, `slipif_poll`
-1456, `ip4_input` 4680, `udp_input` 2896, `echo_recv` 312, `udp_sendto` 792,
-`udp_sendto_if_src` 1720, `ip4_output_if_src` 1384, `slipif_output_v4` 1696 — sums to **14960
+1456, `ip4_input` 4680, `udp_input` 2944, `echo_recv` 312, `udp_sendto` 792,
+`udp_sendto_if_src` 1720, `ip4_output_if_src` 1384, `slipif_output_v4` 1696 — sums to **15008
 bytes of frames at depth 9**. The same graphs, on the same seed program with the run cell raised
 (`cell[8192]` and its four literals, `frames[704]`, the test `depth + 1 >= 8` of
 `native/graph.rxfs`), answer byte for byte what native lwIP answers: cell 15360 and depth 9 pass,
@@ -250,14 +250,22 @@ differential on the enlarged interpreter (`lwip_udp_echo.enlarge_interpreter`, a
 the harness: it edits the seed's source text in the test process only), and carries a strict
 xfail for the shipped interpreter that flips when the budget is raised.
 
-**The importer defect the closed-port scenario shows.** `icmp_dest_unreach` keeps the sender's
-address in a local (`ip4_addr_t iphdr_src`) and hands `&iphdr_src` to `ip4_output_if_src`, which
-is a call card. The card reads the destination through a pointer to the caller's frame slot and
-gets 0.0.0.0 instead of 10.0.0.1: a **silent wrong word** in the importer's rule for a pointer to a
-local given to a call card (docs/23 §4.1; the same shape with a larger reader segfaults the
-host runner). It is not a line problem and not a machine budget problem. The fix is the importer's
-(refuse the body at import, or give such a local a cell the callee can resolve — the out-position
-mechanism of §4.1 for a read); it is pinned by a strict xfail in `tests/test_lwip_slip.py`.
+**The importer defect the closed-port scenario showed, and its fix.** `icmp_dest_unreach` keeps the
+sender's address in a local (`ip4_addr_t iphdr_src`) and hands `&iphdr_src` to
+`ip4_output_if_src`, which is a call card. The card was handed the *bytes* of the caller's frame
+slot where it expected an address, read the destination through them and got 0.0.0.0 instead of
+10.0.0.1: a silent wrong word (the same shape with a larger reader segfaulted the host runner).
+Fixed in `tools/native/rximport.py` (docs/23 §4.1): a pointer to a local of the caller's frame
+that reaches a call card rides in a **cell** the caller owns (an Object, the way a static is) --
+the bytes go into the cell before the call, the callee gets the flat address of the cell, and
+the bytes come back into the local after it; what the cell held before is saved and put back, so
+a callee that re-enters its caller finds the cell as its own activation left it. All eight
+scenarios are byte-equal now, the closed-port reply included
+(`test_the_udp_echo_matches_native_on_an_interpreter_with_room`, the strict xfail is gone). The
+corpus is `tests/import_corpus/localptr.c` (read, write, read-and-write, two calls in a row,
+two locals in one call, three levels of re-entry; each differential crashes or answers wrong
+without the fix). The cell costs one 16-byte slot of the frame per local argument, which is the
+48 bytes `udp_input` gained (the echo's chain is 15008 bytes, was 14960).
 
 ### 4.2 The seat fills of the SLIP line
 

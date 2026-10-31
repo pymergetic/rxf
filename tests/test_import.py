@@ -48,6 +48,7 @@ import rximport
 import rxpy
 
 from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.object import Image
 
 from . import graph_world, rxf_native, seed_object
 from .emulator import Blob, Emulator, Integer
@@ -1096,6 +1097,99 @@ def test_a_pointer_answered_by_a_call_card_is_an_address(tmp_path: Path, name: s
             assert wrote == ctypes.string_at(held, 8), (name, seed, wrote.hex())
             offsets.add(expected & 0xFF)
     assert len(offsets) >= 4, f"the seeds reach only the offsets {sorted(offsets)}"
+
+
+def card_world_objects(
+    image: Image, programs: dict[str, bytes], module: str, callees: set[str]
+) -> dict[int, bytes | bytearray]:
+    """What a host run of ``module``'s bodies needs bound by object id: the cells of the module
+    (its statics and the out/local cells the importer made, as live bytes) and the programs the
+    call cards name (``callees``, by the id of their Function)."""
+    composer = compose.Composer(image)
+    objects: dict[int, bytes | bytearray] = {}
+    for handle in range(image.handle_count):
+        if not image.live(handle):
+            continue
+        values = composer.fields(handle)
+        is_cell = compose.word(values.get("kind")) == "Object" and "object_id" in values
+        if is_cell and image.path(handle).startswith(f"{module}."):
+            objects[int(values["object_id"])] = bytearray(bytes.fromhex(values.get("data", "")))
+    for callee in callees:
+        found = image.resolve(f"{module}.{callee}")
+        assert found is not None, callee
+        objects[compose.object_id(image, found)] = programs[f"{module}.{callee}"]
+    return objects
+
+
+LOCALPTR_CASES = ("local_rw", "local_read", "local_write", "local_twice", "local_pair")
+LOCALPTR_INPUTS = [(a, k) for a in (0, 1, 0x1234, 0xFFFFFFFF, 1 << 40, U64 - 1) for k in (0, 3, 0xABCD, 1 << 63)]
+
+
+@pytest.mark.parametrize("name", LOCALPTR_CASES)
+def test_a_pointer_to_a_callers_local_reaches_a_call_card_as_a_cell(tmp_path: Path, name: str):
+    """The address of the caller's own local handed to an out-of-line call (localptr.c: a callee
+    that reads it, writes it, or both; the two sides of a call keep their frames apart) is a
+    cell the caller owns: the callee reads what the caller put there and the caller reads back
+    what the callee wrote, over one call and over two in a row, the same answers as the same C
+    compiled natively. A pointer to a slot of the caller's frame is no address the callee can
+    name (lwIP's icmp_dest_unreach sent its ICMP reply to 0.0.0.0 that way, silently)."""
+    image = tree.load(STARTER)
+    source = CORPUS / "localptr.c"
+    callees = {"rw_u64", "read_u32", "write_u64", "pick_two"}
+    rximport.import_source_file(image, source, module="localptr", only={name} | callees)
+    assert image.check() == []
+    programs = compose.programs(image)
+    objects = card_world_objects(image, programs, "localptr", callees)
+    function = getattr(link_native(source, tmp_path), name)
+    function.argtypes = [ctypes.c_uint64, ctypes.c_uint64]
+    function.restype = ctypes.c_uint64
+    for case in LOCALPTR_INPUTS:
+        expected = function(*case)
+        with rxf_native.Memory(1 << 16) as memory:
+            status, answer = rxf_native.run(
+                programs[f"localptr.{name}"], struct.pack("<2Q", *case), memory, objects=objects
+            )
+        assert (status, answer) == (OK, expected), (
+            f"{name}{case}: the graph answered ({status}, {answer:#x}), natively it is "
+            f"({OK}, {expected:#x})"
+        )
+
+
+def test_the_cell_of_a_local_survives_a_run_that_comes_back_into_its_caller(tmp_path: Path):
+    """The cell that carries a caller's local across a call card is one place per call site: a
+    callee that re-enters its own caller through a function word (localptr.c ``around`` ->
+    ``rec_body`` -> ``around``) finds the cell in use by the outer activation, and the
+    outer one must read its own local again when the inner one is back. The call saves the cell's
+    bytes before it fills it and puts them back after, so the answers over three levels of
+    recursion equal the same C compiled natively; the pointer the outer callee holds never
+    sees the inner activation's local."""
+    image = tree.load(STARTER)
+    source = CORPUS / "localptr.c"
+    callees = {"around", "rec_body"}
+    rximport.import_source_file(
+        image, source, module="localptr", only={"rec_boot", "rec_top"} | callees
+    )
+    assert image.check() == []
+    programs = compose.programs(image)
+    objects = card_world_objects(image, programs, "localptr", callees)
+    native = link_native(source, tmp_path)
+    native.rec_boot()
+    native.rec_top.argtypes = [ctypes.c_uint64, ctypes.c_uint64]
+    native.rec_top.restype = ctypes.c_uint64
+    with rxf_native.Memory(1 << 16) as memory:
+        status, _ = rxf_native.run(programs["localptr.rec_boot"], b"", memory, objects=objects)
+        assert status == OK, f"rec_boot refused ({status})"
+        for depth in (0, 1, 2):  # three levels: the shipped interpreter has 8 call links
+            for k in (0, 5, 0xFFFF):
+                expected = native.rec_top(depth, k)
+                status, answer = rxf_native.run(
+                    programs["localptr.rec_top"], struct.pack("<2Q", depth, k), memory,
+                    objects=objects,
+                )  # fmt: skip
+                assert (status, answer) == (OK, expected), (
+                    f"rec_top({depth}, {k}): the graph answered ({status}, {answer:#x}), "
+                    f"natively it is ({OK}, {expected:#x})"
+                )
 
 
 @pytest.mark.parametrize("name", ["align8_flags", "align16_flags", "span_flags"])
@@ -2729,6 +2823,11 @@ def test_the_narrow_integer_helpers_live_in_one_module():
 # changed (bool_unary_op, uni_unary_op, mp_obj_get_type_str, mp_obj_is_true,
 # mp_obj_len_maybe, mp_obj_get_int_maybe, mp_unary_op) each gained one move op after a
 # pointer-answering card, and every differential over them passed before and after.
+#
+# A second recorded flip: obj.c moved again when a pointer to a caller's local began to reach a
+# call card as a cell (test_a_pointer_to_a_callers_local_reaches_a_call_card_as_a_cell): the two
+# bodies that call ``qstr_data(q, &str_len)`` (uni_unary_op, mp_unary_op) carry the cell's
+# copies now; the differentials over them passed before and after.
 CORPUS_DIGESTS = {
     "arith.c": "8309bcf5d386335b649f51d98a3c09314f4de02c0f82594abf0b946ea7dffbd8",
     "branch.c": "b157aa7f6a2f963afd8e962ebd075817f287aaf6413ca7025e35b1579108645a",
@@ -2752,11 +2851,12 @@ CORPUS_DIGESTS = {
     "loop.c": "f6b09ec86d153b96744fecab83911d6ae36091accf23ea366206ea9c0007c665",
     "memory.c": "f196586afdfb28d99b03eb2fba5d0638fd458b9dc3aa55c4328cdcd13d607012",
     "minmax.c": "ac50cf6f5e9a78994f525eb947264e09c8f3f8e5824424489edf4bac8b0e9501",
+    "localptr.c": "39ed4cd90b776baa6d6683569a55d2c4a21faef436fd31714d9265b0c1c682a8",
     "narrow.c": "81bff9ac923e84740aeff7f468a4b6e8df9dda18d9327331d44db61f4f9fd9d7",
     "nlr_call.c": "4eb8820f1adb136a9cb1759a570643e1671ebb84dafd1e442d5ff5c2a5a41c0f",
     "nlr_stubs.c": "d06802b396276d81f9e67fd9f2e8d3b85a28866670b1d93328a79dcc257383ff",
     "noreturn.c": "9a04318044fcf5c5e2e89d755ca6979ae6cdfb4faeeca8e955a91998adea96a0",
-    "obj.c": "4705853cd2822f91b2f6176e05c8ec48898f3c348cc6b69251498155e9241a82",
+    "obj.c": "0f7f7c041f7ef7d101d99c07dcffe78b17d6a45db5b1f2d41b17d4204e9e994d",
     "obj_stubs.c": "bc3177a3512e618596b9b8dc80001431a4bedfe0279115ff42af771a8cd15387",
     "outparam.c": "7402f13fe984964a000899a48ef55ee5b728bc65ba0ec1e532821953888590ef",
     "overflow.c": "0e25338b4aa9b2573d7dcfc3231b6cb43a794b9ebdf8f154fee708ac8fd65f95",
@@ -2813,7 +2913,7 @@ def test_the_corpus_deltas_keep_their_exact_text():
             continue
         digest = hashlib.sha256(corpus_delta(source).encode()).hexdigest()
         assert digest == CORPUS_DIGESTS[source.name], f"{source.name}: the delta text moved"
-    assert len(CORPUS_DIGESTS) == 52  # the whole corpus, no file silently dropped
+    assert len(CORPUS_DIGESTS) == 53  # the whole corpus, no file silently dropped
 
 
 def test_a_c_import_is_not_marked_was_once_python():
