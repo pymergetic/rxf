@@ -103,3 +103,22 @@ def split_entry(names: tuple[str, ...], dotted: str) -> tuple[str, str]:
             if len(attributes) == 2:
                 return name, f"{attributes[0]}__{attributes[1]}"
     raise ValueError(f"no module of {dotted}")
+
+
+def answer(run: Run, module: str, name: str, words: tuple[int, ...]) -> tuple[int | str, ...]:
+    """What a call answers, in the words of the reference's line: the answer word (or a tuple's
+    out words), or ``("None",)`` for a procedure -- a def whose Signature has no Result."""
+    status, value, outs = run.call(module, name, words)
+    assert status == 0, f"{module}.{name}{words}: the run refused ({status})"
+    if run.resolver.signature_of(module, name).procedure:
+        return ("None",)
+    return tuple(outs) if outs else (value,)
+
+
+def parse_answer(line: str) -> str | tuple[int | str, ...]:
+    """One line of a reference driver: ``!ExceptionName``, ``None``, or the answer words."""
+    if line.startswith("!"):
+        return line
+    if line == "None":
+        return ("None",)
+    return tuple(int(word) for word in line.split())

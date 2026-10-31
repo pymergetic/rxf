@@ -41,7 +41,6 @@ from .snippets import STARTER
 
 CORPUS = Path(__file__).parent / "rxpy_corpus" / "objects"
 DRIVER = Path(__file__).parent / "rxpy_mp_import.py"
-OK = 0
 MPYS = micropythons()
 NAMES = ("obj_counter", "obj_user")
 GRID = (0, 1, -1, 2, 5, -3, 7)
@@ -127,14 +126,12 @@ def mp_answers(mpy: str, cases: list[tuple[str, tuple[int, ...]]]) -> list[objec
     assert made.returncode == 0, f"{mpy}: the reference did not run: {made.stderr}"
     answered = [line for line in made.stdout.splitlines() if line.strip()]
     assert len(answered) == len(cases), f"{len(cases)} cases, {len(answered)} answers: {made.stdout!r}"
-    return [line if line.startswith("!") else tuple(int(w) for w in line.split()) for line in answered]
+    return [rxpy_run.parse_answer(line) for line in answered]
 
 
-def run_case(run, entry: str, words: tuple[int, ...]) -> tuple[int, ...]:
+def run_case(run, entry: str, words: tuple[int, ...]) -> tuple[int | str, ...]:
     module, name = rxpy_run.split_entry(NAMES, entry)
-    status, value, outs = run.call(module, name, words)
-    assert status == OK, f"{entry}{words}: the run refused ({status})"
-    return tuple(outs) if outs else (value,)
+    return rxpy_run.answer(run, module, name, words)
 
 
 # ---- the differential --------------------------------------------------------------------------
@@ -177,8 +174,9 @@ def test_an_instance_is_one_cell_of_its_fields_words(image):
     assert cell is not None and image.type_name(cell) == "FixedArray"
     assert bytes(image.get(cell)["payload"]) == struct.pack("<3Q", 10, 3, 0)
     assert bytes(image.get(image.resolve("obj_counter.b"))["payload"]) == struct.pack("<3Q", 0, 5, 0)
-    one = image.resolve("obj_counter.f")  # one field: a word cell like any other
-    assert one is not None and image.type_name(one) == "uint64_t"
+    one = image.resolve("obj_counter.f")  # one field: padded to two words, never a word cell
+    assert one is not None and image.type_name(one) == "FixedArray"
+    assert bytes(image.get(one)["payload"]) == struct.pack("<2Q", 1, 0)
 
 
 def test_a_method_is_one_graph_per_instance_over_that_instances_cell(image):
@@ -240,16 +238,16 @@ REFUSALS = [
     ("class A:\n    def f(self):\n        return 1\n    def f(self):\n        return 2\n", "defined twice"),
     ("class A:\n    def __init__(self, a):\n        print(a)\n", "does more than set"),
     ("class A:\n    def __init__(self, a):\n        if a:\n            self.x = a\n", "does more than set"),
-    ("class A:\n    def __init__(self, a=1):\n        self.x = a\na = A()\n", "takes a default"),
+    ("class A:\n    def __init__(self, a, b=1):\n        self.x = a\na = A()\n", "misses a"),
     ("class A:\n    def __init__(self, a):\n        self.x = a\nz = A(1, 2)\n", "takes 1 values"),
-    ("class A:\n    def __init__(self, a):\n        self.x = a\nz = A(a=1)\n", "keyword or starred"),
+    ("class A:\n    def __init__(self, a):\n        self.x = a\nz = A(b=1)\n", "no parameter b"),
     ("def f(n):\n    return n\nclass A:\n    def __init__(self, a):\n        self.x = a\nz = A(f(1))\n", "not an integer constant"),
     ("class A:\n    def __init__(self, a):\n        self.x = a\ndef f(n):\n    z = A(n)\n    return n\n", "a call of class A inside a def"),
     (INIT_X + "    def m(self):\n        return self.y\na = A()\n", "no field y"),
     (INIT_X + "    def m(self):\n        self.y = 2\n        return 1\na = A()\n", "no field y"),
     (INIT_X + "    def m(self):\n        return self\na = A()\n", "is an instance, not a word"),
     (INIT_X + "    def m(self):\n        self = 1\n        return 1\na = A()\n", "rebinds self"),
-    (INIT_X + "    def m(self, k=1):\n        return k\na = A()\n", "takes a default"),
+    (INIT_X + "    def m(self, *k):\n        return 1\na = A()\n", "*args"),
     (INIT_X + "    def m(self):\n        return 1\na = A()\ndef f(n):\n    return a.m\n", "a method, not a field"),
     (INIT_X + "a = A()\ndef f(n):\n    return a.x(1)\n", "a field, not a method"),
     (INIT_X + "a = A()\ndef f(n):\n    return a.nope(1)\n", "no such method"),
@@ -271,20 +269,30 @@ def test_what_an_instance_cannot_be_is_refused_by_name(source, words):
     )
 
 
-def test_a_class_with_no_instance_compiles_to_nothing_by_design():
-    """a class is a layout and methods; the graphs exist per instance, so a class nothing
-    instantiates adds no Function (and checks no method body: a method is checked when an
-    instance asks for its graph)"""
+def test_a_class_with_no_instance_has_its_methods_checked_over_a_probe():
+    """the graphs of a method exist per instance, so a class nothing instantiates has none --
+    but its method bodies are still checked (over a probe instance, nothing emitted): a method
+    outside the subset is refused now, by name, not the day someone instantiates the class"""
     graphs = rxpy.graphs_of(
-        "class A:\n    def m(self):\n        for i in self:\n            pass\n"
-        "def f(x):\n    return x\n",
+        "class A:\n    def __init__(self):\n        self.x = 1\n    def m(self):\n"
+        "        return self.x + 1\ndef f(x):\n    return x\n",
         "m",
     )
-    assert set(graphs) == {"f"}
-    with pytest.raises(rxpy.Refused) as problem:
-        rxpy.graphs_of(
-            "class A:\n    def m(self):\n        for i in self:\n            pass\n        return 1\n"
-            "a = A()\n",
-            "m",
-        )
-    assert "for loop" in str(problem.value)
+    assert set(graphs) == {"f"}  # no instance: no graph of A.m, and no probe in the image
+    for body, words in (
+        ("        for i in self:\n            pass\n        return 1\n", "for loop"),
+        ("        return self.y\n", "no field y"),
+        ("        return self\n", "is an instance, not a word"),
+    ):
+        with pytest.raises(rxpy.Refused) as problem:
+            rxpy.graphs_of(
+                "class A:\n    def __init__(self):\n        self.x = 1\n    def m(self):\n" + body,
+                "m",
+            )
+        assert words in str(problem.value)
+    # a request for named functions (only=) does not probe: it asks for those graphs alone
+    assert set(rxpy.graphs_of(
+        "class A:\n    def m(self):\n        for i in self:\n            pass\n"
+        "def f(x):\n    return x\n",
+        "m", only={"f"},
+    )) == {"f"}

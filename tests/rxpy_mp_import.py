@@ -42,6 +42,9 @@ def main(argv, stdin, stdout):
         except Exception as problem:  # the reference's own refusals, by name
             stdout.write("!" + type(problem).__name__ + "\n")
             continue
+        if answered is None:  # a procedure: no word at all
+            stdout.write("None\n")
+            continue
         words = answered if isinstance(answered, tuple) else (answered,)
         stdout.write(" ".join(str(int(word)) for word in words) + "\n")
 

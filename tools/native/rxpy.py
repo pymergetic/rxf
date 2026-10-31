@@ -168,6 +168,7 @@ from __future__ import annotations
 import argparse
 import ast
 import copy
+import re
 import struct
 import sys
 from collections.abc import Callable, Sequence
@@ -198,6 +199,7 @@ NUMBERS = graph_header.numbers()
 DIVISION_BY_ZERO = NUMBERS["RXF_REFUSE_DIVISION_BY_ZERO"]
 OVERFLOW = NUMBERS["RXF_REFUSE_OVERFLOW"]
 SHIFT_COUNT = NUMBERS["RXF_REFUSE_SHIFT_COUNT"]
+OUT_OF_RANGE = NUMBERS["RXF_REFUSE_OUT_OF_RANGE"]
 CELL_BYTES = NUMBERS["RXF_GRAPH_CELL_BYTES"]
 HANDLE_WORDS = 3  # an Object handle: (identity, generation, offset)
 
@@ -279,7 +281,7 @@ REFUSED_NODES: dict[type, str] = {
     ast.AnnAssign: "an annotated assignment (annotations are not in this slice)",
     ast.IfExp: "a conditional expression (the subset branches with if)",
     ast.Starred: "a starred expression (the subset passes words)",
-    ast.Subscript: "a subscript (the subset has no sequences)",
+    ast.Subscript: "a subscript (the subset indexes the tables of its own module only)",
     ast.Attribute: "an attribute (the subset reads the attributes of imported modules only)",
     ast.List: "a list (the subset's values are whole words)",
     ast.Dict: "a dict (the subset's values are whole words)",
@@ -330,6 +332,9 @@ class Sig:
     name: str
     params: int  # the positional parameters of the def
     outs: int  # the out cells of a tuple return (0: the def answers one word)
+    names: tuple[str, ...] = ()  # the parameters' names (a keyword argument binds by them)
+    defaults: tuple[int, ...] = ()  # the words of the last parameters that have a default
+    procedure: bool = False  # the def answers None: no word, so no value to use
 
     @property
     def arguments(self) -> int:
@@ -384,16 +389,17 @@ class Resolver:
         path = f"{module}.{name}"
         signature = self.image.resolve(f"{path}.signature")
         arguments = 0
+        results = 1
         if signature is not None:
-            arguments = sum(
-                1 for child in self.image.children(signature)
-                if self.image.type_name(child) == "Parameter"
-            )
+            kinds = [self.image.type_name(child) for child in self.image.children(signature)]
+            arguments = kinds.count("Parameter")
+            results = kinds.count("Result")
         outs = 0
         stem = path.replace(".", "_")
         while self.image.resolve(f"{module}.{stem}_out_{outs}") is not None:
             outs += 1
-        return Sig(name, arguments - outs, outs)
+        # a Signature with no Result is a def that answers None: the image says so itself
+        return Sig(name, arguments - outs, outs, procedure=results == 0)
 
 
 @dataclass
@@ -407,6 +413,29 @@ class ClassInfo:
     init: ast.FunctionDef | None
     methods: dict[str, ast.FunctionDef]
     fields: list[str]
+
+
+@dataclass
+class DataCell:
+    """A module-level table: ``NAME = (1, 2, 3)``, ``NAME = [1, 2, 3]`` or ``NAME = b"..."``.
+
+    One named data cell of the module -- a FixedArray whose payload is the elements, a word
+    each for a tuple or a list and a byte each for bytes -- read by an index the run checks
+    against the length (an index outside it refuses the run, where MicroPython raises
+    IndexError).  A list may be stored through an index; its length is fixed (no append)."""
+
+    kind: str  # "tuple" | "list" | "bytes"
+    items: list[int]
+    lineno: int
+
+    @property
+    def width(self) -> int:
+        return 1 if self.kind == "bytes" else 8
+
+    def raw(self) -> bytes:
+        if self.kind == "bytes":
+            return bytes(self.items)
+        return b"".join(word_bytes(item) for item in self.items)
 
 
 @dataclass
@@ -434,15 +463,21 @@ class Source:
     resolver: Resolver | None = None
     classes: dict[str, ClassInfo] = field(default_factory=dict)
     instances: dict[str, Instance] = field(default_factory=dict)
+    data: dict[str, DataCell] = field(default_factory=dict)
     receivers: dict[str, tuple[str, str]] = field(default_factory=dict)  # method graph -> (self, instance)
 
     def cell_bytes(self, name: str) -> bytes:
         """The initial payload of a named cell of this module: one word for a ``NAME = n``
         binding, the fields' words for an instance (at least one word, so no cell is empty)."""
         if name in self.instances:
-            words = self.instances[name].words or [0]
-            return b"".join(word_bytes(word) for word in words)
-        return word_bytes(self.cells[name])
+            raw = b"".join(word_bytes(word) for word in self.instances[name].words)
+        elif name in self.data:
+            raw = self.data[name].raw()
+        else:
+            return word_bytes(self.cells[name])
+        # a cell of more than a word is a FixedArray: padded to two words so no table or
+        # instance is ever mistaken for a word cell (a one-word cell is a ``uint64_t``)
+        return raw.ljust(max(16, len(raw)), b"\0")
 
 
 def parse(text: str, module: str = "imported", resolver: Resolver | None = None) -> Source:
@@ -483,7 +518,7 @@ def taken(src: Source, name: str, lineno: int) -> None:
     """A module-level name binds once: a def, a cell and an import share one namespace."""
     if (
         name in src.signatures or name in src.cells or name in src.imports
-        or name in src.classes or name in src.instances
+        or name in src.classes or name in src.instances or name in src.data
     ):
         raise Refused(f"{src.module}: line {lineno}: {name} is bound twice")
 
@@ -576,10 +611,10 @@ def declare(src: Source, fn: ast.FunctionDef) -> None:
     if fn.returns is not None:
         raise Refused(f"{src.module}: line {fn.lineno}: an annotation on {fn.name}'s return")
     args = fn.args
-    if args.vararg or args.kwarg or args.kwonlyargs or args.defaults or args.kw_defaults:
+    if args.vararg or args.kwarg or args.kwonlyargs or args.kw_defaults:
         raise Refused(
-            f"{src.module}: line {fn.lineno}: {fn.name} takes a default, *args, **kwargs or "
-            "a keyword parameter (the subset passes words positionally)"
+            f"{src.module}: line {fn.lineno}: {fn.name} takes *args, **kwargs or a "
+            "keyword-only parameter (the subset passes words by position or by name)"
         )
     if args.posonlyargs:
         raise Refused(
@@ -592,7 +627,14 @@ def declare(src: Source, fn: ast.FunctionDef) -> None:
                 f"{src.module}: line {fn.lineno}: an annotation on {fn.name}'s "
                 f"parameter {arg.arg}"
             )
-    src.signatures[fn.name] = Sig(fn.name, len(args.args), return_arity(src, fn))
+    # a default is evaluated once, when the def runs: a constant of the module at that point
+    defaults = tuple(
+        fold_constant(src, item, f"{fn.name}'s default", {}) for item in args.defaults
+    )
+    outs, procedure = return_shape(src, fn)
+    src.signatures[fn.name] = Sig(
+        fn.name, len(args.args), outs, tuple(arg.arg for arg in args.args), defaults, procedure
+    )
     src.functions[fn.name] = fn
 
 
@@ -610,20 +652,30 @@ def returns_of(body: Sequence[ast.stmt]) -> list[ast.Return]:
     return found
 
 
-def return_arity(src: Source, fn: ast.FunctionDef) -> int:
-    """The out cells of the def's answer: 0 where it answers one word, N for an N-tuple.
+def is_none(node: ast.expr | None) -> bool:
+    """A bare ``return`` or ``return None``: the def answers no word."""
+    return node is None or (isinstance(node, ast.Constant) and node.value is None)
 
-    A def answers one arity on every path (the run entry's frame is fixed at its door):
-    returns of a tuple take the same length everywhere, and a bare return is refused --
-    MicroPython answers ``None`` there, and ``None`` is not a word."""
+
+def return_shape(src: Source, fn: ast.FunctionDef) -> tuple[int, bool]:
+    """The out cells of the def's answer (0 where it answers one word, N for an N-tuple) and
+    whether it is a procedure.
+
+    A def answers one shape on every path (the run entry's frame is fixed at its door): returns
+    of a tuple take the same length everywhere.  ``None`` has no word of its own -- a word
+    cannot be told from the int 0, so ``is None`` would answer wrong words -- but the ABSENCE of
+    an answer is representable: a def whose returns are all bare (or ``return None``), or that
+    has none, is a procedure; its Signature has no Result (the image says so) and its callers
+    call it as a statement.  A def that returns a word on one path and None on another is
+    refused: the caller could not tell which it got."""
     found: int | None = None
+    nones: list[ast.Return] = []
     for node in returns_of(fn.body):
         assert isinstance(node, ast.Return)  # returns_of answers only returns
-        if node.value is None:
-            raise Refused(
-                f"line {node.lineno}: a bare return in {fn.name} "
-                "(a return answers None, not a word)"
-            )
+        if is_none(node.value):
+            nones.append(node)
+            continue
+        assert node.value is not None
         width = len(node.value.elts) if isinstance(node.value, ast.Tuple) else 1
         if isinstance(node.value, ast.Tuple):
             if not node.value.elts:
@@ -643,7 +695,14 @@ def return_arity(src: Source, fn: ast.FunctionDef) -> int:
                 f"line {node.lineno}: {fn.name} answers {found} on one path and {width} "
                 "on another (the run entry takes one shape)"
             )
-    return 0 if found is None or found == 1 else found
+    if found is not None and nones:
+        raise Refused(
+            f"line {nones[0].lineno}: {fn.name} answers a word on one path and None on "
+            "another (a caller could not tell which it got: None has no word of its own)"
+        )
+    if found is None:
+        return 0, True
+    return (0 if found == 1 else found), False
 
 
 def cell_assignment(src: Source, statement: ast.Assign) -> None:
@@ -663,7 +722,33 @@ def cell_assignment(src: Source, statement: ast.Assign) -> None:
     if isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and value.func.id in src.classes:
         declare_instance(src, name, src.classes[value.func.id], value, statement.lineno)
         return
+    table = table_of(src, value, name, statement.lineno)
+    if table is not None:
+        src.data[name] = table
+        return
     src.cells[name] = fold_constant(src, value, name)
+
+
+def table_of(src: Source, node: ast.expr, name: str, lineno: int) -> DataCell | None:
+    """A tuple or list of integer constants, or a bytes constant, as a data cell; None where
+    the value is not a table.  A string is refused by name: no operation on one is in the
+    subset, and indexing it would answer a str, not a word."""
+    where = f"{src.module}: line {lineno}: the initializer of {name}"
+    if isinstance(node, ast.Constant) and isinstance(node.value, bytes):
+        return DataCell("bytes", list(node.value), lineno)
+    if isinstance(node, (ast.Tuple, ast.List)):
+        items = []
+        for element in node.elts:
+            if isinstance(element, ast.Starred):
+                raise Refused(f"{where} spreads a starred element")
+            items.append(fold_constant(src, element, name))
+        return DataCell("tuple" if isinstance(node, ast.Tuple) else "list", items, lineno)
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        raise Refused(
+            f"{where} is a string, not an integer constant or a table of them (no string "
+            "operation is in the subset; use bytes for a table of byte words)"
+        )
+    return None
 
 
 def fold_constant(
@@ -739,6 +824,11 @@ def declare_class(src: Source, node: ast.ClassDef) -> None:
                 f"{src.module}: line {item.lineno}: {node.name}.{item.name} takes no self "
                 "(a method of the subset is called on an instance)"
             )
+        if len(item.args.defaults) > len(item.args.args) - 1:
+            raise Refused(
+                f"{src.module}: line {item.lineno}: {node.name}.{item.name} gives self a default "
+                "(the receiver is the instance's cell)"
+            )
         if item.name in seen:
             raise Refused(f"{src.module}: line {item.lineno}: {node.name}.{item.name} is defined twice")
         seen.add(item.name)
@@ -784,19 +874,35 @@ def declare_instance(
     ``__init__`` at compile time over the constant arguments, and one graph per method with
     ``self`` bound to the cell."""
     where = f"{src.module}: line {lineno}"
-    if call.keywords or any(isinstance(arg, ast.Starred) for arg in call.args):
-        raise Refused(f"{where}: a keyword or starred argument at {cls.name}(...)")
-    params = [arg.arg for arg in cls.init.args.args[1:]] if cls.init is not None else []
+    if any(isinstance(arg, ast.Starred) for arg in call.args):
+        raise Refused(f"{where}: a starred argument at {cls.name}(...)")
+    params: list[str] = []
+    defaults: list[int] = []
     if cls.init is not None:
         init = cls.init.args
-        if init.vararg or init.kwarg or init.kwonlyargs or init.defaults or init.kw_defaults:
-            raise Refused(f"{where}: {cls.name}.__init__ takes a default, *args or **kwargs")
-    if len(call.args) != len(params):
+        if init.vararg or init.kwarg or init.kwonlyargs or init.kw_defaults:
+            raise Refused(f"{where}: {cls.name}.__init__ takes *args, **kwargs or a keyword-only parameter")
+        params = [arg.arg for arg in init.args[1:]]
+        defaults = [fold_constant(src, d, f"{cls.name}.__init__'s default", {}) for d in init.defaults]
+    if len(call.args) > len(params):
         raise Refused(f"{where}: {cls.name}(...) takes {len(params)} values and the call passes {len(call.args)}")
     given = {
         param: fold_constant(src, arg, f"{name}.{param}")
-        for param, arg in zip(params, call.args, strict=True)
+        for param, arg in zip(params, call.args, strict=False)
     }
+    for keyword in call.keywords:
+        if keyword.arg is None or keyword.arg not in params:
+            raise Refused(f"{where}: {cls.name}(...) has no parameter {keyword.arg}: a keyword argument")
+        if keyword.arg in given:
+            raise Refused(f"{where}: {cls.name}(...) got more than one value for {keyword.arg}")
+        given[keyword.arg] = fold_constant(src, keyword.value, f"{name}.{keyword.arg}")
+    first_default = len(params) - len(defaults)
+    for at, param in enumerate(params):
+        if param in given:
+            continue
+        if at < first_default:
+            raise Refused(f"{where}: {cls.name}(...) takes {len(params)} values and the call misses {param}")
+        given[param] = defaults[at - first_default]
     values: dict[str, int] = {}
     if cls.init is not None:
         for item in cls.init.body:
@@ -844,7 +950,7 @@ class Lowering:
         self.receiver, self.instance = src.receivers.get(fn.name, (None, None))
         self.globals: dict[str, Global] = {
             f"@{name}": Global(name, "i64", src.cell_bytes(name), constant=False)
-            for name in (*src.cells, *src.instances)
+            for name in (*src.cells, *src.instances, *src.data)
         }
         self.cell_values: dict[str, MOperand] = {}
         self.out_values: dict[str, LValue] = {}
@@ -1182,6 +1288,12 @@ class Lowering:
                         f"line {node.lineno}: a literal that does not fit a 64-bit word"
                     )
                 return self.literal(node.value)
+            if node.value is None:
+                raise Refused(
+                    f"line {node.lineno}: None as a value (it has no word of its own -- a word "
+                    "cannot be told from the int 0, so `is None` would answer wrong words; a "
+                    "def that answers nothing is a procedure, called as a statement)"
+                )
             if isinstance(node.value, str):
                 raise Refused(
                     f"line {node.lineno}: a string as a value (the subset's values are "
@@ -1205,7 +1317,65 @@ class Lowering:
             return self.call_expression(env, node)
         if isinstance(node, ast.Attribute):
             return self.attribute_ref(node)
+        if isinstance(node, ast.Subscript):
+            return self.element(env, node)
         raise Refused(f"line {getattr(node, 'lineno', '?')}: {node_name(node)} as a value")
+
+    def table(self, node: ast.expr) -> tuple[str, DataCell] | None:
+        """The table a name stands for: a data cell of this module no local shadows."""
+        if isinstance(node, ast.Name) and node.id in self.src.data and not self.local(node.id):
+            return node.id, self.src.data[node.id]
+        return None
+
+    def element_index(
+        self, env: dict[str, MOperand], node: ast.Subscript
+    ) -> tuple[str, DataCell, MOperand]:
+        """``TABLE[i]``'s index as a checked word: normalized the way Python does (a negative
+        index counts from the end) and compared with the length -- outside it the run refuses
+        RXF_REFUSE_OUT_OF_RANGE, where MicroPython raises IndexError.  Only the word is kept:
+        an address is computed where it is used, never held across a call (a safe point)."""
+        found = self.table(node.value)
+        if found is None:
+            raise Refused(
+                f"line {node.lineno}: a subscript of something that is not a table of this "
+                "module (a tuple, a list or bytes bound at module level)"
+            )
+        name, cell = found
+        if isinstance(node.slice, ast.Slice):
+            raise Refused(f"line {node.lineno}: a slice of {name} (the subset indexes one element)")
+        index = self.operand(env, node.slice)
+        length = len(cell.items)
+        negative = self.one_compare(ast.Lt(), index, self.literal(0), node.lineno)
+        fixed = self.call(
+            "wrapping_add_uint64_t",
+            [index, self.call("wrapping_multiply_uint64_t", [negative, self.literal(length)])],
+        )
+        inside = self.call("less_uint64_t", [fixed, self.literal(length)])
+        self.guard(self.call("wrapping_subtract_uint64_t", [self.literal(1), inside]), OUT_OF_RANGE)
+        return name, cell, fixed
+
+    def element_address(self, name: str, cell: DataCell, fixed: MOperand) -> MOperand:
+        """The address of the element a checked index names: the cell plus index * width."""
+        scaled = fixed if cell.width == 1 else self.call(
+            "wrapping_multiply_uint64_t", [fixed, self.literal(cell.width)]
+        )
+        return self.call("wrapping_add_uint64_t", [self.cell(name), scaled])
+
+    def element(self, env: dict[str, MOperand], node: ast.Subscript) -> MOperand:
+        """``TABLE[i]`` as a word."""
+        name, cell, fixed = self.element_index(env, node)
+        return self.load_element(self.element_address(name, cell, fixed), cell)
+
+    def load_element(self, address: MOperand, cell: DataCell) -> MOperand:
+        """One element as a word: a whole word, or one byte (copied into the shared scratch,
+        whose other bytes are stale, so the byte is masked out of it)."""
+        if cell.width == 8:
+            return self.load(address)
+        scratch = self.load_scratch_of()
+        self.call_void(
+            "memory_copy", [scratch, self.literal(16), address, self.literal(1), self.literal(1)]
+        )
+        return self.call("bit_and_uint64_t", [self.move(scratch), self.literal(0xFF)])
 
     def attribute_ref(self, node: ast.Attribute) -> MOperand:
         """``m.NAME``: the live word of an imported module's cell (a load at its address)."""
@@ -1245,6 +1415,10 @@ class Lowering:
             raise Refused(
                 f"{where} is an imported {bound.kind}, not a word (call a function; "
                 "a module is not a value)"
+            )
+        if node.id in self.src.data:
+            raise Refused(
+                f"{where} is a table, not a word (index it, or take its len)"
             )
         if self.instance_of(node) is not None:
             raise Refused(
@@ -1380,6 +1554,14 @@ class Lowering:
         with b evaluated once and c only where the first holds."""
         if not node.ops:
             raise Refused(f"line {node.lineno}: an empty comparison")
+        for op in node.ops:
+            if type(op) not in CMP_KEYS:
+                what = (
+                    "is / is not (identity needs a None no word can be)"
+                    if isinstance(op, (ast.Is, ast.IsNot))
+                    else "in / not in (membership)"
+                )
+                raise Refused(f"line {node.lineno}: a comparison the subset does not take: {what}")
         left = self.operand(env, node.left)
         prior = self.operand(env, node.comparators[0])
         made = self.one_compare(node.ops[0], left, prior, node.lineno)
@@ -1501,7 +1683,19 @@ class Lowering:
         """A call of a function of the module (or a face ``known`` of another import): one
         call card, its answer one word.  A callee that answers a tuple is refused here --
         a tuple call is unpacked (``lo, hi = f(x)``) or discarded as a statement."""
+        if (
+            isinstance(node.func, ast.Name) and node.func.id == "len" and not self.local("len")
+            and len(node.args) == 1 and not node.keywords
+        ):
+            found = self.table(node.args[0])
+            if found is not None:  # the length of a table is a constant of the module
+                return self.literal(len(found[1].items))
         callee, outs = self.callee_of(node)
+        if self.sig_of(callee).procedure:
+            raise Refused(
+                f"line {node.lineno}: {callee} answers None (a procedure): there is no word to "
+                "use -- call it as a statement"
+            )
         if outs:
             raise Refused(
                 f"line {node.lineno}: {callee} answers a tuple of {outs}: unpack it "
@@ -1513,12 +1707,6 @@ class Lowering:
         self, env: dict[str, MOperand], node: ast.Call, callee: str, outs: int
     ) -> MOperand | None:
         arguments = self.arguments_of(env, node, callee)
-        sig = self.sig_of(callee)
-        if sig.params >= 0 and len(arguments) != sig.params:
-            raise Refused(
-                f"line {node.lineno}: {callee} takes {sig.params} values and the call "
-                f"passes {len(arguments)}"
-            )
         inputs = list(arguments) + [self.out_cell(f"{callee}.out_{index}") for index in range(outs)]
         return self.card(callee, inputs, outs)
 
@@ -1533,15 +1721,54 @@ class Lowering:
     def arguments_of(
         self, env: dict[str, MOperand], node: ast.Call, callee: str
     ) -> list[MOperand]:
-        if node.keywords:
-            raise Refused(
-                f"line {node.lineno}: a keyword argument at a call of {callee} "
-                "(the subset passes words positionally)"
-            )
+        """The words of a call, in the order of the callee's parameters.
+
+        Positional arguments first, then keyword arguments by the parameter's name (both
+        evaluated left to right, as Python does), then the defaults of what is left: a default
+        is the constant the def folded when it ran.  The shape of a callee of another module is
+        its Signature in the image, which carries neither names nor defaults: it takes exactly
+        its words by position."""
         for argument in node.args:
             if isinstance(argument, ast.Starred):
                 raise Refused(f"line {node.lineno}: a starred argument at a call of {callee}")
-        return [self.operand(env, argument) for argument in node.args]
+        sig = self.sig_of(callee)
+        where = f"line {node.lineno}: {callee}"
+        given = [self.operand(env, argument) for argument in node.args]
+        if sig.params < 0:  # a face a prior import names in known: its arity is not this module's
+            if node.keywords:
+                raise Refused(f"{where}: a keyword argument (the face names no parameters)")
+            return given
+        if len(given) > sig.params:
+            raise Refused(f"{where} takes {sig.params} values and the call passes {len(given)}")
+        filled: list[MOperand | None] = [*given, *([None] * (sig.params - len(given)))]
+        for keyword in node.keywords:
+            if keyword.arg is None:
+                raise Refused(f"{where}: a **kwargs argument at a call")
+            if not sig.names:
+                raise Refused(
+                    f"{where}: a keyword argument {keyword.arg} (the image carries no "
+                    "parameter names of an imported function: pass its words by position)"
+                )
+            if keyword.arg not in sig.names:
+                raise Refused(f"{where}: a keyword argument {keyword.arg}: no parameter of that name")
+            at = sig.names.index(keyword.arg)
+            if filled[at] is not None:
+                raise Refused(f"{where} got more than one value for {keyword.arg}")
+            filled[at] = self.operand(env, keyword.value)
+        first_default = sig.params - len(sig.defaults)
+        words: list[MOperand] = []
+        for at, word in enumerate(filled):
+            if word is None:
+                if at < first_default:
+                    missing = sig.names[at] if sig.names else f"argument {at}"
+                    note = "" if sig.names else (
+                        " (the image carries no defaults of an imported function: pass all "
+                        f"{sig.params} words)"
+                    )
+                    raise Refused(f"{where} takes {sig.params} values and the call misses {missing}{note}")
+                word = self.literal(sig.defaults[at - first_default])
+            words.append(word)
+        return words
 
     def callee_of(self, node: ast.Call) -> tuple[str, int]:
         if isinstance(node.func, ast.Attribute):
@@ -1624,11 +1851,14 @@ class Lowering:
             self.params.append(made)
         self.statements(self.fn.body, self.env)
         if not self.terminated:
-            raise Refused(
-                f"line {self.fn.end_lineno}: a path of {self.fn.name} falls off the end "
-                "(MicroPython answers None there: not a word) -- end the function with a return"
-            )
-        if not self.results:
+            if not self.sig.procedure:
+                raise Refused(
+                    f"line {self.fn.end_lineno}: a path of {self.fn.name} falls off the end "
+                    "(MicroPython answers None there: not a word) -- end the function with "
+                    "a return"
+                )
+            self.finish_return(self.literal(0), word=False)  # a procedure ends by falling off
+        if not self.results and not self.sig.procedure:
             raise Refused(f"{self.fn.name}: no return of a value (the subset's functions answer)")
         self.own_terminus()
         self.blocks = self.reachable(self.blocks)
@@ -1659,9 +1889,10 @@ class Lowering:
                     f"line {node.lineno}: a nested def ({node.name}): closures are not "
                     "in this slice"
                 )
-            elif isinstance(node, (ast.Tuple, ast.Attribute)):
+            elif isinstance(node, (ast.Tuple, ast.Attribute, ast.Subscript)):
                 continue  # a tuple is legal in a return and an unpacking, an attribute where an
-                # import binds its head: both are refused where they stand as something else
+                # import binds its head, a subscript where a table is indexed: each is refused
+                # where it stands as something else
             elif isinstance(node, REFUSED_KINDS):
                 raise Refused(f"line {getattr(node, 'lineno', '?')}: {node_name(node)}")
         if self.receiver is not None and self.receiver in self.assigned:
@@ -1687,8 +1918,8 @@ class Lowering:
         elif isinstance(target, ast.Tuple):
             for item in target.elts:
                 self.collect_target(item)
-        elif isinstance(target, ast.Attribute):
-            return  # an attribute of an imported module: the cell it names is not a local
+        elif isinstance(target, (ast.Attribute, ast.Subscript)):
+            return  # a cell of an imported module or an element of a table: not a local name
         elif isinstance(target, ast.Starred):
             raise Refused(f"line {getattr(target, 'lineno', '?')}: a starred target")
         else:
@@ -1760,9 +1991,23 @@ class Lowering:
             self.unpack(node, target, env)
             return
         if isinstance(target, ast.Attribute):
-            self.store(self.attribute_cell(target), self.operand(env, node.value))
+            value = self.operand(env, node.value)  # the right side first, as Python does
+            self.store(self.attribute_cell(target), value)
+            return
+        if isinstance(target, ast.Subscript):
+            value = self.operand(env, node.value)
+            name, cell, fixed = self.element_index(env, target)
+            self.require_list(name, cell, target.lineno)
+            self.store(self.element_address(name, cell, fixed), value)
             return
         raise Refused(f"line {node.lineno}: {node_name(target)} as an assignment target")
+
+    def require_list(self, name: str, cell: DataCell, lineno: int) -> None:
+        if cell.kind != "list":
+            raise Refused(
+                f"line {lineno}: a store into {name}, a {cell.kind} (immutable: only a list "
+                "is stored through an index)"
+            )
 
     def attribute_cell(self, target: ast.Attribute) -> MOperand:
         """The cell ``m.NAME = ...`` writes: the imported module's word cell, live."""
@@ -1822,8 +2067,22 @@ class Lowering:
                     f"line {node.lineno}: {BINOP_NAMES.get(type(node.op), 'this operator')} "
                     "in an augmented assignment"
                 )
-            cell = self.attribute_cell(node.target)
-            self.store(cell, self.arith(op, self.load(cell), self.operand(env, node.value), node.lineno))
+            old = self.load(self.attribute_cell(node.target))  # Python loads the old word first
+            result = self.arith(op, old, self.operand(env, node.value), node.lineno)
+            self.store(self.attribute_cell(node.target), result)  # the address, where it is used
+            return
+        if isinstance(node.target, ast.Subscript):
+            op = BINOP_LOWERED.get(type(node.op))
+            if op is None:
+                raise Refused(
+                    f"line {node.lineno}: {BINOP_NAMES.get(type(node.op), 'this operator')} "
+                    "in an augmented assignment"
+                )
+            name, cell, fixed = self.element_index(env, node.target)
+            self.require_list(name, cell, node.lineno)
+            old = self.load_element(self.element_address(name, cell, fixed), cell)
+            result = self.arith(op, old, self.operand(env, node.value), node.lineno)
+            self.store(self.element_address(name, cell, fixed), result)
             return
         if not isinstance(node.target, ast.Name):
             raise Refused(
@@ -1850,7 +2109,10 @@ class Lowering:
         env[name.id] = self.arith(op, env[name.id], self.operand(env, node.value), node.lineno)
 
     def return_statement(self, node: ast.Return, env: dict[str, MOperand]) -> None:
-        assert node.value is not None  # the prescan refused a bare return
+        if is_none(node.value):
+            self.finish_return(self.literal(0), word=False)  # a procedure answers no word
+            return
+        assert node.value is not None
         if isinstance(node.value, ast.Tuple):
             values = [self.operand(env, item) for item in node.value.elts]
             for index, made in enumerate(values):
@@ -1859,15 +2121,18 @@ class Lowering:
             return
         self.finish_return(self.operand(env, node.value))
 
-    def finish_return(self, made: MOperand) -> None:
+    def finish_return(self, made: MOperand, word: bool = True) -> None:
         """The Return terminator and the answer it carries: one ReturnValue move per
-        return (the graph has one result value per Return, the emitter's rule)."""
+        return (the graph has one result value per Return, the emitter's rule).  A procedure
+        answers no word: its Return still carries the machine's out word (the run writes one),
+        but the graph lists no result, so its Signature has none."""
         target = self.current
         assert target is not None
         answered = self.move(made)
         target.terminator = "Return"
         target.terminator_value = answered
-        self.results.append(answered)
+        if word:
+            self.results.append(answered)
         self.terminated = True
 
     def jump(self, node: ast.stmt, env: dict[str, MOperand], kind: str) -> None:
@@ -2131,6 +2396,17 @@ def graphs_of(
     into the image) to the Function path it is at, so a call of one of them is a call
     card naming that path.  ``resolver`` is the image the module's imports are looked up in
     (``import_py_file`` passes one): a module that imports needs it."""
+    return compile_module(text, module, only, known, resolver)[1]
+
+
+def compile_module(
+    text: str,
+    module: str = "imported",
+    only: set[str] | None = None,
+    known: dict[str, str] | None = None,
+    resolver: Resolver | None = None,
+) -> tuple[Source, dict[str, LGraph]]:
+    """The parsed module and its graphs (``graphs_of`` is the graphs of this)."""
     src = parse(text, module, resolver)
     found: dict[str, LGraph] = {}
     for name, fn in src.functions.items():
@@ -2140,7 +2416,37 @@ def graphs_of(
     if only is not None and set(found) != only:
         missing = ", ".join(sorted(only - set(found)))
         raise Refused(f"not functions of the module: {missing}")
-    return {name: found[name] for name in sorted(found)}
+    if only is None:
+        probe_classes(src, known or {})
+    return src, {name: found[name] for name in sorted(found)}
+
+
+def probe_classes(src: Source, known: dict[str, str]) -> None:
+    """Check the methods of a class nothing instantiates.
+
+    The graphs of a method exist per instance, so a class with no instance has none -- and
+    would check nothing, leaving a refusal to surface the day someone instantiates it.  Each
+    such class is compiled once over a probe instance (its fields zeroed, a scratch copy of the
+    module's tables, nothing emitted) so a method outside the subset is refused now, by name."""
+    for cls in src.classes.values():
+        if any(instance.cls is cls for instance in src.instances.values()):
+            continue
+        scratch = copy.copy(src)
+        scratch.signatures = dict(src.signatures)
+        scratch.functions = {}
+        scratch.instances = dict(src.instances)
+        scratch.receivers = dict(src.receivers)
+        probe = f"_probe_{cls.name}"
+        scratch.instances[probe] = Instance(probe, cls, [0] * len(cls.fields), cls.lineno)
+        for method, fn in cls.methods.items():
+            clone = copy.copy(fn)
+            clone.name = f"{probe}__{method}"
+            clone.args = copy.copy(fn.args)
+            clone.args.args = fn.args.args[1:]
+            scratch.receivers[clone.name] = (fn.args.args[0].arg, probe)
+            declare(scratch, clone)
+        for fn in scratch.functions.values():
+            Lowering(scratch, fn, known).compile()
 
 
 def import_py_file(
@@ -2162,8 +2468,9 @@ def import_py_file(
     report speaks it, while every C, C++ and Rust import leaves it False."""
     path = Path(source)
     text = path.read_text()
-    graphs = list(graphs_of(text, module, only, known=known, resolver=Resolver(image)).values())
-    if not graphs:
+    src, found = compile_module(text, module, only, known, Resolver(image))
+    graphs = list(found.values())
+    if not graphs and not (src.cells or src.instances or src.data):
         return {}
     if provenance is not None and not isinstance(provenance, rximport.Provenance):
         provenance = rximport.Provenance.parse(str(provenance))
@@ -2174,10 +2481,33 @@ def import_py_file(
     comments = rximport.scan_comments(text, ("#",))
     targets = rximport.comment_targets(text, comments, [graph.name for graph in graphs])
     prov.open(image)  # the claim's first write: the floor speaks before anything is imported
-    image.apply(nest(emit_delta(graphs, module), module, image))
+    image.apply(nest(with_cells(emit_delta(graphs, module), src), module, image))
     mapping = {graph.name: graph.path for graph in graphs}
     prov.record(image, module, mapping, rximport.relative(path), text, list(zip(comments, targets)))
     return mapping
+
+
+def with_cells(delta: str, src: Source) -> str:
+    """Every cell of the module is in the delta, read or not.
+
+    The emitter writes a cell from the graphs that use it, so a module-level binding no def
+    reads or writes (a constant another module imports, a table only another module's
+    function reaches) would not be in the image and could not be imported -- and a module that
+    is only cells would not exist.  The cells the graphs already carry are left alone; the
+    others are written here in the same form the emitter writes them (a word its typed cell,
+    anything wider a FixedArray, the initial bytes as its data)."""
+    written = set(re.findall(r'^ {4}<(?:uint\d+_t|FixedArray) name="([^"]+)"', delta, re.MULTILINE))
+    lines = []
+    for name in (*src.cells, *src.instances, *src.data):
+        if name in written:
+            continue
+        payload = src.cell_bytes(name)
+        form = Global(name, "i64", payload).cell
+        lines.append(f'    <{form} name="{name}" rxf:data="{payload.hex()}" />')
+    if not lines:
+        return delta
+    opener = delta.index("\n", delta.index("  <Module name="))
+    return delta[: opener + 1] + "\n".join(lines) + "\n" + delta[opener + 1 :]
 
 
 def nest(delta: str, module: str, image=None) -> str:

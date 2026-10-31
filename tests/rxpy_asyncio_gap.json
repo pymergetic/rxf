@@ -2,16 +2,16 @@
   "core": {
     "compiles": {
       "class": [
-        1,
-        4
+        0,
+        5
       ],
       "def": [
         0,
         9
       ],
       "method": [
-        1,
-        14
+        2,
+        13
       ]
     },
     "dropped": 6,
@@ -20,18 +20,17 @@
       "statements": 2
     },
     "reasons": {
-      "a call of a name the strand does not compile (a builtin or a face)": 3,
+      "a call of a name the strand does not compile (a builtin or a face)": 4,
       "a callee that is not a name or an attribute": 1,
       "a class attribute or a nested class": 1,
       "a conditional expression": 1,
-      "a default parameter": 3,
-      "a function that falls off the end (None is not a word)": 1,
-      "a module-level binding that is not an integer constant": 3,
+      "a module-level binding that is not an integer constant": 5,
+      "a name the subset cannot bind (a class or a global of no cell)": 1,
       "a special method (only __init__ is of the subset)": 1,
-      "a subscript (a sequence cell)": 2,
       "an attribute store on an object held in a name": 1,
       "an expression or a control statement at module level": 1,
       "an object held in a name or a parameter (no cell the graph can resolve)": 3,
+      "assert (the panic seam)": 2,
       "async def (the coroutine frame of 4.5)": 1,
       "del": 1,
       "for (the subset loops with while)": 2,
@@ -44,8 +43,8 @@
   "event": {
     "compiles": {
       "class": [
-        1,
-        0
+        0,
+        1
       ],
       "def": [
         0,
@@ -63,7 +62,7 @@
     },
     "reasons": {
       "an attribute store on an object held in a name": 1,
-      "an object held in a name or a parameter (no cell the graph can resolve)": 2,
+      "an object held in a name or a parameter (no cell the graph can resolve)": 3,
       "try/except (the nlr seam of S11)": 1,
       "yield (the coroutine frame of 4.5)": 1
     }
@@ -79,8 +78,8 @@
         2
       ],
       "method": [
-        0,
-        1
+        1,
+        0
       ]
     },
     "dropped": 2,
@@ -89,10 +88,9 @@
       "statements": 1
     },
     "reasons": {
+      "*args, **kwargs or a keyword-only parameter": 1,
       "a call of a name the strand does not compile (a builtin or a face)": 1,
       "a decorator": 1,
-      "a default parameter": 1,
-      "a function that falls off the end (None is not a word)": 1,
       "async def (the coroutine frame of 4.5)": 2
     }
   },
@@ -134,8 +132,8 @@
         1
       ],
       "method": [
-        0,
-        9
+        1,
+        8
       ]
     },
     "dropped": 7,
@@ -144,22 +142,20 @@
       "statements": 1
     },
     "reasons": {
-      "a bare return (None is not a word)": 1,
-      "a default parameter": 2,
-      "a function that falls off the end (None is not a word)": 1,
       "a module-level binding that is not NAME = constant": 3,
-      "a module-level binding that is not an integer constant": 2,
+      "a module-level binding that is not an integer constant": 3,
       "a subscript (a sequence cell)": 1,
       "an attribute store on an object held in a name": 1,
+      "an object held in a name or a parameter (no cell the graph can resolve)": 1,
       "async def (the coroutine frame of 4.5)": 4,
-      "yield (the coroutine frame of 4.5)": 4
+      "yield (the coroutine frame of 4.5)": 5
     }
   },
   "task": {
     "compiles": {
       "class": [
-        1,
-        1
+        0,
+        2
       ],
       "def": [
         0,
@@ -176,13 +172,13 @@
       "statements": 1
     },
     "reasons": {
-      "None as a value (a value is a word)": 2,
-      "a default parameter": 1,
+      "None as a value (no word of its own)": 1,
+      "a call of a name the strand does not compile (a builtin or a face)": 1,
+      "a module-level binding that is not an integer constant": 2,
       "a special method (only __init__ is of the subset)": 1,
-      "an attribute store on an object held in a name": 1,
       "an object held in a name or a parameter (no cell the graph can resolve)": 2,
       "assert (the panic seam)": 1,
-      "is / is not / in / not in (identity and membership)": 1,
+      "is / is not / in / not in (identity and membership)": 2,
       "raise (the exception seam)": 1
     }
   }

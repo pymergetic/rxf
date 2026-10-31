@@ -37,7 +37,6 @@ from .snippets import STARTER
 
 CORPUS = Path(__file__).parent / "rxpy_corpus" / "imports"
 DRIVER = Path(__file__).parent / "rxpy_mp_import.py"
-OK = 0
 MPYS = micropythons()
 
 # the modules of the corpus, in the order an import needs them: (dotted name, file)
@@ -124,7 +123,7 @@ def mp_answers(mpy: str, cases: list[tuple[str, tuple[int, ...]]]) -> list[objec
     assert made.returncode == 0, f"{mpy}: the reference did not run: {made.stderr}"
     answered = [line for line in made.stdout.splitlines() if line.strip()]
     assert len(answered) == len(cases), f"{len(cases)} cases, {len(answered)} answers: {made.stdout!r}"
-    return [line if line.startswith("!") else tuple(int(w) for w in line.split()) for line in answered]
+    return [rxpy_run.parse_answer(line) for line in answered]
 
 
 @pytest.fixture(scope="module", params=MPYS or [None], ids=lambda p: seat_of(p) if p else "no-mpy")
@@ -142,11 +141,9 @@ def pure_reference(mpy):
     return dict(zip(map(repr, PURE), mp_answers(mpy, PURE), strict=True))
 
 
-def run_case(run, entry: str, words: tuple[int, ...]) -> tuple[int, ...]:
+def run_case(run, entry: str, words: tuple[int, ...]) -> tuple[int | str, ...]:
     module, name = rxpy_run.split_entry(NAMES, entry)
-    status, value, outs = run.call(module, name, words)
-    assert status == OK, f"{entry}{words}: the run refused ({status})"
-    return tuple(outs) if outs else (value,)
+    return rxpy_run.answer(run, module, name, words)
 
 
 # ---- the differential --------------------------------------------------------------------------

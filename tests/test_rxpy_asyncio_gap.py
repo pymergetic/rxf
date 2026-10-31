@@ -38,15 +38,16 @@ FILES = rxpy_gap.FILES
 
 # the construct kinds the subset still refuses, by AST name (imports, classes and attributes are
 # no longer here: the strand binds an import, lays out a class and reads the attributes of an
-# imported module or a named instance -- what stays refused of them shows in the pinned table)
+# imported module or a named instance; subscripts index the tables of the module -- what stays
+# refused of them shows in the pinned table)
 BLOCKERS = (
     "AsyncFunctionDef", "Await", "Yield", "YieldFrom", "Try", "Raise", "With", "For", "Lambda",
-    "ListComp", "DictComp", "GeneratorExp", "Subscript", "Nonlocal", "Assert", "Delete",
+    "ListComp", "DictComp", "GeneratorExp", "Nonlocal", "Assert", "Delete",
 )
 
 # the kinds blocking upstream asyncio today, measured against the pinned tree
 MEASURED = {
-    "AsyncFunctionDef", "Await", "Yield", "YieldFrom", "Try", "Raise", "For", "Subscript",
+    "AsyncFunctionDef", "Await", "Yield", "YieldFrom", "Try", "Raise", "For",
     "Assert", "Delete", "Nonlocal", "ListComp",
 }
 
