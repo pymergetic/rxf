@@ -30,6 +30,7 @@ retrieval date, sha256) for every vendored file.
 | pugixml | 1.14 | MIT | linked (statically, unmodified) | `third_party/pugixml/` |
 | nanobind | 3.1.0 | BSD-3-Clause | linked (headers + generated binding code) | build-time, via pip |
 | Babylon.js | 9.30.0 | Apache-2.0 | shipped (unmodified UMD bundle) | `src/pymergetic/rxftk/world/static/vendor/babylon/` |
+| lwIP | 2.2.0 (`STABLE-2_2_0_RELEASE`, commit `0a0452b`) | BSD-3-Clause | source of record, unmodified; its imported graphs are the network card of the images | `third_party/lwip/` (pin: `VERSION`) |
 
 ### pugixml (MIT)
 
@@ -93,6 +94,42 @@ extension, so its terms apply to our binaries.
 
 This document is the "documentation and/or other materials" required by
 clause 2. Full text: `nanobind` package `LICENSE` in the build environment.
+
+### lwIP (BSD-3-Clause)
+
+The TCP/IP stack behind the network card (docs/23 4.4). The C source of record is vendored
+unmodified under `third_party/lwip/` at the pinned release (`VERSION`: tag, commit, tree digest);
+the card itself is that source imported once by `tools/native/rximport.py` into RXF graphs, so the
+graphs that ship in an image are a derivative of lwIP and its terms apply to them. The port
+(`native/lwip/`: options, compiler glue, clock) is ours. The natively compiled corpus used by the
+differential tests is a test reference and is never shipped.
+
+> Copyright (c) 2001, 2002 Swedish Institute of Computer Science.
+> All rights reserved.
+>
+> Redistribution and use in source and binary forms, with or without modification,
+> are permitted provided that the following conditions are met:
+>
+> 1. Redistributions of source code must retain the above copyright notice,
+>    this list of conditions and the following disclaimer.
+> 2. Redistributions in binary form must reproduce the above copyright notice,
+>    this list of conditions and the following disclaimer in the documentation
+>    and/or other materials provided with the distribution.
+> 3. The name of the author may not be used to endorse or promote products
+>    derived from this software without specific prior written permission.
+>
+> THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
+> WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+> MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+> SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+> EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT
+> OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+> INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+> CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
+> IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
+> OF SUCH DAMAGE.
+
+Full text: `third_party/lwip/COPYING`.
 
 ### Babylon.js (Apache-2.0)
 
