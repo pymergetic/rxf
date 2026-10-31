@@ -77,8 +77,10 @@ extend-exclude = ["src/pymergetic/rxftk/core/*.pyi", "src/pymergetic/rxfb/*.pyi"
 
 [tool.ruff.lint.per-file-ignores]
 # rxpy corpus sources borrow names the test defines and the mp answer script runs code through
-# exec: pinned fixtures (tests/test_rxpy.py holds their digests), not library code.
-"tests/rxpy_corpus/*" = ["F821"]
+# exec: pinned fixtures (tests/test_rxpy.py holds their digests), not library code. Their bare
+# and explicit `return None` forms are the pinned subject matter (docs/23 4.3: a def whose
+# returns are all bare, or `return None`, answers nothing), not style defects.
+"tests/rxpy_corpus/**" = ["F821", "PLR1711", "RET501"]
 "tests/rxpy_mp_answer.py" = ["S102", "BLE001"]
 "tests/rxpy_mp_import.py" = ["BLE001"]
 # the asyncio reference runs under MicroPython: it execs the corpus data like the mp answer script
