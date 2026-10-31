@@ -210,7 +210,7 @@ Status ObjectArena::ring_insert_after(uint64_t anchor, uint64_t offset) {
     return j_set(&anchor_links[PYMERGETIC_RXF_FREE_NEXT / 8], offset);
 }
 
-Status ObjectArena::s_allocate(uint64_t room, uint64_t *offset) {
+Status ObjectArena::s_allocate(uint64_t room, uint64_t *offset, bool absorb) {
     if (offset == nullptr || room > kMaxPayload)
         return Status::TooLarge;
     Status reserve = journal_reserve(kReserveAllocate);
@@ -232,8 +232,16 @@ Status ObjectArena::s_allocate(uint64_t room, uint64_t *offset) {
         const pymergetic_rxf_object *record = record_at(walk);
         const uint64_t span = span_of(record);
         const bool is_marker = walk == anchor;
+        /* A raw grant takes a span whole when its rest cannot carry ring links and
+         * absorbs the slack (docs/32 1.2). An object's room is its request - the
+         * canonical form reads the room back as the object's size (docs/32 5.4) -
+         * so there such a span is no candidate at all: the absorbed slack would
+         * make the grant, and the dump that reads it, depend on the hole pattern
+         * of the moment. The rest that is left free stays free; it still serves
+         * the exact fit it was shaped for. */
+        const bool clean = span == total || span - total >= PYMERGETIC_RXF_FREE_MIN_SPAN;
         if (span >= total && (!is_marker || span >= total + PYMERGETIC_RXF_FREE_MIN_SPAN) &&
-            (!found || span < best_span)) {
+            (absorb || clean) && (!found || span < best_span)) {
             best = walk;
             best_span = span;
             best_is_marker = is_marker;
@@ -1243,7 +1251,8 @@ Status ObjectArena::into_module(uint32_t handle, uint32_t *fresh) {
     const uint64_t value = old->payload;
     const uint64_t at_old = index_entry(pymergetic_rxf_handle32_index(handle))->slot;
     uint64_t at_new = 0;
-    st = s_allocate(sizeof(pymergetic_rxf_module) + value, &at_new);
+    /* The object's room is its request (docs/32 5.4), never an absorbed slack. */
+    st = s_allocate(sizeof(pymergetic_rxf_module) + value, &at_new, false);
     if (st != Status::Ok)
         return st;
     /* the chain head first (the writer's EMPTY_MODULE_HEAD), then the value */
@@ -1337,7 +1346,10 @@ Status ObjectArena::create(uint32_t parent, const char *name, uint16_t kind, uin
     }
 
     uint64_t at = 0;
-    Status st = s_allocate(room, &at);
+    /* An object's room is the room its world asks for (docs/32 5.4: the canonical
+     * form reads it back as the object's size) - a span whose slack would be
+     * absorbed is no candidate here. */
+    Status st = s_allocate(room, &at, false);
     if (st != Status::Ok)
         return st;
     pymergetic_rxf_object *record = record_at(at);

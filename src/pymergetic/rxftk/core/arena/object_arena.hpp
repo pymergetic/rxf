@@ -58,8 +58,15 @@ class ObjectArena {
     /* A zeroed object record (header + `room` payload bytes, room rounded up to 8).
      * The record keeps its payload field as the granted room; kind, name, parent,
      * link and refs are zero and the caller writes them. The generation is bumped
-     * when the span is reused, so a stale handle fails its check. */
-    Status s_allocate(uint64_t room, uint64_t *offset);
+     * when the span is reused, so a stale handle fails its check.
+     * `absorb` is the raw span contract (docs/32 1.2): a span whose rest cannot
+     * carry ring links is taken whole and its slack joins the grant. An object's
+     * room is its request instead (docs/32 5.4: the canonical form reads the room
+     * back as the object's size), so the object paths pass `absorb = false` and
+     * only take a span that splits cleanly - the unallocatable rest of an
+     * absorbed span would otherwise make the grant, and with it the canonical
+     * dump, depend on the hole pattern of the moment. */
+    Status s_allocate(uint64_t room, uint64_t *offset, bool absorb = true);
     /* A span frees: the end marker grows downward when the span is adjacent to it,
      * a ring span (40 bytes or more) carries links, and a smaller one stays a
      * linkless fragment until the tail merge or compaction takes it. */

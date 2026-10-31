@@ -55,13 +55,6 @@ def xml_file(tmp_path: Path) -> Path:
     return path
 
 
-@pytest.mark.xfail(
-    reason="blocked on the arena lane: the committed apply answers a digest "
-    "that is not the v7 oracle's (the write side is not the writer's "
-    "allocation sequence, docs/32 5.4) - the walk of 5b1bb80 lands the dump "
-    "of an untouched arena, not the apply's write side",
-    strict=False,
-)
 def test_xml_to_physical_to_image_to_xml_is_the_same_text(base: Image):
     reference = Image.from_bytes(base.to_bytes())
     reference.apply(XML)
