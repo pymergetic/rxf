@@ -64,22 +64,6 @@ UNLINKED = {
     "netif_name_to_index": ("strtol",),
     "netif_find": ("strtol",),
     "pbuf_strstr": ("strlen",),
-    "slipif_init": ("sio_open",),
-    "slipif_output_v4": ("sio_send",),
-    "slipif_poll": ("sio_tryread",),
-    "icmp_input": ("lwip.slipif_output_v4",),
-    "udp_input": ("lwip.slipif_output_v4",),
-    "ip4_output_if_src": ("lwip.slipif_output_v4",),
-    "sys_check_timeouts": ("lwip.slipif_output_v4",),
-    "ip4_output_if": ("lwip.ip4_output_if_src",),
-    "icmp_dest_unreach": ("lwip.ip4_output_if_src",),
-    "ip4_input": ("lwip.icmp_input", "lwip.udp_input"),
-    "ip4_output": ("lwip.ip4_output_if_src",),
-    "udp_sendto_if_src": ("lwip.ip4_output_if_src",),
-    "netif_input": ("lwip.ip4_input",),
-    "udp_sendto": ("lwip.udp_sendto_if_src",),
-    "udp_sendto_if": ("lwip.udp_sendto_if_src",),
-    "udp_send": ("lwip.udp_sendto",),
 }
 COMPOSED = frozenset(
     {
@@ -94,19 +78,28 @@ COMPOSED = frozenset(
         "ip_chksum_pseudo_partial",
         "inet_chksum",
         "inet_chksum_pbuf",
+        "lwip_init",
+        "mem_init",
         "memp_init",
         "netif_init",
         "udp_init",
         "sys_timeouts_init",
+        "icmp_input",
         "ip4_addr_isbroadcast_u32",
         "pbuf_free",
         "pbuf_add_header",
         "pbuf_alloc",
         "pbuf_remove_header",
         "pbuf_copy",
+        "ip4_output_if",
+        "icmp_dest_unreach",
         "ip4_route",
+        "ip4_input",
         "pbuf_realloc",
+        "udp_input",
         "pbuf_header_force",
+        "ip4_output_if_src",
+        "ip4_output",
         "ip4_addr_netmask_valid",
         "mem_free",
         "mem_trim",
@@ -117,6 +110,7 @@ COMPOSED = frozenset(
         "memp_malloc",
         "memp_free_pool",
         "memp_free",
+        "netif_input",
         "netif_null_output_ip4",
         "netif_set_addr",
         "netif_set_ipaddr",
@@ -153,8 +147,13 @@ COMPOSED = frozenset(
         "sys_timeout",
         "sys_now",
         "sys_untimeout",
+        "sys_check_timeouts",
         "sys_restart_timeouts",
         "sys_timeouts_sleeptime",
+        "udp_send",
+        "udp_sendto",
+        "udp_sendto_if",
+        "udp_sendto_if_src",
         "udp_bind",
         "udp_bind_netif",
         "udp_connect",
@@ -164,27 +163,41 @@ COMPOSED = frozenset(
         "udp_new",
         "udp_new_ip_type",
         "udp_netif_ip_addr_changed",
+        "slipif_init",
+        "slipif_output_v4",
+        "sio_open",
+        "slipif_poll",
+        "sio_tryread",
+        "rxf_slip_line_close",
+        "sio_send",
+        "rxf_slip_line_ready",
         "rxf_lwip_set_now",
-        "mem_init",
-        "lwip_init",
         "__wires_boot",
     }
 )
 
 # the module: every body of native/lwip/core_slice.c at clang-18 -O1
-MODULE_BODIES = 115
+MODULE_BODIES = 120
 
-# the echo path (docs/35): every body of it lowers; each waits for the callee named here (the SLIP
-# line of its seat, or the body of the path that waits for it)
-ECHO_PATH_WAITING = {
-    "slipif_poll": ("sio_tryread",),
-    "netif_input": ("lwip.ip4_input",),
-    "ip4_input": ("lwip.icmp_input", "lwip.udp_input"),
-    "udp_input": ("lwip.slipif_output_v4",),
-    "udp_sendto": ("lwip.udp_sendto_if_src",),
-    "ip4_output_if_src": ("lwip.slipif_output_v4",),
-    "slipif_output_v4": ("sio_send",),
-}
+# the echo path (docs/35): every body of it lowers, links and composes, with the SLIP line face
+# (native/lwip/slip_line_face.c) imported in the same unit
+ECHO_PATH = (
+    "slipif_poll",
+    "netif_input",
+    "ip4_input",
+    "udp_input",
+    "udp_sendto",
+    "ip4_output_if_src",
+    "slipif_output_v4",
+)
+# the bodies of the line face, composed with the card
+LINE_FACE = (
+    "sio_open",
+    "sio_send",
+    "sio_tryread",
+    "rxf_slip_line_close",
+    "rxf_slip_line_ready",
+)
 
 
 def tree_digest() -> str:
@@ -266,7 +279,7 @@ def test_the_native_reference_compiles_the_same_unit_with_the_same_options(
         [
             CLANG, "-O1", "-Wall", "-Wno-unused-function", "-Wno-unused-but-set-variable", "-shared", "-fPIC",
             *(f"-I{path}" for path in lwip_import.INCLUDES),
-            str(lwip_import.SLICE), str(CORPUS / "native_line.c"), "-o", str(shared),
+            str(lwip_import.SLICE), "-o", str(shared),
         ],
         capture_output=True,
         text=True,
@@ -312,10 +325,9 @@ def test_the_refusal_reasons_are_the_importers_own_words(lane):
         assert "overlap-safe" in reasons[name], name
     assert "frame slot" in reasons["ip4addr_aton"]
     assert "a pointer to a value" in reasons["netif_add"]
-    # the libc, the SLIP line and the refused siblings are what the unlinked bodies wait for
-    assert lane.unresolved["sio_send"] == ["slipif_output_v4"]
-    assert lane.unresolved["sio_open"] == ["slipif_init"]
-    assert lane.unresolved["sio_tryread"] == ["slipif_poll"]
+    # the libc and the refused siblings are what the unlinked bodies wait for: the SLIP line
+    # is no longer one of them (its face is in the unit)
+    assert not [name for name in lane.unresolved if name.startswith("sio_")]
     assert set(lane.unresolved["strlen"]) == {
         "lwip_strnistr",
         "lwip_strnstr",
@@ -325,20 +337,17 @@ def test_the_refusal_reasons_are_the_importers_own_words(lane):
 
 
 @pytest.mark.slow
-def test_the_echo_path_lowers_and_waits_for_the_line_of_its_seat(lane):
-    """Every body of the UDP echo path imports as a graph now (the byte swaps and the narrow
-    clamps were what refused them). None is composed yet: the path ends at the SLIP line
-    (``sio_send`` / ``sio_tryread``, a fill per seat, docs/25 13) and every body above it waits
-    for the one below."""
-    for name, waiting in ECHO_PATH_WAITING.items():
-        assert name in lane.lowered, (
-            f"{name} no longer lowers: the echo path moved, update docs/35"
+def test_the_echo_path_composes_with_the_line_face(lane):
+    """Every body of the UDP echo path, and the face of the SLIP line under it, is an imported
+    program of the image: slipif_poll reads the line through ``sio_tryread``, slipif_output_v4
+    writes it through ``sio_send``, and the bodies in between compose bottom-up."""
+    for name in (*ECHO_PATH, *LINE_FACE):
+        assert name in lane.composed, (
+            f"{name} does not compose: the echo path moved, update docs/35"
         )
-        assert name not in lane.refused, name
-        assert name not in lane.composed, (
-            f"{name} is composed: the echo path moved, update docs/35"
-        )
-        assert tuple(lane.unlinked[name]) == waiting, name
+        assert name not in lane.refused and name not in lane.unlinked, name
+    # what stays out of the UDP echo is named (libc faces, the out-param netif_add)
+    assert "netif_add" in lane.refused
 
 
 @pytest.mark.slow
@@ -365,10 +374,15 @@ DATAGRAMS = (
 
 class Host:
     """The imported echo bodies on the host seat: the card's cells are live bytearrays the run
-    writes through, the programs a call card names are bound by their object id."""
+    writes through, the programs a call card names are bound by their object id. ``natives``
+    are native files linked into the reference library beside the source (a seat's fill)."""
 
     def __init__(
-        self, tmp_path: Path, source: Path = ECHO, bodies: tuple[str, ...] = ECHO_BODIES
+        self,
+        tmp_path: Path,
+        source: Path = ECHO,
+        bodies: tuple[str, ...] = ECHO_BODIES,
+        natives: tuple[Path, ...] = (),
     ) -> None:
         report, image, programs = lwip_import.analyze(source, set(bodies))
         assert report.unlinked == {}, report.unlinked
@@ -376,6 +390,9 @@ class Host:
         self.programs = programs
         composer = compose.Composer(image)
         self.objects: dict[int, bytes | bytearray] = {}
+        self.named: dict[
+            str, bytearray
+        ] = {}  # the cells of the card's globals, by C name
         calls: dict[str, set[str]] = {}
         for handle in range(image.handle_count):
             if not image.live(handle):
@@ -385,9 +402,9 @@ class Host:
                 continue
             values = composer.fields(handle)
             if compose.word(values.get("kind")) == "Object" and "object_id" in values:
-                self.objects[int(values["object_id"])] = bytearray(
-                    bytes.fromhex(values.get("data", ""))
-                )
+                cell = bytearray(bytes.fromhex(values.get("data", "")))
+                self.objects[int(values["object_id"])] = cell
+                self.named[path.rsplit(".", 1)[-1].removeprefix("global_")] = cell
             callee = values.get("callee")
             target = image.resolve(callee) if callee else None
             if target is not None and image.path(target).startswith(
@@ -417,7 +434,7 @@ class Host:
             [
                 CLANG, "-O1", "-shared", "-fPIC",
                 *(f"-I{path}" for path in lwip_import.INCLUDES),
-                str(source), str(CORPUS / "native_line.c"), "-o", str(shared),
+                str(source), *map(str, natives), "-o", str(shared),
             ],
             check=True,
         )  # fmt: skip

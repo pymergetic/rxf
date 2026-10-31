@@ -11,7 +11,7 @@
  *   core:   init, def, mem, memp, pbuf, netif, ip, inet_chksum, timeouts, sys, stats, udp
  *   ipv4:   ip4, ip4_addr, icmp
  *   netif:  slipif
- *   port:   sys_arch (the clock)
+ *   port:   sys_arch (the clock), slip_line_face (the sio face over the line cell)
  */
 #include "../../third_party/lwip/src/core/def.c"
 #include "../../third_party/lwip/src/core/inet_chksum.c"
@@ -29,4 +29,5 @@
 #include "../../third_party/lwip/src/core/timeouts.c"
 #include "../../third_party/lwip/src/core/udp.c"
 #include "../../third_party/lwip/src/netif/slipif.c"
+#include "slip_line_face.c"
 #include "sys_arch.c"

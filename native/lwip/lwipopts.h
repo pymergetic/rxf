@@ -58,6 +58,7 @@
 
 /* ---- the SLIP line (RFC 1055; VJ header compression stays off, docs/25 13) ---- */
 #define LWIP_HAVE_SLIPIF 1
+#define SLIP_MAX_SIZE 1000 /* the line's MTU (slip_line.h RXF_SLIP_MTU) */
 #define SLIP_USE_RX_THREAD 0
 #define SLIP_RX_FROM_ISR 0
 #define SLIP_RX_QUEUE 0

@@ -44,12 +44,12 @@ needed (section 3.1 records how each step moved the table).
 
 | tier | what it asks | count |
 |---|---|---|
-| module | bodies in the module | 115 |
-| 1 lowered | `rximport.graphs_of` lowers the body to a `SemanticGraph` | 107 |
+| module | bodies in the module | 120 |
+| 1 lowered | `rximport.graphs_of` lowers the body to a `SemanticGraph` | 112 |
 | 1 refused | the importer raises, with its reason (table below) | 8 |
-| 2 linked | the lowered graphs apply as one delta: every call card resolves | 85 |
-| 2 unlinked | lowered, but a callee is no program of the image (table below) | 22 |
-| 3 composed | `compose.programs` makes program words of the linked body | 85 |
+| 2 linked | the lowered graphs apply as one delta: every call card resolves | 106 |
+| 2 unlinked | lowered, but a callee is no program of the image (table below) | 6 |
+| 3 composed | `compose.programs` makes program words of the linked body | 106 |
 
 A refused body is refused for the FIRST thing the importer cannot lower in it; a second reason may sit behind the one named. A body that inlines a refused callee carries that callee's refusal (`udp_send` is refused for the `htons` of `udp_sendto_if_src`).
 
@@ -96,65 +96,39 @@ the call-card frame cannot carry a raw pointer to a caller's value (docs/23 4.1:
 |---|---|
 | `lwip_strnstr` | `strlen`, `strncmp` |
 | `lwip_strnistr` | `strlen` |
-| `icmp_input` | `lwip.slipif_output_v4` |
-| `ip4_output_if` | `lwip.ip4_output_if_src` |
-| `icmp_dest_unreach` | `lwip.ip4_output_if_src` |
-| `ip4_input` | `lwip.icmp_input`, `lwip.udp_input` |
-| `udp_input` | `lwip.slipif_output_v4` |
-| `ip4_output_if_src` | `lwip.slipif_output_v4` |
-| `ip4_output` | `lwip.ip4_output_if_src` |
-| `netif_input` | `lwip.ip4_input` |
 | `netif_add_noaddr` | `lwip.netif_add` |
 | `netif_name_to_index` | `strtol` |
 | `netif_find` | `strtol` |
 | `pbuf_strstr` | `strlen` |
-| `sys_check_timeouts` | `lwip.slipif_output_v4` |
-| `udp_send` | `lwip.udp_sendto` |
-| `udp_sendto` | `lwip.udp_sendto_if_src` |
-| `udp_sendto_if` | `lwip.udp_sendto_if_src` |
-| `udp_sendto_if_src` | `lwip.ip4_output_if_src` |
-| `slipif_init` | `sio_open` |
-| `slipif_output_v4` | `sio_send` |
-| `slipif_poll` | `sio_tryread` |
 
 The unresolved names, by what they are:
 
 | callee | what it is | called by |
 |---|---|---|
-| `lwip.icmp_input` | a body of the card that did not link | `ip4_input` |
-| `lwip.ip4_input` | a body of the card that did not link | `netif_input` |
-| `lwip.ip4_output_if_src` | a body of the card that did not link | `icmp_dest_unreach`, `ip4_output`, `ip4_output_if`, `udp_sendto_if_src` |
 | `lwip.netif_add` | a body of the card that the importer refuses (out-pointer) | `netif_add_noaddr` |
-| `lwip.slipif_output_v4` | a body of the card that did not link | `icmp_input`, `ip4_output_if_src`, `sys_check_timeouts`, `udp_input` |
-| `lwip.udp_input` | a body of the card that did not link | `ip4_input` |
-| `lwip.udp_sendto` | a body of the card that did not link | `udp_send` |
-| `lwip.udp_sendto_if_src` | a body of the card that did not link | `udp_sendto`, `udp_sendto_if` |
-| `sio_open` | the SLIP line provider of `sio.h`: the per-seat fill (docs/25 §13), no card yet | `slipif_init` |
-| `sio_send` | the SLIP line provider of `sio.h`: the per-seat fill (docs/25 §13), no card yet | `slipif_output_v4` |
-| `sio_tryread` | the SLIP line provider of `sio.h`: the per-seat fill (docs/25 §13), no card yet | `slipif_poll` |
 | `strlen` | a libc face: the subset imports no libc; needs an IR body under `RXF_IMPORT_FACES` | `lwip_strnistr`, `lwip_strnstr`, `pbuf_strstr` |
 | `strncmp` | a libc face: the subset imports no libc; needs an IR body under `RXF_IMPORT_FACES` | `lwip_strnstr` |
 | `strtol` | a libc face: the subset imports no libc; needs an IR body under `RXF_IMPORT_FACES` | `netif_find`, `netif_name_to_index` |
 
 ### Tier 3: imported and composed
 
-85 bodies exist as programs of the image; each is one `lwip.<name>` of `compose.programs`:
+106 bodies exist as programs of the image; each is one `lwip.<name>` of `compose.programs`:
 
-`lwip_htons`, `lwip_htonl`, `lwip_strnicmp`, `lwip_stricmp`, `lwip_standard_chksum`, `inet_chksum_pseudo`, `ip_chksum_pseudo`, `inet_chksum_pseudo_partial`, `ip_chksum_pseudo_partial`, `inet_chksum`, `inet_chksum_pbuf`, `lwip_init`, `mem_init`, `memp_init`, `netif_init`, `udp_init`, `sys_timeouts_init`, `ip4_addr_isbroadcast_u32`, `pbuf_free`, `pbuf_add_header`, `pbuf_alloc`, `pbuf_remove_header`, `pbuf_copy`, `ip4_route`, `pbuf_realloc`, `pbuf_header_force`, `ip4_addr_netmask_valid`, `mem_free`, `mem_trim`, `mem_malloc`, `mem_calloc`, `memp_init_pool`, `memp_malloc_pool`, `memp_malloc`, `memp_free_pool`, `memp_free`, `netif_null_output_ip4`, `netif_set_addr`, `netif_set_ipaddr`, `netif_set_netmask`, `netif_set_gw`, `netif_remove`, `netif_set_down`, `netif_set_default`, `netif_set_up`, `netif_set_link_up`, `netif_set_link_down`, `netif_get_by_index`, `pbuf_alloc_reference`, `pbuf_add_header_force`, `pbuf_header`, `pbuf_free_header`, `pbuf_clen`, `pbuf_ref`, `pbuf_cat`, `pbuf_chain`, `pbuf_copy_partial_pbuf`, `pbuf_copy_partial`, `pbuf_get_contiguous`, `pbuf_skip`, `pbuf_take`, `pbuf_take_at`, `pbuf_coalesce`, `pbuf_clone`, `pbuf_get_at`, `pbuf_try_get_at`, `pbuf_put_at`, `pbuf_memcmp`, `pbuf_memfind`, `sys_timeout`, `sys_now`, `sys_untimeout`, `sys_restart_timeouts`, `sys_timeouts_sleeptime`, `udp_bind`, `udp_bind_netif`, `udp_connect`, `udp_disconnect`, `udp_recv`, `udp_remove`, `udp_new`, `udp_new_ip_type`, `udp_netif_ip_addr_changed`, `rxf_lwip_set_now`, `__wires_boot`.
+`lwip_htons`, `lwip_htonl`, `lwip_strnicmp`, `lwip_stricmp`, `lwip_standard_chksum`, `inet_chksum_pseudo`, `ip_chksum_pseudo`, `inet_chksum_pseudo_partial`, `ip_chksum_pseudo_partial`, `inet_chksum`, `inet_chksum_pbuf`, `lwip_init`, `mem_init`, `memp_init`, `netif_init`, `udp_init`, `sys_timeouts_init`, `icmp_input`, `ip4_addr_isbroadcast_u32`, `pbuf_free`, `pbuf_add_header`, `pbuf_alloc`, `pbuf_remove_header`, `pbuf_copy`, `ip4_output_if`, `icmp_dest_unreach`, `ip4_route`, `ip4_input`, `pbuf_realloc`, `udp_input`, `pbuf_header_force`, `ip4_output_if_src`, `ip4_output`, `ip4_addr_netmask_valid`, `mem_free`, `mem_trim`, `mem_malloc`, `mem_calloc`, `memp_init_pool`, `memp_malloc_pool`, `memp_malloc`, `memp_free_pool`, `memp_free`, `netif_input`, `netif_null_output_ip4`, `netif_set_addr`, `netif_set_ipaddr`, `netif_set_netmask`, `netif_set_gw`, `netif_remove`, `netif_set_down`, `netif_set_default`, `netif_set_up`, `netif_set_link_up`, `netif_set_link_down`, `netif_get_by_index`, `pbuf_alloc_reference`, `pbuf_add_header_force`, `pbuf_header`, `pbuf_free_header`, `pbuf_clen`, `pbuf_ref`, `pbuf_cat`, `pbuf_chain`, `pbuf_copy_partial_pbuf`, `pbuf_copy_partial`, `pbuf_get_contiguous`, `pbuf_skip`, `pbuf_take`, `pbuf_take_at`, `pbuf_coalesce`, `pbuf_clone`, `pbuf_get_at`, `pbuf_try_get_at`, `pbuf_put_at`, `pbuf_memcmp`, `pbuf_memfind`, `sys_timeout`, `sys_now`, `sys_untimeout`, `sys_check_timeouts`, `sys_restart_timeouts`, `sys_timeouts_sleeptime`, `udp_send`, `udp_sendto`, `udp_sendto_if`, `udp_sendto_if_src`, `udp_bind`, `udp_bind_netif`, `udp_connect`, `udp_disconnect`, `udp_recv`, `udp_remove`, `udp_new`, `udp_new_ip_type`, `udp_netif_ip_addr_changed`, `slipif_init`, `slipif_output_v4`, `sio_open`, `slipif_poll`, `sio_tryread`, `rxf_slip_line_close`, `sio_send`, `rxf_slip_line_ready`, `rxf_lwip_set_now`, `__wires_boot`.
 
 ### The echo path, named
 
-One UDP datagram in and echoed out is `slipif_poll` (it carries the `static inline` `slipif_input` and its SLIP deframing) -> `netif_input` -> `ip4_input` -> `udp_input` -> the pcb's `recv` word -> `udp_sendto` -> `ip4_output_if_src` -> the netif's `output` word -> `slipif_output_v4` -> `sio_send`. Where each body stands (a body that is refused ends the imported path there; a body that lowers waits for the callee it names):
+One UDP datagram in and echoed out is `slipif_poll` (it carries the `static inline` `slipif_input` and its SLIP deframing) -> `netif_input` -> `ip4_input` -> `udp_input` -> the pcb's `recv` word -> `udp_sendto` -> `ip4_output_if_src` -> the netif's `output` word -> `slipif_output_v4` -> `sio_send` (the line face, over the line cell a seat's fill moves). Where each body stands (a body that is refused ends the imported path there; a body that lowers waits for the callee it names):
 
 | body | status |
 |---|---|
-| `slipif_poll` | lowered, not linked: `sio_tryread` |
-| `netif_input` | lowered, not linked: `lwip.ip4_input` |
-| `ip4_input` | lowered, not linked: `lwip.icmp_input`, `lwip.udp_input` |
-| `udp_input` | lowered, not linked: `lwip.slipif_output_v4` |
-| `udp_sendto` | lowered, not linked: `lwip.udp_sendto_if_src` |
-| `ip4_output_if_src` | lowered, not linked: `lwip.slipif_output_v4` |
-| `slipif_output_v4` | lowered, not linked: `sio_send` |
+| `slipif_poll` | imported and composed |
+| `netif_input` | imported and composed |
+| `ip4_input` | imported and composed |
+| `udp_input` | imported and composed |
+| `udp_sendto` | imported and composed |
+| `ip4_output_if_src` | imported and composed |
+| `slipif_output_v4` | imported and composed |
 
 
 <!-- lwip-import:end -->

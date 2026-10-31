@@ -356,8 +356,9 @@ def render(report: Report) -> str:
         "One UDP datagram in and echoed out is `slipif_poll` (it carries the `static inline` "
         "`slipif_input` and its SLIP deframing) -> `netif_input` -> `ip4_input` -> `udp_input` -> "
         "the pcb's `recv` word -> `udp_sendto` -> `ip4_output_if_src` -> the netif's `output` "
-        "word -> `slipif_output_v4` -> `sio_send`. Where each body stands (a body that is "
-        "refused ends the imported path there; a body that lowers waits for the callee it names):"
+        "word -> `slipif_output_v4` -> `sio_send` (the line face, over the line cell a seat's fill "
+        "moves). Where each body stands (a body that is refused ends the imported path there; a "
+        "body that lowers waits for the callee it names):"
     )
     emit("")
     emit("| body | status |")
@@ -413,7 +414,7 @@ def callee_kind(callee: str, report: Report) -> str:
             return f"a body of the card that the importer refuses ({classify(report.refused[bare])})"
         return "a body of the card that did not link"
     if callee.startswith("sio_"):
-        return "the SLIP line provider of `sio.h`: the per-seat fill (docs/25 §13), no card yet"
+        return "the SLIP line face of `sio.h` (`native/lwip/slip_line_face.c`), not in this unit"
     if callee in ("strlen", "strncmp", "strtol", "strchr", "memcmp"):
         return "a libc face: the subset imports no libc; needs an IR body under `RXF_IMPORT_FACES`"
     return "no program of the image"
