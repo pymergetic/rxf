@@ -111,6 +111,11 @@ def create_app(image: Image, *, session: Session | None = None) -> FastAPI:
     def obj(path: str) -> dict[str, Any]:
         return found(inspector.object, path)
 
+    def modules(path: str = "", depth: int = Query(2, ge=0, le=8)) -> dict[str, Any]:
+        """One package of the module tree (docs/23 §4.6): the same trichotomy the import walk
+        answers, package by package."""
+        return inspector.module_tree(path, depth)
+
     def detail(path: str) -> dict[str, Any]:
         return found(inspector.detail, path)
 
@@ -209,6 +214,7 @@ def create_app(image: Image, *, session: Session | None = None) -> FastAPI:
     app.get("/api/info")(info)
     app.get("/api/children")(children)
     app.get("/api/object")(obj)
+    app.get("/api/modules")(modules)
     app.get("/api/detail")(detail)
     app.get("/api/memory")(memory)
     app.get("/api/search")(search)

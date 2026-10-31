@@ -19,6 +19,8 @@
   #q { width: 100%; }
   ul { list-style: none; margin: 0; padding-left: 16px; }
   #tree { padding-left: 0; }
+  #module-tree { padding-left: 0; margin: 4px 0 10px; }
+  .mod-refusal { color: var(--muted); font-size: 11px; padding: 2px 0; }
   .row { display: flex; align-items: center; min-width: 0; }
   .twisty { width: 22px; min-width: 22px; border: 0; background: transparent; padding: 2px; color: var(--muted); cursor: pointer; }
   .label { cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 2px 6px 2px 2px; border-radius: 4px; flex: 1; min-width: 0; }
@@ -70,6 +72,9 @@
 </div>
 <div id="panes">
   <section class="pane">
+    <h2 class="eyebrow">Module tree</h2>
+    <p class="note">The import face (docs/23 §4.6): the Quad roots, the package/module trichotomy, the guest's own namespace. The Quad is named here whether or not the image holds it — a root the image does not spell reads as an empty place, never a hidden one.</p>
+    <ul id="module-tree"></ul>
     <h2 class="eyebrow">Object tree</h2>
     <input id="q" placeholder="search names">
     <div id="results"></div>
@@ -240,6 +245,84 @@ canvas.ondblclick = (e) => {
 };
 $("reset").onclick = () => { view = { start: 0, end: 0 }; loadMemory(); };
 new ResizeObserver(() => memory && draw()).observe(canvas);
+
+// ---- module tree (docs/23 4.6: the image IS the module tree) -----------------------------------
+
+async function modulesOf(name, depth) {
+  const q = new URLSearchParams({ depth: String(depth) });
+  if (name) q.set("path", name);
+  return get(`/api/modules?${q}`);
+}
+
+const MOD_ICON = { package: "▾", module: "·", none: "×" };
+
+function modNode(row, parentPath) {
+  const li = document.createElement("li");
+  const row0 = document.createElement("div");
+  row0.className = "row";
+  const path = parentPath ? `${parentPath}.${row.name}` : row.name;
+  const isPackage = row.stat === "package";
+  const twisty = document.createElement("button");
+  twisty.className = "twisty";
+  twisty.textContent = isPackage ? "▸" : MOD_ICON[row.stat] || "·";
+  twisty.disabled = !isPackage;
+  twisty.title = isPackage
+    ? `expand ${row.name}`
+    : row.stat === "module"
+      ? `${row.name} is a leaf module`
+      : `${row.name} is an empty place: the image names no such module`;
+  twisty.onclick = async (e) => {
+    e.stopPropagation();
+    const ul = await modEnsure(li, path);
+    const open = ul.hidden;
+    ul.hidden = !open;
+    twisty.textContent = open ? "▾" : "▸";
+  };
+  const label = document.createElement("span");
+  label.className = "label";
+  // the trichotomy as the label's word: a module cell carries "Module", a Quad name the
+  // image does not spell carries its icon so the empty place stays readable
+  const words = row.kind ? row.stat : `${row.stat} (${MOD_ICON[row.stat] || "·"})`;
+  label.innerHTML = `${esc(row.name)}<span class="t">${esc(words)}</span>`;
+  if (row.stat === "package" || row.stat === "module") {
+    label.title = `${path} resolves as ${row.stat} — open its cell`;
+    label.onclick = () => show(path);
+  } else {
+    label.title = `${path}: the image names no module here`;
+  }
+  row0.append(twisty, label);
+  li.append(row0);
+  return li;
+}
+
+async function modEnsure(li, path) {
+  let ul = li.querySelector(":scope > ul");
+  if (!ul) {
+    ul = document.createElement("ul");
+    ul.hidden = true;
+    li.append(ul);
+    const data = await modulesOf(path, 1);
+    if (data.stat === "refused") {
+      const refusal = document.createElement("li");
+      refusal.className = "mod-refusal";
+      refusal.textContent = data.refusal;
+      ul.append(refusal);
+      return ul;
+    }
+    for (const child of data.children) ul.append(modNode(child, path));
+  }
+  return ul;
+}
+
+async function loadModuleTree() {
+  try {
+    const forest = await modulesOf("", 1);
+    const mount = $("module-tree");
+    for (const root of forest.children) mount.append(modNode(root, ""));
+  } catch (error) {
+    $("module-tree").innerHTML = `<li class="mod-refusal">Module tree unavailable: ${esc(error.message)}</li>`;
+  }
+}
 
 // ---- object tree --------------------------------------------------------------------------------
 
@@ -435,6 +518,7 @@ $("q").addEventListener("input", async (e) => {
   RXFHighlight.refresh($("info"));
   const root = await childrenOf("");
   for (const c of root.items) $("tree").append(node(c));
+  loadModuleTree();
   loadMemory();
   const start = new URLSearchParams(location.search).get("path");
   if (start !== null) show(start);

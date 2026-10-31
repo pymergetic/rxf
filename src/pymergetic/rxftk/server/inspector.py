@@ -20,6 +20,7 @@ from pymergetic.rxftk.core.arena import (
 )
 from pymergetic.rxftk.core.kinds import Binding, Mobility, NodeKind, OwnerKind, RefKind
 from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.core.tree import TreeError
 
 
 def _word(words: type[enum.IntEnum], value: int) -> str:
@@ -198,6 +199,68 @@ class Inspector:
             }
             for field, items in image.members(handle)
         ]
+
+    def module_tree(self, name: str = "", depth: int = 2) -> dict[str, Any]:
+        """One package of the module tree, as the inspector shows it: its roots, its stat and
+        its sub-modules, with the same trichotomy the API answers (docs/23 §4.6 — the image IS
+        the module tree; `Image.resolve_module` is `mp_import_stat`).
+
+        `name` is a dotted module name ("" is the forest: the roots plus the module cells
+        directly under the image's root). `depth` bounds the recursion (0: this node alone).
+        Every node carries `stat` ("package" | "module" | "none"), the kind word the cell
+        spells ("Module"), and `count` — the number of sub-modules — so the tree paints its
+        twisties and its labels from one answer. A name the API refuses (an empty segment, an
+        alias spelling, an unknown root) is answered as the refusal itself, never guessed
+        into a wrong trichotomy.
+        """
+        image = self.image
+        if name == "":
+            # The start points: the Quad first (module_roots(), the format's four — named
+            # whether or not the image spells them), then every OTHER top-level Module cell
+            # in name order (the image's own trees: `pymergetic` here, a user's `mygame`
+            # there — test_mount's "a user module tree in the same image").
+            quad = list(image.module_roots())
+            spelled = set(quad)
+            top: list[str] = []
+            for handle in image.ordered(image.children(HANDLE_ROOT)):
+                got = image.get(handle)
+                if int(got["kind"]) == int(NodeKind.Module) and got["name"] not in spelled:
+                    top.append(got["name"])
+            roots: list[dict[str, Any]] = []
+            for root in [*quad, *top]:
+                got = image.resolve(root)
+                if got is None:
+                    roots.append({"name": root, "stat": "none", "kind": None, "count": 0})
+                    continue
+                roots.append(
+                    {
+                        "name": root,
+                        "stat": image.resolve_module(root),
+                        "kind": _word(NodeKind, image.get(got)["kind"]),
+                        "count": len(image.module_children(root)),
+                    }
+                )
+            return {"name": "", "stat": "root", "children": roots}
+
+        try:
+            stat = image.resolve_module(name)
+        except TreeError as problem:
+            return {"name": name, "stat": "refused", "refusal": str(problem), "children": []}
+        got = image.resolve(name) if stat != "none" else None
+        # the count is the API's answer — the sub-modules the package holds — whether or not
+        # this call fetched them (depth 0 fetches nothing and still says how many there are)
+        child_names = image.module_children(name) if stat == "package" else []
+        kids: list[dict[str, Any]] = []
+        if child_names and depth > 0:
+            for child in child_names:
+                kids.append(self.module_tree(f"{name}.{child}" if name else child, depth - 1))
+        return {
+            "name": name.rsplit(".", 1)[-1] if name else "",
+            "stat": stat,
+            "kind": None if got is None else _word(NodeKind, image.get(got)["kind"]),
+            "count": len(child_names),
+            "children": kids,
+        }
 
     def children(self, path: str, offset: int = 0, limit: int = 500) -> dict[str, Any]:
         image = self.image
