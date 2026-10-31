@@ -71,7 +71,9 @@ The subset of LLVM IR this prototype imports (anything else raises ``Unsupported
                signed compare against zero, a negate and a select), llvm.bswap.i16/i32/i64
                (one shift and one mask per byte, or'ed: the delta vocabulary is unchanged),
                llvm.fshl/fshr.iN (as two masked shifts and a select), llvm.memcpy and
-               llvm.memset (as the ``memory_copy`` / ``memory_fill`` leaves),
+               llvm.memset (as the ``memory_copy`` / ``memory_fill`` leaves), llvm.memmove
+               (as one byte per step of a direction-aware loop over ``memory_copy``: an
+               overlap-safe move walks the far end first),
                llvm.{uadd,sadd,usub,ssub}.with.overflow.iN (the sum is one wrapping leaf and
                the overflow one compare; extractvalue/insertvalue carry the { i64, i1 }),
                llvm.{umul,smul}.with.overflow.iN (the product is one wrapping leaf and the
@@ -2379,7 +2381,7 @@ class Lowering:
                         for position, (type_name, _) in enumerate(self.functions[inst.callee].params)
                         if type_name == "ptr"
                     }
-                elif inst.callee.startswith("llvm.memcpy"):
+                elif inst.callee.startswith(("llvm.memcpy", "llvm.memmove")):
                     pointers = {0, 1}
                 elif inst.callee.startswith("llvm.memset"):
                     pointers = {0}
@@ -3597,13 +3599,75 @@ class Lowering:
             self.lower_with_overflow(inst, target, found.group(1), int(found.group(2)))
             return None
         if intrinsic.startswith("memmove."):
-            raise Unsupported(
-                f"{self.fn.name}: the intrinsic {inst.callee} (an overlap-safe copy: the "
-                "memory.copy leaf the graph has copies forward only, so a copy whose "
-                "ranges overlap would be a wrong word; the memory move of native/memory/"
-                "memory.rxfs is no leaf of the graph yet)"
-            )
+            return self.lower_memmove(inst, target)
         raise Unsupported(f"{self.fn.name}: the intrinsic {inst.callee}")
+
+    def lower_memmove(self, inst: Inst, target: LBlock) -> LBlock:
+        """``llvm.memmove.p0.p0.i64(dst, src, len, volatile)`` -> one byte per step of a
+        loop that walks the far end first where the copy would overwrite its own source.
+
+        The ``memory_copy`` leaf copies forward only, so a move whose ranges may overlap
+        needs the other direction (clang keeps ``memmove`` exactly where the ranges may
+        meet: lwIP's ``lwip_itoa`` and ``netif_index_to_name`` shift bytes inside one
+        buffer). One loop serves both directions: the step is 1 where ``dst <= src`` and
+        all-ones (-1) where not, the first position is 0 or ``len - 1``, and every
+        iteration moves the byte at ``src + p`` to ``dst + p``. The delta vocabulary is
+        unchanged (docs/23 4.8): blocks, a Branch, and the leaves memcpy lowers to. A
+        local's own bytes refuse here (a frame slot, not flat memory: the pass does no
+        arithmetic on the address of a local's own bytes)."""
+        if len(inst.args) < 3:
+            raise ParseError(f"{self.fn.name}: a memmove without its operands")
+        dst = self.frame_moperand(target, inst.args[0][1])
+        src = self.frame_moperand(target, inst.args[1][1])
+        length = self.operand(inst.args[2][1])
+        for held in (dst, src):
+            if held[0] == "value" and held[1] in self.slots:
+                raise Unsupported(
+                    f"{self.fn.name}: the intrinsic {inst.callee} of a local's own bytes "
+                    "(a frame slot, not flat memory: the pass does no arithmetic on the "
+                    "address of a local's own bytes)"
+                )
+        one = self.literal(1)
+        # the walk: forward where dst <= src (a copy that cannot reach its own source
+        # ahead of itself), backward where not -- step 1 or -1, first position 0 or
+        # len - 1 (the wrap of the words is the two's complement the step walks in)
+        forward = self.negate(target, self.less(target, src, dst, False), one)
+        doubled = self.call(target, "wrapping_add_uint64_t", [forward, forward])
+        step = self.call(target, "wrapping_subtract_uint64_t", [doubled, one])
+        span = self.call(target, "wrapping_subtract_uint64_t", [length, one])
+        first = self.call(
+            target, "wrapping_multiply_uint64_t", [self.negate(target, forward, one), span]
+        )
+        header = self.new_block()
+        body = self.new_block()
+        over = self.new_block()
+        index = self.value(
+            "Bound", header.path, f"blkparam[{len(header.params)}]", owner_block=header.path
+        )
+        header.params.append(index)
+        position = self.value(
+            "Bound", header.path, f"blkparam[{len(header.params)}]", owner_block=header.path
+        )
+        header.params.append(position)
+        at_source = self.call(body, "wrapping_add_uint64_t", [src, ("value", position.path)])
+        at_destination = self.call(
+            body, "wrapping_add_uint64_t", [dst, ("value", position.path)]
+        )
+        self.call_void(body, "memory_copy", [at_destination, one, at_source, one, one])
+        next_index = self.call(body, "wrapping_add_uint64_t", [("value", index.path), one])
+        next_position = self.call(
+            body, "wrapping_add_uint64_t", [("value", position.path), step]
+        )
+        body.terminator = "Goto"
+        body.successors = [(header.path, [next_index, next_position])]
+        done = self.call(header, "equal_uint64_t", [("value", index.path), length])
+        header.terminator = "Branch"
+        # edges[0] is taken while the index has not reached the length (the byte runs)
+        header.condition = self.own_condition(self.negate(header, done, one), header)
+        header.successors = [(body.path, []), (over.path, [])]
+        target.terminator = "Goto"
+        target.successors = [(header.path, [self.literal(0), first])]
+        return over
 
     def lower_with_overflow(
         self, inst: Inst, target: LBlock, kind: str, width: int

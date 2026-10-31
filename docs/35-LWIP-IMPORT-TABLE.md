@@ -51,11 +51,11 @@ needed (section 3.1 records how each step moved the table).
 | tier | what it asks | count |
 |---|---|---|
 | module | bodies in the module | 120 |
-| 1 lowered | `rximport.graphs_of` lowers the body to a `SemanticGraph` | 114 |
-| 1 refused | the importer raises, with its reason (table below) | 6 |
-| 2 linked | the lowered graphs apply as one delta: every call card resolves | 109 |
+| 1 lowered | `rximport.graphs_of` lowers the body to a `SemanticGraph` | 116 |
+| 1 refused | the importer raises, with its reason (table below) | 4 |
+| 2 linked | the lowered graphs apply as one delta: every call card resolves | 111 |
 | 2 unlinked | lowered, but a callee is no program of the image (table below) | 5 |
-| 3 composed | `compose.programs` makes program words of the linked body | 109 |
+| 3 composed | `compose.programs` makes program words of the linked body | 111 |
 
 A refused body is refused for the FIRST thing the importer cannot lower in it; a second reason may sit behind the one named. A body that inlines a refused callee carries that callee's refusal (`udp_send` is refused for the `htons` of `udp_sendto_if_src`).
 
@@ -63,17 +63,7 @@ A refused body is refused for the FIRST thing the importer cannot lower in it; a
 
 | class | bodies | what it is |
 |---|---|---|
-| intrinsic | 2 | an LLVM intrinsic the importer has no lowering for |
 | local-address | 4 | address arithmetic on a local's own bytes |
-
-#### intrinsic: an LLVM intrinsic the importer has no lowering for
-
-rximport `lower_intrinsic` lowers umin/umax/smin/smax/abs at every integer width, bswap at i16/i32/i64, fshl/fshr, memcpy, memset, lifetime and the `*.with.overflow` family; `llvm.memmove` stays refused, by name, because the graph's copy leaf copies forward only and an overlapping copy would be a wrong word.
-
-| body | the importer's reason |
-|---|---|
-| `lwip_itoa` | the intrinsic llvm.memmove.p0.p0.i64 (an overlap-safe copy: the memory.copy leaf the graph has copies forward only, so a copy whose ranges overlap would be a wrong word; the memory move of native/memory/memory.rxfs is no leaf of the grap... |
-| `netif_index_to_name` | the intrinsic llvm.memmove.p0.p0.i64 (an overlap-safe copy: the memory.copy leaf the graph has copies forward only, so a copy whose ranges overlap would be a wrong word; the memory move of native/memory/memory.rxfs is no leaf of the grap... |
 
 #### local-address: address arithmetic on a local's own bytes
 
@@ -106,9 +96,9 @@ The unresolved names, by what they are:
 
 ### Tier 3: imported and composed
 
-109 bodies exist as programs of the image; each is one `lwip.<name>` of `compose.programs`:
+111 bodies exist as programs of the image; each is one `lwip.<name>` of `compose.programs`:
 
-`lwip_htons`, `lwip_htonl`, `lwip_strnicmp`, `lwip_stricmp`, `lwip_standard_chksum`, `inet_chksum_pseudo`, `ip_chksum_pseudo`, `inet_chksum_pseudo_partial`, `ip_chksum_pseudo_partial`, `inet_chksum`, `inet_chksum_pbuf`, `lwip_init`, `mem_init`, `memp_init`, `netif_init`, `udp_init`, `sys_timeouts_init`, `icmp_input`, `ip4_addr_isbroadcast_u32`, `pbuf_free`, `pbuf_add_header`, `pbuf_alloc`, `pbuf_remove_header`, `pbuf_copy`, `ip4_output_if`, `icmp_dest_unreach`, `ip4_route`, `ip4_input`, `pbuf_realloc`, `udp_input`, `pbuf_header_force`, `ip4_output_if_src`, `ip4_output`, `ip4_addr_netmask_valid`, `mem_free`, `mem_trim`, `mem_malloc`, `mem_calloc`, `memp_init_pool`, `memp_malloc_pool`, `memp_malloc`, `memp_free_pool`, `memp_free`, `netif_input`, `netif_add_noaddr`, `netif_add`, `netif_null_output_ip4`, `netif_set_addr`, `netif_set_ipaddr`, `netif_set_netmask`, `netif_set_gw`, `netif_remove`, `netif_set_down`, `netif_set_default`, `netif_set_up`, `netif_set_link_up`, `netif_set_link_down`, `netif_get_by_index`, `pbuf_alloc_reference`, `pbuf_add_header_force`, `pbuf_header`, `pbuf_free_header`, `pbuf_clen`, `pbuf_ref`, `pbuf_cat`, `pbuf_chain`, `pbuf_dechain`, `pbuf_copy_partial_pbuf`, `pbuf_copy_partial`, `pbuf_get_contiguous`, `pbuf_skip`, `pbuf_take`, `pbuf_take_at`, `pbuf_coalesce`, `pbuf_clone`, `pbuf_get_at`, `pbuf_try_get_at`, `pbuf_put_at`, `pbuf_memcmp`, `pbuf_memfind`, `sys_timeout`, `sys_now`, `sys_untimeout`, `sys_check_timeouts`, `sys_restart_timeouts`, `sys_timeouts_sleeptime`, `udp_send`, `udp_sendto`, `udp_sendto_if`, `udp_sendto_if_src`, `udp_bind`, `udp_bind_netif`, `udp_connect`, `udp_disconnect`, `udp_recv`, `udp_remove`, `udp_new`, `udp_new_ip_type`, `udp_netif_ip_addr_changed`, `slipif_init`, `slipif_output_v4`, `sio_open`, `slipif_poll`, `sio_tryread`, `rxf_slip_line_close`, `sio_send`, `rxf_slip_line_ready`, `rxf_lwip_set_now`, `__wires_boot`.
+`lwip_htons`, `lwip_htonl`, `lwip_strnicmp`, `lwip_stricmp`, `lwip_itoa`, `lwip_standard_chksum`, `inet_chksum_pseudo`, `ip_chksum_pseudo`, `inet_chksum_pseudo_partial`, `ip_chksum_pseudo_partial`, `inet_chksum`, `inet_chksum_pbuf`, `lwip_init`, `mem_init`, `memp_init`, `netif_init`, `udp_init`, `sys_timeouts_init`, `icmp_input`, `ip4_addr_isbroadcast_u32`, `pbuf_free`, `pbuf_add_header`, `pbuf_alloc`, `pbuf_remove_header`, `pbuf_copy`, `ip4_output_if`, `icmp_dest_unreach`, `ip4_route`, `ip4_input`, `pbuf_realloc`, `udp_input`, `pbuf_header_force`, `ip4_output_if_src`, `ip4_output`, `ip4_addr_netmask_valid`, `mem_free`, `mem_trim`, `mem_malloc`, `mem_calloc`, `memp_init_pool`, `memp_malloc_pool`, `memp_malloc`, `memp_free_pool`, `memp_free`, `netif_input`, `netif_add_noaddr`, `netif_add`, `netif_null_output_ip4`, `netif_set_addr`, `netif_set_ipaddr`, `netif_set_netmask`, `netif_set_gw`, `netif_remove`, `netif_set_down`, `netif_set_default`, `netif_set_up`, `netif_set_link_up`, `netif_set_link_down`, `netif_index_to_name`, `netif_get_by_index`, `pbuf_alloc_reference`, `pbuf_add_header_force`, `pbuf_header`, `pbuf_free_header`, `pbuf_clen`, `pbuf_ref`, `pbuf_cat`, `pbuf_chain`, `pbuf_dechain`, `pbuf_copy_partial_pbuf`, `pbuf_copy_partial`, `pbuf_get_contiguous`, `pbuf_skip`, `pbuf_take`, `pbuf_take_at`, `pbuf_coalesce`, `pbuf_clone`, `pbuf_get_at`, `pbuf_try_get_at`, `pbuf_put_at`, `pbuf_memcmp`, `pbuf_memfind`, `sys_timeout`, `sys_now`, `sys_untimeout`, `sys_check_timeouts`, `sys_restart_timeouts`, `sys_timeouts_sleeptime`, `udp_send`, `udp_sendto`, `udp_sendto_if`, `udp_sendto_if_src`, `udp_bind`, `udp_bind_netif`, `udp_connect`, `udp_disconnect`, `udp_recv`, `udp_remove`, `udp_new`, `udp_new_ip_type`, `udp_netif_ip_addr_changed`, `slipif_init`, `slipif_output_v4`, `sio_open`, `slipif_poll`, `sio_tryread`, `rxf_slip_line_close`, `sio_send`, `rxf_slip_line_ready`, `rxf_lwip_set_now`, `__wires_boot`.
 
 ### The echo path, named
 
@@ -142,6 +132,7 @@ Nothing hid behind them but `llvm.memmove`.
 | + the SLIP line face imported with the card (120 bodies) | `sio_*` as bodies of the unit: the echo path composes bottom-up | 8 | 112 | 106 | 106 |
 | + a pointer to a caller's local reaches a call card as a cell | the local rides in an Object the caller owns; the ICMP reply is byte-equal (section 4.1) | 8 | 112 | 106 | 106 |
 | + the out-parameter card (`netif_add`, `pbuf_dechain`) | a body that writes through a pointer it was given AND calls a program lowers as a program writing at the flat address it is given (the refusal of `lower()` is gone); `udp_echo.c` calls the real `netif_add` | 6 | 114 | 109 | 109 |
+| + `llvm.memmove` as a direction-aware loop | one byte per step of a loop that walks the far end first where the copy would overwrite its own source (the `memory.copy` leaf copies forward only); `lwip_itoa` and `netif_index_to_name` compose, and the intrinsic class of the refusals is empty | 4 | 116 | 111 | 111 |
 
 Every count of every row is reproducible by running a named test (the table is the source of
 truth; the tests run the numbers, one lane re-run per step):
@@ -152,17 +143,23 @@ truth; the tests run the numbers, one lane re-run per step):
 | + the SLIP line face (120 bodies) | module 120; refused 8, lowered 112, linked/composed 106 | `tests/test_lwip_import.py::test_the_card_is_the_no_sys_ipv4_udp_icmp_slip_core` (`MODULE_BODIES == 120`), `::test_exactly_what_imports_and_what_is_refused` (its `REFUSED` / `UNLINKED` / `COMPOSED` tables at 93fe952), `::test_the_echo_path_composes_with_the_line_face` (the path and the line face compose) |
 | + the local-cell route | refused 8, lowered 112, linked/composed 106; the ICMP reply byte-equal | `tests/test_import.py::test_a_pointer_to_a_callers_local_reaches_a_call_card_as_a_cell`; `tests/test_lwip_slip.py::test_the_udp_echo_matches_native_on_an_interpreter_with_room` (all eight scenarios byte-equal, the closed-port ICMP included) |
 | + the out-parameter card | refused 6, lowered 114, linked/composed 109 | `tests/test_import.py::test_an_out_parameter_card_writes_where_the_caller_reads`; `tests/test_lwip_import.py::test_pbuf_dechain_the_out_parameter_card_matches_the_native_reference`; `::test_exactly_what_imports_and_what_is_refused` (the tallies) and `::test_docs_35_is_the_fresh_run` (this document); the real `netif_add` boot of `tests/test_lwip_slip.py::test_the_udp_echo_matches_native_on_an_interpreter_with_room` |
+| + `llvm.memmove` as a direction-aware loop | refused 4, lowered 116, linked/composed 111 | `tests/test_import.py::test_an_overlap_safe_move_walks_the_far_end_first` (the overlap bytes, up, down and apart) and `::test_the_intrinsic_corpus_really_carries_its_intrinsics` (clang still writes the intrinsic); `tests/test_lwip_import.py::test_exactly_what_imports_and_what_is_refused` (the tallies, `lwip_itoa` and `netif_index_to_name` in `COMPOSED`) and `::test_docs_35_is_the_fresh_run` |
 
 What the first step exposed behind the swaps: 12 bodies for `llvm.umin.i16`, two for
 `llvm.abs.i32`, one for `llvm.smax.i32`, and the second step cleared them. What the second step
-exposed: `lwip_itoa` and `netif_index_to_name` stand on `llvm.memmove.p0.p0.i64`, which stays
-refused by name with its reason (the graph's `memory.copy` leaf copies forward only, so an
-overlapping copy would be a wrong word; the memory move of `native/memory/memory.rxfs` is no
-leaf of the graph yet). The third step took the two `LWIP_MEM_ALIGN(ram_heap)` bodies,
-`mem_init` and `lwip_init` (the heap and the boot of the whole stack). The six refusals that
-remain: the `memmove` pair, four address arithmetics on a local array -- each by name with its
-reason, none a wrong word. The two writes through a caller's pointer out of line are the
-out-parameter card of the row above: gone.
+exposed: `lwip_itoa` and `netif_index_to_name` stand on `llvm.memmove.p0.p0.i64` -- refused by
+name at that step (the graph's `memory.copy` leaf copies forward only, so an overlapping copy
+would be a wrong word) and lowered by the last row above, as one byte per step of a loop that
+walks the far end first (`tests/import_corpus/memmove.c`; the corpus's `move_up` reads the
+bytes a plain forward walk would have overwritten). The third step took the two
+`LWIP_MEM_ALIGN(ram_heap)` bodies, `mem_init` and `lwip_init` (the heap and the boot of the
+whole stack). The four refusals that remain are a **named permanent wall**, each by name with
+its reason, none a wrong word: address arithmetic on a local's own bytes (`ipaddr_addr`,
+`ip4addr_aton`, `ip4addr_ntoa`, `ip4addr_ntoa_r`) -- the rule of docs/23 4.1 (a frame slot is
+not memory the pass offsets into), pinned in the importer's own corpus as well
+(`tests/import_corpus/rust_refuse.rs`'s `r_array` refuses the same shape, in
+`test_outside_the_subset_is_refused`). The two writes through a caller's pointer out of line
+are the out-parameter card of the row above: gone.
 
 **A defect the new bodies uncovered, fixed in the same lane.** `pbuf_alloc` imported with the
 intrinsics lowered and answered a pbuf whose fields read zero. The cause was older than the

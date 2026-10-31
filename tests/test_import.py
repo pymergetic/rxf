@@ -1019,6 +1019,7 @@ def test_outside_the_subset_is_refused(file: str, name: str):
 
 INTRINSICS_OF = {
     "bswap.c": ("bswap.i16", "bswap.i32", "bswap.i64"),
+    "memmove.c": ("memmove.p0.p0.i64",),
     "minmax.c": (
         "umin.i8", "umin.i16", "umin.i32", "umax.i16", "umax.i32",
         "smin.i8", "smin.i16", "smin.i32", "smax.i8", "smax.i16", "smax.i32",
@@ -1190,6 +1191,47 @@ def test_an_out_parameter_card_writes_where_the_caller_reads(tmp_path: Path):
                 wrote = bytes(memory.read(0x200, 8))
             assert (status, answer) == (OK, expected), (k, status, hex(answer), hex(expected))
             assert wrote == ctypes.string_at(held, 8), (k, wrote.hex())
+
+
+MEMMOVE_CASES = ("move_up", "move_down", "move_pair")
+
+
+def test_an_overlap_safe_move_walks_the_far_end_first(tmp_path: Path):
+    """``llvm.memmove`` (docs/23 4.8): the ``memory_copy`` leaf copies forward only, so a
+    move whose ranges may overlap lowers as one byte per step of a direction-aware loop
+    (memmove.c: a shift up and a shift down inside one buffer, and a plain move between
+    its halves). The answer and every byte of the buffer equal the natively compiled
+    calls -- a plain forward walk reads the bytes it has already written wherever the
+    shift is under the length (the defect this pins)."""
+    image = tree.load(STARTER)
+    source = CORPUS / "memmove.c"
+    rximport.import_source_file(image, source, module="memmove", only=set(MEMMOVE_CASES))
+    assert image.check() == []
+    programs = compose.programs(image)
+    native = link_native(source, tmp_path)
+    for name in MEMMOVE_CASES:
+        function = getattr(native, name)
+        function.argtypes = [ctypes.c_void_p, ctypes.c_uint64, ctypes.c_uint64]
+        function.restype = ctypes.c_uint64
+        for fill in (bytes(16), b"\xff" * 16, FILLS[2] * 2, FILLS[3] * 2):
+            for n in (0, 2, 5, 7):
+                for shift in range(8):
+                    held = ctypes.create_string_buffer(fill, 16)
+                    expected = function(held, n, shift)
+                    with rxf_native.Memory(1 << 16) as memory:
+                        memory.write(0x200, fill)
+                        status, answer = rxf_native.run(
+                            programs[f"memmove.{name}"],
+                            struct.pack("<3Q", memory.at(0x200), n, shift),
+                            memory,
+                        )
+                        wrote = bytes(memory.read(0x200, 16))
+                    assert (status, answer) == (OK, expected), (
+                        name, fill.hex(), n, shift, status, hex(answer), hex(expected)
+                    )
+                    assert wrote == ctypes.string_at(held, 16), (
+                        name, n, shift, wrote.hex(), ctypes.string_at(held, 16).hex()
+                    )
 
 
 def test_the_cell_of_a_local_survives_a_run_that_comes_back_into_its_caller(tmp_path: Path):
@@ -2871,6 +2913,10 @@ def test_the_narrow_integer_helpers_live_in_one_module():
 # (test_an_out_parameter_card_writes_where_the_caller_reads). The text of every body before
 # them is unchanged -- the delta only carries the four new ones at the end -- and the
 # differentials over the whole file passed before and after.
+#
+# memmove.c is no flip at all: a new file of the corpus, the overlap-safe move the importer
+# lowers as a direction-aware loop (test_an_overlap_safe_move_walks_the_far_end_first), and
+# its digest joins the table above.
 CORPUS_DIGESTS = {
     "arith.c": "8309bcf5d386335b649f51d98a3c09314f4de02c0f82594abf0b946ea7dffbd8",
     "branch.c": "b157aa7f6a2f963afd8e962ebd075817f287aaf6413ca7025e35b1579108645a",
@@ -2893,6 +2939,7 @@ CORPUS_DIGESTS = {
     "leaf.c": "7a282d38cf64fca4712d0808fd1e41c8aca22a6d21e24ce3d97a3403f7be0ee8",
     "loop.c": "f6b09ec86d153b96744fecab83911d6ae36091accf23ea366206ea9c0007c665",
     "memory.c": "f196586afdfb28d99b03eb2fba5d0638fd458b9dc3aa55c4328cdcd13d607012",
+    "memmove.c": "3a50a2086ebc1e857d700819b6418101b72dc3e163d2d725c34c9450534c7a7a",
     "minmax.c": "ac50cf6f5e9a78994f525eb947264e09c8f3f8e5824424489edf4bac8b0e9501",
     "localptr.c": "13ba3ee05eeb687b80c2edaea2abb545b17b8934261214fa0f30980a58512fcd",
     "narrow.c": "81bff9ac923e84740aeff7f468a4b6e8df9dda18d9327331d44db61f4f9fd9d7",
@@ -2956,7 +3003,7 @@ def test_the_corpus_deltas_keep_their_exact_text():
             continue
         digest = hashlib.sha256(corpus_delta(source).encode()).hexdigest()
         assert digest == CORPUS_DIGESTS[source.name], f"{source.name}: the delta text moved"
-    assert len(CORPUS_DIGESTS) == 53  # the whole corpus, no file silently dropped
+    assert len(CORPUS_DIGESTS) == 54  # the whole corpus, no file silently dropped
 
 
 def test_a_c_import_is_not_marked_was_once_python():

@@ -46,14 +46,16 @@ OK = 0
 
 # ---- what the importer does with the card, body by body (docs/35) ---------------------------
 
-# tier 1: refused by rximport, and the class of the importer's own reason
+# tier 1: refused by rximport, and the class of the importer's own reason. The class that
+# used to head this table (intrinsic: lwip_itoa and netif_index_to_name on llvm.memmove)
+# emptied when the overlap-safe copy lowered as a direction-aware loop (docs/35 3.1); what
+# remains is a named permanent wall (docs/23 4.1: the pass does no arithmetic on the
+# address of a local's own bytes), each entry with its reason
 REFUSED = {
-    "lwip_itoa": "intrinsic",
     "ipaddr_addr": "local-address",
     "ip4addr_aton": "local-address",
     "ip4addr_ntoa": "local-address",
     "ip4addr_ntoa_r": "local-address",
-    "netif_index_to_name": "intrinsic",
 }
 UNLINKED = {
     "lwip_strnstr": ("strlen", "strncmp"),
@@ -68,6 +70,7 @@ COMPOSED = frozenset(
         "lwip_htonl",
         "lwip_strnicmp",
         "lwip_stricmp",
+        "lwip_itoa",
         "lwip_standard_chksum",
         "inet_chksum_pseudo",
         "ip_chksum_pseudo",
@@ -122,6 +125,7 @@ COMPOSED = frozenset(
         "netif_set_up",
         "netif_set_link_up",
         "netif_set_link_down",
+        "netif_index_to_name",
         "netif_get_by_index",
         "pbuf_alloc_reference",
         "pbuf_add_header_force",
@@ -315,14 +319,16 @@ def test_exactly_what_imports_and_what_is_refused(lane):
 @pytest.mark.slow
 def test_the_refusal_reasons_are_the_importers_own_words(lane):
     reasons = lane.refused
-    # the intrinsics the importer lowers now are not among the refusals; what is left of the
-    # class is llvm.memmove, refused by name (the graph's copy leaf copies forward only)
+    # the intrinsic class is empty now: bswap, umin/umax/smin/smax/abs, and finally
+    # llvm.memmove (the overlap-safe copy lowers as one byte per step of a direction-aware
+    # loop -- lwip_itoa and netif_index_to_name compose with it, docs/35 3.1)
     assert not [
         name for name, text in reasons.items() if "bswap" in text or "umin" in text
     ]
-    for name in ("lwip_itoa", "netif_index_to_name"):
-        assert "the intrinsic llvm.memmove.p0.p0.i64" in reasons[name], name
-        assert "overlap-safe" in reasons[name], name
+    assert not [name for name in reasons if "memmove" in reasons[name]]
+    assert {"lwip_itoa", "netif_index_to_name"} <= lane.composed
+    # what is refused is the named permanent wall of docs/23 4.1: address arithmetic on a
+    # local's own bytes (a frame slot, not flat memory)
     assert "frame slot" in reasons["ip4addr_aton"]
     # the out-parameter cards compose now (docs/23 4.1: the cell route)
     assert "netif_add" not in reasons and "pbuf_dechain" not in reasons
