@@ -1121,7 +1121,10 @@ def card_world_objects(
     return objects
 
 
-LOCALPTR_CASES = ("local_rw", "local_read", "local_write", "local_twice", "local_pair")
+LOCALPTR_CASES = (
+    "local_rw", "local_read", "local_write", "local_twice", "local_pair", "local_out",
+)  # fmt: skip
+LOCALPTR_CALLEES = {"rw_u64", "read_u32", "write_u64", "pick_two", "fill_out", "heavy"}
 LOCALPTR_INPUTS = [(a, k) for a in (0, 1, 0x1234, 0xFFFFFFFF, 1 << 40, U64 - 1) for k in (0, 3, 0xABCD, 1 << 63)]
 
 
@@ -1135,7 +1138,7 @@ def test_a_pointer_to_a_callers_local_reaches_a_call_card_as_a_cell(tmp_path: Pa
     name (lwIP's icmp_dest_unreach sent its ICMP reply to 0.0.0.0 that way, silently)."""
     image = tree.load(STARTER)
     source = CORPUS / "localptr.c"
-    callees = {"rw_u64", "read_u32", "write_u64", "pick_two"}
+    callees = LOCALPTR_CALLEES
     rximport.import_source_file(image, source, module="localptr", only={name} | callees)
     assert image.check() == []
     programs = compose.programs(image)
@@ -1153,6 +1156,40 @@ def test_a_pointer_to_a_callers_local_reaches_a_call_card_as_a_cell(tmp_path: Pa
             f"{name}{case}: the graph answered ({status}, {answer:#x}), natively it is "
             f"({OK}, {expected:#x})"
         )
+
+
+def test_an_out_parameter_card_writes_where_the_caller_reads(tmp_path: Path):
+    """The out-parameter card of docs/23 4.1 (lwIP's netif_add and pbuf_dechain are its shape): a
+    body that writes through a pointer its caller gave AND calls a program of its own
+    (localptr.c ``fill_out``, past the inline budget on ``heavy``). It lowers as a program that
+    writes at the flat address it is given, and the write lands in flat memory the caller
+    passed -- the bytes of the buffer and the answer equal the natively compiled calls (the
+    caller's own local is the ``local_out`` case above)."""
+    image = tree.load(STARTER)
+    source = CORPUS / "localptr.c"
+    rximport.import_source_file(
+        image, source, module="localptr", only={"flat_out", "fill_out", "heavy"}
+    )
+    assert image.check() == []
+    programs = compose.programs(image)
+    objects = card_world_objects(image, programs, "localptr", {"fill_out", "heavy"})
+    function = link_native(source, tmp_path).flat_out
+    function.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
+    function.restype = ctypes.c_uint64
+    for first in FILLS:
+        for k in (0, 1, 0xABCDEF, U64 - 1):
+            held = ctypes.create_string_buffer(first, 8)
+            expected = function(held, k)
+            with rxf_native.Memory(1 << 16) as memory:
+                memory.write(0x200, first)
+                status, answer = rxf_native.run(
+                    programs["localptr.flat_out"],
+                    struct.pack("<2Q", memory.at(0x200), k),
+                    memory, objects=objects,
+                )  # fmt: skip
+                wrote = bytes(memory.read(0x200, 8))
+            assert (status, answer) == (OK, expected), (k, status, hex(answer), hex(expected))
+            assert wrote == ctypes.string_at(held, 8), (k, wrote.hex())
 
 
 def test_the_cell_of_a_local_survives_a_run_that_comes_back_into_its_caller(tmp_path: Path):
@@ -2828,6 +2865,12 @@ def test_the_narrow_integer_helpers_live_in_one_module():
 # call card as a cell (test_a_pointer_to_a_callers_local_reaches_a_call_card_as_a_cell): the two
 # bodies that call ``qstr_data(q, &str_len)`` (uni_unary_op, mp_unary_op) carry the cell's
 # copies now; the differentials over them passed before and after.
+#
+# A third recorded flip, additive this time: localptr.c gained four bodies (heavy, fill_out,
+# local_out, flat_out) when the out-parameter card of docs/23 4.1 landed
+# (test_an_out_parameter_card_writes_where_the_caller_reads). The text of every body before
+# them is unchanged -- the delta only carries the four new ones at the end -- and the
+# differentials over the whole file passed before and after.
 CORPUS_DIGESTS = {
     "arith.c": "8309bcf5d386335b649f51d98a3c09314f4de02c0f82594abf0b946ea7dffbd8",
     "branch.c": "b157aa7f6a2f963afd8e962ebd075817f287aaf6413ca7025e35b1579108645a",
@@ -2851,7 +2894,7 @@ CORPUS_DIGESTS = {
     "loop.c": "f6b09ec86d153b96744fecab83911d6ae36091accf23ea366206ea9c0007c665",
     "memory.c": "f196586afdfb28d99b03eb2fba5d0638fd458b9dc3aa55c4328cdcd13d607012",
     "minmax.c": "ac50cf6f5e9a78994f525eb947264e09c8f3f8e5824424489edf4bac8b0e9501",
-    "localptr.c": "39ed4cd90b776baa6d6683569a55d2c4a21faef436fd31714d9265b0c1c682a8",
+    "localptr.c": "13ba3ee05eeb687b80c2edaea2abb545b17b8934261214fa0f30980a58512fcd",
     "narrow.c": "81bff9ac923e84740aeff7f468a4b6e8df9dda18d9327331d44db61f4f9fd9d7",
     "nlr_call.c": "4eb8820f1adb136a9cb1759a570643e1671ebb84dafd1e442d5ff5c2a5a41c0f",
     "nlr_stubs.c": "d06802b396276d81f9e67fd9f2e8d3b85a28866670b1d93328a79dcc257383ff",

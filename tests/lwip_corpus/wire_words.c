@@ -124,3 +124,23 @@ uint64_t wire_ram_reuse(uint16_t first, uint16_t second) {
     }
     return answer;
 }
+
+/* pbuf_dechain, an out-parameter card (it writes through the pbuf its caller gave and calls
+ * programs of its own): a pool chain is cut after its first pbuf. The answer is what is left of
+ * the head (its total length), the tail's total length and chain length, the failure bit when
+ * the cut found nothing to cut -- the same for any address the pool has. */
+uint64_t wire_dechain(uint16_t length) {
+    struct pbuf *head = pbuf_alloc(PBUF_RAW, length, PBUF_POOL);
+    if (head == NULL) {
+        return ~(uint64_t)0;
+    }
+    struct pbuf *tail = pbuf_dechain(head);
+    uint64_t answer =
+        (uint64_t)head->tot_len | ((uint64_t)(tail != NULL ? tail->tot_len : 0) << 16) |
+        ((uint64_t)(tail != NULL ? pbuf_clen(tail) : 0) << 32) | ((uint64_t)(tail == NULL) << 40);
+    pbuf_free(head);
+    if (tail != NULL) {
+        pbuf_free(tail);
+    }
+    return answer;
+}

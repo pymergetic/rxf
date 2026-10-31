@@ -2124,17 +2124,6 @@ class Lowering:
         self.lower_body()
         self.own_terminus()
         self.harmonize_widths()
-        if self.card_calls and any(not self.out_position(name) for name in self.stored_params):
-            # what the out-cell model of docs/23 4.1 cannot name: a body that calls a
-            # program and writes through a pointer its caller gave in a shape the pass
-            # cannot make an out cell of. Every out position now rides as the Object its
-            # caller passes (the handle its three words); what is left of this class is
-            # refused rather than left writing the wind.
-            raise Unsupported(
-                f"{self.fn.name}: a pointer to a value (the body writes through a pointer its "
-                "caller gave, and a call card frame cannot carry it: only an inlined body "
-                "reaches a caller's cell)"
-            )
         if not self.function_results and self.has_reachable_cycle():
             # a body with no Return that the entry can reach a cycle in (an endless loop)
             # answers nothing: it stays refused rather than imported as a graph that

@@ -551,7 +551,7 @@ def test_the_seat_has_a_fill_that_meets_the_contract(seat: str, file: str, why: 
 
 # the interpreter with room the echo path needs (see lwip_udp_echo.echo_path_budget): the 8-link,
 # 8 KiB budget of native/graph.h is short of lwIP's call chain; this is the smallest round
-# numbers over what the chain measures (15008 bytes of frames at depth 9 on the C path)
+# numbers over what the chain measures (15072 bytes of frames at depth 9 on the C path)
 EXPERIMENT_CELL = 32768
 EXPERIMENT_DEPTH = 16
 SHIPPED_CELL = 8192
@@ -587,7 +587,7 @@ def test_the_echo_path_needs_more_than_the_shipped_interpreter_has(echo_host: Ho
     the run cell (8192 bytes) and over the call depth (8 links) of native/graph.h, and the
     shipped interpreter refuses it with the budget refusals, never a wrong answer."""
     frames, links = lwip_udp_echo.echo_path_budget(echo_host)
-    assert (frames, links) == (15008, 9), "the frames of the echo path, measured"
+    assert (frames, links) == (15072, 9), "the frames of the echo path, measured"
     assert links > SHIPPED_DEPTH, "the path is deeper than the depth budget"
     assert frames > SHIPPED_CELL, "the frames of the echo path exceed the run cell"
     assert frames <= 16384, "...and fit a 16 KiB cell"
@@ -604,7 +604,7 @@ def test_the_echo_path_needs_more_than_the_shipped_interpreter_has(echo_host: Ho
     reason=(
         "machine need (docs/35): RXF_GRAPH_CELL_BYTES 8192 -> >= 16384 and RXF_GRAPH_CALL_DEPTH "
         "8 -> >= 9 in native/graph.h and native/graph.rxfs; the echo path's frames sum to "
-        "15008 bytes at depth 9"
+        "15072 bytes at depth 9"
     ),
 )
 def test_the_udp_echo_matches_native_on_the_shipped_interpreter(echo_host: Host):

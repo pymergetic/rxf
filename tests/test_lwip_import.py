@@ -14,9 +14,9 @@ Four things are pinned:
   (the pcb setup and one datagram's payload copied through the card's pbuf cells) answer the
   same as the same C compiled natively (the TEST REFERENCE of docs/23 3, never a seat fill).
 
-The UDP echo of the gate (slipif -> ip4_input -> udp_input -> udp_sendto -> slipif) lowers body by
-body and is NOT composed yet (it waits for the SLIP line of each seat):
-``test_the_echo_path_lowers_and_waits_for_the_line_of_its_seat`` pins where it stops. The second
+The UDP echo of the gate (slipif -> ip4_input -> udp_input -> udp_sendto -> slipif) composes body
+by body with the SLIP line face imported in the same unit:
+``test_the_echo_path_composes_with_the_line_face`` pins it. The second
 differential (``tests/lwip_corpus/wire_words.c``) runs the words the byte-swap and min/max
 lowerings brought in: htons/htonl, the Internet checksum, pbuf_alloc from the pool and
 pbuf_copy_partial across its chain.
@@ -53,14 +53,11 @@ REFUSED = {
     "ip4addr_aton": "local-address",
     "ip4addr_ntoa": "local-address",
     "ip4addr_ntoa_r": "local-address",
-    "netif_add": "out-pointer",
     "netif_index_to_name": "intrinsic",
-    "pbuf_dechain": "out-pointer",
 }
 UNLINKED = {
     "lwip_strnstr": ("strlen", "strncmp"),
     "lwip_strnistr": ("strlen",),
-    "netif_add_noaddr": ("lwip.netif_add",),
     "netif_name_to_index": ("strtol",),
     "netif_find": ("strtol",),
     "pbuf_strstr": ("strlen",),
@@ -80,6 +77,9 @@ COMPOSED = frozenset(
         "inet_chksum_pbuf",
         "lwip_init",
         "mem_init",
+        "netif_add",
+        "netif_add_noaddr",
+        "pbuf_dechain",
         "memp_init",
         "netif_init",
         "udp_init",
@@ -324,7 +324,8 @@ def test_the_refusal_reasons_are_the_importers_own_words(lane):
         assert "the intrinsic llvm.memmove.p0.p0.i64" in reasons[name], name
         assert "overlap-safe" in reasons[name], name
     assert "frame slot" in reasons["ip4addr_aton"]
-    assert "a pointer to a value" in reasons["netif_add"]
+    # the out-parameter cards compose now (docs/23 4.1: the cell route)
+    assert "netif_add" not in reasons and "pbuf_dechain" not in reasons
     # the libc and the refused siblings are what the unlinked bodies wait for: the SLIP line
     # is no longer one of them (its face is in the unit)
     assert not [name for name in lane.unresolved if name.startswith("sio_")]
@@ -333,7 +334,7 @@ def test_the_refusal_reasons_are_the_importers_own_words(lane):
         "lwip_strnstr",
         "pbuf_strstr",
     }
-    assert lane.unresolved["lwip.netif_add"] == ["netif_add_noaddr"]
+    assert "lwip.netif_add" not in lane.unresolved
 
 
 @pytest.mark.slow
@@ -346,8 +347,9 @@ def test_the_echo_path_composes_with_the_line_face(lane):
             f"{name} does not compose: the echo path moved, update docs/35"
         )
         assert name not in lane.refused and name not in lane.unlinked, name
-    # what stays out of the UDP echo is named (libc faces, the out-param netif_add)
-    assert "netif_add" in lane.refused
+    # what stays out of the UDP echo is named (the libc faces of the unlinked bodies); the
+    # out-param netif_add composes now and udp_echo.c calls the real one (docs/23 4.1)
+    assert "netif_add" in lane.composed and "netif_add" not in lane.refused
 
 
 @pytest.mark.slow
@@ -547,6 +549,7 @@ WIRE_BODIES = (
     "wire_init",
     "wire_ram",
     "wire_ram_reuse",
+    "wire_dechain",
 )
 SWAPPED = (
     0, 1, 0xFF, 0x100, 0x1234, 0x7FFF, 0x8000, 0xABCD, 0xFFFF, 0x10000, 0x12345678, 0x80000000,
@@ -574,6 +577,8 @@ def wire(tmp_path_factory: pytest.TempPathFactory) -> Host:
     made.native.wire_init.restype = ctypes.c_uint64
     made.native.wire_ram.restype = ctypes.c_uint64
     made.native.wire_ram.argtypes = [ctypes.c_uint64]
+    made.native.wire_dechain.restype = ctypes.c_uint64
+    made.native.wire_dechain.argtypes = [ctypes.c_uint64]
     made.native.wire_ram_reuse.restype = ctypes.c_uint64
     made.native.wire_ram_reuse.argtypes = [ctypes.c_uint64, ctypes.c_uint64]
     made.native.wire_chksum.restype = ctypes.c_uint64
@@ -708,3 +713,19 @@ def test_the_heap_boot_and_ram_pbufs_match_the_native_reference(wire: Host):
             assert expected & 0xF == 0xF, (
                 f"the native heap reuses the freed block ({expected:#x})"
             )
+
+
+@pytest.mark.slow
+def test_pbuf_dechain_the_out_parameter_card_matches_the_native_reference(wire: Host):
+    """pbuf_dechain writes through the pbuf its caller gave and calls programs of its own (the
+    out-parameter card of docs/23 4.1, refused by the importer until the cell route): a pool
+    chain of one, two and three pbufs is cut after its head, and the head's remaining length,
+    the tail's total and chain length equal the natively compiled card's."""
+    with rxf_native.Memory(1 << 18) as memory:
+        status, wired = wire.run(memory, "__wires_boot")
+        assert (status, wired) == (OK, 0)
+        assert wire.native.wire_boot() == 0
+        assert wire.run(memory, "wire_boot") == (OK, 0)
+        for length in (1, 100, 1000, 1500, 2500, 3500, 9000):
+            expected = wire.native.wire_dechain(length)
+            assert wire.run(memory, "wire_dechain", length) == (OK, expected), length

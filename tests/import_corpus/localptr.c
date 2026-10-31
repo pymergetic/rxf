@@ -125,3 +125,29 @@ void rec_boot(void) {
 uint64_t rec_top(uint64_t n, uint64_t k) {
     return rec_word(n, k);
 }
+
+/* the out-parameter card of docs/23 4.1: a body that WRITES through a pointer its caller gave and
+   also calls a program (the shape of lwIP's netif_add and pbuf_dechain). The program it calls is
+   past the inline budget, so the call is a card; the pointer stays a flat address and the write
+   lands where the caller reads it -- whether the caller's pointer names its own local (it rides
+   in a cell) or flat memory the caller was given. */
+
+__attribute__((noinline)) uint64_t heavy(uint64_t x) {
+    MANY(x);
+    return x;
+}
+
+__attribute__((noinline)) void fill_out(uint64_t *out, uint64_t k) {
+    *out = heavy(k) + 1;
+}
+
+uint64_t local_out(uint64_t a, uint64_t k) {
+    uint64_t o = a;
+    fill_out(&o, k);
+    return o + a;
+}
+
+uint64_t flat_out(uint64_t *buf, uint64_t k) {
+    fill_out(buf, k);
+    return buf[0] ^ k;
+}

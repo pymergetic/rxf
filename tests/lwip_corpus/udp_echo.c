@@ -10,10 +10,10 @@
  * test reference (tests/test_lwip_slip.py), and both sides get their bytes from the same line
  * face (slip_line_face.c) and the same fill (slip_line_host.c). The harness is the peer.
  *
- * The netif is attached by ``slip_echo_boot`` itself, in the order netif_add does it, because
- * netif_add is refused by the importer (docs/35: a write through a pointer its caller gave,
- * out of line -- the out-param call card of docs/23 4.1). When that card lands this body
- * calls netif_add and ``test_the_netif_is_attached_by_hand_until_netif_add_imports`` flips.
+ * The netif is attached by netif_add itself (an out-parameter card: it writes through the netif
+ * its caller gave and calls programs of its own; docs/23 4.1). The init and input words it is
+ * given are held in statics so the import wires them (a call through a word dispatches on the
+ * words the stores of the image arm; netif_add only passes them on).
  */
 #include "../../native/lwip/core_slice.c"
 
@@ -24,6 +24,8 @@ static ip4_addr_t slip_ip;
 static ip4_addr_t slip_mask;
 static ip4_addr_t slip_gw;
 static struct udp_pcb *echo_pcb;
+static netif_init_fn volatile slip_init_word = slipif_init;
+static netif_input_fn volatile slip_input_word = ip4_input;
 
 /* the service: send the datagram back to where it came from, from the port it came to */
 static void echo_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *addr,
@@ -41,19 +43,10 @@ uint64_t slip_echo_boot(void) {
     ip4_addr_set_u32(&slip_mask, PP_HTONL(0xFFFFFF00u));
     ip4_addr_set_u32(&slip_gw, PP_HTONL(0x0A000001u));
 
-    /* netif_add, by hand: reset, state (the sio device number), input, addresses, init, list */
-    slip_netif.output = netif_null_output_ip4;
-    slip_netif.mtu = 0;
-    slip_netif.flags = 0;
-    slip_netif.state = (void *)(uintptr_t)RXF_SLIP_DEVICE;
-    slip_netif.num = 0;
-    slip_netif.input = ip4_input;
-    netif_set_addr(&slip_netif, &slip_ip, &slip_mask, &slip_gw);
-    if (slipif_init(&slip_netif) != ERR_OK) {
+    if (netif_add(&slip_netif, &slip_ip, &slip_mask, &slip_gw, (void *)(uintptr_t)RXF_SLIP_DEVICE,
+                  slip_init_word, slip_input_word) == NULL) {
         return 1001;
     }
-    slip_netif.next = netif_list;
-    netif_list = &slip_netif;
     netif_set_default(&slip_netif);
     netif_set_up(&slip_netif);
     netif_set_link_up(&slip_netif);
