@@ -126,3 +126,7 @@ install(TARGETS core LIBRARY DESTINATION pymergetic/rxftk/core)
 # rxfb: the slim reader library (rxfb/, ROADMAP section 2). A target of its own, not part of the
 # wheel: `cmake --build <dir> --target rxfb rxfb_dump`.
 add_subdirectory(rxfb EXCLUDE_FROM_ALL)
+
+# pymergetic.rxfb: the CPython face of that library, one extension over the same C core (L1c). Part
+# of the wheel, next to the engine's own extension.
+add_subdirectory(rxfb/python)
