@@ -155,12 +155,6 @@ def run(capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[int, str]:
     return status, capsys.readouterr().out
 
 
-@pytest.mark.xfail(
-    reason="blocked on the arena lane: the CLI's delta patch replays through "
-    "Image.from_bytes (the v6 reader) over v7 arena bytes - the host needs a "
-    "v7 image reader on the Python side",
-    strict=False,
-)
 def test_the_commands_convert_both_ways(
     capsys: pytest.CaptureFixture[str], tmp_path: Path, xml_file: Path, base: Image
 ):

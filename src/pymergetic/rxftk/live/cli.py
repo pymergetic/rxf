@@ -23,8 +23,7 @@ from typing import Any, TextIO
 
 from pymergetic.rxftk import source
 from pymergetic.rxftk.console import world
-from pymergetic.rxftk.core.object import Image
-from pymergetic.rxftk.live import link, physical
+from pymergetic.rxftk.live import arena_image, link, physical
 from pymergetic.rxftk.live.client import Client, LiveError
 
 
@@ -70,7 +69,7 @@ def emit(
     """Dumps the running image to TO (`.rxfd` a delta, `.rxfb` image bytes, anything else a module tree)."""
     client = _client(spec, timeout)
     raw, dumped = client.emit()
-    image = Image.from_bytes(raw)
+    image = arena_image.load(raw)
     report = source.report(image)
     report["format"] = source.save(image, to, overwrite)
     report["target"] = to
@@ -91,10 +90,10 @@ def apply(
     """
     client = _client(spec, timeout)
     with _held(client):
-        raw, _ = client.emit()
-        base = Image.from_bytes(raw)
+        raw, digest = client.emit()
+        base = arena_image.load(raw)
         texts = [(name, Path(name).read_text(encoding="utf-8")) for name in deltas]
-        compiled = physical.from_xml(base, *texts)
+        compiled = physical.from_xml(base, *texts, base_digest=digest)
         answered = client.apply(compiled.data)
         report: dict[str, Any] = {
             "digest": answered,
@@ -105,7 +104,7 @@ def apply(
         }
         if to is not None:
             after, _ = client.emit()
-            report["format"] = source.save(Image.from_bytes(after), to)
+            report["format"] = source.save(arena_image.load(after), to)
             report["target"] = to
     return report
 
@@ -217,13 +216,13 @@ def _line(client: Client, line: str) -> str | None:
         return "going"
     if command == "emit":
         raw, dumped = client.emit()
-        source.save(Image.from_bytes(raw), args[0], True)
+        source.save(arena_image.load(raw), args[0], True)
         return f"{dumped} -> {args[0]}"
     if command == "apply":
         with _held(client):
-            raw, _ = client.emit()
+            raw, digest = client.emit()
             texts = [(name, Path(name).read_text(encoding="utf-8")) for name in args]
-            compiled = physical.from_xml(Image.from_bytes(raw), *texts)
+            compiled = physical.from_xml(arena_image.load(raw), *texts, base_digest=digest)
             return client.apply(compiled.data)
     raise ValueError(f"no command {command!r}; {HELP}")
 

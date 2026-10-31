@@ -210,8 +210,20 @@ class Builder:
         return head + bytes(self._strings) + pad + bytes(self._ops)
 
 
-def compile(base: Image, result: Image, *, check_base: bool = True) -> Compiled:
-    """The delta that turns `base` into `result`."""
+def compile(
+    base: Image,
+    result: Image,
+    *,
+    check_base: bool = True,
+    base_digest: str | None = None,
+) -> Compiled:
+    """The delta that turns `base` into `result`.
+
+    With `check_base` the delta names the image it was made for, and the image refuses it on
+    any other. The name is `base_digest` when the caller has it - the digest a running image
+    answers is the hash of its v7 canonical bytes (docs/32 5.4), which the caller knows from
+    the dump it read the base from (``live.arena_image.digest_of``) - and else the model's own
+    `Image.digest()`, the RXFB-6 form."""
     before, before_entry = records(base)
     after, after_entry = records(result)
     deletes = sorted(
@@ -231,7 +243,7 @@ def compile(base: Image, result: Image, *, check_base: bool = True) -> Compiled:
     if before_entry != after_entry:
         builder.entry(after_entry)
     return Compiled(
-        builder.build(base.digest() if check_base else None),
+        builder.build((base_digest or base.digest()) if check_base else None),
         creates=len(creates),
         sets=len(sets),
         deletes=len(deletes),
@@ -244,7 +256,12 @@ def digest_of(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def from_xml(base: Image, *texts: tuple[str, str], check_base: bool = True) -> Compiled:
+def from_xml(
+    base: Image,
+    *texts: tuple[str, str],
+    check_base: bool = True,
+    base_digest: str | None = None,
+) -> Compiled:
     """The physical delta of text deltas (name, XML): they are applied to a copy of the base, the difference is compiled.
 
     The copy is replayed with `links=False`: the operations must hold, but the result is not
@@ -253,7 +270,7 @@ def from_xml(base: Image, *texts: tuple[str, str], check_base: bool = True) -> C
     """
     result = Image.from_bytes(base.to_bytes())
     result.apply_all(list(texts), links=False)
-    return compile(base, result, check_base=check_base)
+    return compile(base, result, check_base=check_base, base_digest=base_digest)
 
 
 def decode(data: bytes) -> list[dict]:
