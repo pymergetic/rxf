@@ -81,7 +81,15 @@ def call_types() -> list[list[str]]:
 def module(image: Image) -> bytes:
     """The function-table module of this image's leaves."""
     bodies = leaf_bodies(image)
-    wanted = dict(graph_header.leaves())
+    # the leaves the image's graph.run wires (docs/23 4.9, step 0): an image may wire fewer
+    # leaves than the header names; each one it wires must carry wasm32 code
+    composer = compose.Composer(image)
+    wired = {i for i, _ in composer.references(composer.target(RUN), "Leaf")}
+    wanted = {
+        key: identifier
+        for key, identifier in graph_header.leaves().items()
+        if identifier in wired
+    }
     missing = set(wanted.values()) - set(bodies)
     if missing:
         raise WasmTableError(

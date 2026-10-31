@@ -369,6 +369,20 @@
         "c_symbol": "RXF_LEAF_GRAPH_RUN",
         "class": "runtime",
         "shape": "none"
+      },
+      {
+        "id": 50,
+        "name": "runtime_allocate",
+        "c_symbol": "RXF_LEAF_RUNTIME_ALLOCATE",
+        "class": "runtime",
+        "shape": "qqqqqpo"
+      },
+      {
+        "id": 51,
+        "name": "runtime_release",
+        "c_symbol": "RXF_LEAF_RUNTIME_RELEASE",
+        "class": "runtime",
+        "shape": "h"
       }
     ]
   },

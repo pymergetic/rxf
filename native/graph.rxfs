@@ -748,6 +748,7 @@ macro m_shape_of(pid) {
   if (so_id == 7) { shape = 4; }
   if (so_id == 8) { shape = 4; }
   if (so_id == 9) { shape = 5; }
+  if (so_id == 50) { shape = 5; }
   if (so_id == 10) { shape = 6; }
   if (so_id == 11) { shape = 6; }
   if (so_id == 21) { shape = 6; }
@@ -757,6 +758,7 @@ macro m_shape_of(pid) {
   if (so_id == 12) { shape = 7; }
   if (so_id == 13) { shape = 7; }
   if (so_id == 14) { shape = 8; }
+  if (so_id == 51) { shape = 8; }
   if (so_id == 15) { shape = 8; }
   if (so_id == 18) { shape = 9; }
   if (so_id == 17) { shape = 10; }

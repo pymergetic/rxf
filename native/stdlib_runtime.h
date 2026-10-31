@@ -112,6 +112,11 @@ rxf_u32 rxf_runtime_resolve_typed(rxf_runtime_context *, rxf_object_handle, rxf_
                                   rxf_u64, rxf_u64, rxf_u64 *);
 rxf_u32 rxf_runtime_allocate_prepare(rxf_runtime_context *, rxf_u64, rxf_u64, rxf_u64, rxf_u64,
                                      rxf_u64, rxf_transaction *, rxf_object_handle *);
+/* The one-step allocation of the handle lane (docs/23 4.9): type_id, initial_size, capacity, align,
+ * flags (bit 0: pinned), a pointer that must be 0, and the out handle. The pool and the allocator
+ * state are behind the Allocator capability of the context (native/graph.h). */
+rxf_u32 rxf_runtime_allocate(rxf_runtime_context *, rxf_u64, rxf_u64, rxf_u64, rxf_u64, rxf_u64,
+                             void *, rxf_object_handle *);
 rxf_u32 rxf_runtime_publish(rxf_runtime_context *, rxf_transaction *);
 rxf_u32 rxf_runtime_rollback(rxf_runtime_context *, rxf_transaction *);
 rxf_u32 rxf_runtime_release(rxf_runtime_context *, rxf_object_handle);

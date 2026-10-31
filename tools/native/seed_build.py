@@ -378,6 +378,7 @@ SOURCES: dict[str, tuple[str, str, str, int]] = {
     "utf8_validate": ("native/memory/memory.rxfs", "utf8_validate", "8p 8u", 8),
 
     # native/runtime/runtime.rxfs -- the runtime family
+    "runtime_allocate": ("native/runtime/runtime.rxfs", "runtime_allocate", "!pqqqqqpp", 0),
     "runtime_allocate_prepare": ("native/runtime/runtime.rxfs", "runtime_allocate_prepare", "!pqqqqqpp", 0),
     "runtime_append": ("native/runtime/runtime.rxfs", "runtime_append", "!pHpqq", 0),
     "runtime_begin_private": ("native/runtime/runtime.rxfs", "runtime_begin_private", "!pHqp", 0),
@@ -554,6 +555,8 @@ LEAF_LETTERS = {
     "runtime_begin_private": "pHqp",
     "runtime_resolve": "pHqp",
     "runtime_allocate_prepare": "pqqqqqpp",
+    "runtime_allocate": "pqqqqqpp",
+    "runtime_release": "pH",
     "runtime_publish": "pp",
     "runtime_rollback": "pp",
     "runtime_borrow": "pHq",

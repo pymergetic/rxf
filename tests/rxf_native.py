@@ -93,6 +93,8 @@ LEAVES = (
     "runtime_format_u32",
     "runtime_search",
     "runtime_cleanup",
+    "runtime_allocate",
+    "runtime_release",
     "safe_point",
 )
 

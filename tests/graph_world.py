@@ -107,6 +107,9 @@ NUMERIC = {
     "safe_point": "pp",  # compiled code calls it at an edge that goes back (tests/test_safe_points.py)
     "compile_program": "pp",  # tests/test_compile.py does
     "graph_run": "pHqqp",  # a call card's own; the callee runs in a run of its own
+    # the one-step allocation (docs/23 4.9): it needs an allocator capability, which the stdlib
+    # script of tests/scenario.py has none of; tests/test_runtime_allocate.py runs it
+    "runtime_allocate": "pqqqqqpp",
 }
 
 

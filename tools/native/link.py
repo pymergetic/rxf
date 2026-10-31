@@ -66,6 +66,9 @@ CODE_ENTRY_OFFSET = 40  # Code.entry_offset
 CAPABILITY_BYTES = 24
 CAPABILITY_CHANNEL = graph_header.numbers()["RXF_CAPABILITY_CHANNEL"]
 CAPABILITY_UART = graph_header.numbers()["RXF_CAPABILITY_UART"]
+CAPABILITY_ALLOCATOR = graph_header.numbers()["RXF_CAPABILITY_ALLOCATOR"]
+ALLOCATOR_CELL_BYTES = graph_header.numbers()["RXF_ALLOCATOR_CELL_BYTES"]
+POOL_FIRST = 1 << 20  # the id of the first free row of the allocator pool (docs/23 4.9)
 UART_FIFO_BLOCK = graph_header.numbers()["RXF_UART_FIFO_BLOCK"]
 AREA_BYTES = 272
 PAGE = 4096
@@ -109,6 +112,11 @@ class LiveSpec:
     # What the device is (the generation word of the capability, native/graph.h): 1 is the one of
     # the machine (the 16550 on ports on x86_64, the PL011 in memory on aarch64).
     uart_device: int = 1
+    # The rows of the allocator pool (docs/23 4.9): that many free rows of the entry table, ids
+    # from POOL_FIRST on, and the Allocator capability that names them (the next capability after
+    # the channel and the uart). 0 binds none: the leaf runtime_allocate answers UNBOUND, which is
+    # what a seat that runs no dynamic guest wants.
+    pool: int = 0
 
 
 @dataclass(frozen=True)
@@ -259,13 +267,23 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
         )
 
     # The places
-    leaf_ids = graph_header.leaves()
+    # the slot table lists the leaves the image's graph.run wires: an image may wire fewer
+    # leaves than the header names (docs/23 4.9, step 0), so the header grows ahead of a starter
+    wired = _wired(image)
+    leaf_ids = {
+        key: identifier
+        for key, identifier in graph_header.leaves().items()
+        if identifier in wired
+    }
     journal = CONTEXT_BYTES
     slots_at = journal + JOURNAL_CAPACITY * MEMBER_BYTES
     count_slots = len(leaf_ids)
     entries_at = slots_at + count_slots * SLOT_BYTES
     entries_at = (entries_at + ALIGN - 1) // ALIGN * ALIGN
-    count_entries = SPARE + len(rows)
+    pool = live.pool if live else 0
+    if any(POOL_FIRST <= i < POOL_FIRST + pool for i in ids):
+        raise LinkError("an object takes an id of the allocator pool")
+    count_entries = SPARE + len(rows) + pool
     entries_room = count_entries + (live.entries if live else 0)
     arena_at = (entries_at + entries_room * ENTRY_BYTES + ALIGN - 1) // ALIGN * ALIGN
     arena_room = len(arena)
@@ -275,7 +293,7 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
     scratch_at = heap_at + HEAP_BYTES
     total = scratch_at + SCRATCH_BYTES
     block_at: dict[str, tuple[int, int]] = {}
-    area_at = capabilities_at = 0
+    area_at = capabilities_at = allocator_at = 0
     table_size = 0
     if live:
         table_size = table_slots(arena)
@@ -292,6 +310,10 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
         area_at = total
         capabilities_at = area_at + AREA_BYTES
         total = capabilities_at + (2 * CAPABILITY_BYTES + ALIGN - 1) // ALIGN * ALIGN
+        if pool:
+            # a third capability and the allocator cell behind the table
+            allocator_at = capabilities_at + 3 * CAPABILITY_BYTES
+            total = allocator_at + (ALLOCATOR_CELL_BYTES + ALIGN - 1) // ALIGN * ALIGN
         for name, size in sizes.items():
             if name == "arena":
                 block_at[name] = (arena_at, size)
@@ -323,11 +345,12 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
             identifier if machine == "wasm32" else address(target)
         )
         slot_bytes += struct.pack("<3Q", identifier, 1, slots_by_leaf[identifier])
-    entry_bytes = bytearray()
+    # the entry table is sorted by id: the spare rows, the objects of the image, the pool
+    entries: dict[int, bytes] = {}
     for spare in range(1, SPARE + 1):
-        entry_bytes += struct.pack("<10Q", spare, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+        entries[spare] = struct.pack("<10Q", spare, 0, 0, 0, 0, 0, 0, 0, 0, 0)
     for identifier, type_id, where, size, _ in rows:
-        entry_bytes += struct.pack(
+        entries[identifier] = struct.pack(
             "<10Q",
             identifier,
             1,
@@ -340,8 +363,11 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
             0,
             0,
         )
+    for i in range(pool):
+        entries[POOL_FIRST + i] = struct.pack("<10Q", POOL_FIRST + i, *[0] * 9)
+    entry_bytes = bytearray(b"".join(entries[i] for i in sorted(entries)))
     memory = bytearray(total)
-    capability_count = 1 + (live.uart is not None) if live else 0
+    capability_count = 1 + (live.uart is not None) + (pool > 0) if live else 0
     context = struct.pack(
         "<18Q",
         CONTEXT_VERSION, CONTEXT_BYTES,
@@ -375,6 +401,13 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
         if live.uart is not None:
             device = base + block_at["uart"][0] if "uart" in block_at else live.uart
             table_bytes += struct.pack("<3Q", CAPABILITY_UART, live.uart_device, device)
+        if pool:
+            table_bytes += struct.pack(
+                "<3Q", CAPABILITY_ALLOCATOR, 1, base + allocator_at
+            )
+            memory[allocator_at : allocator_at + ALLOCATOR_CELL_BYTES] = struct.pack(
+                "<4Q", POOL_FIRST, pool, POOL_FIRST, 0
+            )
         memory[capabilities_at : capabilities_at + len(table_bytes)] = table_bytes
         block = LiveBlock(
             base + area_at,
@@ -393,6 +426,17 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
         table,
         block,
     )
+
+
+def _wired(image: Image) -> set[int]:
+    """The ids of the leaves the image's ``graph.run`` has a ``Leaf`` reference for."""
+    run = image.resolve(RUN)
+    assert run is not None
+    return {
+        index
+        for _, role, index, _, _ in image.get(run)["refs"]
+        if role is not None and word(image.path(role)) == "Leaf"
+    }
 
 
 def _leaf(image: Image, identifier: int) -> str:

@@ -72,7 +72,7 @@ def test_the_numbers_of_the_header_are_read_whole():
     numbers = graph_header.numbers()
     assert numbers["RXF_GRAPH_MAGIC"] == int.from_bytes(b"RXG1", "little")
     assert numbers["RXF_GRAPH_NONE"] == 2**64 - 1
-    assert sorted(graph_header.leaves().values()) == list(range(1, 50))
+    assert sorted(graph_header.leaves().values()) == list(range(1, 52))
 
 
 def test_a_call_of_a_program_is_the_call_card(image, tmp_path: Path):

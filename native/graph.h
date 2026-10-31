@@ -53,7 +53,7 @@
  *
  * A CALL names its callee one of two ways, and both are the same call step:
  *
- *   - a leaf id (1..49, the function table of the context), then n operands; or
+ *   - a leaf id (1..51, the function table of the context), then n operands; or
  *   - RXF_GRAPH_CALL (word 1 is 0: there is no leaf 0), then one program operand
  *     (OBJECT: a = the object id the callee's program words are bound at, b = 0)
  *     and n argument operands.  The callee is a program of its own: its parameters
@@ -253,7 +253,13 @@ enum rxf_graph_leaf {
      * the run's arguments, the words of the arguments, and the word its answer is written to.
      * The callee runs in the run cell of a run of its own, and the call goes on where the
      * answer() of the interpreter would leave it (docs/20 S7). */
-    RXF_LEAF_GRAPH_RUN = 49
+    RXF_LEAF_GRAPH_RUN = 49,
+    /* The allocation leaves of the handle lane (docs/23 4.9): runtime_allocate allocates a
+     * zero-filled object in one step on a row of the pool the Allocator capability names -- no
+     * transaction, no caller-chosen id -- and runtime_release (the existing release) gives a row
+     * back to the pool. */
+    RXF_LEAF_RUNTIME_ALLOCATE = 50,
+    RXF_LEAF_RUNTIME_RELEASE = 51
 };
 
 #ifndef RXF_INLINE
@@ -322,6 +328,7 @@ RXF_INLINE rxf_u32 shape_of(rxf_u64 leaf) {
     case RXF_LEAF_RUNTIME_RESOLVE:
         return RXF_SHAPE_HQO;
     case RXF_LEAF_RUNTIME_ALLOCATE_PREPARE:
+    case RXF_LEAF_RUNTIME_ALLOCATE:
         return RXF_SHAPE_QQQQQPO;
     case RXF_LEAF_RUNTIME_PUBLISH:
     case RXF_LEAF_RUNTIME_ROLLBACK:
@@ -335,6 +342,7 @@ RXF_INLINE rxf_u32 shape_of(rxf_u64 leaf) {
         return RXF_SHAPE_HQ;
     case RXF_LEAF_RUNTIME_PIN:
     case RXF_LEAF_RUNTIME_UNPIN:
+    case RXF_LEAF_RUNTIME_RELEASE:
         return RXF_SHAPE_H;
     case RXF_LEAF_RUNTIME_APPEND:
         return RXF_SHAPE_HPQQ;
