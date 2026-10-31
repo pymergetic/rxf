@@ -251,6 +251,9 @@ class ObjectArena {
      * mapped, and the subtree of a node in the writer's order. */
     bool place_one(ObjectArena &out, uint32_t source, uint32_t *remap, uint32_t remap_count);
     bool walk_place(ObjectArena &out, uint32_t first, uint32_t *remap, uint32_t remap_count);
+    /* The number of nodes in the subtree of `first`, `first` included - the
+     * writer's survey counts the world's nodes (docs/32 5.4). */
+    bool count_subtree(uint32_t first, uint32_t *count);
     bool is_ref_table(uint32_t source, uint32_t relations, const pymergetic_rxf_object *record);
     bool next_child(uint32_t parent, uint16_t after, uint32_t *next);
     static bool name_less(const char *a, uint32_t an, const char *b, uint32_t bn);

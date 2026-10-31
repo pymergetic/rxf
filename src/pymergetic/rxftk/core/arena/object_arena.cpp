@@ -41,10 +41,13 @@ constexpr uint32_t kReserveRing = 8;
 constexpr uint32_t kWalkFirst = 9;
 /* The capacity of a fresh arena is the world's survey plus the writer's
  * headroom (tools/native/arena_export.py: objects + tables + INDEX_HEADROOM).
- * The survey is the live slots minus the arena's own scaffolding - the
- * bootstrap's ten and the founding core of docs/36 (its tree and its tables)
- * - so the headroom a rebuild needs is the writer's 256 minus that 36. */
-constexpr uint32_t kIndexHeadroom = 220;
+ * The rebuild sizes the output the same way - it counts the survey off the arena
+ * (the live slots less the scaffolding the survey never counts: the bootstrap
+ * skeleton and the founding core of docs/36, both counted in `rebuild`) and adds
+ * the writer's own headroom. The headroom must match the writer's to the byte,
+ * and the scaffolding is counted rather than assumed, or the canonical form
+ * drifts one slot and the whole dump diverges (docs/32 5.4). */
+constexpr uint32_t kIndexHeadroom = 256; /* arena_export.py's INDEX_HEADROOM */
 /* The tree walk is iterative (the engine has no recursion): the stack holds
  * one entry per open module - its last placed child name. */
 constexpr uint32_t kWalkDepth = 32;
@@ -993,6 +996,60 @@ bool ObjectArena::walk_place(ObjectArena &out, uint32_t first, uint32_t *remap,
     }
 }
 
+/* The nodes of the subtree of `first`, `first` included: the writer's survey
+ * counts the world's nodes (tools/native/arena_export.py's `_survey`), and this
+ * is that count over one branch of the tree. Iterative like `walk_place`. */
+bool ObjectArena::count_subtree(uint32_t first, uint32_t *count) {
+    struct Open {
+        uint32_t parent;
+        uint16_t last;
+    };
+    Open resume[kWalkDepth];
+    uint32_t depth = 0;
+    uint32_t held = 0;
+    uint32_t at = first;
+    for (;;) {
+        ++held;
+        pymergetic_rxf_object *record = nullptr;
+        if (load(at, &record) != Status::Ok)
+            return false;
+        uint32_t child = PYMERGETIC_RXF_HANDLE32_NONE;
+        if (record->kind == PYMERGETIC_RXF_OBJ_MODULE && !next_child(at, 0xFFFF, &child))
+            return false;
+        if (child != PYMERGETIC_RXF_HANDLE32_NONE) {
+            if (depth >= kWalkDepth)
+                return false;
+            pymergetic_rxf_object *kid = nullptr;
+            if (load(child, &kid) != Status::Ok)
+                return false;
+            resume[depth].parent = at;
+            resume[depth].last = kid->name;
+            depth++;
+            at = child;
+            continue;
+        }
+        for (;;) {
+            if (depth == 0) {
+                *count = held;
+                return true;
+            }
+            const Open open = resume[depth - 1];
+            uint32_t up = PYMERGETIC_RXF_HANDLE32_NONE;
+            if (!next_child(open.parent, open.last, &up))
+                return false;
+            if (up != PYMERGETIC_RXF_HANDLE32_NONE) {
+                pymergetic_rxf_object *nxt = nullptr;
+                if (load(up, &nxt) != Status::Ok)
+                    return false;
+                resume[depth - 1].last = nxt->name;
+                at = up;
+                break;
+            }
+            depth--;
+        }
+    }
+}
+
 bool ObjectArena::fixup_refs(ObjectArena &out, uint32_t where, uint32_t source, uint32_t type,
                              uint64_t head, uint64_t shift, const uint32_t *remap,
                              uint32_t remap_count) {
@@ -1661,12 +1718,93 @@ Status ObjectArena::rebuild(ObjectArena &out, uint32_t *remap, uint32_t remap_co
      * slots a release leaves behind, and the writer's survey counts the world
      * as it stands - one dead slot in the source would size the output one
      * slot above the writer's and the canonical bytes would drift. */
-    uint32_t live = 0;
-    for (uint32_t i = 0; i < slots->count; i++) {
-        if (index_entry(i)->slot != 0)
-            live++;
+    const uint32_t root = super()->root;
+    /* A relation table names its object by its dotted path (docs/32 2); when that
+     * object is gone - an apply deleted it and left its table - the table is a
+     * stale orphan, and the canonical form does not carry it (docs/32 5.4:
+     * place_world's `_relations` only makes a table for an object that is there
+     * with refs; a running image is not canonical between dumps). Both the index
+     * size and the walk must drop it, or the output is one slot above the
+     * writer's and the canonical bytes drift. */
+    auto resolve_dotted = [this, root](const char *name, uint32_t length, uint32_t *found) -> bool {
+        uint32_t at = root;
+        uint32_t start = 0;
+        for (uint32_t i = 0; i <= length; ++i) {
+            if (i == length || name[i] == '.') {
+                if (i > start) {
+                    uint32_t next = PYMERGETIC_RXF_HANDLE32_NONE;
+                    if (child_named(at, name + start, i - start, &next) != Status::Ok ||
+                        next == PYMERGETIC_RXF_HANDLE32_NONE)
+                        return false;
+                    at = next;
+                }
+                start = i + 1;
+            }
+        }
+        *found = at;
+        return true;
+    };
+    /* The capacity is the writer's survey plus its headroom (docs/32 5.4):
+     * tools/native/arena_export.py's `_survey` counts the world's nodes and its
+     * ref-carrying nodes - root and the non-sys non-honors subtree are the
+     * nodes, and the non-genesis relation tables that resolve name the
+     * ref-carrying ones. Count them directly off the arena: the survey is a
+     * property of the world the arena carries, not of the arena's scaffolding,
+     * so an apply's bookkeeping cannot drift the index a slot and the dump stays
+     * the fresh export's byte for byte. */
+    uint16_t name_sys = PYMERGETIC_RXF_SYMS_ANONYMOUS;
+    uint16_t name_honors = PYMERGETIC_RXF_SYMS_ANONYMOUS;
+    if (!symbol_id("sys", &name_sys) || !symbol_id("honors", &name_honors))
+        return Status::BadImage;
+    uint32_t sys_node = PYMERGETIC_RXF_HANDLE32_NONE;
+    uint32_t relations_node = PYMERGETIC_RXF_HANDLE32_NONE;
+    uint32_t tables = 0;
+    if (find(root, "sys", &sys_node) == Status::Ok &&
+        find(sys_node, "relations", &relations_node) == Status::Ok) {
+        uint16_t scan = 0xFFFF;
+        for (;;) {
+            uint32_t at = PYMERGETIC_RXF_HANDLE32_NONE;
+            if (!next_child(relations_node, scan, &at))
+                return Status::BadImage;
+            if (at == PYMERGETIC_RXF_HANDLE32_NONE)
+                break;
+            pymergetic_rxf_object *kid = nullptr;
+            if (load(at, &kid) != Status::Ok)
+                return Status::BadImage;
+            scan = kid->name;
+            if (genesis_table(at))
+                continue;
+            const char *table_name = nullptr;
+            uint32_t name_length = 0;
+            if (symbol(kid->name, &table_name, &name_length) != Status::Ok)
+                return Status::BadImage;
+            uint32_t owner = PYMERGETIC_RXF_HANDLE32_NONE;
+            if (resolve_dotted(table_name, name_length, &owner))
+                ++tables; /* a world node with refs: the writer's `tables` */
+        }
     }
-    Status st = out.bootstrap("boot", live + kIndexHeadroom);
+    uint32_t nodes = 1; /* the world's root: the survey counts it */
+    {
+        uint16_t cursor = 0xFFFF;
+        for (;;) {
+            uint32_t child = PYMERGETIC_RXF_HANDLE32_NONE;
+            if (!next_child(root, cursor, &child))
+                return Status::BadImage;
+            if (child == PYMERGETIC_RXF_HANDLE32_NONE)
+                break;
+            pymergetic_rxf_object *kid = nullptr;
+            if (load(child, &kid) != Status::Ok)
+                return Status::BadImage;
+            cursor = kid->name;
+            if (kid->name == name_sys || kid->name == name_honors)
+                continue;
+            uint32_t branch = 0;
+            if (!count_subtree(child, &branch))
+                return Status::BadImage;
+            nodes += branch;
+        }
+    }
+    Status st = out.bootstrap("boot", nodes + tables + kIndexHeadroom);
     if (st != Status::Ok)
         return st;
     st = out.journal_detach(); /* the walk is a build: nothing to unwind */
@@ -1677,11 +1815,6 @@ Status ObjectArena::rebuild(ObjectArena &out, uint32_t *remap, uint32_t remap_co
      * tree in the index order (docs/32 5.4: place_world's own). An object an
      * apply created sits at the index end; the walk places it where the writer
      * would have, and the handles its payload carries follow (step 3). */
-    const uint32_t root = super()->root;
-    uint16_t name_sys = PYMERGETIC_RXF_SYMS_ANONYMOUS;
-    uint16_t name_honors = PYMERGETIC_RXF_SYMS_ANONYMOUS;
-    if (!symbol_id("sys", &name_sys) || !symbol_id("honors", &name_honors))
-        return Status::BadImage;
     uint16_t cursor = 0xFFFF;
     for (;;) {
         uint32_t child = PYMERGETIC_RXF_HANDLE32_NONE;
@@ -1715,7 +1848,13 @@ Status ObjectArena::rebuild(ObjectArena &out, uint32_t *remap, uint32_t remap_co
          * the world depth-first, and a depth-first walk of name-sorted
          * children is the lexicographic order of the dotted paths - the
          * tables' names. The chain is the creation order (an apply appends at
-         * its end), so the walk sorts by name instead of following links. */
+         * its end), so the walk sorts by name instead of following links. A
+         * table names its object by that dotted path (docs/32 2); when the
+         * object is gone - an apply deleted it and left its table - the table
+         * is a stale orphan, and the canonical form does not carry it
+         * (place_world's `_relations` only makes a table for an object that is
+         * there with refs, and a running image is not canonical between
+         * dumps). */
         uint16_t cursor = 0xFFFF;
         for (;;) {
             uint32_t at = PYMERGETIC_RXF_HANDLE32_NONE;
@@ -1727,7 +1866,16 @@ Status ObjectArena::rebuild(ObjectArena &out, uint32_t *remap, uint32_t remap_co
             if (load(at, &kid) != Status::Ok)
                 return Status::BadImage;
             cursor = kid->name;
-            if (!genesis_table(at) && !place_one(out, at, remap, remap_count))
+            if (genesis_table(at))
+                continue;
+            const char *table_name = nullptr;
+            uint32_t name_length = 0;
+            if (symbol(kid->name, &table_name, &name_length) != Status::Ok)
+                return Status::BadImage;
+            uint32_t owner = PYMERGETIC_RXF_HANDLE32_NONE;
+            if (!resolve_dotted(table_name, name_length, &owner))
+                continue; /* a stale orphan: its object is gone */
+            if (!place_one(out, at, remap, remap_count))
                 return Status::BadImage;
         }
     }
