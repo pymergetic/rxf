@@ -246,15 +246,15 @@ REFUSED_NODES: dict[type, str] = {
     ast.AsyncFor: "a for loop (the subset loops with while)",
     ast.AsyncFunctionDef: "an async def (the uasyncio seam is not in this slice)",
     ast.For: "a for loop (the subset loops with while)",
-    ast.Import: "an import (the image is the module tree: one module is one source)",
-    ast.ImportFrom: "an import (the image is the module tree: one module is one source)",
+    ast.Import: "an import inside a def (imports are module-level statements: a name binds once)",
+    ast.ImportFrom: "an import inside a def (imports are module-level statements: a name binds once)",
     ast.Nonlocal: "a nonlocal (a closure)",
     ast.Delete: "a del (the subset's names are words of one binding)",
     ast.AnnAssign: "an annotated assignment (annotations are not in this slice)",
     ast.IfExp: "a conditional expression (the subset branches with if)",
     ast.Starred: "a starred expression (the subset passes words)",
     ast.Subscript: "a subscript (the subset has no sequences)",
-    ast.Attribute: "an attribute (the subset has no objects)",
+    ast.Attribute: "an attribute (the subset reads the attributes of imported modules only)",
     ast.List: "a list (the subset's values are whole words)",
     ast.Dict: "a dict (the subset's values are whole words)",
     ast.Set: "a set (the subset's values are whole words)",
@@ -312,6 +312,65 @@ class Sig:
 
 
 @dataclass
+class Binding:
+    """What an imported name stands for, read off the image (docs/23 4.6: the image IS the
+    module tree, and ``import`` is a lookup of named cells under the root)."""
+
+    kind: str  # "module" | "function" | "cell" | "other"
+    path: str  # the dotted path of the cell in the image
+    sig: Sig | None = None  # a function: the words it takes and the out cells it answers
+    payload: bytes = b""  # a cell: its bytes in the image when the import ran
+    loaded: frozenset[str] = frozenset()  # a module: the submodules this import loaded
+
+
+class Resolver:
+    """The image as the module tree, for the imports of the module being compiled.
+
+    Everything comes from the image's own cells (``Image.resolve_module``, the children of a
+    Module cell, a Function's Signature): the compiler keeps no registry of what it compiled
+    before, so a module imported by any strand, in any run, is importable by its name."""
+
+    def __init__(self, image) -> None:
+        self.image = image
+
+    def module_kind(self, path: str) -> str:
+        """``module``, ``package`` or ``none`` -- the answer ``mp_import_stat`` gives."""
+        return self.image.resolve_module(path)
+
+    def member(self, parent: Binding, name: str) -> Binding | None:
+        """The attribute ``name`` of a module of the image, or None where there is none."""
+        path = f"{parent.path}.{name}"
+        handle = self.image.resolve(path)
+        if handle is None:
+            return None
+        kind = self.image.type_name(handle)
+        if kind == "Module":
+            return Binding("module", path, loaded=frozenset({path}))
+        if kind == "Function":
+            return Binding("function", path, self.signature_of(parent.path, name))
+        if kind == "uint64_t":
+            return Binding("cell", path, payload=bytes(self.image.get(handle)["payload"]))
+        return Binding("other", path)
+
+    def signature_of(self, module: str, name: str) -> Sig:
+        """A function's shape from its Signature cell: one Parameter per word it takes and one
+        per out handle (the out cells are the module's ``<path>_out_<n>`` children)."""
+        path = f"{module}.{name}"
+        signature = self.image.resolve(f"{path}.signature")
+        arguments = 0
+        if signature is not None:
+            arguments = sum(
+                1 for child in self.image.children(signature)
+                if self.image.type_name(child) == "Parameter"
+            )
+        outs = 0
+        stem = path.replace(".", "_")
+        while self.image.resolve(f"{module}.{stem}_out_{outs}") is not None:
+            outs += 1
+        return Sig(name, arguments - outs, outs)
+
+
+@dataclass
 class Source:
     """A parsed module: its cells, its signatures, and the syntax behind them."""
 
@@ -319,18 +378,22 @@ class Source:
     cells: dict[str, int] = field(default_factory=dict)  # name -> the initial word
     signatures: dict[str, Sig] = field(default_factory=dict)
     functions: dict[str, ast.FunctionDef] = field(default_factory=dict)
+    imports: dict[str, Binding] = field(default_factory=dict)  # local name -> what it names
+    resolver: Resolver | None = None
 
 
-def parse(text: str, module: str = "imported") -> Source:
+def parse(text: str, module: str = "imported", resolver: Resolver | None = None) -> Source:
     """The module's syntax as a ``Source``: every def's signature and every module-level
-    binding, refusing what the subset does not take (by name and line)."""
+    binding, refusing what the subset does not take (by name and line).  ``resolver`` is the
+    image the module's imports are looked up in (docs/23 4.6): without one an import is
+    refused, because there is no module tree to bind it in."""
     try:
         tree = ast.parse(text)
     except SyntaxError as problem:
         raise Refused(
             f"{module}: the source does not parse: {problem.msg} (line {problem.lineno})"
         ) from problem
-    src = Source(module)
+    src = Source(module, resolver=resolver)
     if tree.body and isinstance(tree.body[0], ast.Expr) and is_string(tree.body[0].value):
         tree.body = tree.body[1:]  # the module's docstring: it documents, it does not run
     for statement in tree.body:
@@ -339,20 +402,104 @@ def parse(text: str, module: str = "imported") -> Source:
             declare(src, statement)
         elif isinstance(statement, ast.Assign):
             cell_assignment(src, statement)
+        elif isinstance(statement, (ast.Import, ast.ImportFrom)):
+            bind_import(src, statement)
         elif isinstance(statement, ast.Expr) and is_string(statement.value):
             continue  # a string between statements: it documents, it does not run
         else:
             raise Refused(
                 f"{module}: {where}: {node_name(statement)} at module level "
-                "(a module carries defs and NAME = constant bindings)"
+                "(a module carries defs, imports and NAME = constant bindings)"
             )
     return src
+
+
+def taken(src: Source, name: str, lineno: int) -> None:
+    """A module-level name binds once: a def, a cell and an import share one namespace."""
+    if name in src.signatures or name in src.cells or name in src.imports:
+        raise Refused(f"{src.module}: line {lineno}: {name} is bound twice")
+
+
+def bind_import(src: Source, node: ast.Import | ast.ImportFrom) -> None:
+    """``import a.b``, ``import a.b as x``, ``from a import b as c``, ``from . import x``:
+    a lookup of named cells under the root (docs/23 4.6), refused by name where the image
+    has no such cell -- MicroPython raises ImportError there, and the subset never guesses.
+
+    ``import a.b`` binds ``a`` and loads ``a`` and ``a.b`` (an attribute reaches a submodule
+    only when some import loaded it, as in MicroPython); a module attribute that is a word
+    cell read through ``import`` is the live cell, while ``from m import NAME`` binds this
+    module's own cell holding the value the cell had when the import ran (an int is
+    immutable: the name is a snapshot, exactly as the reference binds it)."""
+    where = f"{src.module}: line {node.lineno}"
+    resolver = src.resolver
+    if resolver is None:
+        raise Refused(
+            f"{where}: an import with no image to look it up in (the image is the module "
+            "tree: compile through import_py_file, after the modules it imports)"
+        )
+    if isinstance(node, ast.Import):
+        for alias in node.names:
+            parts = alias.name.split(".")
+            for index in range(1, len(parts) + 1):
+                prefix = ".".join(parts[:index])
+                if resolver.module_kind(prefix) == "none":
+                    raise Refused(
+                        f"{where}: import {alias.name}: the image has no module {prefix} "
+                        "(the image is the module tree: import it first)"
+                    )
+            loaded = frozenset(".".join(parts[: index + 1]) for index in range(len(parts)))
+            if alias.asname:
+                taken(src, alias.asname, node.lineno)
+                src.imports[alias.asname] = Binding("module", alias.name, loaded=frozenset({alias.name}))
+                continue
+            known = src.imports.get(parts[0])
+            if known is not None and known.kind == "module" and known.path == parts[0]:
+                known.loaded |= loaded  # import a.b after import a: one name, more loaded
+            else:
+                taken(src, parts[0], node.lineno)
+                src.imports[parts[0]] = Binding("module", parts[0], loaded=loaded)
+        return
+    base = ""
+    if node.level:
+        parts = src.module.split(".")
+        package = parts[: len(parts) - node.level]
+        if not package:
+            raise Refused(
+                f"{where}: a relative import in {src.module} (a module with no package above "
+                "it has nothing to resolve the dots against)"
+            )
+        base = ".".join(package)
+    target = ".".join(part for part in (base, node.module or "") if part)
+    if resolver.module_kind(target) == "none":
+        raise Refused(
+            f"{where}: from {target} import ...: the image has no module {target} "
+            "(the image is the module tree: import it first)"
+        )
+    parent = Binding("module", target)
+    for alias in node.names:
+        if alias.name == "*":
+            raise Refused(f"{where}: from {target} import * (names bind one at a time)")
+        member = resolver.member(parent, alias.name)
+        if member is None:
+            raise Refused(f"{where}: cannot import name {alias.name} from {target} (ImportError)")
+        local = alias.asname or alias.name
+        taken(src, local, node.lineno)
+        if member.kind == "cell":
+            src.cells[local] = int.from_bytes(member.payload[:8], "little", signed=True)
+        elif member.kind == "other":
+            raise Refused(
+                f"{where}: {target}.{alias.name} is not a word cell, a function or a module "
+                "(the subset imports whole words)"
+            )
+        else:
+            src.imports[local] = member
 
 
 def declare(src: Source, fn: ast.FunctionDef) -> None:
     """One def's signature: positional words in, one word or a tuple out."""
     if fn.name in src.signatures:
         raise Refused(f"{src.module}: line {fn.lineno}: {fn.name} is defined twice")
+    taken(src, fn.name, fn.lineno)
     if fn.decorator_list:
         raise Refused(
             f"{src.module}: line {fn.lineno}: a decorator on {fn.name} "
@@ -443,8 +590,7 @@ def cell_assignment(src: Source, statement: ast.Assign) -> None:
             "NAME = <constant> (a chained or unpacking target needs words this pass would guess)"
         )
     name = statement.targets[0].id
-    if name in src.cells:
-        raise Refused(f"{src.module}: line {statement.lineno}: {name} is bound twice")
+    taken(src, name, statement.lineno)
     src.cells[name] = fold_constant(src, statement.value, name)
 
 
@@ -515,6 +661,7 @@ class Lowering:
         self.env: dict[str, MOperand] = {}
         self.loops: list[Loop] = []  # the loops the statements are inside of
         self.load_scratch: MOperand | None = None
+        self.foreign_sigs: dict[str, Sig] = {}  # the shapes of imported callees, by path
 
     # ---- names and values ------------------------------------------------------------------------
 
@@ -531,12 +678,13 @@ class Lowering:
         type_path: str = U64,
         object_id: int | None = None,
         payload: bytes | None = None,
+        foreign: bool = False,
     ) -> LValue:
         made = LValue(
             f"{parent}.{name}", kind,
             owner_block=owner_block, owner_op=owner_op,
             literal=literal, width=width, type_path=type_path,
-            object_id=object_id, payload=payload,
+            object_id=object_id, payload=payload, foreign=foreign,
         )  # fmt: skip
         self.values.append(made)
         if kind in ("Parameter", "Bound", "OperationResult"):
@@ -689,6 +837,58 @@ class Lowering:
             found = ("value", made.path)
         return found
 
+    def foreign_cell(self, binding: Binding) -> MOperand:
+        """The Object value naming a word cell another module owns (an imported module's
+        attribute): the run resolves its id to the cell's payload, the delta writes no cell."""
+        found = self.cell_values.get(binding.path)
+        if found is None:
+            made = self.value(
+                "Object", self.graph, "foreign_" + binding.path.replace(".", "_"),
+                type_path=U64,
+                object_id=rximport.object_id_of(binding.path),
+                payload=binding.payload,
+                foreign=True,
+            )  # fmt: skip
+            found = ("value", made.path)
+            self.cell_values[binding.path] = found
+        return found
+
+    def local(self, name: str) -> bool:
+        """Whether a name is local to the def (a parameter or an assigned name): a local
+        shadows an import of the same name, as in Python."""
+        return name in self.assigned or any(arg.arg == name for arg in self.fn.args.args)
+
+    def chain(self, node: ast.AST) -> Binding | None:
+        """A name or a dotted attribute chain as what the module-level imports bind it to,
+        or None where it is not an import (the head is local, or no import binds it)."""
+        if isinstance(node, ast.Name):
+            if self.local(node.id):
+                return None
+            return self.src.imports.get(node.id)
+        if isinstance(node, ast.Attribute):
+            base = self.chain(node.value)
+            if base is None or base.kind != "module":
+                return None
+            resolver = self.src.resolver
+            assert resolver is not None  # an import was bound, so a resolver was there
+            member = resolver.member(base, node.attr)
+            where = f"line {node.lineno}: {base.path}.{node.attr}"
+            if member is None:
+                raise Refused(
+                    f"{where}: the module has no such attribute (MicroPython: AttributeError)"
+                )
+            if member.kind == "module":
+                if member.path not in base.loaded:
+                    raise Refused(
+                        f"{where}: a submodule no import loaded (MicroPython: AttributeError "
+                        "until `import` names it)"
+                    )
+                member.loaded = base.loaded
+            if member.kind == "other":
+                raise Refused(f"{where} is not a word cell, a function or a module")
+            return member
+        return None
+
     def out_cell(self, key: str) -> MOperand:
         """The out cell of the position ``key`` names (docs/23 4.1): the Object whose
         handle the call passes and whose out word the callee's return writes.  The cell
@@ -701,6 +901,7 @@ class Lowering:
                 "Object", self.graph, key.replace(".", "_"),
                 width=HANDLE_WORDS * 8, type_path=WIDE,
                 object_id=identity, payload=handle_bytes(identity),
+                foreign=not key.startswith(f"{self.module}."),  # a callee of another module
             )  # fmt: skip
             self.out_values[key] = made
             found = made
@@ -777,7 +978,24 @@ class Lowering:
             return self.boolean(env, node)
         if isinstance(node, ast.Call):
             return self.call_expression(env, node)
+        if isinstance(node, ast.Attribute):
+            return self.attribute_ref(node)
         raise Refused(f"line {getattr(node, 'lineno', '?')}: {node_name(node)} as a value")
+
+    def attribute_ref(self, node: ast.Attribute) -> MOperand:
+        """``m.NAME``: the live word of an imported module's cell (a load at its address)."""
+        bound = self.chain(node)
+        if bound is None:
+            raise Refused(
+                f"line {node.lineno}: an attribute of something that is not an imported "
+                "module (the subset has no objects yet)"
+            )
+        if bound.kind != "cell":
+            raise Refused(
+                f"line {node.lineno}: {bound.path} is a {bound.kind}, not a word "
+                "(call a function; a module is not a value)"
+            )
+        return self.load(self.foreign_cell(bound))
 
     def name_ref(self, env: dict[str, MOperand], node: ast.Name) -> MOperand:
         where = f"line {node.lineno}: {node.id}"
@@ -793,6 +1011,12 @@ class Lowering:
             )
         if node.id in self.src.cells:
             return self.load(self.cell(node.id))
+        bound = self.src.imports.get(node.id)
+        if bound is not None:
+            raise Refused(
+                f"{where} is an imported {bound.kind}, not a word (call a function; "
+                "a module is not a value)"
+            )
         raise Refused(f"{where} is a name the subset cannot bind")
 
     def binop(self, env: dict[str, MOperand], node: ast.BinOp) -> MOperand:
@@ -1063,6 +1287,8 @@ class Lowering:
         return self.card(callee, inputs, outs)
 
     def sig_of(self, callee: str) -> Sig:
+        if callee in self.foreign_sigs:
+            return self.foreign_sigs[callee]
         bare = callee.rsplit(".", 1)[-1]
         if callee.startswith(f"{self.module}.") and bare in self.src.signatures:
             return self.src.signatures[bare]
@@ -1082,20 +1308,42 @@ class Lowering:
         return [self.operand(env, argument) for argument in node.args]
 
     def callee_of(self, node: ast.Call) -> tuple[str, int]:
+        if isinstance(node.func, ast.Attribute):
+            bound = self.chain(node.func)
+            if bound is None:
+                raise Refused(
+                    f"line {node.lineno}: a call of an attribute of something that is not an "
+                    "imported module (the subset has no objects yet)"
+                )
+            return self.function_of(node, bound)
         if not isinstance(node.func, ast.Name):
             raise Refused(f"line {node.lineno}: {node_name(node.func)} as the callee of a call")
         name = node.func.id
-        if name in self.src.signatures:
+        if name in self.src.signatures and not self.local(name):
             sig = self.src.signatures[name]
             return f"{self.module}.{name}", sig.outs
-        if name in self.known:
+        if name in self.known and not self.local(name):
             return self.known[name], 0
+        bound = self.chain(node.func)
+        if bound is not None:
+            return self.function_of(node, bound)
         if name in self.src.cells:
             raise Refused(f"line {node.lineno}: {name} is a cell of the module, not a function")
         raise Refused(
             f"line {node.lineno}: a call of {name} (the subset calls the functions it "
-            "compiles, or faces a prior import names in known)"
+            "compiles or imports, or faces a prior import names in known)"
         )
+
+    def function_of(self, node: ast.Call, bound: Binding) -> tuple[str, int]:
+        """An imported function as a callee: the call card names its path; its shape is the
+        image's own Signature."""
+        if bound.kind != "function" or bound.sig is None:
+            raise Refused(
+                f"line {node.lineno}: {bound.path} is a {bound.kind}, not a function "
+                "(the subset calls functions of the image)"
+            )
+        self.foreign_sigs[bound.path] = bound.sig
+        return bound.path, bound.sig.outs
 
     # ---- statements -------------------------------------------------------------------------------
 
@@ -1154,8 +1402,9 @@ class Lowering:
                     f"line {node.lineno}: a nested def ({node.name}): closures are not "
                     "in this slice"
                 )
-            elif isinstance(node, ast.Tuple):
-                continue  # legal in a return and an unpacking; refused where it is a value
+            elif isinstance(node, (ast.Tuple, ast.Attribute)):
+                continue  # a tuple is legal in a return and an unpacking, an attribute where an
+                # import binds its head: both are refused where they stand as something else
             elif isinstance(node, REFUSED_KINDS):
                 raise Refused(f"line {getattr(node, 'lineno', '?')}: {node_name(node)}")
         overlap = self.declared & {arg.arg for arg in self.fn.args.args}
@@ -1176,6 +1425,8 @@ class Lowering:
         elif isinstance(target, ast.Tuple):
             for item in target.elts:
                 self.collect_target(item)
+        elif isinstance(target, ast.Attribute):
+            return  # an attribute of an imported module: the cell it names is not a local
         elif isinstance(target, ast.Starred):
             raise Refused(f"line {getattr(target, 'lineno', '?')}: a starred target")
         else:
@@ -1246,7 +1497,20 @@ class Lowering:
         if isinstance(target, ast.Tuple):
             self.unpack(node, target, env)
             return
+        if isinstance(target, ast.Attribute):
+            self.store(self.attribute_cell(target), self.operand(env, node.value))
+            return
         raise Refused(f"line {node.lineno}: {node_name(target)} as an assignment target")
+
+    def attribute_cell(self, target: ast.Attribute) -> MOperand:
+        """The cell ``m.NAME = ...`` writes: the imported module's word cell, live."""
+        bound = self.chain(target)
+        if bound is None or bound.kind != "cell":
+            raise Refused(
+                f"line {target.lineno}: an assignment to an attribute that is not a word cell "
+                "of an imported module (the subset has no objects yet)"
+            )
+        return self.foreign_cell(bound)
 
     def unpack(self, node: ast.Assign, target: ast.Tuple, env: dict[str, MOperand]) -> None:
         """``lo, hi = f(x)`` (the out cells of the callee's tuple) and ``x, y = a, b``."""
@@ -1286,6 +1550,16 @@ class Lowering:
             env[name] = item
 
     def augassign(self, node: ast.AugAssign, env: dict[str, MOperand]) -> None:
+        if isinstance(node.target, ast.Attribute):
+            op = BINOP_LOWERED.get(type(node.op))
+            if op is None:
+                raise Refused(
+                    f"line {node.lineno}: {BINOP_NAMES.get(type(node.op), 'this operator')} "
+                    "in an augmented assignment"
+                )
+            cell = self.attribute_cell(node.target)
+            self.store(cell, self.arith(op, self.load(cell), self.operand(env, node.value), node.lineno))
+            return
         if not isinstance(node.target, ast.Name):
             raise Refused(
                 f"line {node.lineno}: an augmented assignment of {node_name(node.target)}"
@@ -1582,6 +1856,7 @@ def graphs_of(
     module: str = "imported",
     only: set[str] | None = None,
     known: dict[str, str] | None = None,
+    resolver: Resolver | None = None,
 ) -> dict[str, LGraph]:
     """The functions of a Python module as graphs; ``only`` names the ones wanted.
 
@@ -1589,8 +1864,9 @@ def graphs_of(
     and is skipped when it is not: a corpus file may carry helpers this pass cannot
     lower.  ``known`` maps the name of a function of another module (already imported
     into the image) to the Function path it is at, so a call of one of them is a call
-    card naming that path."""
-    src = parse(text, module)
+    card naming that path.  ``resolver`` is the image the module's imports are looked up in
+    (``import_py_file`` passes one): a module that imports needs it."""
+    src = parse(text, module, resolver)
     found: dict[str, LGraph] = {}
     for name, fn in src.functions.items():
         if only is not None and name not in only:
@@ -1621,7 +1897,7 @@ def import_py_file(
     report speaks it, while every C, C++ and Rust import leaves it False."""
     path = Path(source)
     text = path.read_text()
-    graphs = list(graphs_of(text, module, only, known=known).values())
+    graphs = list(graphs_of(text, module, only, known=known, resolver=Resolver(image)).values())
     if not graphs:
         return {}
     if provenance is not None and not isinstance(provenance, rximport.Provenance):
@@ -1633,10 +1909,41 @@ def import_py_file(
     comments = rximport.scan_comments(text, ("#",))
     targets = rximport.comment_targets(text, comments, [graph.name for graph in graphs])
     prov.open(image)  # the claim's first write: the floor speaks before anything is imported
-    image.apply(emit_delta(graphs, module))
+    image.apply(nest(emit_delta(graphs, module), module, image))
     mapping = {graph.name: graph.path for graph in graphs}
     prov.record(image, module, mapping, rximport.relative(path), text, list(zip(comments, targets)))
     return mapping
+
+
+def nest(delta: str, module: str, image=None) -> str:
+    """A dotted module name as the nested Modules of the tree: ``pkg.sub`` is a Module ``sub``
+    inside a Module ``pkg`` (docs/23 4.6; ``import pkg.sub`` resolves over those cells).  The
+    emitter writes the one Module a name makes; the paths inside it are already the dotted
+    ones, so the nesting is the opener and the closer of that Module and nothing else.
+
+    A package some earlier import already made is not made again (the delta refuses a name
+    taken): the first Module this delta creates is parented to the longest prefix of the name
+    the image has (``rxf:parent``, docs/15), and only the missing ancestors are opened."""
+    if "." not in module:
+        return delta
+    opener = f'  <Module name="{module}" category="ModuleCategory.Library">'
+    assert opener in delta, "the emitter's Module opener moved"
+    parts = module.split(".")
+    have = 0
+    if image is not None:
+        while have < len(parts) - 1 and image.resolve(".".join(parts[: have + 1])) is not None:
+            have += 1
+    opened = []
+    for index in range(have, len(parts)):
+        parent = f' rxf:parent="{".".join(parts[:have])}"' if index == have and have else ""
+        opened.append(
+            f'{"  " * (index - have + 1)}<Module name="{parts[index]}"{parent} '
+            'category="ModuleCategory.Library">'
+        )
+    closed = "\n".join(f'{"  " * index}</Module>' for index in range(len(parts) - have, 0, -1))
+    return delta.replace(opener, "\n".join(opened), 1).replace(
+        "  </Module>\n</delta>", closed + "\n</delta>"
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:

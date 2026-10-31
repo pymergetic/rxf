@@ -66,8 +66,10 @@ def test_every_upstream_asyncio_source_is_refused_by_name(name):
     image = tree.load(STARTER)
     with pytest.raises(rxpy.Refused) as refusal:
         rxpy.import_py_file(image, path, module=f"asyncio_{name}")
-    # the first thing every file does is import: the strand's one-module-one-source rule
-    assert "an import" in str(refusal.value)
+    # the first thing every file does is import, and the image has none of what it imports
+    assert "the image has no module" in str(refusal.value) or "a relative import" in str(
+        refusal.value
+    )
     assert "line" in str(refusal.value)
 
 

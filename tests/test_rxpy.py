@@ -26,7 +26,6 @@ import struct
 import subprocess
 from pathlib import Path
 
-import compose
 import graph_header
 import pytest
 import rxemit
@@ -35,7 +34,7 @@ import rxpy
 
 from pymergetic.rxftk.core import tree
 
-from . import rxf_native
+from . import rxpy_run
 from .mp_reference import micropythons, seat_of
 from .snippets import STARTER
 
@@ -84,10 +83,6 @@ def mp_lines(mpy: str, modules: tuple[str, ...], cases: list[tuple[str, tuple[in
         else:
             out.append(tuple(int(word) for word in line.split()))
     return out
-
-
-def signed(word: int) -> int:
-    return word if word < (1 << 63) else word - (1 << 64)
 
 
 # ---- the cases ---------------------------------------------------------------------------------
@@ -288,59 +283,8 @@ def program():
     mapping = rxpy.import_py_file(image, CORPUS / "borrow.py", module="borrow", known=KNOWN)
     assert mapping == {"borrow": "borrow.borrow"}
     assert image.check() == []  # the deltas link: the graph vocabulary is the emitter's
-    programs = compose.programs(image)
-
-    composer = compose.Composer(image)
-    cells: dict[int, bytearray] = {}
-    objects: dict[int, bytes | bytearray] = {}
-    for handle in range(image.handle_count):
-        if not image.live(handle):
-            continue
-        values = composer.fields(handle)
-        if compose.word(values.get("kind")) != "Object" or "object_id" not in values:
-            continue
-        path = image.path(handle)
-        if not path.startswith(tuple(f"{name}." for name in (*MODULES, "borrow"))):
-            continue
-        identity = int(values["object_id"])
-        data = bytearray(bytes.fromhex(values.get("data", "")))
-        cells[identity] = data
-        objects[identity] = data
-    for handle in range(image.handle_count):
-        if not image.live(handle) or image.type_name(handle) != "SemanticOperation":
-            continue
-        callee = composer.fields(handle).get("callee")
-        target = image.resolve(callee) if callee else None
-        if target is not None and image.path(target) in programs:
-            objects[compose.object_id(image, target)] = programs[image.path(target)]
-
-    memory = rxf_native.Memory(1 << 16)
-
-    def call(module: str, entry: str, words: tuple[int, ...]):
-        """One call: the answer word (and the out words of a tuple return)."""
-        arity = rxpy.parse((CORPUS / f"{module}.py").read_text(), module).signatures[entry].outs
-        given = [word & U64 for word in words]
-        outs = []
-        for index in range(arity):
-            identity = rximport.object_id_of(f"{module}.{entry}.out_{index}")
-            cell = cells[identity]
-            cell[:] = bytes(len(cell))  # a clean out cell per case
-            outs.append(cell)
-            given += [identity, 24]  # the handle run-entry ARGS takes (identity, offset)
-        status, value = rxf_native.run(
-            programs[f"{module}.{entry}"],
-            struct.pack(f"<{len(given)}Q", *given),
-            memory,
-            objects=objects,
-        )
-        answered = [signed(int.from_bytes(cell[24:32], "little", signed=True)) for cell in outs]
-        return status, signed(value), answered
-
-    def cell_of(module: str, name: str) -> bytearray:
-        return cells[rximport.object_id_of(f"{module}.{name}")]
-
-    yield type("Run", (), {"call": staticmethod(call), "cell_of": staticmethod(cell_of)})()
-    memory.close()
+    with rxpy_run.running(image, (*MODULES, "borrow")) as run:
+        yield run
 
 
 @pytest.fixture(scope="module", params=MPYS or [None], ids=lambda p: seat_of(p) if p else "no-mpy")
