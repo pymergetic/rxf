@@ -1,14 +1,21 @@
-"""The measured gap between the Python strand and upstream uasyncio (docs/23 4.3 and 4.5).
+"""The measured gap between the Python strand and upstream uasyncio (docs/23 4.3, 4.5 and 7).
 
-``tools/native/rxpy.py`` compiles a subset of whole-word Python (docs/23 4.3: functions of ints,
-loops, tuple returns, module cells). Upstream ``extmod/asyncio`` (the pinned MicroPython tree) is
-far outside it. These pins make the distance a MEASUREMENT instead of a feeling:
+``tools/native/rxpy.py`` compiles a subset of whole-word Python: functions of ints, loops, tuple
+returns, module cells, imports of modules of the image, and simple classes whose instances are
+named cells (docs/23 4.3, 4.6). Upstream ``extmod/asyncio`` (the pinned MicroPython tree) is far
+outside it. These pins make the distance a MEASUREMENT instead of a feeling (``tests/rxpy_gap.py``
+is the measurement; ``tests/rxpy_asyncio_gap.json`` the pinned answer):
 
-- every upstream asyncio source is refused by name at its first construct the subset does not
-  lower, never lowered to wrong words;
-- the census below is the set of construct kinds (AST node types) that block the six files. It is
-  the work list of the Python-import lane for uasyncio: a construct leaves the set when the strand
-  learns to lower it, and this test goes red on purpose so the table in docs/23 is updated with it.
+- against the image as it is, every upstream asyncio source stops at its first import, and the
+  refusal names the module the tree lacks (``time``, the package ``asyncio``): the module tree
+  of the image has no guest stdlib yet;
+- with every import served, the strand's answer per top-level statement (a def, a class, a method
+  tried as a def over a parameter ``self``) is the pinned table: which compile, and the first
+  reason each is refused;
+- the census of construct kinds still blocking the six files is the work list of the
+  Python-import lane for uasyncio. A construct leaves the set when the strand learns to lower it
+  and these tests go red on purpose; ``PYTHONPATH=tools/native:. python -m tests.rxpy_gap
+  --write`` regenerates the pin and prints the rows of the docs/23 table from the one measurement.
 
 The model of the S3 ring binding (tests/test_smp_asyncio.py) proves what uasyncio's primitives
 MEAN on the run-cell machine; this file proves how far the compiler still is from reading the
@@ -16,6 +23,7 @@ source that defines them.
 """
 
 import ast
+import json
 from pathlib import Path
 
 import pytest
@@ -23,31 +31,31 @@ import rxpy
 
 from pymergetic.rxftk.core import tree
 
-from .mp_reference import packages_dir
+from . import rxpy_gap
 from .snippets import STARTER
 
-ROOT = packages_dir()
-UPSTREAM = ROOT / "micropython" / "extmod" / "asyncio" if ROOT else None
-FILES = ("core", "task", "event", "funcs", "lock", "stream")
+FILES = rxpy_gap.FILES
 
-# the construct kinds the subset refuses (rxpy.py's module docstring is the list), by AST name
+# the construct kinds the subset still refuses, by AST name (imports, classes and attributes are
+# no longer here: the strand binds an import, lays out a class and reads the attributes of an
+# imported module or a named instance -- what stays refused of them shows in the pinned table)
 BLOCKERS = (
-    "Import", "ImportFrom", "ClassDef", "AsyncFunctionDef", "Await", "Yield", "YieldFrom",
-    "Try", "Raise", "With", "For", "Lambda", "ListComp", "DictComp", "GeneratorExp", "Attribute",
-    "Subscript", "Nonlocal", "Assert", "Delete",
+    "AsyncFunctionDef", "Await", "Yield", "YieldFrom", "Try", "Raise", "With", "For", "Lambda",
+    "ListComp", "DictComp", "GeneratorExp", "Subscript", "Nonlocal", "Assert", "Delete",
 )
 
 # the kinds blocking upstream asyncio today, measured against the pinned tree
 MEASURED = {
-    "Import", "ImportFrom", "ClassDef", "AsyncFunctionDef", "Await", "Yield", "YieldFrom", "Try",
-    "Raise", "For", "Attribute", "Subscript", "Assert", "Delete", "Nonlocal", "ListComp",
+    "AsyncFunctionDef", "Await", "Yield", "YieldFrom", "Try", "Raise", "For", "Subscript",
+    "Assert", "Delete", "Nonlocal", "ListComp",
 }
 
 
 def source_of(name: str) -> Path:
-    if UPSTREAM is None or not (UPSTREAM / f"{name}.py").exists():
+    root = rxpy_gap.upstream()
+    if root is None:
         pytest.skip("no upstream MicroPython checkout in the workspace (packages/micropython)")
-    return UPSTREAM / f"{name}.py"
+    return root / f"{name}.py"
 
 
 def census(path: Path) -> dict[str, int]:
@@ -61,16 +69,33 @@ def census(path: Path) -> dict[str, int]:
 
 
 @pytest.mark.parametrize("name", FILES)
-def test_every_upstream_asyncio_source_is_refused_by_name(name):
+def test_against_the_image_as_it_is_every_source_stops_at_its_first_import(name):
     path = source_of(name)
     image = tree.load(STARTER)
     with pytest.raises(rxpy.Refused) as refusal:
-        rxpy.import_py_file(image, path, module=f"asyncio_{name}")
-    # the first thing every file does is import, and the image has none of what it imports
-    assert "the image has no module" in str(refusal.value) or "a relative import" in str(
-        refusal.value
-    )
-    assert "line" in str(refusal.value)
+        rxpy.import_py_file(image, path, module=f"asyncio.{name}")
+    message = str(refusal.value)
+    # the first thing every file does is import, and the tree has none of what it imports
+    assert "the image has no module" in message
+    assert "line" in message
+
+
+def test_the_measurement_is_the_pinned_one():
+    """Per file: its imports, what compiles of its statements with the imports served, and the
+    first reason for each refusal. Red when the strand learns (or loses) a construct; the
+    regeneration is ``python -m tests.rxpy_gap --write`` and the docs/23 rows come from it."""
+    source_of("core")
+    assert rxpy_gap.measure() == json.loads(rxpy_gap.PINNED.read_text())
+
+
+def test_the_docs_table_is_the_pinned_measurement():
+    """docs/23 section 7 carries the generated rows, not a retelling: the block between the
+    markers is exactly what ``python -m tests.rxpy_gap`` prints from the pinned JSON."""
+    docs = (Path(__file__).parents[1] / "docs" / "23-MICROPYTHON-EXPANSION.md").read_text()
+    begin = docs.index("<!-- rxpy_gap:begin")
+    block = docs[docs.index("\n", begin) + 1 : docs.index("<!-- rxpy_gap:end -->")]
+    pinned = json.loads(rxpy_gap.PINNED.read_text())
+    assert block.rstrip("\n") == "\n".join(rxpy_gap.rows(pinned))
 
 
 def test_the_blocking_constructs_are_the_measured_work_list():
@@ -79,7 +104,7 @@ def test_the_blocking_constructs_are_the_measured_work_list():
         present |= set(census(source_of(name)))
     assert present == MEASURED, (
         f"the census moved: gone {sorted(MEASURED - present)}, new {sorted(present - MEASURED)} "
-        "(a construct the strand now lowers leaves MEASURED; update docs/23 with it)"
+        "(a construct the strand now lowers leaves MEASURED; regenerate the pin and update docs/23)"
     )
 
 
@@ -88,6 +113,6 @@ def test_the_corpus_the_strand_does_compile_is_outside_that_set():
     subset and uasyncio's source are two disjoint worlds today, and the bridge is the lane."""
     corpus = Path(__file__).parent / "rxpy_corpus"
     used: set[str] = set()
-    for path in sorted(corpus.glob("*.py")):
+    for path in sorted(corpus.rglob("*.py")):
         used |= set(census(path))
-    assert used <= {"Attribute"} or not used, used
+    assert not used, used

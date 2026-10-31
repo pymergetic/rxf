@@ -1,0 +1,189 @@
+{
+  "core": {
+    "compiles": {
+      "class": [
+        1,
+        4
+      ],
+      "def": [
+        0,
+        9
+      ],
+      "method": [
+        1,
+        14
+      ]
+    },
+    "dropped": 6,
+    "imports": {
+      "first_refusal": "line 4: from time import ...: the image has no module time (the image is the module tree: import it first)",
+      "statements": 2
+    },
+    "reasons": {
+      "a call of a name the strand does not compile (a builtin or a face)": 3,
+      "a callee that is not a name or an attribute": 1,
+      "a class attribute or a nested class": 1,
+      "a conditional expression": 1,
+      "a default parameter": 3,
+      "a function that falls off the end (None is not a word)": 1,
+      "a module-level binding that is not an integer constant": 3,
+      "a special method (only __init__ is of the subset)": 1,
+      "a subscript (a sequence cell)": 2,
+      "an attribute store on an object held in a name": 1,
+      "an expression or a control statement at module level": 1,
+      "an object held in a name or a parameter (no cell the graph can resolve)": 3,
+      "async def (the coroutine frame of 4.5)": 1,
+      "del": 1,
+      "for (the subset loops with while)": 2,
+      "global of a name that is not an integer cell": 3,
+      "inheritance": 2,
+      "raise (the exception seam)": 2,
+      "try/except (the nlr seam of S11)": 1
+    }
+  },
+  "event": {
+    "compiles": {
+      "class": [
+        1,
+        0
+      ],
+      "def": [
+        0,
+        0
+      ],
+      "method": [
+        0,
+        4
+      ]
+    },
+    "dropped": 1,
+    "imports": {
+      "first_refusal": "line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first)",
+      "statements": 1
+    },
+    "reasons": {
+      "an attribute store on an object held in a name": 1,
+      "an object held in a name or a parameter (no cell the graph can resolve)": 2,
+      "try/except (the nlr seam of S11)": 1,
+      "yield (the coroutine frame of 4.5)": 1
+    }
+  },
+  "funcs": {
+    "compiles": {
+      "class": [
+        0,
+        1
+      ],
+      "def": [
+        0,
+        2
+      ],
+      "method": [
+        0,
+        1
+      ]
+    },
+    "dropped": 2,
+    "imports": {
+      "first_refusal": "line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first)",
+      "statements": 1
+    },
+    "reasons": {
+      "a call of a name the strand does not compile (a builtin or a face)": 1,
+      "a decorator": 1,
+      "a default parameter": 1,
+      "a function that falls off the end (None is not a word)": 1,
+      "async def (the coroutine frame of 4.5)": 2
+    }
+  },
+  "lock": {
+    "compiles": {
+      "class": [
+        0,
+        1
+      ],
+      "def": [
+        0,
+        0
+      ],
+      "method": [
+        0,
+        3
+      ]
+    },
+    "dropped": 0,
+    "imports": {
+      "first_refusal": "line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first)",
+      "statements": 1
+    },
+    "reasons": {
+      "an object held in a name or a parameter (no cell the graph can resolve)": 1,
+      "async def (the coroutine frame of 4.5)": 1,
+      "raise (the exception seam)": 1,
+      "try/except (the nlr seam of S11)": 1
+    }
+  },
+  "stream": {
+    "compiles": {
+      "class": [
+        0,
+        2
+      ],
+      "def": [
+        0,
+        1
+      ],
+      "method": [
+        0,
+        9
+      ]
+    },
+    "dropped": 7,
+    "imports": {
+      "first_refusal": "line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first)",
+      "statements": 1
+    },
+    "reasons": {
+      "a bare return (None is not a word)": 1,
+      "a default parameter": 2,
+      "a function that falls off the end (None is not a word)": 1,
+      "a module-level binding that is not NAME = constant": 3,
+      "a module-level binding that is not an integer constant": 2,
+      "a subscript (a sequence cell)": 1,
+      "an attribute store on an object held in a name": 1,
+      "async def (the coroutine frame of 4.5)": 4,
+      "yield (the coroutine frame of 4.5)": 4
+    }
+  },
+  "task": {
+    "compiles": {
+      "class": [
+        1,
+        1
+      ],
+      "def": [
+        0,
+        3
+      ],
+      "method": [
+        0,
+        6
+      ]
+    },
+    "dropped": 0,
+    "imports": {
+      "first_refusal": "line 7: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first)",
+      "statements": 1
+    },
+    "reasons": {
+      "None as a value (a value is a word)": 2,
+      "a default parameter": 1,
+      "a special method (only __init__ is of the subset)": 1,
+      "an attribute store on an object held in a name": 1,
+      "an object held in a name or a parameter (no cell the graph can resolve)": 2,
+      "assert (the panic seam)": 1,
+      "is / is not / in / not in (identity and membership)": 1,
+      "raise (the exception seam)": 1
+    }
+  }
+}

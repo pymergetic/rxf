@@ -466,31 +466,89 @@ emitter exist (below); the debug-info citation does not.
 | MicroPython seam model (S11) | **landed** (a model, not MicroPython) | `tests/host/smp_mpmodel.c`, docs/20 S11 | `tests/test_smp.py` (10 passed) | the real interpreter does not run on the image yet |
 | value width (decision 1) | **landed** | `rxemit.DataModel`, `rximport.module_model` | `tests/test_import_width.py` | — |
 | shared emitter (decision 9) | **landed** (extracted) | `tools/native/rxemit.py` (`emit_delta`; `rximport` and `rxpy` both call it) | `tests/test_import.py`, `tests/test_rxpy.py` | — |
-| Python-import strand (4.3) | **landed, a subset** | `tools/native/rxpy.py` (`import_py_file(image, source, module, known=, provenance=)`; ints, `if`/`while`/`break`/`continue`, calls, tuple returns as out cells, module cells) | `tests/test_rxpy.py`: 2253 passed (both MicroPython seats, 1076 in-domain differential pins and the one-sided out-of-domain pins per seat, 91 shape/refusal pins) | the subset: no imports, classes, attributes, `try`, `raise`, `for`, generators, `async`/`await`, strings, floats, subscripts — see the census below |
+| Python-import strand (4.3) | **landed, a subset** | `tools/native/rxpy.py` (`import_py_file(image, source, module, known=, provenance=)`; ints, `if`/`while`/`break`/`continue`, calls, tuple returns as out cells, module cells, imports of modules of the image, simple classes as named instance cells) | `tests/test_rxpy.py`: 2253 passed (both MicroPython seats, 1076 in-domain differential pins and the one-sided out-of-domain pins per seat, 91 shape/refusal pins); `tests/test_rxpy_imports.py` 202; `tests/test_rxpy_objects.py` 43 | no `try`, `raise`, `for`, generators, `async`/`await`, strings, floats, subscripts; an instance is a named cell only (nothing made at run time, no object in a name or a parameter) — see the census below |
+| imports as a lookup of named cells (4.6, compile side) | **landed (2026-10-31)** | `rxpy.Resolver` (reads `Image.resolve_module`, the children of a `Module` cell, a Function's Signature), `bind_import`, `nest` (dotted modules as nested Modules, `rxf:parent` onto an existing package), `rxemit.LValue.foreign` | `tests/test_rxpy_imports.py` (202 passed on both MicroPython seats: the reference IMPORTS the corpus `tests/rxpy_corpus/imports` with its own machinery, packages and relative imports included; 18 named refusals) | a cell no def reads or writes is not in the image, so it cannot be imported (the emitter writes cells from their uses); the guest side is the next row |
+| simple classes (1, 4.3) | **landed (2026-10-31)** | `rxpy.declare_class`/`declare_instance`: `NAME = C(constants)` is one named cell of the fields' words, a method is a graph per instance over that cell | `tests/test_rxpy_objects.py` (43 passed on both seats: three call streams incl. methods called directly as `m.a.bump`, layout, 30 named refusals) | no run-time construction and no object held in a name or a parameter: the graph machine's one cell operand (`OBJECT`) names a cell by a constant id, no operand resolves a handle held in a slot (docs/23 4.1 "resolve at use", risk 4) and no allocation leaf exists; no inheritance; an instance of another module is reached through that module's functions only (the layout is not in the image) |
 | Python differential (decision 10) | **landed** | `tests/rxpy_mp_answer.py` runs the corpus under a real MicroPython unix port | `tests/test_rxpy.py`. Until 2026-10-31 it **skipped silently in every worktree**: the binary search used `parents[2]`, which is `worktrees/` there. `tests/mp_reference.py` now walks up to `packages/`; the 1086 pins run | — |
 | provenance knob, `was once Python` marker (5) | **landed** | `rximport.Provenance`, `--provenance` of `rximport.py` and `rxpy.py` | `tests/test_import.py` (C import not marked), `tests/test_rxpy.py` (marker set, report shape) | per-object citations from debug info (`!DILocation`): the citation spans the whole file ("the importer never guesses") |
 | comment lifting (4.7) | partly | `rximport.py` comment capture, `Provenance` | `tests/test_import.py` | the call-site contract of 4.7 as a separate tool |
 | hybrid module tree (4.6), host side | **landed** | `Image.resolve_module`/`module_children`/`module_roots`, `src/pymergetic/rxftk/mount/` | `tests/test_module_tree.py` (10), `tests/test_module_tree_view.py`, `tests/test_mount.py` | — |
 | `mp_import_stat` fill, guest side | **no** | none: no RXF hook in `packages/micropython`'s `py/builtinimport.c` or `packages/metalpython/extmod` | — | the guest import face on every seat (unix, emcc, firmware); needs the interpreter on the image |
 | uasyncio: semantics of the mapping (4.5) | **landed as a model (this lane)** | `tests/host/smp_asyncio.{h,c}`, `smp_asyncio_prove.c`; corpus `tests/asyncio_corpus/` | `tests/test_smp_asyncio.py` (110 passed) | the model is not uasyncio compiled; see the next row |
-| uasyncio: the source as imported graphs | **no** | `tests/test_rxpy_asyncio_gap.py` pins the distance | the same file (8 passed): all six upstream `extmod/asyncio` files are refused at line 1 ("an import") | census below |
+| uasyncio: the source as imported graphs | **no** | `tests/test_rxpy_asyncio_gap.py` + `tests/rxpy_gap.py` pin the distance | the same file (9 passed): against the image as it is all six upstream `extmod/asyncio` files stop at their first import and the refusal names the module the tree lacks (`time`, the package `asyncio`) | the guest stdlib is not in the module tree; with the imports served the per-statement answer is the table below |
 | S3 ready-ring binding of asyncio tasks | **landed as a model (this lane)** | `smp_asyncio.c`: a Task is a run cell, `create_task`/yield push `smp_ring_push`, an await is `smp_park`, a task end / `Event.set` is `smp_wake` on the run | `tests/test_smp_asyncio.py` (the reference differential and the S10 differential, below) | the product binding of `mp_sched_*` inside the compiled loop |
 | world picture: tram count = ring occupancy (4.5) | **landed** | `server`/world export | `tests/test_world3d.py` (36), `tests/test_reader_js.py` | — |
 | breadth: corpus (e) | partial | `tests/import_corpus` (48 digests), `tests/rxpy_corpus` (8 modules) | `tests/test_import.py`, `tests/test_rxpy.py` | MicroPython `py/*.c`, `extmod/uasyncio`, lwIP |
 
-The census of the gap to uasyncio's source (`tests/test_rxpy_asyncio_gap.py`, AST node kinds in
-the pinned `extmod/asyncio`, six files). The work list of the Python-import lane for uasyncio, in
-the order the strand has to learn them:
+**The gap to uasyncio's source, measured before and after the imports / attributes / classes
+lane (2026-10-31).** `tests/rxpy_gap.py` is the measurement (`PYTHONPATH=tools/native:. python -m
+tests.rxpy_gap --write` regenerates `tests/rxpy_asyncio_gap.json` and prints the rows below from
+the one run); `tests/test_rxpy_asyncio_gap.py` pins both and goes red when the strand learns or
+loses a construct.
 
-| construct | where it occurs (nodes) | what the strand needs |
-|---|---|---|
-| `import` / `from . import` | 1+3 core, 1 task, 2 event, 1 funcs, 1 lock, 5 stream | the module tree as the import face (4.6): a name resolves to a `Module` cell, not a file |
-| `class` | 13 over all six files (Task, TaskQueue, Event, Lock, Loop, streams) | a type cell with methods as function words (i3 dispatch) |
-| attributes (`self.x`) | 377 | fields of a heap object cell (i2 handle operands) |
-| `try`/`raise`/`assert`/`del` | 12/18/7/1 | the nlr seam of S11 (`try/except` is a handler chain; `raise` a Refuse leaf) |
-| `yield`, `yield from`, `async def`, `await` | 11 / 1 / 13 / 9 | the coroutine frame of 4.5: a generator is a run cell's heap frame chain |
-| `for`, comprehension, `nonlocal` | 4 / 1 / 1 | `for` over a protocol, closures (a cell captured by handle) |
-| subscripts | 51 | heap list/dict cells |
+Before (HEAD 52909ad, AST node kinds in the six pinned `extmod/asyncio` files): imports 14,
+classes 13, attributes 377, `try` 12, `raise` 18, `assert` 7, `del` 1, `yield` 11, `yield from` 1,
+`async def` 13, `await` 9, `for` 4, comprehension 1, `nonlocal` 1, subscripts 51 — **every file
+refused at its first statement** ("an import"), 0 of 15 top-level defs and 0 of 12 top-level
+classes compiled (the 13th class sits inside a `try`), every one of the 38 methods refused.
+
+After: import, class and attribute **left the unconditional blockers** (an import binds a module
+of the image, a simple class has a layout and instances, an attribute of an imported module or a
+named instance is a field or a cell); the kinds still blocking are `try`, `raise`, `assert`,
+`del`, `yield`, `yield from`, `async def`, `await`, `for`, comprehension, `nonlocal`, subscripts
+(same counts as before). Against the image as it is, **no file moves past its first import** — but
+the refusal now names the module the tree lacks (`time`, the package `asyncio`) instead of "an
+import": the guest stdlib is not in the module tree. With every import served (the measurement's
+`Served` resolver) the answer per top-level statement is:
+
+<!-- rxpy_gap:begin (generated: python -m tests.rxpy_gap) -->
+| file | statements of the file served | compiles (ok / refused) | first refusal against the image |
+|---|---|---|---|
+| `core.py` | 2 imports, 6 dropped | def 0/9, class 1/4, method 1/14 | line 4: from time import ...: the image has no module time (the image is the module tree: import it first) |
+| `task.py` | 1 imports, 0 dropped | def 0/3, class 1/1, method 0/6 | line 7: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
+| `event.py` | 1 imports, 1 dropped | def 0/0, class 1/0, method 0/4 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
+| `funcs.py` | 1 imports, 2 dropped | def 0/2, class 0/1, method 0/1 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
+| `lock.py` | 1 imports, 0 dropped | def 0/0, class 0/1, method 0/3 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
+| `stream.py` | 1 imports, 7 dropped | def 0/1, class 0/2, method 0/9 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
+
+| reason (first refusal of a def, a method, a class or a statement) | count |
+|---|---|
+| an object held in a name or a parameter (no cell the graph can resolve) | 8 |
+| async def (the coroutine frame of 4.5) | 8 |
+| a default parameter | 7 |
+| a module-level binding that is not an integer constant | 5 |
+| yield (the coroutine frame of 4.5) | 5 |
+| a call of a name the strand does not compile (a builtin or a face) | 4 |
+| an attribute store on an object held in a name | 4 |
+| raise (the exception seam) | 4 |
+| a function that falls off the end (None is not a word) | 3 |
+| a module-level binding that is not NAME = constant | 3 |
+| a subscript (a sequence cell) | 3 |
+| global of a name that is not an integer cell | 3 |
+| try/except (the nlr seam of S11) | 3 |
+| None as a value (a value is a word) | 2 |
+| a special method (only __init__ is of the subset) | 2 |
+| for (the subset loops with while) | 2 |
+| inheritance | 2 |
+| a bare return (None is not a word) | 1 |
+| a callee that is not a name or an attribute | 1 |
+| a class attribute or a nested class | 1 |
+| a conditional expression | 1 |
+| a decorator | 1 |
+| an expression or a control statement at module level | 1 |
+| assert (the panic seam) | 1 |
+| del | 1 |
+| is / is not / in / not in (identity and membership) | 1 |
+<!-- rxpy_gap:end -->
+
+Reading it: **0 of 15 top-level defs and 1 of 38 methods compile**; 3 of 12 top-level classes have
+an acceptable layout (`Event`, one of `core.py`'s and one of `task.py`'s: a class is accepted by
+its shape, its methods are checked per instance). `event.py` and `lock.py` do not become
+importable: their methods read `self.x` of an object **held in a name** (the largest single reason:
+the machine has no operand that resolves a handle in a slot — the i2 follow-up of risk 4), and
+`wait`/`acquire` are generators / `async def` (the coroutine frame of 4.5). A smaller class of
+blockers is the strand's subset (default parameters, module-level bindings that are not integer
+constants, `global` of a non-integer cell, a function that falls off the end with `None`).
 
 **What this lane landed (2026-10-31): the binding as a tested model.** Option (1) of the lane's
 priority list: nothing of the ring binding existed, so the model came first (the compiler strand
@@ -550,10 +608,12 @@ seats reproduce when the lane lands.
 
 **What remains, in dependency order:**
 
-1. the Python strand learns the constructs above — `import`/`class`/attributes first (they unlock
-   `task.py`, `event.py`, `lock.py`), then `try`/`raise`, then generators and `async` (they unlock
-   `core.py` and `stream.py`); each construct that leaves the census flips
-   `test_the_blocking_constructs_are_the_measured_work_list` on purpose;
+1. the graph machine learns an operand that resolves a handle held in a slot (and an allocation
+   leaf): it unlocks instances made at run time, objects passed to functions, and the 8 + 4
+   "object held in a name" refusals above; then the strand's `try`/`raise` (the nlr seam), then
+   generators and `async` (they unlock `core.py` and `stream.py`); each construct that leaves the
+   census flips `test_the_blocking_constructs_are_the_measured_work_list` on purpose;
+   default parameters and `None` as a value are the strand's own subset, closable first;
 2. the guest `mp_import_stat` fill on every seat over `Image.resolve_module`;
 3. per-object citations from debug info (`!DILocation`) in `rximport`, and from the AST in `rxpy`;
 4. the net card's line events into the shim's wait/notify (docs/25), which this model leaves as
