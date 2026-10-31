@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pytest
 
+from pymergetic import rxfb
 from pymergetic.rxftk.core.arena import INDEX_OFFSET
 
 from .test_rxfb import (  # noqa: F401
@@ -143,6 +144,24 @@ def test_objects_in_full_are_the_c_examples(dump, rust_dump, starter_file):
 
 
 @pytest.mark.slow
+def test_the_tables_are_the_c_examples(dump, rust_dump, starter_file):
+    """`table NAME`: the rows read straight off the table object of sys/relations (the one-pass
+    story of `rxfb_table`) - the Rust face's `table()` prints what the C face's does, byte for
+    byte."""
+    image = rxfb.attach(starter_file.read_bytes())
+    names = [
+        child.name
+        for child in image.lookup("sys.relations").children()
+        if child.name is not None
+    ]
+    assert len(names) > 1000
+    sample = names[:: max(1, len(names) // 7)][:8]
+    c, rust = both(dump, rust_dump, starter_file, "table", *sample)
+    assert c.returncode == 0, c.stderr
+    same(c, rust)
+
+
+@pytest.mark.slow
 @pytest.mark.parametrize("machine", MACHINES)
 def test_the_function_slots_are_the_c_examples(dump, rust_dump, starter_file, machine):
     c, rust = both(dump, rust_dump, starter_file, "code", machine, *map(str, SLOTS))
@@ -161,6 +180,8 @@ def test_the_refusals_are_the_c_examples(dump, rust_dump, starter_file):
         ("object", "pymergetic..rxf"),
         ("object", "nothing"),
         ("object", ""),
+        ("table", "no.such.object"),
+        ("table", ""),
         ("frobnicate",),
         ("code",),
     )

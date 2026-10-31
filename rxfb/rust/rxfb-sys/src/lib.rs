@@ -474,6 +474,14 @@ unsafe extern "C" {
         count: *mut u32,
     ) -> Status;
 
+    /// The rows of one table object of `sys/relations`, as a view into the image.
+    pub fn rxfb_table(
+        rx: *const Rxfb,
+        table: Handle,
+        rows: *mut *const Ref,
+        count: *mut u32,
+    ) -> Status;
+
     /// The bytes of a Function for a machine (NUL-terminated name).
     pub fn rxfb_code_of(
         rx: *const Rxfb,

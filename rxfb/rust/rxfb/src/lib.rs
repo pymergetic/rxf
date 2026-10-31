@@ -679,6 +679,29 @@ impl<'a> Image<'a> {
         Ok(unsafe { slice::from_raw_parts(rows.cast::<Reference>(), count as usize) })
     }
 
+    /// The rows of a relation table read straight off its object: an object of `sys/relations`,
+    /// named by the path of the object whose rows it holds - one pass over every table, where
+    /// [`Self::refs`] finds one object's table by walking the chain. Any other object is
+    /// [`Error::BadHandle`].
+    ///
+    /// # Errors
+    ///
+    /// [`Error::BadHandle`] or [`Error::BadImage`].
+    pub fn table(&self, table: Handle) -> Result<&'a [Reference]> {
+        let mut rows: *const sys::Ref = ptr::null();
+        let mut count = 0_u32;
+        // SAFETY: `self.raw` is attached; both out-parameters are valid.
+        let status =
+            unsafe { sys::rxfb_table(&raw const self.raw, table.0, &raw mut rows, &raw mut count) };
+        check(status, 0)?;
+        if count == 0 || rows.is_null() {
+            return Ok(&[]);
+        }
+        // SAFETY: the core bounds-checked `count` rows of 24 bytes at `rows` against the image,
+        // 8-aligned; `Reference` is a transparent wrapper of the C row.
+        Ok(unsafe { slice::from_raw_parts(rows.cast::<Reference>(), count as usize) })
+    }
+
     // ---- the code story -------------------------------------------------------------------
 
     /// The bytes of a Function for a machine (`c"x86_64_linux"`, `c"aarch64_linux"`,

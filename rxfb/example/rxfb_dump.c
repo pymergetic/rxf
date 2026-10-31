@@ -6,6 +6,8 @@
  *                                         payload size and SHA-256 (the whole tree, no allocation)
  *   rxfb_dump IMAGE object PATH...        per path: payload (hex) and its SHA-256, the semantic
  *                                         row, the children, the references
+ *   rxfb_dump IMAGE table NAME...         per name: the rows of its relation table, read straight
+ *                                         off the table object of sys/relations (rxfb_table)
  *   rxfb_dump IMAGE code MACHINE SLOT...  per function slot: the bytes of its code for MACHINE
  *
  * The image is mmap'ed and read in place: the library hands out views into the mapping and this
@@ -55,6 +57,27 @@ static int fail(const char *what, rxfb_status status) {
 /* The path of a handle into `buffer`; false when the handle or the buffer is not good. */
 static int path_text(const rxfb *rx, rxfb_handle handle, char *buffer, uint32_t *length) {
     return rxfb_path(rx, handle, buffer, PATH_ROOM, length) == RXFB_OK;
+}
+
+/* The reference rows: one `<target>:<role>:<kind>:<index>` field per row (the first REFS_SHOWN;
+ * the counts are exact), ended by the newline of the record. */
+static int print_ref_rows(const rxfb *rx, const rxfb_ref *rows, uint32_t held, const char *what) {
+    char buffer[PATH_ROOM];
+    uint32_t length = 0;
+    for (uint32_t i = 0; i < held && i < REFS_SHOWN; i++) {
+        printf("\t");
+        if (!path_text(rx, (rxfb_handle)rows[i].target, buffer, &length))
+            return fail(what, RXFB_BAD_IMAGE);
+        printf("%.*s:", (int)length, buffer);
+        if (rows[i].role != RXFB_REF_NONE) {
+            if (!path_text(rx, (rxfb_handle)rows[i].role, buffer, &length))
+                return fail(what, RXFB_BAD_IMAGE);
+            printf("%.*s", (int)length, buffer);
+        }
+        printf(":%u:%u", (unsigned)rows[i].kind, (unsigned)rows[i].index);
+    }
+    putchar('\n');
+    return 0;
 }
 
 static int print_object(const rxfb *rx, const char *path) {
@@ -118,20 +141,26 @@ static int print_object(const rxfb *rx, const char *path) {
     if ((status = rxfb_refs(rx, handle, &refs, &held)) != RXFB_OK)
         return fail(path, status);
     printf("refs\t%s\t%u", path, (unsigned)held);
-    for (uint32_t i = 0; i < held && i < REFS_SHOWN; i++) {
-        printf("\t");
-        if (!path_text(rx, (rxfb_handle)refs[i].target, buffer, &length))
-            return fail(path, RXFB_BAD_IMAGE);
-        printf("%.*s:", (int)length, buffer);
-        if (refs[i].role != RXFB_REF_NONE) {
-            if (!path_text(rx, (rxfb_handle)refs[i].role, buffer, &length))
-                return fail(path, RXFB_BAD_IMAGE);
-            printf("%.*s", (int)length, buffer);
-        }
-        printf(":%u:%u", (unsigned)refs[i].kind, (unsigned)refs[i].index);
-    }
-    putchar('\n');
-    return 0;
+    return print_ref_rows(rx, refs, held, path);
+}
+
+/* The rows of the relation table named after `name`, read straight off the table object of
+ * sys/relations (the one-pass story of `rxfb_table`, where `object` walks the chain to find
+ * the table of one object). */
+static int print_table(const rxfb *rx, const char *name) {
+    rxfb_handle relations = RXFB_HANDLE_NONE;
+    rxfb_handle table = RXFB_HANDLE_NONE;
+    rxfb_status status = rxfb_lookup(rx, "sys.relations", 13U, &relations);
+    if (status == RXFB_OK)
+        status = rxfb_find(rx, relations, name, (uint32_t)strlen(name), &table);
+    if (status != RXFB_OK)
+        return fail(name, status);
+    const rxfb_ref *rows = 0;
+    uint32_t held = 0;
+    if ((status = rxfb_table(rx, table, &rows, &held)) != RXFB_OK)
+        return fail(name, status);
+    printf("table\t%s\t%u", name, (unsigned)held);
+    return print_ref_rows(rx, rows, held, name);
 }
 
 /* One line per object: the tree in chain order, children before the next sibling. The walk keeps
@@ -205,7 +234,9 @@ static int print_slot(const rxfb *rx, const char *machine, uint32_t slot) {
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        fprintf(stderr, "usage: rxfb_dump IMAGE [walk | object PATH... | code MACHINE SLOT...]\n");
+        fprintf(stderr,
+                "usage: rxfb_dump IMAGE [walk | object PATH... | table NAME... | code MACHINE "
+                "SLOT...]\n");
         return 2;
     }
     const int fd = open(argv[1], O_RDONLY);
@@ -237,6 +268,9 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[2], "object") == 0) {
         for (int i = 3; i < argc && result == 0; i++)
             result = print_object(&rx, argv[i]);
+    } else if (strcmp(argv[2], "table") == 0) {
+        for (int i = 3; i < argc && result == 0; i++)
+            result = print_table(&rx, argv[i]);
     } else if (strcmp(argv[2], "code") == 0 && argc >= 4) {
         for (int i = 4; i < argc && result == 0; i++)
             result = print_slot(&rx, argv[3], (uint32_t)strtoul(argv[i], 0, 10));

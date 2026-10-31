@@ -7,6 +7,7 @@
 //! dump IMAGE                          image   <size> <handles> <sha256 of the image>
 //! dump IMAGE walk                     walk    <path> <kind> <payload size> <payload sha256>
 //! dump IMAGE object PATH...           object / spec / children / refs of each path
+//! dump IMAGE table NAME...            table   <name> <count> <rows of its relation table>
 //! dump IMAGE code MACHINE SLOT...     code    <machine> <slot> <owner path> <length> <sha256>
 //! ```
 //!
@@ -20,7 +21,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::process::ExitCode;
 use std::{fs, ptr, slice};
 
-use rxfb::{Error, Handle, Image};
+use rxfb::{Error, Handle, Image, Reference};
 use sha2::{Digest, Sha256};
 
 /// Room for one path (the C example's `PATH_ROOM`).
@@ -71,6 +72,27 @@ fn digest(out: &mut impl Write, bytes: &[u8]) -> io::Result<()> {
 /// The path of a handle into `buffer`; `None` when the handle or the buffer is not good.
 fn path_text<'b>(image: &Image<'_>, handle: Handle, buffer: &'b mut [u8]) -> Option<&'b [u8]> {
     image.path(handle, buffer).ok()
+}
+
+/// The reference rows: one `<target>:<role>:<kind>:<index>` field per row (the first
+/// `REFS_SHOWN`; the counts are exact), ended by the newline of the record.
+fn ref_rows(image: &Image<'_>, out: &mut impl Write, rows: &[Reference], what: &[u8]) -> Outcome {
+    let mut buffer = [0_u8; PATH_ROOM];
+    for reference in rows.iter().take(REFS_SHOWN) {
+        out.write_all(b"\t")?;
+        let target = path_text(image, reference.target(), &mut buffer)
+            .ok_or_else(|| refused(what, Error::BadImage))?;
+        out.write_all(target)?;
+        out.write_all(b":")?;
+        if let Some(role) = reference.role() {
+            let role = path_text(image, role, &mut buffer)
+                .ok_or_else(|| refused(what, Error::BadImage))?;
+            out.write_all(role)?;
+        }
+        write!(out, ":{}:{}", reference.kind(), reference.index())?;
+    }
+    out.write_all(b"\n")?;
+    Ok(())
 }
 
 fn print_object(image: &Image<'_>, out: &mut impl Write, path: &[u8]) -> Outcome {
@@ -135,21 +157,24 @@ fn print_object(image: &Image<'_>, out: &mut impl Write, path: &[u8]) -> Outcome
     out.write_all(b"refs\t")?;
     out.write_all(path)?;
     write!(out, "\t{}", refs.len())?;
-    for reference in refs.iter().take(REFS_SHOWN) {
-        out.write_all(b"\t")?;
-        let target = path_text(image, reference.target(), &mut buffer)
-            .ok_or_else(|| refused(path, Error::BadImage))?;
-        out.write_all(target)?;
-        out.write_all(b":")?;
-        if let Some(role) = reference.role() {
-            let role = path_text(image, role, &mut buffer)
-                .ok_or_else(|| refused(path, Error::BadImage))?;
-            out.write_all(role)?;
-        }
-        write!(out, ":{}:{}", reference.kind(), reference.index())?;
-    }
-    out.write_all(b"\n")?;
-    Ok(())
+    ref_rows(image, out, refs, path)
+}
+
+/// The rows of the relation table named after `name`, read straight off the table object of
+/// `sys/relations` (the one-pass story of `table`, where `object` walks the chain to find the
+/// table of one object).
+fn print_table(image: &Image<'_>, out: &mut impl Write, name: &[u8]) -> Outcome {
+    let relations = image
+        .lookup(b"sys.relations")
+        .map_err(|error| refused(name, error))?;
+    let table = image
+        .find(relations, name)
+        .map_err(|error| refused(name, error))?;
+    let rows = image.table(table).map_err(|error| refused(name, error))?;
+    out.write_all(b"table\t")?;
+    out.write_all(name)?;
+    write!(out, "\t{}", rows.len())?;
+    ref_rows(image, out, rows, name)
 }
 
 /// One line per object: the tree in chain order, children before the next sibling. The walk keeps
@@ -304,6 +329,10 @@ fn run(arguments: &[OsString], out: &mut impl Write) -> Result<u8, Stop> {
         for argument in &arguments[3..] {
             print_object(&image, out, argument.as_bytes())?;
         }
+    } else if command == b"table" {
+        for argument in &arguments[3..] {
+            print_table(&image, out, argument.as_bytes())?;
+        }
     } else if command == b"code" && arguments.len() >= 4 {
         let machine = arguments[3].to_string_lossy();
         for argument in &arguments[4..] {
@@ -328,7 +357,9 @@ fn run(arguments: &[OsString], out: &mut impl Write) -> Result<u8, Stop> {
 fn main() -> ExitCode {
     let arguments: Vec<OsString> = std::env::args_os().collect();
     if arguments.len() < 2 {
-        eprintln!("usage: rxfb_dump IMAGE [walk | object PATH... | code MACHINE SLOT...]");
+        eprintln!(
+            "usage: rxfb_dump IMAGE [walk | object PATH... | table NAME... | code MACHINE SLOT...]"
+        );
         return ExitCode::from(2);
     }
     let mut out = BufWriter::new(io::stdout().lock());

@@ -35,6 +35,8 @@ uint64_t touch(const face::Image &image) {
         if (const auto refs = child.refs())
             for (const face::Ref ref : *refs)
                 sum += ref.target() + ref.role() + ref.kind() + ref.binding() + ref.index();
+        if (const auto table = child.table())
+            sum += table->size();
         if (const auto count = child.child_count())
             sum += *count;
         if (const auto first = child.first_child())

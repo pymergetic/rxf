@@ -18,6 +18,7 @@ import gc
 import hashlib
 import mmap
 import random
+import shutil
 import struct
 import subprocess
 import sys
@@ -120,6 +121,19 @@ def object_text(image: rxfb.Image, path: str) -> str:
         + "\t".join([f"refs\t{path}\t{len(refs)}", *spelled])
         + "\n"
     )
+
+
+def table_text(image: rxfb.Image, name: str) -> str:
+    """The `table` record of a name: its rows read straight off the table object of sys/relations
+    (`Object.table()`, the one-pass story), spelled as `object` spells the refs."""
+    relations = image.lookup("sys.relations")
+    table = next(child for child in relations.children() if child.name == name)
+    rows = table.table()
+    spelled = []
+    for ref in list(rows)[:REFS_SHOWN]:
+        role = "" if ref.role is None else image.get(ref.role).path()
+        spelled.append(f"{image.get(ref.target).path()}:{role}:{ref.kind}:{ref.index}")
+    return "\t".join([f"table\t{name}\t{len(rows)}", *spelled]) + "\n"
 
 
 def code_text(image: rxfb.Image, machine: str, slot: int) -> str:
@@ -291,6 +305,76 @@ def test_every_relation_table_reads_as_the_refs_of_its_object(starter_file):
         image.root.table()  # an object that is no table of sys/relations
     with pytest.raises(rxfb.BadHandle):
         image.lookup("sys.relations").table()
+
+
+@pytest.fixture(scope="module")
+def cpp_dump(tmp_path_factory) -> Path:
+    """rxfb_dump_cpp: the C++ face's example, built by the library's own CMake target."""
+    cmake = shared.tool("cmake")
+    build = tmp_path_factory.mktemp("rxfb_cpp_build")
+    options = ["-DCMAKE_BUILD_TYPE=Release"]
+    for variable, name in (
+        ("CMAKE_C_COMPILER", "clang-18"),
+        ("CMAKE_CXX_COMPILER", "clang++-18"),
+    ):
+        found = shutil.which(name)
+        if found:
+            options.append(f"-D{variable}={found}")
+    subprocess.run(
+        [cmake, "-S", str(ROOT / "rxfb"), "-B", str(build), *options],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    built = subprocess.run(
+        [cmake, "--build", str(build), "--target", "rxfb_dump_cpp"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert built.returncode == 0, built.stdout + built.stderr
+    return build / "rxfb_dump_cpp"
+
+
+@pytest.mark.slow
+def test_the_table_face_reads_as_the_c_and_cxx_examples_print_it(
+    dump, cpp_dump, starter_file, tiny_file
+):
+    """`table NAME` reads the rows straight off the table object of sys/relations (the one-pass
+    story of `rxfb_table`, where `object` walks the chain to find the table): the line the C
+    example prints is rebuilt from the Python face's `table()` byte for byte, the C++ face's
+    example prints the same line for the same question, and a name that is no table is refused
+    with the core's status on all three faces."""
+    image = rxfb.attach(starter_file.read_bytes())
+    names = [
+        child.name
+        for child in image.lookup("sys.relations").children()
+        if child.name is not None
+    ]
+    assert len(names) > 1000
+    sample = names[:: max(1, len(names) // 7)][:8]
+    expected = "".join(table_text(image, name) for name in sample)
+    asked = run_dump(dump, starter_file, "table", *sample)
+    assert asked.returncode == 0, asked.stderr
+    assert asked.stdout == expected
+    twice = run_dump(cpp_dump, starter_file, "table", *sample)
+    assert (twice.returncode, twice.stdout, twice.stderr) == (0, expected, "")
+    for name, status in (
+        ("no.such.object", STATUS_NOT_FOUND),
+        ("", STATUS_BAD_NAME),
+    ):
+        refused = run_dump(dump, starter_file, "table", name)
+        assert refused.returncode == 1
+        assert refused.stderr == f"rxfb_dump: {name}: status {status}\n"
+        also = run_dump(cpp_dump, starter_file, "table", name)
+        assert (also.returncode, also.stdout, also.stderr) == (
+            refused.returncode,
+            refused.stdout,
+            refused.stderr,
+        )
+    without = run_dump(dump, tiny_file, "table", "pkg")
+    assert without.returncode == 1  # an image without sys/relations has no tables
+    assert without.stderr == f"rxfb_dump: pkg: status {STATUS_NOT_FOUND}\n"
 
 
 def rxfb_role(ref: rxfb.Ref) -> int:

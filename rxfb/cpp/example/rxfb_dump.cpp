@@ -4,6 +4,8 @@
  *   rxfb_dump_cpp IMAGE                       the image: size, handles, SHA-256
  *   rxfb_dump_cpp IMAGE walk                  every object, depth first in chain order
  *   rxfb_dump_cpp IMAGE object PATH...        per path: payload, semantic row, children, references
+ *   rxfb_dump_cpp IMAGE table NAME...         per name: the rows of its relation table, read
+ *                                             straight off the table object of sys/relations
  *   rxfb_dump_cpp IMAGE code MACHINE SLOT...  per function slot: the bytes of its code
  *
  * It prints exactly what the C program prints (the test suite diffs the two byte for byte, stdout,
@@ -68,6 +70,31 @@ bool path_text(const face::Image &image, face::Handle handle, char *buffer, std:
     return true;
 }
 
+/* The reference rows: one `<target>:<role>:<kind>:<index>` field per row (the first
+ * `refs_shown`; the counts are exact), ended by the newline of the record. */
+int print_ref_rows(const face::Image &image, const face::Refs &rows, const char *what) {
+    char buffer[path_room];
+    std::uint32_t length = 0;
+    std::uint32_t shown = 0;
+    for (const face::Ref ref : rows) {
+        if (shown++ >= refs_shown)
+            break;
+        std::printf("\t");
+        if (!path_text(image, ref.target(), buffer, length))
+            return fail(what, face::Status::bad_image);
+        std::printf("%.*s:", static_cast<int>(length), buffer);
+        if (ref.has_role()) {
+            if (!path_text(image, ref.role(), buffer, length))
+                return fail(what, face::Status::bad_image);
+            std::printf("%.*s", static_cast<int>(length), buffer);
+        }
+        std::printf(":%u:%u", static_cast<unsigned>(ref.kind()),
+                    static_cast<unsigned>(ref.index()));
+    }
+    std::putchar('\n');
+    return 0;
+}
+
 int print_object(const face::Image &image, const char *path) {
     char buffer[path_room];
     const auto found = image.lookup(path);
@@ -125,24 +152,24 @@ int print_object(const face::Image &image, const char *path) {
     if (!refs)
         return fail(path, refs.status());
     std::printf("refs\t%s\t%u", path, static_cast<unsigned>(refs->size()));
-    std::uint32_t shown = 0;
-    for (const face::Ref ref : *refs) {
-        if (shown++ >= refs_shown)
-            break;
-        std::printf("\t");
-        if (!path_text(image, ref.target(), buffer, length))
-            return fail(path, face::Status::bad_image);
-        std::printf("%.*s:", static_cast<int>(length), buffer);
-        if (ref.has_role()) {
-            if (!path_text(image, ref.role(), buffer, length))
-                return fail(path, face::Status::bad_image);
-            std::printf("%.*s", static_cast<int>(length), buffer);
-        }
-        std::printf(":%u:%u", static_cast<unsigned>(ref.kind()),
-                    static_cast<unsigned>(ref.index()));
-    }
-    std::putchar('\n');
-    return 0;
+    return print_ref_rows(image, *refs, path);
+}
+
+/* The rows of the relation table named after `name`, read straight off the table object of
+ * sys/relations (the one-pass story of `table`, where `object` walks the chain to find the
+ * table of one object). */
+int print_table(const face::Image &image, const char *name) {
+    const auto relations = image.lookup("sys.relations");
+    if (!relations)
+        return fail(name, relations.status());
+    const auto found = relations->find(name);
+    if (!found)
+        return fail(name, found.status());
+    const auto rows = found->table();
+    if (!rows)
+        return fail(name, rows.status());
+    std::printf("table\t%s\t%u", name, static_cast<unsigned>(rows->size()));
+    return print_ref_rows(image, *rows, name);
 }
 
 /* One line per object: the tree in chain order, children before the next sibling. The walk keeps
@@ -224,7 +251,8 @@ int print_slot(const face::Image &image, const char *machine, std::uint32_t slot
 int main(int argc, char **argv) {
     if (argc < 2) {
         std::fprintf(stderr,
-                     "usage: rxfb_dump IMAGE [walk | object PATH... | code MACHINE SLOT...]\n");
+                     "usage: rxfb_dump IMAGE [walk | object PATH... | table NAME... | code MACHINE "
+                     "SLOT...]\n");
         return 2;
     }
     const int fd = open(argv[1], O_RDONLY);
@@ -259,6 +287,9 @@ int main(int argc, char **argv) {
     } else if (std::strcmp(argv[2], "object") == 0) {
         for (int i = 3; i < argc && result == 0; i++)
             result = print_object(image, argv[i]);
+    } else if (std::strcmp(argv[2], "table") == 0) {
+        for (int i = 3; i < argc && result == 0; i++)
+            result = print_table(image, argv[i]);
     } else if (std::strcmp(argv[2], "code") == 0 && argc >= 4) {
         for (int i = 4; i < argc && result == 0; i++)
             result = print_slot(image, argv[3],

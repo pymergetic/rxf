@@ -492,6 +492,18 @@ class Object {
         return Result<Refs>(Refs(rows, count));
     }
 
+    /* The same rows read straight off a table object of sys/relations (the one-pass walk over
+     * every table, where `refs` finds one object's table by walking the chain). Any other object
+     * is Status::bad_handle. */
+    [[nodiscard]] Result<Refs> table() const noexcept {
+        const rxfb_ref *rows = nullptr;
+        uint32_t count = 0;
+        const rxfb_status status = rxfb_table(image_, handle_, &rows, &count);
+        if (status != RXFB_OK)
+            return Result<Refs>(detail::status_of(status));
+        return Result<Refs>(Refs(rows, count));
+    }
+
     /* The bytes of this Function for a machine ("x86_64_linux", "aarch64_linux", "wasm32"). */
     [[nodiscard]] Result<Slot> code(const char *machine) const noexcept {
         rxfb_code code;
