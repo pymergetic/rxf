@@ -143,7 +143,7 @@ def pure_reference(mpy):
 
 
 def run_case(run, entry: str, words: tuple[int, ...]) -> tuple[int, ...]:
-    module, _, name = entry.rpartition(".")
+    module, name = rxpy_run.split_entry(NAMES, entry)
     status, value, outs = run.call(module, name, words)
     assert status == OK, f"{entry}{words}: the run refused ({status})"
     return tuple(outs) if outs else (value,)
@@ -253,7 +253,7 @@ REFUSALS = [
     ("import imp_base\ndef f(x):\n    return imp_base\n", "an imported module, not a word"),
     ("import imp_base\ndef f(x):\n    return imp_base.twice(x, 1)\n", "takes 1 values"),
     ("import imp_base\ndef f(x):\n    return imp_base.COUNT(x)\n", "is a cell, not a function"),
-    ("import imp_base\ndef f(x):\n    imp_base.twice = x\n    return x\n", "not a word cell"),
+    ("import imp_base\ndef f(x):\n    imp_base.twice = x\n    return x\n", "a word cell of an imported module"),
     ("def f(x):\n    return x.y\n", "something that is not an imported module"),
     ("def f(x):\n    return x.y(1)\n", "something that is not an imported module"),
     ("def f(x):\n    import imp_base\n    return x\n", "an import inside a def"),

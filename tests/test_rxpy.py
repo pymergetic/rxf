@@ -205,7 +205,7 @@ REFUSALS = [
     ("def f(x):\n    def g(y):\n        return y\n    return g(x)\n", "nested def"),
     ("def f(x):\n    return (lambda y: y)(x)\n", "lambda"),
     ("def f(x):\n    return [y for y in x]\n", "comprehension"),
-    ("class A:\n    pass\n", "class"),
+    ("class A(B):\n    pass\n", "base"),
     ("def f(x):\n    for i in x:\n        x = i\n    return x\n", "for loop"),
     ("import os\n", "import"),
     ("from os import path\n", "import"),

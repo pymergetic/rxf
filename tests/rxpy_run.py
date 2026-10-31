@@ -88,3 +88,18 @@ def running(image, prefixes: tuple[str, ...]) -> Iterator[Run]:
     finally:
         run.memory.close()
 
+
+
+def split_entry(names: tuple[str, ...], dotted: str) -> tuple[str, str]:
+    """A dotted entry as the (module, Function name) the image holds it under: ``m.f`` is the
+    function ``f`` of module ``m`` (the longest module prefix wins, as a package's submodule
+    does), and ``m.a.bump`` is the method ``bump`` compiled for the instance ``a``: the Function
+    ``a__bump`` of ``m``."""
+    for name in sorted(names, key=len, reverse=True):
+        if dotted.startswith(name + "."):
+            attributes = dotted[len(name) + 1 :].split(".")
+            if len(attributes) == 1:
+                return name, attributes[0]
+            if len(attributes) == 2:
+                return name, f"{attributes[0]}__{attributes[1]}"
+    raise ValueError(f"no module of {dotted}")
