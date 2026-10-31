@@ -8,11 +8,12 @@ imported graphs of ``tests/lwip_corpus/udp_echo.c`` and the same C compiled nati
 reference, never a seat fill) -- through the same line face and the same host fill, and the
 bytes of every reply, and the counters of the line, must be equal.
 
-``tests/test_lwip_slip.py`` runs it in process on the interpreter the repository ships, and in a
-subprocess on an interpreter with a larger run cell (``enlarge_interpreter``) -- the machine need
-the first one measures, see ``echo_path_budget``. Run as a script it prints the result as JSON::
+``tests/test_lwip_slip.py`` runs it in process on the interpreter the repository ships: the
+budget of that interpreter carries the echo path since 2026-10-31 (the path measures 15072
+frame bytes at 9 links, ``echo_path_budget``; ``native/graph.h`` declares 16 KiB / 16 links).
+Run as a script it prints the result as JSON::
 
-    python -m tests.lwip_udp_echo --cell 16384 --depth 10
+    python -m tests.lwip_udp_echo
 """
 
 from __future__ import annotations
@@ -290,50 +291,13 @@ def echo_path_budget(host: Host) -> tuple[int, int]:
     return max((sum(map(frame, chain)), len(chain)) for chain in chains)
 
 
-# ---- the interpreter with room (an experiment of the harness, not a machine change) -----------
-
-
-def enlarge_interpreter(cell: int, depth: int) -> None:
-    """Rebuild the graph interpreter of this process with a larger run cell and call depth.
-
-    The interpreter is the seed program ``native/graph.rxfs``; its cell (``cell[8192]``), its
-    frame links (``frames[704]``: 8 links of 88 bytes) and the depth test (``depth + 1 >= 8``)
-    are literals of that file, which is a machine file this lane does not edit. This changes the
-    TEXT the seed compiles -- in this process only, before ``tests.rxf_native`` loads -- so that
-    the differential can say what the echo needs. When the machine lane raises the budget this
-    function is the spec of the numbers, and the experiment test is deleted."""
-    import seed_cache
-
-    original = seed_cache.run
-
-    def run(argv, text, *args, **kwargs):
-        if "fn graph_run(" in text:
-            for old, new in (
-                ("8192", str(cell)),
-                ("frames[704]", f"frames[{depth * 88}]"),
-                ("depth + 1 >= 8", f"depth + 1 >= {depth}"),
-            ):
-                assert old in text, (
-                    f"native/graph.rxfs changed: {old!r} is gone, update the experiment"
-                )
-                text = text.replace(old, new)
-        return original(argv, text, *args, **kwargs)
-
-    seed_cache.run = run
+# ---- the interpreter with room: the experiment is gone -------------------------------------------
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="the UDP echo differential, as JSON")
-    parser.add_argument(
-        "--cell", type=int, help="the run cell of the interpreter, bytes"
-    )
-    parser.add_argument(
-        "--depth", type=int, help="the call depth of the interpreter, links"
-    )
-    args = parser.parse_args(argv)
+    parser.parse_args(argv)
     sys.path[:0] = [str(ROOT / "tools" / "native"), str(ROOT)]
-    if args.cell and args.depth:
-        enlarge_interpreter(args.cell, args.depth)
     with tempfile.TemporaryDirectory() as directory:
         host = build_host(Path(directory))
         imported, reference = run_both(host)

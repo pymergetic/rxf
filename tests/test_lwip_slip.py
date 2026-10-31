@@ -14,14 +14,12 @@ from __future__ import annotations
 
 import ctypes
 import errno
-import json
 import os
 import socket
 import struct
-import subprocess
-import sys
 from pathlib import Path
 
+import graph_header
 import lwip_import
 import pytest
 
@@ -549,17 +547,20 @@ def test_the_seat_has_a_fill_that_meets_the_contract(seat: str, file: str, why: 
 
 # ---- the real UDP echo over the line (tests/lwip_udp_echo.py) -----------------------------------
 
-# the interpreter with room the echo path needs (see lwip_udp_echo.echo_path_budget): the 8-link,
-# 8 KiB budget of native/graph.h is short of lwIP's call chain; this is the smallest round
-# numbers over what the chain measures (15072 bytes of frames at depth 9 on the C path)
-EXPERIMENT_CELL = 32768
-EXPERIMENT_DEPTH = 16
-SHIPPED_CELL = 8192
-SHIPPED_DEPTH = 8
+# the budget the shipped interpreter declares (native/graph.h, read from the header the machine
+# compiles with): the echo path measures 15072 bytes of frames at depth 9 (lwip_udp_echo.
+# echo_path_budget) and fits since the budget grew to 16 KiB / 16 links on 2026-10-31. The
+# experiment of an interpreter with room is gone (enlarge_interpreter was its spec and is
+# deleted with it): the shipped interpreter is the seat.
+SHIPPED_CELL = graph_header.numbers()["RXF_GRAPH_CELL_BYTES"]
+SHIPPED_DEPTH = graph_header.numbers()["RXF_GRAPH_CALL_DEPTH"]
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def echo_host(tmp_path_factory: pytest.TempPathFactory) -> Host:
+    """One host per test: the native lwIP of the shared object keeps its statics (the netif
+    list among them) and they point into the memory of the run that made them, so two runs of
+    one host walk the first run's stack. A host of its own is a shared object of its own."""
     return lwip_udp_echo.build_host(tmp_path_factory.mktemp("lwip_udp_echo"))
 
 
@@ -582,79 +583,31 @@ def assert_same(
 
 
 @pytest.mark.slow
-def test_the_echo_path_needs_more_than_the_shipped_interpreter_has(echo_host: Host):
-    """The measured machine need: the chain from the harness entry down the real path is over
-    the run cell (8192 bytes) and over the call depth (8 links) of native/graph.h, and the
-    shipped interpreter refuses it with the budget refusals, never a wrong answer."""
+def test_the_echo_path_measures_15072_bytes_at_9_links_and_fits_the_budget(echo_host: Host):
+    """The measured machine need: the chain from the harness entry down the real path is 15072
+    bytes of frames at depth 9 on the C path (the exact numbers, pinned), and the shipped
+    interpreter's budget carries it since 2026-10-31 (16 KiB / 16 links, native/graph.h). What
+    does NOT fit is proven beside it by the budget cases of tests/graph_programs.py (the walls
+    are the refusals, never a wrong answer)."""
     frames, links = lwip_udp_echo.echo_path_budget(echo_host)
     assert (frames, links) == (15072, 9), "the frames of the echo path, measured"
-    assert links > SHIPPED_DEPTH, "the path is deeper than the depth budget"
-    assert frames > SHIPPED_CELL, "the frames of the echo path exceed the run cell"
-    assert frames <= 16384, "...and fit a 16 KiB cell"
+    assert links <= SHIPPED_DEPTH, "the path fits the depth budget"
+    assert frames <= SHIPPED_CELL, "the frames of the echo path fit the run cell"
     imported, _reference = lwip_udp_echo.run_both(echo_host)
-    assert imported.status in (lwip_udp_echo.CELL_BUDGET, lwip_udp_echo.CALL_DEPTH), (
-        f"the shipped interpreter answered {imported.status}: the budget moved, flip the xfail "
-        "of test_the_udp_echo_matches_native_on_the_shipped_interpreter"
+    assert imported.status == 0, (
+        f"the shipped interpreter answered {imported.status}: the budget moved again"
     )
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "machine need (docs/35): RXF_GRAPH_CELL_BYTES 8192 -> >= 16384 and RXF_GRAPH_CALL_DEPTH "
-        "8 -> >= 9 in native/graph.h and native/graph.rxfs; the echo path's frames sum to "
-        "15072 bytes at depth 9"
-    ),
-)
 def test_the_udp_echo_matches_native_on_the_shipped_interpreter(echo_host: Host):
-    imported, reference = lwip_udp_echo.run_both(echo_host)
-    assert_same(imported, reference)
-
-
-@pytest.fixture(scope="module")
-def echo_with_room() -> dict:
-    """The echo scenarios on the shipped seed program with a larger run cell and call depth (the
-    one machine need the budget test measures); nothing else differs."""
-    done = subprocess.run(
-        [
-            sys.executable, "-m", "tests.lwip_udp_echo",
-            "--cell", str(EXPERIMENT_CELL), "--depth", str(EXPERIMENT_DEPTH),
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )  # fmt: skip
-    assert done.returncode == 0, done.stderr[-2000:]
-    return json.loads(done.stdout)
-
-
-@pytest.mark.slow
-def test_the_udp_echo_matches_native_on_an_interpreter_with_room(echo_with_room: dict):
     """The real UDP echo: SLIP-framed IPv4/UDP and ICMP datagrams in over the line, the imported
     graphs of the card answer, the reply bytes out over the line equal what the same lwIP C
     compiled natively puts there, scenario by scenario -- all eight, the ICMP port-unreachable
     included (its destination used to be 0.0.0.0: a pointer to the caller's local, read by a call
     card, was no address the callee could name; the local rides in a cell now, docs/35). The
-    replies are also read by the peer: right addresses, ports, payloads, checksums."""
-    answer = echo_with_room
-    assert answer["status"] == 0, f"the imported run was refused ({answer['status']})"
-    scenarios = lwip_udp_echo.scenarios()
-    assert list(answer["same"]) == [scenario.name for scenario in scenarios]
-    for scenario in scenarios:
-        lwip_udp_echo.check_reply(
-            scenario,
-            lwip_udp_echo.decode(bytes.fromhex(answer["replies"][scenario.name])),
-        )
-        assert answer["same"][scenario.name], f"{scenario.name}: the reply bytes differ"
-    imported, reference = answer["counters"]
-    assert imported == reference and imported[2:] == [0, 0]
-
-
-@pytest.mark.slow
-def test_no_scenario_differs_from_native(echo_with_room: dict):
-    """The scenario that used to differ (the ICMP port-unreachable, whose destination was
-    0.0.0.0) is byte-equal to native now: no scenario of the echo differs."""
-    assert "udp to a closed port" in echo_with_room["same"]
-    assert [name for name, same in echo_with_room["same"].items() if not same] == []
+    replies are also read by the peer: right addresses, ports, payloads, checksums. This is the
+    shipped interpreter, the seat every run takes (the experiment of an interpreter with room
+    ended when the budget grew: docs/35's machine need)."""
+    imported, reference = lwip_udp_echo.run_both(echo_host)
+    assert_same(imported, reference)
