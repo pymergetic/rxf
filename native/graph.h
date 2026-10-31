@@ -20,6 +20,19 @@
  *   SLOT    a = byte offset in the frame, b = width
  *   LITERAL a = the value (at most 8 bytes), b = width
  *   OBJECT  a = durable object id, b = width; the value is the payload address
+ *   HANDLE  a = the byte offset in the frame of a 24-byte handle (id, generation, offset),
+ *           b = the width the operand denotes where it resolves (MOVE copies min(width, b))
+ *
+ * A HANDLE operand is resolved by the halving search of the entry table at EACH use, in the
+ * instruction that uses it, and nowhere else (docs/23 4.9): the id is not found 13 UNBOUND, a
+ * row of another generation 12 STALE_GENERATION (never rebound to a reused row), a row that is
+ * not LIVE 13 UNBOUND, an offset or a width past the size of the row 6, a handle that does not
+ * lie in the frame 6. The address it resolves to is the operand of that one instruction (a
+ * source of MOVE/FIELD/CONSTRUCT/LESS, a pointer parameter of a leaf): it is never written to a
+ * slot, so a frame holds identities and never addresses (S7) and a slide of the payload between
+ * two instructions (S8) is invisible to the program. There is no HANDLE destination, and a
+ * HANDLE where a handle is taken by value (a parameter of shape letter H of a leaf, a 24-byte
+ * parameter of a call card) is refused 6: a dereference where a value is meant.
  *
  * Edge: target, n, then n copies of (operand, destination slot, width). All
  * sources are read before any destination is written.
@@ -40,7 +53,7 @@
  *
  * A CALL names its callee one of two ways, and both are the same call step:
  *
- *   - a leaf id (1..48, the function table of the context), then n operands; or
+ *   - a leaf id (1..49, the function table of the context), then n operands; or
  *   - RXF_GRAPH_CALL (word 1 is 0: there is no leaf 0), then one program operand
  *     (OBJECT: a = the object id the callee's program words are bound at, b = 0)
  *     and n argument operands.  The callee is a program of its own: its parameters
@@ -123,7 +136,31 @@
 #define RXF_UART_FIFO_TX 320U
 #define RXF_UART_FIFO_BLOCK 576U
 
-enum rxf_graph_operand { RXF_OPERAND_SLOT = 0, RXF_OPERAND_LITERAL = 1, RXF_OPERAND_OBJECT = 2 };
+/* The Allocator capability (docs/23 4.9): its address is a cell of four words -- the allocator
+ * state of docs/17 phase 2 -- that the leaf runtime_allocate reads and writes. The context
+ * struct is untouched (ABI 2 stays): the allocator is reached through the capability table like
+ * the channel and the uart. A seat that runs no dynamic guest binds none, and the leaf answers
+ * UNBOUND. The pool is the run of entry rows [pool_first_id, pool_first_id + pool_count) of
+ * the sorted entry table that the context builder reserved free (state 0). */
+#define RXF_CAPABILITY_ALLOCATOR 3ULL
+/* The words of the allocator cell, as byte offsets: the first id of the pool, how many rows it
+ * has, where the scan for a free row starts (written by the leaf), and a word reserved for the
+ * growth of docs/17 phase 2 (the leaf neither reads nor writes it). */
+#define RXF_ALLOCATOR_POOL_FIRST_ID 0U
+#define RXF_ALLOCATOR_POOL_COUNT 8U
+#define RXF_ALLOCATOR_NEXT_ID 16U
+#define RXF_ALLOCATOR_GENERATION 24U
+#define RXF_ALLOCATOR_CELL_BYTES 32U
+/* The flag of runtime_allocate: the new row is pinned (pin_count 1), so the sliding pass
+ * leaves its payload where it is until runtime_unpin (the pbuf case of docs/17 decision 4). */
+#define RXF_ALLOCATE_PINNED 1ULL
+
+enum rxf_graph_operand {
+    RXF_OPERAND_SLOT = 0,
+    RXF_OPERAND_LITERAL = 1,
+    RXF_OPERAND_OBJECT = 2,
+    RXF_OPERAND_HANDLE = 3
+};
 
 enum rxf_graph_mode { RXF_MODE_ZERO = 0, RXF_MODE_NONZERO = 1 };
 

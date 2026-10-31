@@ -13,6 +13,10 @@
 # status, no store through out): the run's value is written through the `out` parameter
 # itself by OP_RETURN, exactly as the C writes it.
 #
+# The operand kinds are four: SLOT 0, LITERAL 1, OBJECT 2 and HANDLE 3 (docs/23 4.9). A HANDLE is
+# the frame offset of a 24-byte handle (id, generation, offset) that m_locate resolves at each use,
+# in the instruction that uses it -- never cached, never written to a slot (S7, S8).
+#
 # The state mirrors rxf_graph (graph.c:37): code/count/frame/frame_bytes/depth as
 # words, the run cell `cell[8192]` and the frames of the chain `frames[704]` (8 frame
 # links of 11 words, rxf_call_frame of graph.c:21) as regions. The frames are the run's
@@ -154,6 +158,34 @@ macro m_locate(pow, pneed) {
       }
     }
   }
+  if (loc_kind == 3) {
+    # HANDLE (docs/23 4.9): the handle lies in the frame and is resolved NOW, by the
+    # instruction that uses it -- the same halving search as OBJECT, never cached. The
+    # generation is checked (12, never rebound to a reused row), the row must be LIVE (13: a
+    # PENDING row is not readable here), the offset and `need` bytes must lie in its size (6).
+    loc_a = load64(code + 8 * (loc_ow + 1));
+    m_in_frame(loc_a, 24);
+    if (ok != 0) {
+      loc_hoff = load64(frame + loc_a + 16);
+      m_entry(load64(frame + loc_a));
+      loc_status = 13;
+      if (ent != 0) {
+        loc_status = 12;
+        if (load64(ent + 8) == load64(frame + loc_a + 8)) {
+          loc_status = 13;
+          if (load64(ent + 48) == 1) {
+            loc_status = 6;
+            if (loc_hoff <= load64(ent + 32)) {
+              if (loc_need <= load64(ent + 32) - loc_hoff) {
+                loc_status = 0;
+                loc_where = load64(ent + 24) + loc_hoff;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }
 
 # load(): graph.c:134 -- a slot or literal as an integer, an object as its payload address.
@@ -168,6 +200,12 @@ macro m_load(pow) {
     ld_status = loc_status;
     ld_value = loc_where;
   }
+  if (ld_kind == 3) {
+    # HANDLE, as OBJECT: the address it resolves to, for this one instruction
+    m_locate(ld_ow, 0);
+    ld_status = loc_status;
+    ld_value = loc_where;
+  }
   if (ld_kind == 1) {
     ld_value = load64(code + 8 * (ld_ow + 1));
     ld_status = 6;
@@ -177,16 +215,18 @@ macro m_load(pow) {
   }
   if (ld_kind != 2) {
     if (ld_kind != 1) {
-      ld_need = 8;
-      if (ld_b < 8) {
-        ld_need = ld_b;
-      }
-      m_locate(ld_ow, ld_need);
-      ld_status = loc_status;
-      ld_value = 0;
-      if (loc_status == 0) {
-        m_read_bytes(loc_where, ld_b);
-        ld_value = rb_value;
+      if (ld_kind != 3) {
+        ld_need = 8;
+        if (ld_b < 8) {
+          ld_need = ld_b;
+        }
+        m_locate(ld_ow, ld_need);
+        ld_status = loc_status;
+        ld_value = 0;
+        if (loc_status == 0) {
+          m_read_bytes(loc_where, ld_b);
+          ld_value = rb_value;
+        }
       }
     }
   }
@@ -634,6 +674,15 @@ macro m_call_program(pat) {
           if (cp_b < cp_width) {
             cp_present = cp_b;
           }
+          # a 24-byte parameter is a handle taken by value: no HANDLE operand in its place
+          if (cp_width == 24) {
+            if (load64(code + 8 * cp_ow) == 3) {
+              cp_status = 6;
+              cp_stop = 1;
+            }
+          }
+        }
+        if (cp_stop == 0) {
           m_locate(cp_ow, cp_present);
           cp_status = loc_status;
           if (loc_status != 0) {
@@ -814,6 +863,12 @@ macro m_call_leaf(pat) {
           if (loc_status != 0) {
             cl_stop = 1;
           }
+          # a handle is taken by value: a HANDLE operand here is a dereference where a value
+          # is meant (graph.h)
+          if (load64(code + 8 * cl_ow) == 3) {
+            cl_status = 6;
+            cl_stop = 1;
+          }
           if (cl_stop == 0) {
             if (cl_i == 0) {
               h0_id = load64(loc_where);
@@ -919,7 +974,7 @@ fn graph_run(c, h_id, h_gen, h_off, args, argc, out) {
   var wb_addr, wb_width, wb_value, wb_i;
   var cb_dst, cb_src, cb_n, cb_i;
   var zb_dst, zb_n, zb_i;
-  var loc_ow, loc_need, loc_status, loc_where, loc_kind, loc_a;
+  var loc_ow, loc_need, loc_status, loc_where, loc_kind, loc_a, loc_hoff;
   var ld_ow, ld_status, ld_value, ld_kind, ld_b, ld_need;
   var ptr_kind, ptr_b, ptr_status, ptr_value;
   var st_slot, st_width, st_off, st_status, st_from;

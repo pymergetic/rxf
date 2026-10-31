@@ -352,6 +352,59 @@ needs no transaction and no caller-chosen id. A strand that is content with the 
 no-compaction reading of S7 could lower dynamic objects today as `runtime_resolve` + `memory_copy`
 with no machine change; this lane exists because the policy of the project is the SMP one.
 
+#### Step 0, run: what the tree said (2026-10-31, the machine lane's worker)
+
+The premises were checked against the tree before any code. Seven needed a correction and one is
+confirmed (the last item); the corrections replace the sentences of this section they touch (the
+sections that follow are already written with them).
+
+1. **`runtime_release` is not a new Function.** `fn runtime_release(c, h_id, h_gen, h_off)` is
+   already in `native/runtime/runtime.rxfs`, with a row in `seed_build.SOURCES` (`!pH`), the letters
+   `pH` in `tests/scenario.py` `SPEC`, a place in `native_build.RUNTIME`, a Function
+   `foundation.runtime.release` in the starter, and steps in the scenario that prove it on three
+   machines. It already does what the design asks of the leaf (the refusals 10/11/12/13, the row
+   back to state 0 with `payload`, `size` and `capacity` cleared and the generation kept). Leaf 51
+   is therefore **the id of the function that exists**: step 4 adds one fn (`runtime_allocate`),
+   not two, and there is no `runtime_release_leaf`.
+2. **`tests/rxf_sim.py` is not an interpreter of contexts.** It runs flat memory with the numeric
+   and the memory leaves; it has no entry table, no runtime leaf and no generation. "Learns kind 3
+   and the leaves 50/51" reads as: it **refuses** a HANDLE operand by name with
+   `RXF_REFUSE_UNSUPPORTED` (16, the answer the compilers give) instead of reading it as a slot,
+   which an unknown kind did before. The simulator of runtime leaves is the host seat
+   (`tests/host/runner.c`), which gains the heap, the pool and the slide below.
+3. **A leaf the header names must not break an image that does not wire it yet.**
+   `tools/native/link.py` (`_leaf`) and `tools/native/wasm_table.py` answer an error for any leaf
+   of `graph.h` that the image's `graph.run` has no `Leaf` reference for. With ids 50 and 51 in the
+   header and the starter regenerated last (step 9), that would break every seat that links the
+   starter in between -- the boot smoke, the live engine's twin, the wasm32 table. The rule that
+   lasts: **an image's slot table (and its wasm32 table) lists the leaves its `graph.run` wires**;
+   an image may wire fewer leaves than the header names (a seat that runs no dynamic guest needs
+   no allocator). After step 9 the two lists are equal and nothing changes.
+4. **The tests that hard-code the leaf count are step 9's, not step 4's.** `tests/test_compose.py`
+   (`range(1, 50)`, "the leaves of the interpreter are the ids of its header"), `tests/test_rxfb.py`
+   (`len(codes) == 49`), `tests/test_rxfb_rust.py` (`SLOTS = 1..49`, "0 and 50 are not leaves") and
+   `tests/test_graph.py` ("the runs reach every leaf") read the **starter**; they move when the
+   starter gains the Functions that wire 50 and 51.
+5. **`b` of a HANDLE operand in a composed program is `RXF_GRAPH_NONE`.** The marker type
+   (`ObjectHandle`) is untyped as to what it points at, so the composer cannot know the width an
+   operand denotes where it resolves; the readers that consult `b` take `min(width, b)`, which is
+   `width`, and every reader bounds the access by the row's size anyway. A hand-written program
+   may name a smaller `b` (MOVE then copies no more than that).
+6. **"A call-card argument that is a handle" is decided by the callee's parameter width**: the
+   run-entry shape says a handle is three words, so a parameter 24 bytes wide is in a handle
+   position and a HANDLE operand there answers 6; a scalar parameter reads **through** the handle
+   (the callee gets the word the field holds).
+7. **The allocator cell has four words and the leaf writes one of them.** `pool_first_id`,
+   `pool_count`, `next_id` (the scan starts here and wraps once; the leaf writes `id + 1`), and
+   `generation`, reserved for the growth of docs/17 phase 2 -- the leaf neither reads nor writes
+   it. The numbers are in `graph.h` (`RXF_ALLOCATOR_*`).
+8. **Verified as written:** capability id 3 is unused (`graph.h` lists 1 and 2; `link.py` binds
+   those two; the starter has no `RXF_CAPABILITY_*`); a seat context already reserves free
+   rows (`link.py` `SPARE`, ids 1..8, state 0 -- the pool of a seat can start there); the host
+   runner and `graph_world` build their own tables, so they gain the pool and the capability
+   themselves; the boot mini interpreter (`boot/image_stub/entry.c`) already answers
+   `REFUSE_RANGE` for every operand kind it does not know, which is what the pin of step 8 states.
+
 #### The operand (what the lane builds first)
 
 `RXF_OPERAND_HANDLE = 3`. An operand is three words `(kind, a, b)` as before:

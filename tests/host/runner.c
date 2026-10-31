@@ -46,6 +46,9 @@
  * (16 cells), the type cells and the arena of the obj corpus (10), and the callee
  * programs of their call cards. */
 #define RXF_HOST_OBJECTS 48
+/* The rows of the pool the Allocator capability names (graph.h): free rows of the sorted entry
+ * table that rxf_host_configure reserves for a run. */
+#define RXF_HOST_POOL 16
 /* The area of the Channel capability the step budget is kept at (the rings start at word 30). */
 #define RXF_HOST_AREA_BYTES 320U
 #define RXF_AREA_RX_HEAD 120U
@@ -63,9 +66,16 @@ typedef __typeof__(&rxf_graph_run) rxf_graph_run_fn;
 static struct {
     rxf_runtime_context context;
     rxf_native_slot functions[48];
-    rxf_native_slot capabilities[1];
-    rxf_object_entry objects[1 + RXF_HOST_OBJECTS];
+    rxf_native_slot capabilities[2];
+    rxf_object_entry objects[1 + RXF_HOST_OBJECTS + RXF_HOST_POOL];
     rxf_u64 bound; /* the secondary objects registered for the run that goes */
+    rxf_u64 allocator[RXF_ALLOCATOR_CELL_BYTES / 8]; /* the cell behind the Allocator capability */
+    rxf_u64 pool_count; /* 0: no allocator is bound (the leaf answers UNBOUND) */
+    rxf_u64 pool_first;
+    rxf_u64 slide_id;   /* the cell the pump slides at every safe point (S8), 0: none */
+    rxf_u64 slide_home; /* where the payload was when the slide began */
+    rxf_u64 slide_alt;  /* where it is moved to, and back */
+    rxf_u64 slides;     /* how many times it moved */
     rxf_u8 area[RXF_HOST_AREA_BYTES];
     rxf_u64 out[RXF_HOST_OUT_ROOM / 8];
     jmp_buf escape; /* where a run that does not end is stopped */
@@ -79,10 +89,23 @@ static struct {
  * every instruction while the rx ring has something in it. It is the one leaf this file is:
  * the address the caller puts in the table of the run (rxf_host_pump_address). */
 static rxf_u32 rxf_host_pump(rxf_runtime_context *c, void *area) {
-    (void)c;
     (void)area;
     if (host.budget && ++host.steps > host.budget)
         longjmp(host.escape, 1);
+    if (host.slide_id) {
+        /* the sliding pass of S8, one cell per safe point: the payload of the registered cell
+         * moves between its home and its alternate place and its row follows. A program that
+         * keeps an address across this point reads the other place; one that keeps a handle
+         * does not notice. */
+        rxf_object_entry *row = entry(c, host.slide_id);
+        if (row && row->state == RXF_OBJECT_LIVE) {
+            rxf_u64 to = row->payload == host.slide_home ? host.slide_alt : host.slide_home;
+            memcpy((void *)(unsigned long long)to, (const void *)(unsigned long long)row->payload,
+                   (size_t)row->size);
+            row->payload = to;
+            host.slides++;
+        }
+    }
     return RXF_OK;
 }
 
@@ -125,6 +148,43 @@ void rxf_host_init(const void *graph_run, const rxf_u64 *leaf_ids, const rxf_u64
     host.context.objects = (rxf_u64)(unsigned long long)host.objects;
     host.context.capability_count = 1;
     host.context.capabilities = (rxf_u64)(unsigned long long)host.capabilities;
+    host.capabilities[1].id = RXF_CAPABILITY_ALLOCATOR;
+    host.capabilities[1].generation = RXF_HOST_GENERATION;
+    host.capabilities[1].address = (rxf_u64)(unsigned long long)host.allocator;
+}
+
+/* The heap and the pool of the runs that follow: a region of the flat memory the payloads of
+ * runtime_allocate are carved from (heap_base is the address of this process; 0 bytes: no heap),
+ * and `pool_count` free rows from `pool_first` on that the Allocator capability names (0: the
+ * capability is unbound). Kept until the next call; the tests call it before every run. */
+void rxf_host_configure(rxf_u64 heap_base, rxf_u64 heap_bytes, rxf_u64 frontier, rxf_u64 pool_first,
+                        rxf_u64 pool_count) {
+    host.context.heap_base = heap_base;
+    host.context.heap_committed = heap_bytes;
+    host.context.heap_limit = heap_bytes;
+    host.context.heap_frontier = frontier;
+    host.pool_first = pool_first;
+    host.pool_count = pool_count > RXF_HOST_POOL ? RXF_HOST_POOL : pool_count;
+    memset(host.allocator, 0, sizeof(host.allocator));
+    host.allocator[RXF_ALLOCATOR_POOL_FIRST_ID / 8] = pool_first;
+    host.allocator[RXF_ALLOCATOR_POOL_COUNT / 8] = host.pool_count;
+    host.allocator[RXF_ALLOCATOR_NEXT_ID / 8] = pool_first;
+    host.context.capability_count = host.pool_count ? 2 : 1;
+}
+
+/* The cell the pump slides at every safe point of the runs that follow (S8): `identity` is a
+ * registered object (rxf_host_bind), `alternate` the address of a block as large as its
+ * payload. identity 0 stops it. */
+void rxf_host_slide(rxf_u64 identity, rxf_u64 alternate) {
+    host.slide_id = identity;
+    host.slide_home = 0;
+    host.slide_alt = alternate;
+    host.slides = 0;
+}
+
+/* How many times the cell moved in the run that went. */
+rxf_u64 rxf_host_slides(void) {
+    return host.slides;
 }
 
 void rxf_host_deinit(void) {
@@ -173,6 +233,10 @@ RXF_FUNCTION rxf_u32 rxf_host_run(const void *words, rxf_u64 words_bytes, const 
        search): the program's entry is one of them, the bound secondaries the rest */
     rxf_u64 count = 1 + host.bound;
     host.bound = 0;
+    for (rxf_u64 i = 0; i < host.pool_count; i++) {
+        memset(&host.objects[count], 0, sizeof(host.objects[count]));
+        host.objects[count++].id = host.pool_first + i; /* free: state 0, generation 0 */
+    }
     host.context.object_count = count;
     for (rxf_u64 i = 1; i < count; i++)
         for (rxf_u64 j = i; j > 0 && host.objects[j].id < host.objects[j - 1].id; j--) {
@@ -181,6 +245,12 @@ RXF_FUNCTION rxf_u32 rxf_host_run(const void *words, rxf_u64 words_bytes, const 
             host.objects[j - 1] = swap;
         }
     host.steps = 0;
+    host.slides = 0;
+    host.slide_home = 0;
+    if (host.slide_id)
+        for (rxf_u64 i = 0; i < count; i++)
+            if (host.objects[i].id == host.slide_id)
+                host.slide_home = host.objects[i].payload;
     host.budget = limit;
     memset(host.out, 0, sizeof(host.out));
     rxf_host_arm(limit != 0);
