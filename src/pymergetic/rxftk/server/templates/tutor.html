@@ -250,7 +250,7 @@ you — the engine runs the schedules and compares the words. One exercise per t
 
 <div class="exercise" id="ex-refusal" role="tabpanel" tabindex="0">
   <h3>4 &middot; Name the refusal</h3>
-  <p>A run's call depth is at <span class="pin" data-pin="RXF_GRAPH_CALL_DEPTH" data-value="8">8</span>
+  <p>A run's call depth is at <span class="pin" data-pin="RXF_GRAPH_CALL_DEPTH" data-value="16">16</span>
   — the budget is spent — and the program makes one more call. What does the machine answer?</p>
   <label><input type="radio" name="ex-refusal" value="RXF_REFUSE_OUT_OF_RANGE"> <code>RXF_REFUSE_OUT_OF_RANGE</code></label>
   <label><input type="radio" name="ex-refusal" value="RXF_REFUSE_CALL_DEPTH"> <code>RXF_REFUSE_CALL_DEPTH</code></label>
@@ -347,7 +347,7 @@ the vacated tail is poisoned with
 <h3>The refusal codes</h3>
 <table>
   <tr><th>code</th><th>value</th><th>the machine refuses</th></tr>
-  <tr><td><code>RXF_REFUSE_CALL_DEPTH</code></td><td><span class="pin" data-pin="RXF_REFUSE_CALL_DEPTH" data-value="17">17</span></td><td>a call past the depth budget of <span class="pin" data-pin="RXF_GRAPH_CALL_DEPTH" data-value="8">8</span> frame regions</td></tr>
+  <tr><td><code>RXF_REFUSE_CALL_DEPTH</code></td><td><span class="pin" data-pin="RXF_REFUSE_CALL_DEPTH" data-value="17">17</span></td><td>a call past the depth budget of <span class="pin" data-pin="RXF_GRAPH_CALL_DEPTH" data-value="16">16</span> frame regions</td></tr>
   <tr><td><code>RXF_REFUSE_UNBOUND</code></td><td><span class="pin" data-pin="RXF_REFUSE_UNBOUND" data-value="13">13</span></td><td>a callee that names no bound program</td></tr>
   <tr><td><code>RXF_REFUSE_STALE_GENERATION</code></td><td><span class="pin" data-pin="RXF_REFUSE_STALE_GENERATION" data-value="12">12</span></td><td>a handle whose slot generation moved (the ABA refusal)</td></tr>
 </table>

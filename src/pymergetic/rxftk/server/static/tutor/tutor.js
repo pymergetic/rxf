@@ -18,7 +18,7 @@
     "step": { "AGAIN": 0, "PARK": 1, "DONE": 2, "SELFWAKE": 3 },
     "cells": { "RUN": 1, "DATA": 2, "CHANNEL": 3, "RING": 4, "DELTA": 5, "SCRATCH": 6 },
     "refuse": { "CALL_DEPTH": 17, "UNBOUND": 13, "STALE_GENERATION": 12 },
-    "call_depth": 8,
+    "call_depth": 16,
     "cell_bytes": 24,
     "handle_shift": 32,
     "claim_moving": "0x80000000",

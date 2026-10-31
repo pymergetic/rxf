@@ -524,8 +524,9 @@ out.ex = {
 };
 const machine = T.refusals.machine();
 out.refusals = { calls: [] };
-for (let i = 0; i < 9; i++) out.refusals.calls.push(T.refusals.call(machine));
+for (let i = 0; i <= machine.budget; i++) out.refusals.calls.push(T.refusals.call(machine));
 out.refusals.depth = machine.depth;
+out.refusals.budget = machine.budget;
 out.refusals.unbound = T.refusals.unbound(T.refusals.machine());
 out.refusals.cancel = T.refusals.cancel(T.refusals.machine());
 console.log(JSON.stringify(out));
@@ -621,9 +622,11 @@ def test_the_refusal_demos_name_the_codes(engine):
         call for call in refusals["calls"] if "RXF_REFUSE_CALL_DEPTH" in call["text"]
     ]
     assert len(depth) == 1, (
-        "the depth budget must refuse exactly once, at the ninth call"
+        "the depth budget must refuse exactly once, at the call past the budget"
     )
-    assert refusals["depth"] == 8, "a refused call must not push a frame"
+    assert refusals["depth"] == refusals["budget"], (
+        "a refused call must not push a frame"
+    )
     assert "RXF_REFUSE_UNBOUND" in refusals["unbound"]["text"]
     assert "CANCELED" in refusals["cancel"]["text"]
     assert "safe point" in refusals["cancel"]["text"]
