@@ -122,3 +122,7 @@ target_link_libraries(core PRIVATE rxf_tree rxf_hash rxf_live rxf_edit)
 set_target_properties(core PROPERTIES OUTPUT_NAME "__init__")
 
 install(TARGETS core LIBRARY DESTINATION pymergetic/rxftk/core)
+
+# rxfb: the slim reader library (rxfb/, ROADMAP section 2). A target of its own, not part of the
+# wheel: `cmake --build <dir> --target rxfb rxfb_dump`.
+add_subdirectory(rxfb EXCLUDE_FROM_ALL)
