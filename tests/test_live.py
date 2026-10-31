@@ -369,6 +369,51 @@ def test_the_entry_is_part_of_the_delta(starter: bytes):
     )
 
 
+def test_every_commit_leaves_a_world_that_checks(starter: bytes):
+    """A commit is a check_all pass first (the replay's pass 4): what runs after each round of
+    the write slice is the world the delta described - the digest is the model's (docs/32 5.4),
+    the dump is its canonical form, and the paths resolve to the same objects. The rounds set a
+    value, retarget a payload handle, move the entry and set a module its own record."""
+    host = HostImage(starter)
+
+    def discount(image: Image) -> Image:
+        result = model_copy(image)
+        result.set_payload(
+            resolved(result, "pymergetic.rxf.application.discount"), struct.pack("<I", 45)
+        )
+        return result
+
+    def retarget(image: Image) -> Image:
+        result = model_copy(image)
+        main = resolved(result, "pymergetic.rxf.application.main")
+        other = resolved(result, "pymergetic.rxf.library.checkout_total")
+        offset = physical.records(result)[0]["pymergetic.rxf.application.main"].patches[0][0]
+        payload = bytearray(result.get(main)["payload"])
+        struct.pack_into("<Q", payload, offset, other)
+        result.set_payload(main, bytes(payload))
+        return result
+
+    def entry(image: Image) -> Image:
+        result = model_copy(image)
+        result.entry = resolved(result, "pymergetic.rxf.library.checkout_total")
+        return result
+
+    before = model_copy(WORLD)
+    for edit in (discount, retarget, entry):
+        result = edit(before)
+        compiled = physical.compile(before, result, check_base=False)
+        assert host.client.apply(compiled.data) == digest_of(result)
+        # the world is whole after the commit: the dump is the model's canonical
+        # form and its paths resolve to the objects it describes
+        assert host.client.digest() == digest_of(result)
+        assert host.client.emit()[0] == canonical_of(result)
+        for path in ("pymergetic.rxf.application.discount", "pymergetic.rxf.application.main"):
+            found = host.client.resolve(path)
+            assert found is not None and host.client.path(found) == path
+        before = result
+    assert host.client.hello().commits == 3
+
+
 # ---- refusing ----------------------------------------------------------------------------------------------------
 
 
@@ -518,6 +563,63 @@ def test_a_delete_that_leaves_a_declared_slot_dangling_is_refused(starter: bytes
     )
     compiled = physical.compile(model_copy(WORLD), result, check_base=False)
     assert host.client.apply(compiled.data) == digest_of(result)
+
+
+def test_a_slot_that_names_a_dead_generation_is_refused(starter: bytes):
+    """A delete and a create of the same path in one delta hands the index out again under a
+    new generation (docs/32 1.2: the reuse of a span bumps the gen and a stale handle of its
+    previous life keeps failing), or leaves the slot dead. Either way the handle the declared
+    slot of `main` holds for `main.checkout` names a generation that is gone, and the dump
+    would unset it silently (docs/32 5.4). The apply refuses the delta (DANGLING), rolls
+    back, and the image still serves the next one."""
+    host = HostImage(starter)
+    digest = digest_of(WORLD)
+    reborn = physical.Builder()
+    reborn.delete("pymergetic.rxf.application.main.checkout")
+    reborn.create("pymergetic.rxf.application.main.checkout", record(payload=b"q" * 24))
+    refused(host, reborn.build(digest), 9)
+    assert host.client.digest() == digest, "the refusal changed nothing"
+    result = model_copy(WORLD)
+    result.set_payload(
+        resolved(result, "pymergetic.rxf.application.discount"), struct.pack("<I", 45)
+    )
+    compiled = physical.compile(model_copy(WORLD), result, check_base=False)
+    assert host.client.apply(compiled.data) == digest_of(result)
+
+
+def test_a_reference_row_that_a_delete_leaves_dangling_is_refused(starter: bytes):
+    """The rows of an object's relation table name their target and role by handle
+    (docs/32 5.2): a delete that leaves a row naming an object that is gone is refused
+    (DANGLING) like a declared slot - the twin's check_all walks the rows the same way
+    (native/live.rxfs)."""
+    host = HostImage(starter)
+    b = physical.Builder()
+    b.create("pymergetic.rxf.application.n", record(payload=b"n" * 48))
+    b.create(
+        "pymergetic.rxf.application.h",
+        record(refs=(("pymergetic.rxf.application.n", None, 1, 0, 0),)),
+    )
+    digest = host.client.apply(b.build(digest_of(WORLD)))
+    assert digest == physical_digest_after(starter, b.build(digest_of(WORLD)))
+    held = host.client.resolve("pymergetic.rxf.application.h")
+    target = host.client.resolve("pymergetic.rxf.application.n")
+    assert held is not None and target is not None
+    assert [t for (t, _r, _k, _b, _i) in host.client.refs(held)] == [target]
+    gone = physical.Builder()
+    gone.delete("pymergetic.rxf.application.n")
+    refused(host, gone.build(digest), 9)
+    assert host.client.digest() == digest, "the refusal changed nothing"
+
+
+def test_relink_is_refused_with_its_reason(host: HostImage):
+    """RELINK writes the entries and function slots of a runtime context from the arena; the
+    host engine holds none (its bindings' pump passes no context) and says so. The refusal
+    carries its reason (UNBOUND, live.h: the image has no context to link) - the same the twin
+    answers when it runs without one."""
+    with pytest.raises(Declined) as caught:
+        host.client.relink()
+    assert caught.value.reason == 15
+    assert "context" in str(caught.value)
 
 
 @pytest.mark.xfail(
@@ -698,6 +800,46 @@ def test_compaction_in_place_gives_the_canonical_arena(starter: bytes):
     assert again.reclaimed == 0 and again.digest == digest
     assert host.area.arena_bytes() == after
     assert host.area.compactions == 2
+
+
+def test_compaction_keeps_the_objects_it_remapped(starter: bytes):
+    """COMPACT slides the arena onto its canonical form (docs/20 S8): the handles are the
+    rebuild's - remapped, never promised stable - and the objects they name are the same.
+    Each sampled path resolves again to the same name, state word, sibling index, generation
+    and rows (its references, named by path), and a type-less value is byte for byte the one
+    the handle before the slide answered."""
+    full, pruned = garbage()
+    host = HostImage(link.arena_of(full))
+    host.client.apply(physical.compile(full, pruned, check_base=False).data)
+    sampled = [
+        "pymergetic.rxf.application.tmp1",
+        "pymergetic.rxf.application.tmp3",
+        "pymergetic.rxf.application.main",
+        "pymergetic.rxf.library.checkout_total",
+    ]
+
+    def seen(path: str) -> tuple:
+        handle = host.client.resolve(path)
+        assert handle is not None, path
+        cell = host.client.get(handle)
+        rows = [
+            (
+                host.client.path(t) if t != NONE else None,
+                host.client.path(r) if r != NONE else None,
+                kind,
+                binding,
+                index,
+            )
+            for (t, r, kind, binding, index) in host.client.refs(handle)
+        ]
+        # a value's declared slots are handles, and the slide remaps them: only a
+        # type-less value is compared whole
+        value = host.client.payload(handle) if cell.type == NONE else b""
+        return (cell.name, cell.flags, cell.index, cell.generation, rows, value)
+
+    before = {path: seen(path) for path in sampled}
+    host.client.compact()
+    assert {path: seen(path) for path in sampled} == before
 
 
 def test_a_pinned_object_is_not_moved(starter: bytes):
