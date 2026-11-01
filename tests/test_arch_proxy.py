@@ -15,7 +15,10 @@ import graph_sync
 
 ROOT = Path(__file__).parents[1]
 STARTER = ROOT / "starter"
-ADD = "pymergetic.rxf.numeric.wrapping.add_int16_t"
+# `add_int16_t` is a composed program now (one bytecode `Code`, runs everywhere,
+# docs/32 5.6) and never part of the question; its `uint64_t` word kernel is the
+# intrinsic that keeps the code of every machine.
+ADD = "pymergetic.rxf.numeric.wrapping.add_uint64_t"
 
 MAP = {
     "aarch64_linux_aapcs64": {

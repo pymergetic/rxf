@@ -37,7 +37,8 @@ RXF = "urn:pymergetic:rxf"
 DATA = f"{{{RXF}}}data"
 ET.register_namespace("rxf", RXF)
 
-SOURCES = Path("pymergetic/rxf/sources.rxfd")
+SOURCES = Path("pymergetic/rxf/sources")
+SOURCE_NAME = "text"
 KINDS = Path("pymergetic/rxf/kinds.rxfd")
 EXECUTION = Path("pymergetic/rxf/execution/__init__.rxfd")
 ALIAS = "sources"
@@ -252,7 +253,7 @@ def set_sources(starter: Path, built: Mapping[str, str]) -> dict[str, str]:
                 # builds it, not the file of native/ (its machine codes carry the
                 # source).
                 if code.tag == "Code" and code.get("name") != graph_sync.BYTECODE:
-                    code.set("source", f"@{ALIAS}.{source}")
+                    code.set("source", f"@{ALIAS}.{source}.{SOURCE_NAME}")
                     changed = True
         if changed:
             add_alias(document, ALIAS, f"pymergetic.rxf.{ALIAS}")
@@ -261,28 +262,53 @@ def set_sources(starter: Path, built: Mapping[str, str]) -> dict[str, str]:
 
 
 def write_module(starter: Path, named: Mapping[str, str]) -> int:
-    """``sources.rxfd``: one Source per file the image is built from -- every file
-    of ``native/`` the Seed builds code from, and every file of ``boot/`` (the
-    glue's build history, docs/31 §4)."""
+    """``sources/``: one module per Source -- every file of ``native/`` the Seed
+    builds code from, and every file of ``boot/`` (the glue's build history,
+    docs/31 §4). One file per source (the tree is one delta per module): the
+    package ``sources/__init__.rxfd`` holds the alias every reference shortens
+    with, and ``sources/<name>.rxfd`` holds the one ``Source`` of that file."""
     rows = [
         (name, ROOT / seed_build.source_of(key), "Rxfs", "Any")
         for name, key in named.items()
     ]
     rows += boot_rows()
+    directory = starter / SOURCES
+    stale = starter / f"{SOURCES}.rxfd"
+    if stale.is_file():
+        stale.unlink()  # the aggregate file the package replaces
+    directory.mkdir(parents=True, exist_ok=True)
     root = ET.Element("delta")
     module = ET.SubElement(
         root,
         "Module",
         {"name": ALIAS, "category": "ModuleCategory.Library"},
     )
-    ET.SubElement(module, "Alias", {"name": "kinds", "target": "pymergetic.rxf.kinds"})
+    ET.SubElement(
+        module,
+        "Alias",
+        {
+            "name": "kinds",
+            "target": "pymergetic.rxf.kinds",
+            "flags": "AliasFlags.Reexport",
+        },
+    )
+    ET.ElementTree(root).write(
+        directory / "__init__.rxfd", encoding="UTF-8", xml_declaration=True
+    )
     for name, file, lang, arch in sorted(rows):
         text = file.read_bytes()
+        root = ET.Element("delta")
+        module = ET.SubElement(
+            root,
+            "Module",
+            {"name": name, "category": "ModuleCategory.Library"},
+        )
+        ET.SubElement(module, "Alias", {"name": "kinds", "target": "pymergetic.rxf.kinds"})
         ET.SubElement(
             module,
             "Source",
             {
-                "name": name,
+                "name": SOURCE_NAME,
                 "arch": f"@kinds.SourceArch.{arch}",
                 "byte_count": str(len(text)),
                 "lang": f"@kinds.SourceLang.{lang}",
@@ -290,9 +316,9 @@ def write_module(starter: Path, named: Mapping[str, str]) -> int:
                 DATA: text.hex(),
             },
         )
-    ET.ElementTree(root).write(
-        starter / SOURCES, encoding="UTF-8", xml_declaration=True
-    )
+        ET.ElementTree(root).write(
+            directory / f"{name}.rxfd", encoding="UTF-8", xml_declaration=True
+        )
     return len(rows)
 
 

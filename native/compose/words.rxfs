@@ -198,10 +198,10 @@ const KIND_LITERAL = 2;
 const KIND_OPERATION_RESULT = 3;
 const KIND_BOUND = 4;
 const KIND_OBJECT = 5;
-# the ABI value role and the function implementation (the enums of the image, read as scalars)
-const ABI_OUTPUT = 3;         # AbiValueRole.Output: a result handed back through an output
-const FN_SEMANTIC = 1;        # FunctionImplementation.Semantic: a body that is a call
-const FN_NATIVE = 2;          # FunctionImplementation.Native: a leaf of the interpreter
+# the effect bits and the function implementation (the enums of the image, read as scalars)
+const EFFECT_WRITE = 2;      # Effects.Write: its result is written through its memory arguments
+const FN_SEMANTIC = 1;       # FunctionImplementation.Semantic: a body that is a call
+const FN_NATIVE = 2;         # FunctionImplementation.Native: a leaf of the interpreter
 
 # the Terminator of a block (the Terminator of the image)
 const T_GOTO = 1;
@@ -379,8 +379,8 @@ const NX_SEMVAL = 608;               # "SemanticValue" (the type of a frame valu
 const NX_SEMBLK = 624;               # "SemanticBlock" (the type of a block)
 # the names the Expression face (M4) reads by (expr.rxfs): the Function/Call/Argument model
 const NX_EVR = 640;                  # "ValueReference" (the type of a function's value refs)
-const NX_EABISIG = 656;              # "ABISignature"
-const NX_EABILOC = 672;              # "ABIValueLocation"
+const NX_EFF = 656;                  # "effects" (the effect bits of a function)
+const NX_VOID = 672;                 # "void" (the type of a status-only answer)
 const NX_EIMPL = 696;                # "implementation"
 const NX_EBODY = 712;                # "body"
 const NX_EKIND = 720;                # "kind"
@@ -390,8 +390,6 @@ const NX_EKPARAM = 752;              # "Parameter" (a ValueKind)
 const NX_EKBOUND = 768;              # "Bound" (a ValueKind)
 const NX_EKOPRES = 776;              # "OperationResult" (a ValueKind)
 const NX_ERESULT = 792;              # "Result" (a signature's results)
-const NX_EVRROLE = 800;              # "value_role"
-const NX_EOUTPUT = 816;              # "Output"
 const NX_ESIZE = 824;                # "size" (of a type)
 const NX_ESIG = 832;                 # "signature"
 const NX_EARGT = 848;                # "Argument" (the type of a call's arguments)

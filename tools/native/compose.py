@@ -761,13 +761,26 @@ class Expression:
         raise ComposeError(f"{c.image.path(reference)}: a value of kind {found.kind}")
 
     def writes(self, function: int) -> bool:
-        """Whether the ABI of a native function hands its result back through an output location."""
+        """Whether the callee hands its result back through an output location.
+
+        The object ABI of a native function returns its value through ``out``
+        (docs/29), save two answers of the Signature: a result of type ``void``
+        is answered with the status alone (the value is written through the
+        memory an argument names), and so is a callee whose effects include
+        ``Write``. No other function kind hands a result back through a
+        location: the boot glue speaks the entry convention. What the register
+        maps said is derived from the Signature and the target; they live at
+        the call boundary, never in a delta (docs/32 5).
+        """
         c = self.c
-        return any(
-            word(c.fields(place).get("value_role")) == "Output"
-            for abi in c.children(function, "ABISignature")
-            for place in c.children(abi, "ABIValueLocation")
-        )
+        values = c.fields(function)
+        if word(values.get("implementation")) != "Native":
+            return False
+        if "Write" in str(values.get("effects", "")):
+            return False
+        signature = c.target(values["signature"])
+        results = c.children(signature, "Result")
+        return bool(results) and word(c.fields(results[0]).get("value_type")) != "void"
 
     def call(
         self, call: int, inner: Mapping[int, Operand], stack: tuple[int, ...]

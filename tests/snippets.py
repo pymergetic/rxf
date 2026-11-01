@@ -1,25 +1,28 @@
 """The native snippets of the starter as data the equivalence tests run.
 
 Each snippet is read from the starter: its scalar arguments, its output type and
-its code for every target. The values are the edge and random inputs the tests
-feed to all of them.
+the body every seat is pinned to. The delta stores no machine code (docs/32:
+binary is storage form, formed in the image), so a body is the bytes of the
+recipe its pin names -- and the test holds the pin to those bytes. The values
+are the edge and random inputs the tests feed to all of them.
 """
 
 import ctypes
+import hashlib
 import mmap
 import random
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import graph_sync
 import programs
-import sync
+import seed_build
 
 from pymergetic.rxftk.core import tree
 
 ROOT = Path(__file__).parents[1]
 STARTER = ROOT / "starter"
 
-RXF = "{urn:pymergetic:rxf}"
 INTEGERS = {
     "uint8_t": (8, False),
     "uint16_t": (16, False),
@@ -341,81 +344,77 @@ class Machine:
         return ctypes.CFUNCTYPE(result, *args)(address)
 
 
+# The seat of a snippet to the Code name the starter writes for it; a body is
+# shared by the seats of one machine (blob_sync), so the pin of the blob is the
+# body of every seat that names it.
+SEATS = {
+    "wasm": "wasm32",
+    "x86": "x86_64_linux",
+    "aarch64": "aarch64_linux",
+    "aarch64_uefi": "aarch64_uefi",
+    "uefi": "x86_64_uefi",
+    "bios": "x86_64_bios",
+}
+
+
+def pinned_bodies(function: ET.Element, built: dict[str, dict[str, str]], key: str) -> dict[str, str]:
+    """The hex of every seat's body, as the tree pins it: the CodeBlob the seat's
+    Code names, held to the bytes its recipe builds. The delta stores no bytes;
+    what it stores is the pin, and this is where the pin is earned."""
+    codes = {str(c.get("name")): c for c in function if c.tag == "Code"}
+    blobs = {str(b.get("name")): b for b in function if b.tag == "CodeBlob"}
+    bodies: dict[str, str] = {}
+    for seat, code_name in SEATS.items():
+        code = codes.get(code_name)
+        assert code is not None, f"{function.get('name')} has no {code_name}"
+        blob = blobs.get(str(code.get("body", "")).rsplit(".", 1)[-1])
+        assert blob is not None, f"{function.get('name')}:{code_name} names no blob"
+        data = built[str(blob.get("name")).removeprefix("body_")][key]
+        assert int(blob.get("byte_count", "0")) == len(data) // 2, (
+            f"{function.get('name')}:{blob.get('name')} is not the byte count of "
+            f"what its recipe builds"
+        )
+        assert blob.get("content_digest") == hashlib.sha256(bytes.fromhex(data)).hexdigest(), (
+            f"{function.get('name')}:{blob.get('name')} is not the digest of "
+            f"what its recipe builds"
+        )
+        bodies[seat] = data
+    return bodies
+
+
 def snippets() -> list[dict]:
     """The numeric snippets of the starter: scalar arguments and one output."""
+    built = programs.snippets()
+    known = programs.known_keys()
     found = []
     for path in sorted(STARTER.rglob("*.rxfd")):
         parts = path.relative_to(STARTER).with_suffix("").parts
         for function in ET.parse(path).getroot().iter("Function"):
-            codes = {c.get("name"): c for c in function if c.tag == "Code"}
-            if "wasm32" not in codes:
+            if word(function.get("implementation")) != "Native":
                 continue
-            signature = next(
-                (
-                    s
-                    for s in function
-                    if s.tag == "ABISignature" and s.get("name") == "wasm_c_status_out"
-                ),
-                None,
-            )
-            if signature is None or "x86_64_linux" not in codes:
-                continue  # a seat entry (docs/32 boot) carries wasm code, not a numeric snippet
-            locations = sync.order(
-                [loc for loc in signature if loc.tag == "ABIValueLocation"]
-            )
-            arguments = [
-                loc
-                for loc in locations
-                if sync.word(loc.get("value_role")) == "Argument"
-            ]
-            outputs = [
-                loc for loc in locations if sync.word(loc.get("value_role")) == "Output"
-            ]
-            if len(outputs) != 1 or any(
-                sync.value_class_of(loc) == "Pointer" for loc in arguments
+            signature = next((s for s in function if s.tag == "Signature"), None)
+            if signature is None:
+                continue
+            parameters = [p for p in signature if p.tag == "Parameter"]
+            results = [r for r in signature if r.tag == "Result"]
+            kinds = [str(p.get("value_type")) for p in parameters]
+            if len(results) != 1 or any(
+                kind not in INTEGERS and kind not in FLOATS for kind in kinds
             ):
-                continue
-            kinds = []
-            for loc in arguments:
-                association = word_after(loc.get("association"))
-                parameter = next(
-                    p
-                    for p in function.findall("Signature/*")
-                    if p.get("name") == association
-                )
-                kinds.append(parameter.get("value_type"))
-            found.append(
-                {
-                    "name": f"{'/'.join(parts)}:{function.get('name')}",
-                    "kinds": kinds,
-                    "out": word(outputs[0].get("pointee_type")),
-                    "wasm": code_bytes(function, codes["wasm32"]),
-                    "x86": code_bytes(function, codes["x86_64_linux"]),
-                    "aarch64": code_bytes(function, codes["aarch64_linux"]),
-                    "aarch64_uefi": code_bytes(function, codes["aarch64_uefi"]),
-                    "uefi": code_bytes(function, codes["x86_64_uefi"]),
-                    "bios": code_bytes(function, codes["x86_64_bios"]),
-                    "params": [sync.wasm_type_of(loc) for loc in locations],
-                }
-            )
+                continue  # a seat entry or a snippet with references: not numeric
+            try:
+                key = graph_sync.snippet_key(parts, str(function.get("name")), set(known))
+            except graph_sync.GraphSyncError:
+                continue  # a built program (live.pump and kin), not a seed snippet
+            record: dict = {
+                "name": f"{'/'.join(parts)}:{function.get('name')}",
+                "kinds": kinds,
+                "out": str(results[0].get("value_type")),
+                "params": list(seed_build.wasm_params(key)),
+            }
+            record.update(pinned_bodies(function, built, key))
+            found.append(record)
     return found
-
-
-def code_bytes(function: ET.Element, code: ET.Element) -> str:
-    """The hex of a code: its own data, or the payload of the blob its body names."""
-    text = code.get(sync.DATA)
-    if not text:
-        name = str(code.get("body", "")).rsplit(".", 1)[-1]
-        text = next(
-            (
-                child.get(sync.DATA)
-                for child in function
-                if child.tag == "CodeBlob" and child.get("name") == name
-            ),
-            None,
-        )
-    assert text, f"{function.get('name')}:{code.get('name')} has no bytes"
-    return str(text)
 
 
 def running_image():
@@ -428,7 +427,3 @@ def running_image():
 
 def word(value: str | None) -> str:
     return (value or "").rsplit(".", 1)[-1]
-
-
-def word_after(value: str | None) -> str:
-    return word(value)

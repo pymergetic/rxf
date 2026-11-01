@@ -1,13 +1,21 @@
-"""The bytes of the native code as CodeBlob objects (Wave 4b step 1: despec).
+"""The bytes of the native code as CodeBlob pins (Wave 4b step 1: despec).
 
 The seats of a machine run identical bytes -- x86_64 Linux, BIOS and UEFI are
 one body, aarch64 Linux and UEFI are one -- so six Code objects per function
 carry only three bodies, and the copies were a spec of nothing. The bytes live
 in one object per function and machine (``body_x86_64``, ``body_aarch64``,
-``body_wasm32``: a ``CodeBlob`` child of the function, its digest the sha256 of
-what it is), and every Code names its blob. The Code keeps what only it says:
-the code of one function for one target, with the ABI that calls it and the
-recipe that built it; the blob is what that code is made of.
+``body_wasm32``: a ``CodeBlob`` child of the function), and every Code names
+its blob. The Code keeps what only it says: the code of one function for one
+target, with the ABI that calls it and the recipe that built it; the blob is
+what that code is made of.
+
+The blob carries the pins of those bytes -- the byte count and the ``sha256``
+of the body -- and never the bytes themselves: binary is formed in the image
+when the machinery needs it (docs/32, the delta/image seam), so a ``.rxfd``
+delta holds no machine code at all. ``tools/native/programs.py`` fills a
+loaded image from the seed recipes at image formation, and
+``tests/test_program_sources.py`` pins that what the recipes build IS what
+these pins name.
 
 ``sync.py`` calls ``write_blobs`` on its working copy after the Code objects are
 refreshed and before the tree is canonicalized. Running it twice writes the
@@ -158,7 +166,6 @@ def write_blobs(starter: Path) -> int:
                         "content_digest": hashlib.sha256(
                             bytes.fromhex(text)
                         ).hexdigest(),
-                        DATA: text,
                     },
                 )
                 insert_sorted(function, body)

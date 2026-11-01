@@ -487,6 +487,52 @@ numbered separately below and are all open or in progress.
   adds `rxfb` as `EXCLUDE_FROM_ALL` without cargo; also missing: a wasm32 *link/run* of
   a Rust consumer, and `rxfb-write` behind a feature gate
 
+### R — the delta/image seam closes (the binary residue)
+
+- **[x] R1: the deltas carry semantics; only the intrinsics' binary remains.** The
+  law is recorded at the seam itself (docs/32 5.6, verbatim): *"In the finished
+  image, only the binary of the INTRINSICS may exist."* *Landed:* the
+  classification per `@kinds.FunctionImplementation.*` over the smallest intrinsic
+  core that covers the starter — the 51-leaf table `native/graph.h` and
+  `seed_build.LEAF_LETTERS` agree on (`RXF_LEAF_*`, the pumps, the crypto kernels).
+  The seed key table's **322 snippets shrink to 280 functions with machine
+  bodies**; the **42 typed wrappers** (`bit_and_int16_t` and its `numeric/` families)
+  are `Semantic` one-call compositions over their `uint64_t` leaf twins — they keep
+  the Signature (semantics) and lose `Code`/`CodeBlob` and the derived register maps
+  (`ABISignature`/`ABIValueLocation`, never stored again; 1,104 of them in
+  `numeric/bitwise.rxfd` alone). One delta per module: `sources.rxfd` (1,110,886
+  bytes, one file) is split into `starter/pymergetic/rxf/sources/` (35 files,
+  1,166,584 bytes, `__init__.rxfd` Reexport aliases); `source_sync`, `boot_sync` and
+  the tests resolve `@sources.<name>.text`. Sizes: the starter **8,223,920 ->
+  4,105,101 bytes** (68 -> 102 files), `numeric/` 4,602,351 -> 1,191,797,
+  `foundation/` 1,103,651 -> 478,664; objects **19,067 -> 9,743** (the three
+  `test_starter_delta` pins, bumped together). Prove:
+  `tests/test_composed_wrappers.py` 11 passed — the round trip: a composed wrapper
+  runs in the image on the shipped interpreter with **no machine body of its own**;
+  `test_starter_delta` 13 passed (the list laws' specimens moved off the register
+  maps onto `binary_search_graph`); `test_source_objects` 5 passed (its count pin
+  follows 322 -> 280); `test_native`, `test_program_sources` and `test_arch_proxy`
+  7 passed (the proxy answers a code's ABI from its target now — the derived maps it
+  read are gone); `test_binary` + `test_binary_build` 24 passed — the binary checker
+  derives the call boundary's register map from the Signature and the target
+  (`derived_class`: the scalars, the handles, `bool`/`void`, and the option words
+  as their one None-word value) and compares a built body's Code pin against the
+  pin its blob carries; `sync.py --check` up to date. Counts that follow: Semantic
+  60 -> 102 (59 graphs + `tiny.compile` + the 42 wrappers), the code census
+  321/642 -> 280/560 (pins bumped in `test_binary`). One defect found on the way:
+  `programs._run`'s strip step deleted a built body's bytes but never recorded the
+  change, so the compiler-as-a-program kept its 697 KB in the delta (Wave 4b:
+  derived data is built, not stored) — fixed, the strip now runs. The boot smoke
+  runs the migrated image on three real seats (`aarch64-virt`, `wasm32-node`,
+  `x86_64-uefi`: `RXFOK / rxf result 00000000 4b4f465852`); `x86_64-bios` hangs
+  with an empty serial in this shared tree, the symptom H2 measured on any dirty
+  state (tracked there, not this lane's deltas).
+  *Remains (gated, tracked with H2):* `test_boot_codes`'s glue pins
+  (`body_entry_aarch64` 3852 -> 3940) follow H2's run-cell constants and land with
+  the gated `boot_sync.py` starter write.
+  *done when:* no delta carries a byte of machine code and the composed corpus runs
+  in the image (docs/32 5.6). *Not met:* the one gated boot glue pin above.
+
 ---
 
 ## 2. The new piece: rxfb as a backend library

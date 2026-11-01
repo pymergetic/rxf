@@ -64,6 +64,9 @@ def functions(starter: Path) -> dict[str, dict[str, dict[str, str]]]:
     A function whose only ``Code`` has no ``runtime_target`` is a program of the
     interpreter; it runs everywhere and is left out of the proxy entirely.
     """
+    # The ABI comes with the target now: a code's derived register maps are never
+    # stored (docs/32 5.6), so the target's `abi` is the answer to "how to call it".
+    abi_of = {name: info["abi"] for name, info in targets(starter).items()}
     found: dict[str, dict[str, dict[str, str]]] = {}
     for path in sorted(starter.rglob("*.rxfd")):
         parts = path.relative_to(starter).with_suffix("").parts
@@ -86,7 +89,7 @@ def functions(starter: Path) -> dict[str, dict[str, dict[str, str]]]:
                     "format": word(code.get("format")),
                     "byte_count": code.get("byte_count") or "0",
                     "provenance": refs.get("Provenance", ""),
-                    "abi": refs.get("AbiSignature", ""),
+                    "abi": abi_of.get(word(target), ""),
                 }
             if codes:
                 found[label] = codes

@@ -12,7 +12,9 @@ structure the composer turns into instructions of the program; the report lists
 them.
 
 The checks read the image through the C++ core and know the starter's types by
-name (``Function``, ``Code``, ``ABISignature``, ``RuntimeTarget``, ...).
+name (``Function``, ``Code``, ``Signature``, ``RuntimeTarget``, ...). A register
+map is never read: the call boundary derives it from the Signature and the
+target (docs/32 5), so a delta carries none.
 """
 
 from __future__ import annotations
@@ -31,6 +33,44 @@ SELF_CONTAINED = {"Capability", "Control"}
 FORMAT_OF_ARCHITECTURE = {"Wasm32": "Wasm"}
 DEFAULT_FORMAT = "Machine"
 ABI_OF_ARCHITECTURE = {"Wasm32": "Wasm", "X8664": "Sysv", "Aarch64": "Aapcs64"}
+WORD_SIZE = {"Wasm32": 4, "X8664": 8, "Aarch64": 8}
+# The width of the scalar C types a Signature passes, and the types that are
+# references at the boundary (docs/32 5): everything else is a register class.
+# The option words pass as the one word of their payload with the None word as
+# a reserved value (native/graph.rxfs: "the word an absent argument binds").
+SCALAR_WIDTH = {
+    "bool": 1,
+    "int8_t": 1,
+    "uint8_t": 1,
+    "int16_t": 2,
+    "uint16_t": 2,
+    "int32_t": 4,
+    "uint32_t": 4,
+    "int64_t": 8,
+    "uint64_t": 8,
+    "float": 4,
+    "double": 8,
+    "OptionU64": 8,
+}
+# The last path segment of the types that are references at the boundary: a
+# handle is passed like a pointer on every ABI of the starter.
+REFERENCE_TYPES = {"Ref", "NativeTransaction", "OptionRef"}
+
+
+def derived_class(value_type: str, architecture: str) -> tuple[str, int] | None:
+    """The ``(class, width)`` a value is passed in at a call: what the boundary
+    derives from the Signature and the target. A delta carries the Signature --
+    the map is this function's answer, never a stored object. A ``void`` value
+    passes nothing: its class is the empty one."""
+    name = word(value_type)
+    if name == "void":
+        return ("Void", 0)
+    if name in REFERENCE_TYPES or name.endswith("*"):
+        return "Pointer", WORD_SIZE.get(architecture, 8)
+    width = SCALAR_WIDTH.get(name)
+    if width is None:
+        return None
+    return ("Float" if name in ("float", "double") else "Integer"), width
 
 
 def word(text: str | None) -> str:
@@ -100,6 +140,10 @@ class Binary:
         if not data:
             if not blob.get("content_digest") or not int(blob.get("byte_count", "0")):
                 self.problem(code, "it is built but does not say what to build")
+            elif int(values.get("byte_count", "0")) != int(blob.get("byte_count", "0")):
+                # the bytes are built to the pin the blob carries: the Code's
+                # byte count is what the comparison has to hold against it
+                self.problem(code, "byte_count is not the length of the data")
             return ""
         if len(data) != 2 * int(blob.get("byte_count", "0")):
             self.problem(code, "byte_count is not the length of the data")
@@ -112,6 +156,18 @@ class Binary:
             if via is not None and word(self.path(via)) == role:
                 return target
         return None
+
+    def signature_values(self, function: int) -> list[int]:
+        """The Parameter and Result objects of the function's Signature: the
+        values a call passes. The register map of the call is derived from
+        these and the target (docs/32 5); no ABISignature is stored to read."""
+        signature = self.image.resolve(self.of(function).get("signature", ""))
+        if signature is None or self.image.type_name(signature) != "Signature":
+            self.problem(function, "it does not name its signature")
+            return []
+        return self.children(signature, "Parameter") + self.children(
+            signature, "Result"
+        )
 
     # ---- targets --------------------------------------------------------------------------------
 
@@ -145,10 +201,6 @@ class Binary:
             if target in codes:
                 self.problem(code, f"a second code for {word(target)}")
             codes[target] = code
-        signatures = {
-            self.of(s).get("target", ""): s
-            for s in self.children(function, "ABISignature")
-        }
         complete = True
         for target, info in targets.items():
             code = codes.get(target)
@@ -178,22 +230,19 @@ class Binary:
                 or self.image.type_name(provenance) != "CompilerProvenance"
             ):
                 self.problem(code, "it does not say which compiler recipe made it")
-            abi = signatures.get(target)
-            linked = self.role_target(code, "AbiSignature")
-            if abi is None or linked != abi:
-                self.problem(code, f"it is not tied to the ABI of {word(target)}")
-                complete = False
-            elif word(self.of(abi).get("kind")) != info["abi"]:
-                self.problem(abi, f"the ABI kind is not the one of {word(target)}")
+            # The register map is derived at the call boundary from the
+            # Signature and the target (docs/32 5): nothing is stored to
+            # compare. What must hold is that the boundary can derive one --
+            # every value the Signature passes has a machine class on this ABI.
+            for handle in self.signature_values(function):
+                value_type = self.of(handle).get("value_type", "")
+                if derived_class(value_type, info["architecture"]) is None:
+                    self.problem(
+                        handle, f"the ABI of {word(target)} cannot pass {value_type}"
+                    )
+                    complete = False
         for target in set(codes) - set(targets):
             self.problem(codes[target], "a code for something that is not a target")
-        for target, abi in signatures.items():
-            if target not in targets:
-                self.problem(abi, "an ABI for something that is not a target")
-            if int(self.of(abi).get("location_count", "0")) != len(
-                self.children(abi, "ABIValueLocation")
-            ):
-                self.problem(abi, "location_count is not the number of locations")
         return complete
 
     # ---- composed functions ---------------------------------------------------------------------

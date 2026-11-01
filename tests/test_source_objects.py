@@ -78,7 +78,11 @@ def test_every_source_carries_the_text_of_the_file_it_names():
     image = tree.load(STARTER)
     for name, (file, lang, arch) in rows().items():
         text = file.read_bytes()
-        fields = dict(image.fields(resolved(image, f"pymergetic.rxf.sources.{name}")))
+        fields = dict(
+            image.fields(
+                resolved(image, f"pymergetic.rxf.sources.{name}.{source_sync.SOURCE_NAME}")
+            )
+        )
         assert bytes.fromhex(fields["data"]) == text, name
         assert int(fields["byte_count"]) == len(text), name
         assert fields["semantic_digest"] == hashlib.sha256(text).hexdigest(), name
@@ -112,9 +116,9 @@ def test_every_native_code_names_the_source_it_was_built_from():
             if name == "bytecode":
                 continue  # the program of its graph: the image builds it
             named = dict(image.fields(code))["source"]
-            assert named == f"pymergetic.rxf.sources.{source}", key
+            assert named == f"pymergetic.rxf.sources.{source}.{source_sync.SOURCE_NAME}", key
             built_codes += 1
-    assert built_codes == 321 * len(TARGETS) == 1926
+    assert built_codes == 280 * len(TARGETS) == 1680
 
 
 def test_the_codes_a_source_builds_are_the_codes_that_name_it():
@@ -137,7 +141,7 @@ def test_the_codes_a_source_builds_are_the_codes_that_name_it():
         named = dict(image.fields(handle)).get("source")
         if named is None:
             continue  # the bytecode of a semantic function: the image builds it
-        source = str(named).rsplit(".", 1)[-1]
+        source = str(named).rsplit(".", 2)[-2]
         assert source in builds, named
         builds[source].add(image.path(handle))
     assert builds == expected

@@ -38,6 +38,8 @@ import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from pathlib import Path
 
+import source_sync
+
 RXF = "urn:pymergetic:rxf"
 ET.register_namespace("rxf", RXF)
 
@@ -347,7 +349,8 @@ def write_codes(
                     "semantic_version": "1",
                     "byte_count": str(carried[str(family["body"])][0]),
                     "semantic_digest": digest,
-                    "source": f"@sources.{source_name(str(family['sources'][0]))}",
+                    "source": f"@sources.{source_name(str(family['sources'][0]))}"
+                    f".{source_sync.SOURCE_NAME}",
                     "body": f"@boot.{function}.{family['body']}",
                 },
             )

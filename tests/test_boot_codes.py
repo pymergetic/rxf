@@ -20,6 +20,7 @@ from pathlib import Path
 
 import boot_sync
 import pytest
+import source_sync
 
 from pymergetic.rxftk.core import tree
 
@@ -64,7 +65,9 @@ def test_every_boot_code_names_the_source_that_defines_it():
         for seat, code in codes.items():
             fields = dict(image.fields(code))
             source = boot_sync.source_name(str(family["sources"][0]))
-            assert fields["source"] == f"pymergetic.rxf.sources.{source}", seat
+            assert fields["source"] == (
+                f"pymergetic.rxf.sources.{source}.{source_sync.SOURCE_NAME}"
+            ), seat
             assert fields["body"] == (
                 f"pymergetic.rxf.boot.{family['function']}.{family['body']}"
             ), seat

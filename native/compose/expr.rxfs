@@ -21,11 +21,8 @@
 proc expr_names {
     store64(work + W_NAM + 640, 0x66655265756c6156);
     store64(work + W_NAM + 648, 0x65636e657265);              # "ValueReference"
-    store64(work + W_NAM + 656, 0x616e676953494241);
-    store64(work + W_NAM + 664, 0x65727574);                  # "ABISignature"
-    store64(work + W_NAM + 672, 0x65756c6156494241);
-    store64(work + W_NAM + 680, 0x6e6f697461636f4c);
-    store64(work + W_NAM + 688, 0x0);                         # "ABIValueLocation"
+    store64(work + W_NAM + 656, 0x0073746365666665);          # "effects"
+    store64(work + W_NAM + 672, 0x0000000064696f76);          # "void"
     store64(work + W_NAM + 696, 0x6e656d656c706d69);
     store64(work + W_NAM + 704, 0x6e6f69746174);              # "implementation"
     store64(work + W_NAM + 712, 0x79646f62);                  # "body"
@@ -39,9 +36,6 @@ proc expr_names {
     store64(work + W_NAM + 776, 0x6f6974617265704f);
     store64(work + W_NAM + 784, 0x746c757365526e);            # "OperationResult"
     store64(work + W_NAM + 792, 0x746c75736552);              # "Result"
-    store64(work + W_NAM + 800, 0x6f725f65756c6176);
-    store64(work + W_NAM + 808, 0x656c);                      # "value_role"
-    store64(work + W_NAM + 816, 0x74757074754f);              # "Output"
     store64(work + W_NAM + 824, 0x657a6973);                  # "size"
     store64(work + W_NAM + 832, 0x727574616e676973);
     store64(work + W_NAM + 840, 0x65);                        # "signature"
@@ -123,38 +117,64 @@ proc expr_lentry {
 }
 
 # ---- does a callee hand its result back through an output location --------------------------------
-# g0 = the callee (a Native Function). R = 1 when an ABIValueLocation of one of its ABISignatures
-# has value_role Output (compose.py's Expression.writes); else 0.
+# g0 = the callee (a Native Function). R = 1 when it hands its first result back through an output
+# location: a Native function whose effects do not write the value through its memory arguments and
+# whose signature answers a first Result of a type that is not void. The answer is derived from the
+# Signature and the target at the call boundary -- never read from a register map, for a delta
+# carries none (compose.py's Expression.writes; docs/32 5).
 proc expr_writes {
     store64(work + W_XA2, g0);
-    g0 = load64(work + W_XA2);  g1 = work + W_NAM + NX_EABISIG;  g2 = 12;
-    call children_of_named;
-    store64(work + W_XA2 + 8, R);                # how many ABISignatures
-    store64(work + W_XA2 + 16, 0);
-    while load64(work + W_XA2 + 16) < load64(work + W_XA2 + 8) {
-        # the gather of the locations below would take the table the signatures lie in: gather
-        # the signatures again and pick this one
-        g0 = load64(work + W_XA2);  g1 = work + W_NAM + NX_EABISIG;  g2 = 12;
-        call children_of_named;
-        store64(work + W_XA2 + 24,
-                load64(work + W_CME + (load64(work + W_XA2 + 16) << 3)));
-        g0 = load64(work + W_XA2 + 24);  g1 = work + W_NAM + NX_EABILOC;  g2 = 16;
-        call children_of_named;
-        store64(work + W_XA2 + 32, R);           # how many ABIValueLocations
-        store64(work + W_XA2 + 40, 0);
-        while load64(work + W_XA2 + 40) < load64(work + W_XA2 + 32) {
-            g0 = load64(work + W_CME + (load64(work + W_XA2 + 40) << 3));
-            g1 = work + W_NAM + NX_EVRROLE;  g2 = 10;
-            call fld;
-            if R == ABI_OUTPUT {
-                R = 1;
-                ret;
-            }
-            store64(work + W_XA2 + 40, load64(work + W_XA2 + 40) + 1);
-        }
-        store64(work + W_XA2 + 16, load64(work + W_XA2 + 16) + 1);
+    g0 = load64(work + W_XA2);  g1 = work + W_NAM + NX_EIMPL;  g2 = 14;
+    call fld;
+    if R != FN_NATIVE {
+        R = 0;
+        ret;
     }
-    R = 0;
+    g0 = load64(work + W_XA2);  g1 = work + W_NAM + NX_EFF;  g2 = 7;
+    call fld;
+    if R != HANDLE_NONE {
+        if (R & EFFECT_WRITE) != 0 {
+            R = 0;
+            ret;
+        }
+    }
+    g0 = load64(work + W_XA2);  g1 = work + W_NAM + NX_ESIG;  g2 = 9;
+    call fld;
+    if R == HANDLE_NONE {
+        R = 0;
+        ret;
+    }
+    g0 = R;  g1 = work + W_NAM + NX_ERESULT;  g2 = 6;
+    call children_of_named;
+    if R == 0 {
+        R = 0;
+        ret;
+    }
+    g0 = load64(work + W_CME);  g1 = work + W_NAM + NX_VTYPE;  g2 = 10;
+    call fld;
+    if R == HANDLE_NONE {
+        R = 1;
+        ret;
+    }
+    if R == 0 {
+        R = 1;
+        ret;
+    }
+    g0 = R;
+    call cell_of;
+    if R == HANDLE_NONE {
+        R = 1;
+        ret;
+    }
+    g0 = R;
+    call name_of;
+    g1 = work + W_NAM + NX_VOID;  g2 = 4;
+    call name_eq;
+    if R == 1 {
+        R = 0;
+        ret;
+    }
+    R = 1;
     ret;
 }
 

@@ -63,7 +63,7 @@ def test_the_starter_is_a_complete_binary(capsys):
     assert result["ok"] and result["issues"] == []
     assert result["targets"] == TARGETS
     natives = {f["implementation"]: f["count"] for f in result["functions"]}
-    assert natives["Native"] == 321
+    assert natives["Native"] == 280
 
 
 def test_every_native_function_has_code_for_bios_unix_uefi_and_wasm():
@@ -87,7 +87,7 @@ def test_every_native_function_has_code_for_bios_unix_uefi_and_wasm():
         for name in machines:
             if f"_{name}_" in target:
                 machines[name] += 1
-    assert machines == {"bios": 321, "linux": 642, "uefi": 642, "wasm": 321}
+    assert machines == {"bios": 280, "linux": 560, "uefi": 560, "wasm": 280}
 
 
 def test_the_seats_of_a_function_share_one_blob_per_machine():
@@ -189,7 +189,7 @@ def test_every_composed_function_has_one_program_and_its_interpreter():
         for f in binary.check(image)["functions"]
         if f["implementation"] == "Semantic"
     )
-    assert len(programs) == semantic == 60  # 59 composed from graphs, and tiny.compile
+    assert len(programs) == semantic == 102  # 59 graphs + tiny.compile + the 42 wrappers
     assert {image.type_name(image.get(p)["parent"]) for p in programs} == {"Function"}
 
 

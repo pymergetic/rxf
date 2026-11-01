@@ -47,7 +47,7 @@ def test_every_starter_snippet_is_what_the_sources_compile_to():
     is what the seed builders make of `native/**/*.rxfs`, and the starter is
     already exactly that (a rebuild changes no byte)."""
     total, same = sync.sync(STARTER, check=True)
-    assert total >= 321 and same
+    assert total >= 280 and same
 
 
 def test_the_compiler_provenance_is_the_seed_recipe():
