@@ -466,6 +466,44 @@ agree). The proof is a round trip: model -> `arena_of` -> `load` -> model is
 equal object by object, `arena_of` of the loaded model is the arena it came from,
 and its digest is the digest the live layer answers (`tests/test_arena_image.py`).
 
+### 5.6 The binary residue: what of an image is machine code
+
+The acceptance criterion of the delta/image seam, verbatim:
+
+> **In the finished image, only the binary of the INTRINSICS may exist.**
+
+A delta never carries machine code - binary is storage form and glue only, and it
+is formed in the image when the machinery needs it (5.4). That alone is not
+enough, because an image whose deltas store only semantics could still be filled
+with a machine body per function at formation time. The criterion closes that
+door: what is formed may only be the binary of the *intrinsics*.
+
+- **An intrinsic** is a machine primitive the language cannot express over other
+  functions: the leaf kernels of `native/` - the graph interpreter's leaves
+  (`native/graph.h`'s `RXF_LEAF_*`, the ALU-level word operations among them),
+  the pumps (`live_pump`, `uart_pump`), the crypto kernels, and the runtime calls
+  the leaves speak. Their machine bodies are *the one binary residue* of the
+  image. The smallest intrinsic core that covers the starter is the leaf table
+  itself: `native/graph.h` and `seed_build.LEAF_LETTERS` agree on one entry per
+  leaf, and a leaf is what a program can call.
+- **A function that can be expressed over other functions is composed** - a
+  bytecode/graph form over the intrinsics, like the existing semantic functions
+  (`honors.who`, 160 bytes of bytecode). A composed function carries *no machine
+  binary*, not in the delta and not in the image; the image's own compiler and
+  interpreter run it. A typed wrapper such as `bit_and_int16_t` is one call of
+  its `uint64_t` word kernel with the operand widths its Signature already
+  carries ("the operand specs of the call carry the widths", docs/29) - the
+  composition, not a body, is what the function *is*.
+
+So the migration has a classification step, and it is decidable per the
+implementation taxonomy (`@kinds.FunctionImplementation.*`): a `Native` function
+whose snippet key is a leaf of `graph.h` is intrinsic and keeps its machine
+body; every other `Native` function is a wrapper and becomes `Semantic` over the
+intrinsics, keeping its Signature (semantics) and losing its `Code`/`CodeBlob`
+(machine binary) and its derived register maps (`ABISignature`/`ABIValueLocation`,
+never stored again - 5). What remains in the image after the migration is the
+51-leaf intrinsic core, and the composed corpus runs on it.
+
 ---
 
 ## 6. Related
