@@ -36,12 +36,12 @@
  *   base + 0x5800  ARGS         one argument word ("RXFOK")
  *   base + 0x5900  OUT          0x100 bytes of answer
  *   base + 0x8600  HANDLE_COPY  the 24-byte v7 handle the glue passes
- *   base + 0x8800  FRAME        0x4000: the run cell (RXF_GRAPH_CELL_BYTES)
- *   base + 0xC800  FIFO         0x240: the zero row the glue owns (the wasm
+ *   base + 0x8800  FRAME        0x8000: the run cell (RXF_GRAPH_CELL_BYTES)
+ *   base + 0x10800 FIFO         0x240: the zero row the glue owns (the wasm
  *                               seat's Uart block is the one the linked
  *                               image's capability names -- see FIFO below)
- *   base + 0xD000  ENTRY        the image's entry code (rxf_graph_run)
- *   base + 0x10000 LINKED       the linked image: CONTEXT at its byte 0
+ *   base + 0x11000 ENTRY        the image's entry code (rxf_graph_run)
+ *   base + 0x20000 LINKED       the linked image: CONTEXT at its byte 0
  */
 #ifndef RXF_BOOT_WORLD_V7_H
 #define RXF_BOOT_WORLD_V7_H
@@ -51,18 +51,18 @@
 #define RXF_BOOT_HEAD 0x0000u
 #define RXF_BOOT_HEAD_CHUNKS 0x0000u /* u16: 64 KiB chunks the seat loads */
 #define RXF_BOOT_HEAD_BYTES 0x0004u  /* u32: the image's size, chunk-aligned */
-#define RXF_BOOT_CONTEXT 0x10000u    /* the linked image's runtime context */
+#define RXF_BOOT_CONTEXT 0x20000u    /* the linked image's runtime context */
 #define RXF_BOOT_LINKED RXF_BOOT_CONTEXT
 #define RXF_BOOT_ARGS 0x5800u
 #define RXF_BOOT_OUT 0x5900u
 #define RXF_BOOT_HANDLE_COPY 0x8600u
 #define RXF_BOOT_FRAME 0x8800u
-#define RXF_BOOT_FRAME_SIZE 0x4000u /* RXF_GRAPH_CELL_BYTES */
-#define RXF_BOOT_FIFO 0xC800u
+#define RXF_BOOT_FRAME_SIZE 0x8000u /* RXF_GRAPH_CELL_BYTES */
+#define RXF_BOOT_FIFO 0x10800u
 #define RXF_BOOT_FIFO_SIZE 0x240u /* RXF_UART_FIFO_BLOCK */
-#define RXF_BOOT_ENTRY 0xD000u
+#define RXF_BOOT_ENTRY 0x11000u
 #define RXF_BOOT_BSS RXF_BOOT_FRAME
-#define RXF_BOOT_BSS_END 0xCB00u /* FRAME and FIFO: the rows that start zero */
+#define RXF_BOOT_BSS_END 0x10B00u /* FRAME and FIFO: the rows that start zero */
 #define RXF_BOOT_ARGC 1u         /* the smoke's program takes one word */
 
 /* The handle the glue passes is the v7 identity (docs/32 4): word 0 is the
@@ -100,10 +100,11 @@
  * four sectors of stage2 (x86_64.S's disk layout, Makefile build/disk.img). */
 #define RXF_BOOT_LBA 5ULL
 
-/* The room a loader must find at the base: the carrier (64 KiB) and the linked
- * image behind it. The linked image grows with the world; the loader reads the
- * count the head carries, so no row here pins its size. */
-#define RXF_BOOT_ROOM 0x10000u
+/* The room a loader must find at the base: the carrier (128 KiB, two chunks of
+ * the rows below) and the linked image behind it. The linked image grows with
+ * the world; the loader reads the count the head carries, so no row here pins
+ * its size. */
+#define RXF_BOOT_ROOM 0x20000u
 
 /* The smoke's magic port (QEMU isa-debug-exit: exit code (byte << 1) | 1). */
 #define RXF_BOOT_MAGIC_PORT 0xF4u

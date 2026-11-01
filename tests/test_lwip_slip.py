@@ -549,9 +549,10 @@ def test_the_seat_has_a_fill_that_meets_the_contract(seat: str, file: str, why: 
 
 # the budget the shipped interpreter declares (native/graph.h, read from the header the machine
 # compiles with): the echo path measures 15072 bytes of frames at depth 9 (lwip_udp_echo.
-# echo_path_budget) and fits since the budget grew to 16 KiB / 16 links on 2026-10-31. The
-# experiment of an interpreter with room is gone (enlarge_interpreter was its spec and is
-# deleted with it): the shipped interpreter is the seat.
+# echo_path_budget) and fits the 32 KiB cell / 16 links the budget carries (32768/16, decided
+# 2026-11-01 for margin over the measured path). The experiment of an interpreter with
+# room is gone (enlarge_interpreter was its spec and is deleted with it): the shipped
+# interpreter is the seat.
 SHIPPED_CELL = graph_header.numbers()["RXF_GRAPH_CELL_BYTES"]
 SHIPPED_DEPTH = graph_header.numbers()["RXF_GRAPH_CALL_DEPTH"]
 
@@ -586,7 +587,8 @@ def assert_same(
 def test_the_echo_path_measures_15072_bytes_at_9_links_and_fits_the_budget(echo_host: Host):
     """The measured machine need: the chain from the harness entry down the real path is 15072
     bytes of frames at depth 9 on the C path (the exact numbers, pinned), and the shipped
-    interpreter's budget carries it since 2026-10-31 (16 KiB / 16 links, native/graph.h). What
+    interpreter's budget carries it with margin (32 KiB / 16 links, native/graph.h, the
+    32768/16 decision of 2026-11-01). What
     does NOT fit is proven beside it by the budget cases of tests/graph_programs.py (the walls
     are the refusals, never a wrong answer)."""
     frames, links = lwip_udp_echo.echo_path_budget(echo_host)

@@ -115,11 +115,11 @@ rows, the entry links' symbols) agree on every one.
 | `0x5800` | ARGS | one argument word: `"RXFOK"` little-endian |
 | `0x5900` | OUT | 256 bytes: where the answer lands |
 | `0x8600` | HANDLE_COPY | the 3-word v7 handle the glue passes |
-| `0x8800` | FRAME | 8 KiB run cell (`RXF_GRAPH_CELL_BYTES`) |
-| `0xA800` | FIFO | 576 bytes of zero row (the glue zeroes it with FRAME) |
-| `0xB000` | ENTRY | the image's entry code (`rxf_graph_run`) |
-| `0x10000` | LINKED | the linked image: tools/native/link.py's runtime context at its byte 0 |
-| `0x8800`–`0xAB00` | BSS rows | FRAME + FIFO: zeroed by the glue before the entry call |
+| `0x8800` | FRAME | 32 KiB run cell (`RXF_GRAPH_CELL_BYTES`) |
+| `0x10800` | FIFO | 576 bytes of zero row (the glue zeroes it with FRAME) |
+| `0x11000` | ENTRY | the image's entry code (`rxf_graph_run`) |
+| `0x20000` | LINKED | the linked image: tools/native/link.py's runtime context at its byte 0 |
+| `0x8800`–`0x10B00` | BSS rows | FRAME + FIFO: zeroed by the glue before the entry call |
 
 From the LINKED row the image is its own map (docs/32 1): the context's words
 6 and 7 name the capability table, the Channel capability names the live area,
@@ -141,7 +141,8 @@ out around and below 16 MiB; the package seat runs at the same base,
 `tests/test_boot_qemu.py`). Other glue-owned places: x86_64 stack at `0x7C00`
 growing down (page tables at `0x2000`–`0x5000`, GDT in the sector, DAP buffer
 at `0x7000`, bounce buffer at `0x10000`); aarch64 stack in the boot ELF's
-`.boot.bss` (16 KiB); wasm32 C stack 8 KiB below the module's data
+`.boot.bss` (64 KiB: room for a run cell of `RXF_GRAPH_CELL_BYTES`); wasm32 C
+stack 8 KiB below the module's data
 (`--stack-first`), the image written at `0x10000`.
 
 On wasm32 the Uart capability is not the carrier's FIFO row but the block of

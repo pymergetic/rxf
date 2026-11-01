@@ -41,13 +41,13 @@
 /* The constants of world_v7.h's map, in asm. The .equ values must match the
  * #defines there and the ASSERTs of entry_v7.ld; `make check-map` proves it. */
     .equ IMAGE_BASE, 0x04000000 /* the carrier rows below, the world behind */
-    .equ ENTRY, IMAGE_BASE + 0xD000     /* rxf_graph_run, in the carrier room */
-    .equ CONTEXT, IMAGE_BASE + 0x10000  /* the linked image's context (link.py) */
+    .equ ENTRY, IMAGE_BASE + 0x11000    /* rxf_graph_run, in the carrier room */
+    .equ CONTEXT, IMAGE_BASE + 0x20000  /* the linked image's context (link.py) */
     .equ ARGS, IMAGE_BASE + 0x5800      /* the argument words the program takes */
     .equ OUT, IMAGE_BASE + 0x5900       /* where the answer lands */
     .equ HANDLE, IMAGE_BASE + 0x8600    /* the 3-word handle, passed by value */
     .equ BSS_START, IMAGE_BASE + 0x8800 /* FRAME and FIFO rows: never on disk */
-    .equ BSS_END, IMAGE_BASE + 0xCB00
+    .equ BSS_END, IMAGE_BASE + 0x10B00
     .equ ARGC, 1                /* the smoke's program takes one word */
     .equ IMAGE_LBA, 5           /* after the sector and the 4-sector stage2 */
     .equ CHUNK_BYTES, 0x10000   /* one read and one copy: 64 KiB (world_v7.h) */

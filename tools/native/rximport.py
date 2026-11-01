@@ -254,8 +254,8 @@ Frame-size policy (what a MicroPython C frame maps to):
                     (``local_round`` of slots.c passes ``&t`` to ``memory_copy``).
 
     The frame of a function is the sum over every non-literal value of its width rounded up to
-    8 bytes (a wide slot counts 16). The budget is the run cell: ``RXF_GRAPH_CELL_BYTES`` (8192
-    bytes, native/graph.h) must hold the frame -- the run carves the active chain's frames as
+    8 bytes (a wide slot counts 16). The budget is the run cell: ``RXF_GRAPH_CELL_BYTES``
+    (native/graph.h) must hold the frame -- the run carves the active chain's frames as
     variable-length (base, size) links of one cell, and refuses a chain whose sum does not fit
     (RXF_REFUSE_CELL_BUDGET), never spilled and never split. When a function's frame cannot fit
     the cell, ``lower()`` refuses with ``Unsupported``

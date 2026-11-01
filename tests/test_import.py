@@ -325,7 +325,8 @@ CASES: dict[str, tuple[str, list[tuple[int, ...]]]] = {
     # the first wall casualty of the fixed 1024-byte frame, flipped (REFUSED's history):
     # six inlined bodies of ~30 values each make a 1264-byte frame, refused by
     # RXF_GRAPH_FRAME's wall before and lowered now that frames are variable-length
-    # (base, size) links of the run cell (RXF_GRAPH_CELL_BYTES, 8192). Every inline
+    # (base, size) links of the run cell (RXF_GRAPH_CELL_BYTES of native/graph.h). Every
+    # inline
     # stays an inline (each is under INLINE_WORDS): what flips is the whole frame
     # running where the wall said no -- run here against the natively compiled wide.c
     "wide": ("wide.c", [(x,) for x in VALUES[::2]]),
@@ -425,8 +426,9 @@ VALUES_FOR_MEMORY = (0, 1, 0x42, 0xFF, 0x0123456789ABCDEF, U64 - 1, 1 << 63)
 # memory at opt-level 0.
 #
 # The frame wall's casualties, REFUSED -> lowered with variable frames (the frames of the
-# run cell are variable-length (base, size) links now, RXF_GRAPH_CELL_BYTES = 8192 where
-# RXF_GRAPH_FRAME's wall was 1024). These three entries left this table; each one now
+# run cell are variable-length (base, size) links now, the budget is the run cell
+# (RXF_GRAPH_CELL_BYTES) where RXF_GRAPH_FRAME's wall was 1024). These three entries left
+# this table; each one now
 # lowers and runs (history kept here and in docs/20, never blurred):
 #   ("wide.c", "wide"): "frame"
 #       -> lowered (CASES["wide"]): a 1264-byte frame of six inlined bodies, run
@@ -2640,7 +2642,7 @@ def test_the_interning_path_lowers_with_variable_frames(tmp_path: Path):
     compiled corpus beside it. REFUSED -> lowered with variable frames: clang -O1 keeps
     the interning's qstr_add path inside qstr_from_strn itself (186 instructions -> 195
     frame values, 1608 bytes) -- a frame the wall (RXF_GRAPH_FRAME, 1024) refused and one
-    run cell holds (RXF_GRAPH_CELL_BYTES, 8192; the frames of the call chain are
+    run cell holds (RXF_GRAPH_CELL_BYTES of native/graph.h; the frames of the call chain are
     variable-length (base, size) links of it, native/graph.c). qstr_from_strn runs its
     own frame as a program of its own; qstr_from_str's call of it is past the inline
     budget and goes as the genuine call card of graph.h (RXF_GRAPH_CALL) -- asserted

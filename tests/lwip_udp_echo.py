@@ -9,8 +9,8 @@ reference, never a seat fill) -- through the same line face and the same host fi
 bytes of every reply, and the counters of the line, must be equal.
 
 ``tests/test_lwip_slip.py`` runs it in process on the interpreter the repository ships: the
-budget of that interpreter carries the echo path since 2026-10-31 (the path measures 15072
-frame bytes at 9 links, ``echo_path_budget``; ``native/graph.h`` declares 16 KiB / 16 links).
+budget of that interpreter carries the echo path with margin (the path measures 15072
+frame bytes at 9 links, ``echo_path_budget``; ``native/graph.h`` declares 32 KiB / 16 links).
 Run as a script it prints the result as JSON::
 
     python -m tests.lwip_udp_echo

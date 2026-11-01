@@ -183,7 +183,7 @@ numbered separately below and are all open or in progress.
   onto `ground.h`), `live.rxfs` (`56247df`, `9341f16`, then the walks `7103839`,
   `a5daeeb`, `5e03371`) and the C++ read side (the engine's `ObjectArena`; the slim
   `rxfb_layout.h` is pinned to `ground.h` for 4 targets x {C11, C++20}, `0ffc4ed`).
-- **[~] U5: load-time work** — cable parts binary instead of JSON megabytes
+- **[x] U5: load-time work** — cable parts binary instead of JSON megabytes
   (~20 s target), on-demand layer paging; the duct-packing leaves the pipeline.
   *Landed:* the binary part stream — the one canonical arena split at its own record
   seams into `head`/`world`/`sys`/`edges` (the cable part, `sys/relations`), served at
@@ -225,8 +225,32 @@ numbered separately below and are all open or in progress.
   indexed queries over the 11,981-rail net. Cutting further means changing the seam
   shape the Python twin and the C++ mirror pin byte for byte. The bench now also
   reports the memo ceilings (`edge_pairs`, `edge_cells`, `streets`, `ring_points`).
-  *Still open in U5:* the paging is the transfer shape only — the viewport/region
-  paging of the layers needs the reader's per-layer reads.
+  *Closed (the on-demand layer paging, 2026-11-01):* the reader's per-layer reads close
+  the loop the transfer shape opened — `RxfArena.regions()` (the 4 KiB district bands,
+  `r0`...), `recordsIn` + `readLayer('cells'|'edges', {region})`, and `pullOf`: the runs
+  one answer needs pulled. The pull is the closure a decode walks (the records, their
+  ancestors, the rows' types with their fields, the rows' targets and roles with their
+  paths, the field-leaved payload values, the scope aliases) plus the shared tables —
+  so the fetch is no wish list: `new RxfArena(bytes, runs)` (the sparse face, the same
+  `readStream` over the fetched runs, cut at the record seams) answers item-identical
+  to the whole-arena read. The serve face answers those very runs: `?parts=1&region=` /
+  `?part=&region=` (`ArenaScene.stream_parts(region=)` + `_district_offsets`) is pinned
+  run for run against the reader's pull on the pinned `scene.bin` and the demo arena
+  (`tests/test_reader_js.py`, `tests/reader_js/region_pulls.mjs` — parity + runs, both
+  languages), and the whole-layer index still reassembles the pinned bytes. Bench
+  (`bench_document.mjs`), bytes pulled per viewport vs the whole layer: the v7 demo
+  `scene.bin` (38,048 B) one district **30,832 B in 25 runs vs 38,048 B** (81%); the
+  real starter arena (4,326,056 B, 970 districts) one district **1,602,304 B in 55 runs
+  vs 4,326,016 B** (37%), ten districts 1,638,712 B — the shared frame rides once and
+  each further district adds only its own records (~3.6 KB). What the seam shape holds:
+  the shared tables are monolithic records (the names table, the semantic rows, the
+  cable tables), so one spec row's fetch carries its table whole; cutting into those
+  records for row-level ranges is the same "cutting further" line as routing — refused,
+  no pin moved. *Residual (honest):* the world page still boots the whole arena
+  (`streamParts` -> `document()`); the camera-driven fetch policy (which districts a
+  viewport pulls first, incremental draws) is loading-lane work on top of the now-pinned
+  faces — the scene's draw is whole-layer by law (the street network is the seam's law
+  over every district) while the per-layer reads serve the viewport's queries.
 - **[ ] U6 (epic, own series): management + UI inside the rxfb binary (OpenGL).**
   Separate seat series per the all-platforms rule. Not started.
 
@@ -247,11 +271,12 @@ numbered separately below and are all open or in progress.
   (`0x4b4f465852`); no seat executes `who()` and asserts the headcount.
   *done when:* each of the four seats runs `who()` in the guest and the smoke checks
   its answer.
-- **[ ] S3: the frame-size decision** (1024-byte frames vs the slow emulated
-  boots) — a user decision, then the change. *Premise moved:* the run cell is
-  variable-frame with an 8192-byte budget (docs/20 S6; `RXF_BOOT_FRAME_SIZE` is the
-  cell), `RXF_GRAPH_FRAME` 1024 stays the composer's and the front's frame; the
-  measured pressure is now the run-cell budget (queue H2), not 1024.
+- **[x] S3: the frame-size decision** (1024-byte frames vs the slow emulated
+  boots) — *closed:* the premise moved to H2, the user decided 32768/16.
+  *Premise (as queued):* the run cell is variable-frame with an 8192-byte
+  budget (docs/20 S6; `RXF_BOOT_FRAME_SIZE` is the cell), `RXF_GRAPH_FRAME`
+  1024 stays the composer's and the front's frame; the measured pressure is the
+  run-cell budget (queue H2), not 1024.
 
 ### P3 — the long strands
 
@@ -260,7 +285,8 @@ numbered separately below and are all open or in progress.
   - Pointer (i2) and runtime Dispatch (i3): **landed** (`tests/test_import.py`,
     `test_the_unary_slot_dispatch_routes_to_the_type_body`).
   - lwIP: vendored and imported, the real UDP echo is byte-equal to native lwIP on
-    the host seat once the interpreter has room (queue Q1-Q3, I1-I2, H2).
+    the host seat once the interpreter has room (queue Q1-Q3, I1-I2; H2 landed the
+    room, 32768/16).
   - uasyncio: semantics landed **as a model** (`33e2838`, ring binding of S3,
     `test_smp_asyncio.py` 110 passed); the source as imported graphs is **not**
     (0/15 defs, queue Y1); the guest `mp_import_stat` fill does not exist.
@@ -311,15 +337,35 @@ numbered separately below and are all open or in progress.
   as landed.
   *done when:* the prove matrix of docs/23 4.9 is green per layer and seat and the
   pins are regenerated.
-- **[ ] H2: the run-cell budget.** The shipped interpreter (`native/graph.rxfs`:
+- **[x] H2: the run-cell budget.** The shipped interpreter (`native/graph.rxfs`:
   cell 8192, 704-byte frames, `depth + 1 >= 8`) refuses the lwIP echo with 18
   (`RXF_REFUSE_CELL_BUDGET`). Measured chain: 14960 bytes at depth 9 (`84497d1`);
   cell 15360/9, 16384/9, 16384/10 and 32768/16 pass, 12288/12 -> 18, 32768/8 -> 17.
-  *done when:* `RXF_GRAPH_CELL_BYTES >= 16384` (32768 for margin) and
-  `RXF_GRAPH_CALL_DEPTH >= 10` (16 for margin) in `native/graph.h` and
-  `native/graph.rxfs`, and the strict xfail "shipped interpreter echo" flips. Touches
-  every pin that hashes the interpreter, so it lands with H1's step 9 or right
-  before it, and `RXF_BOOT_FRAME_SIZE` follows.
+  *Shipped:* **32768 / 16** (the user's decision, the "for margin" numbers) in
+  `native/graph.h` (`RXF_GRAPH_CELL_BYTES 32768U`) and `native/graph.rxfs`
+  (`m_cell_bytes`); `RXF_GRAPH_CALL_DEPTH` 16 and `RXF_GRAPH_FRAME` 1024
+  unchanged. `RXF_BOOT_FRAME_SIZE` follows (0x8000): the carrier map moves with
+  it (FRAME `0x8800`-`0x10800`, FIFO `0x10800`, ENTRY `0x11000`, LINKED
+  `0x20000`, `entry_v7.ld` and the boot glue's constants alongside). Prove: the
+  strict xfail "shipped interpreter echo" flips for real --
+  `test_lwip_slip.py` echo tests 2 passed (the chain measures 15072 of 32768
+  bytes at depth 9 this run, 14960 at the `84497d1` measurement;
+  `RXF_REFUSE_CELL_BUDGET` gone); `test_graph.py`,
+  `test_graph_checks.py`, `test_graph_handle.py` 60 passed,
+  `test_graph_build.py` 70 passed (its budget cases re-parameterize off
+  `RXF_GRAPH_CELL_BYTES`, one byte over is still refused); `boot/run_smoke.sh`
+  PASS on all four seats (proven on a
+  scratch worktree of HEAD + this change: the shared tree's BIOS seat hangs on
+  other lanes' uncommitted work -- HEAD alone and HEAD + this change both boot,
+  my sites at HEAD plus the dirty rest hang). *Residual (honest):* the pins that
+  hash the interpreter are stale and stay stale here -- 5 pin tests red:
+  `test_native` (the starter's Code bodies no longer byte-match the seed builds;
+  the 3 seed provenance recipe digests in `targets.rxfd`),
+  `test_program_sources` (the native program content pins), `test_boot_codes`
+  (the boot recipe digest and the glue code pins, `body_entry_aarch64` 3852 ->
+  3940). Regeneration is the gated `sync.py`/`boot_sync.py` starter write
+  (`starter/**/*.rxfd`, the rxfd-migration lane's tree), so it lands with H1's
+  step 9 and is not forced here.
 
 **I — the importer (`tools/native/rximport.py`; owner: the importer lane).**
 
@@ -353,7 +399,7 @@ numbered separately below and are all open or in progress.
   tap bridge on a datagram stand-in (`50ba25c`). Prove: `test_lwip_slip` +
   `test_lwip_import` 22 passed, 5 xfailed (the tun open, js seat, uart seat, shipped
   interpreter echo, icmp-unreachable defect), 354 s, in a clean scratch worktree.
-  *Remains:* Q2, Q3, H2, I1, I2.
+  *Remains:* Q2, Q3, I1, I2 (H2 landed the run-cell budget, 32768/16).
 - **[ ] Q2: the SLIP line fills per seat** (all-platforms: the module and face are
   the same, each seat's prove hits it). Status: host socketpair PROVEN; unix tap
   bridge proven on a stand-in, `TUNSETIFF` is EPERM here (no CAP_NET_ADMIN) and

@@ -18,7 +18,7 @@
 # in the instruction that uses it -- never cached, never written to a slot (S7, S8).
 #
 # The state mirrors rxf_graph (graph.c:37): code/count/frame/frame_bytes/depth as
-# words, the run cell `cell[16384]` and the frames of the chain `frames[1408]` (16 frame
+# words, the run cell `cell[32768]` and the frames of the chain `frames[1408]` (16 frame
 # links of 11 words, rxf_call_frame of graph.c:21) as regions. The frames are the run's
 # own state -- no raw pointer outlives a step (S7).
 #
@@ -33,7 +33,7 @@
 # with; these macros are the same budget inside the language, and tests/graph_programs.py
 # pins the two together by the refusals it provokes. A `var` size takes one token (no
 # arithmetic), so the frames region names its folded size.
-macro m_cell_bytes() = 16384;
+macro m_cell_bytes() = 32768;
 macro m_call_depth() = 16;
 macro m_link_bytes() = 88;
 macro m_frames_bytes() = 1408;

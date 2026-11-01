@@ -15,7 +15,7 @@
 
 SECTIONS
 {
-    . = IMAGE_BASE + 0xD000;
+    . = IMAGE_BASE + 0x11000;
     _entry_base = .;
 
     .text.entry        : { KEEP(*(.text.entry)) }
@@ -30,6 +30,6 @@ SECTIONS
 ENTRY(rxf_graph_run) /* the face the glue calls; the bins are what the seats pack */
 
 /* The entry sits at its row and stays clear of the linked image behind it
- * (world_v7.h: ENTRY 0xD000, LINKED 0x10000). */
-ASSERT(_entry_base == IMAGE_BASE + 0xD000, "the entry code does not start at its row")
-ASSERT(SIZEOF(.bss) + ADDR(.bss) <= IMAGE_BASE + 0x10000, "the entry code overlaps the linked image")
+ * (world_v7.h: ENTRY 0x11000, LINKED 0x20000). */
+ASSERT(_entry_base == IMAGE_BASE + 0x11000, "the entry code does not start at its row")
+ASSERT(SIZEOF(.bss) + ADDR(.bss) <= IMAGE_BASE + 0x20000, "the entry code overlaps the linked image")

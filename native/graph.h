@@ -130,7 +130,7 @@
  * a cell lands, never how big it is -- the cell header keeps the exact byte sizes
  * (docs/20, S6/S7). The budget is cell bytes: the sum of the active frames must fit,
  * and a chain past it is refused RXF_REFUSE_CELL_BUDGET. */
-#define RXF_GRAPH_CELL_BYTES 16384U
+#define RXF_GRAPH_CELL_BYTES 32768U
 /* The depth budget of a run: how many frame links (base + size of the run cell) may be
  * open at once -- the entry's frame is one of them -- and a call past the last link is
  * refused RXF_REFUSE_CALL_DEPTH. The budget is links, not bytes: the bytes are bounded

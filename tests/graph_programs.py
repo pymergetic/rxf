@@ -722,6 +722,28 @@ def frame_heavy() -> bytes:
     return assemble(1608, [(0, 8)], items)
 
 
+def frame_chain() -> bytes:
+    """A chain of fat frames that exceeds the run cell while the sixteen links are nowhere
+    near spent: frames of an eighth of the cell plus a word are eight deep past the cell
+    (``f(n)`` answers ``1000 + n``, the same recursion as ``frame_heavy``)."""
+    cell = N["RXF_GRAPH_CELL_BYTES"]
+    frame = (cell // 8) + 8
+    far, out, flag, bottom = frame - 16, 16, 8, frame - 8
+    items: list[Item] = [
+        [OP["LESS"], flag, *slot(0), *lit(1)],
+        [OP["BRANCH"], *slot(flag, 1), NONZERO, *edge("bottom"), *edge("down")],
+        "down",
+        call("wrapping_subtract_uint64_t", [slot(0), lit(1)], (far, 8)),
+        call_card(FRAMED, [slot(far)], out=(out, 8)),
+        call("wrapping_add_uint64_t", [slot(out), lit(1)], (far, 8)),
+        [OP["RETURN"], *slot(far), 8],
+        "bottom",
+        move(bottom, 8, lit(1000)),
+        [OP["RETURN"], *slot(bottom), 8],
+    ]
+    return assemble(frame, [(0, 8)], items)
+
+
 def linked_depth() -> bytes:
     """A chain that spends the sixteen frame links on sixty-four byte frames: refused
     RXF_REFUSE_CALL_DEPTH -- the depth bound of graph.h is a link bound, not a byte wall."""
@@ -787,12 +809,14 @@ def budget_cases() -> list[tuple[Case, int, int]]:
     cell cannot hold at all, and a call chain whose frames exceed the cell while the sixteen
     links are nowhere near spent (the refusal is RXF_REFUSE_CELL_BUDGET, not the link bound).
     The link bound is proven beside it: sixteen links of tiny frames refuse CALL_DEPTH."""
-    heavy, budget = frame_heavy(), N["RXF_REFUSE_CELL_BUDGET"]
-    oversized = assemble(16400, [(0, 8)], [[OP["RETURN"], *slot(0), 8]])
+    budget = N["RXF_REFUSE_CELL_BUDGET"]
+    cell = N["RXF_GRAPH_CELL_BYTES"]
+    oversized = assemble(cell + 16, [(0, 8)], [[OP["RETURN"], *slot(0), 8]])
+    chain = frame_chain()
     return [
         (Case("a frame past the cell budget", oversized, number(3), {}), budget, 0),
         (
-            Case("a chain past the cell budget", heavy, number(10), {FRAMED: heavy}),
+            Case("a chain past the cell budget", chain, number(7), {FRAMED: chain}),
             budget,
             0,
         ),
@@ -826,8 +850,9 @@ def broken() -> dict[str, tuple[bytes, int]]:
         "unknown opcode": (program([99]), OUT_OF_RANGE),
         "past the end": (program(move(0, 8, slot(0))), OUT_OF_RANGE),
         # the frame is what the program declares, exactly (docs/20 S6): the refusal of a
-        # frame is the budget, not a wall -- 17000 bytes no run cell could hold
-        "frame": (program(ret, frame=17000), BUDGET),
+        # frame is the budget, not a wall -- past the run cell (native/graph.h), no run
+        # cell could hold it
+        "frame": (program(ret, frame=N["RXF_GRAPH_CELL_BYTES"] + 800), BUDGET),
         "frame not whole words": (program(ret, frame=60), OUT_OF_RANGE),
         "slot out of the frame": (program([OP["RETURN"], *slot(64), 8]), OUT_OF_RANGE),
         "unbound object": (program([OP["RETURN"], *obj(31337, 8), 8]), UNBOUND),
