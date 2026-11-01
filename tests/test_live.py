@@ -412,6 +412,43 @@ def test_every_commit_leaves_a_world_that_checks(starter: bytes):
     assert host.client.hello().commits == 3
 
 
+def test_a_set_that_shrinks_a_value_leaves_no_old_bytes_behind(starter: bytes):
+    """A value that shrinks truncates its record (docs/32 1.2): the delta's state is the
+    image's state in both directions, and no old bytes stand behind a shorter value --
+    whether the room moves (12 bytes of room 16 to 3 of room 8) or stays (4 of room 8 to
+    2 of room 8, where only the padding can betray the old value)."""
+    host = HostImage(starter)
+    before = model_copy(WORLD)
+    grown = model_copy(WORLD)
+    grown.set_payload(
+        resolved(grown, "pymergetic.rxf.application.discount"), b"\x11" * 12
+    )
+    compiled = physical.compile(before, grown, check_base=False)
+    assert (compiled.creates, compiled.sets, compiled.deletes) == (0, 1, 0)
+    assert host.client.apply(compiled.data) == digest_of(grown)
+
+    # the room shrinks: 12 bytes (room 16) to 3 (room 8)
+    shrunk = model_copy(grown)
+    shrunk.set_payload(
+        resolved(shrunk, "pymergetic.rxf.application.discount"), b"\x22" * 3
+    )
+    compiled = physical.compile(grown, shrunk, check_base=False)
+    assert (compiled.creates, compiled.sets, compiled.deletes) == (0, 1, 0)
+    assert host.client.apply(compiled.data) == digest_of(shrunk)
+    assert host.client.emit()[0] == canonical_of(shrunk)
+
+    # the room stays and only the value shrinks: 3 bytes (room 8) to 2 (room 8)
+    shorter = model_copy(shrunk)
+    shorter.set_payload(
+        resolved(shorter, "pymergetic.rxf.application.discount"), b"\x33" * 2
+    )
+    compiled = physical.compile(shrunk, shorter, check_base=False)
+    assert (compiled.creates, compiled.sets, compiled.deletes) == (0, 1, 0)
+    assert host.client.apply(compiled.data) == digest_of(shorter)
+    assert host.client.emit()[0] == canonical_of(shorter)
+    assert host.client.hello().commits == 3
+
+
 # ---- refusing ----------------------------------------------------------------------------------------------------
 
 

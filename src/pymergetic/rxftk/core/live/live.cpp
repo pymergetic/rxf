@@ -765,10 +765,15 @@ class Session {
                         (old->kind == PYMERGETIC_RXF_OBJ_MODULE ? sizeof(pymergetic_rxf_module)
                                                                 : 0) +
                         ((uint64_t(o.payload_length) + 7) & ~uint64_t(7));
-                    if (want > old->payload) {
-                        /* A record that outgrows its room is freed and
-                         * re-grown (docs/32 1.2): the index is handed out
-                         * again and the generation bumps. */
+                    if (want != old->payload) {
+                        /* A record whose room is not its value's room is freed
+                         * and re-grown (docs/32 1.2), in both directions: one
+                         * that outgrows its room needs the room, and one whose
+                         * value shrank must not keep the bigger one - the room
+                         * is the object's size in the canonical form (docs/32
+                         * 5.4), so a stale room would make the image's state
+                         * not the delta's state. The index is handed out again
+                         * and the generation bumps. */
                         const uint32_t parent = old->parent;
                         const uint16_t kind = old->kind;
                         char name[256];
@@ -815,6 +820,24 @@ class Session {
                 if (o.payload_length != 0) {
                     const arena::Status s =
                         arena_.set_payload_at(handle, head, body, o.payload_length);
+                    if (s != arena::Status::Ok) {
+                        *reason = reason_of(s);
+                        return false;
+                    }
+                }
+                /* The room behind the value is zeros, not the tail of the value
+                 * that sat there before (docs/32 1.2: the delta's state is the
+                 * image's state in both directions; the writer pads every value
+                 * to its room with zeros, arena_export.py's `ljust`). A value
+                 * whose room changed was re-grown above and born zeroed, so
+                 * what is cleared here is the room's own tail: the padding of
+                 * the value's last 8-byte slot, at most 7 bytes. */
+                const uint32_t pad = uint32_t(((uint64_t(o.payload_length) + 7) & ~uint64_t(7)) -
+                                              uint64_t(o.payload_length));
+                if (pad != 0) {
+                    static const uint8_t kZeros[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+                    const arena::Status s = arena_.set_payload_at(
+                        handle, head + uint64_t(o.payload_length), kZeros, pad);
                     if (s != arena::Status::Ok) {
                         *reason = reason_of(s);
                         return false;
