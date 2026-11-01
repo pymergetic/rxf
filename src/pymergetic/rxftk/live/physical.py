@@ -222,8 +222,12 @@ def compile(
     With `check_base` the delta names the image it was made for, and the image refuses it on
     any other. The name is `base_digest` when the caller has it - the digest a running image
     answers is the hash of its v7 canonical bytes (docs/32 5.4), which the caller knows from
-    the dump it read the base from (``live.arena_image.digest_of``) - and else the model's own
-    `Image.digest()`, the RXFB-6 form."""
+    the dump it read the base from (``live.arena_image.digest_of``) - and else that same
+    canonical digest of `base` (``live.arena_image.digest_of``). The image compares the name
+    against its own dump digest (``core/live/live.cpp``, `emit_digest`), which is that window
+    and not the superseded `Image.digest()` (the RXFB-6 form): a name taken from the RXFB-6
+    form is refused with REASON_BASE ("the base digest is not the digest of the image") even
+    when the world is the same."""
     before, before_entry = records(base)
     after, after_entry = records(result)
     deletes = sorted(
@@ -243,7 +247,7 @@ def compile(
     if before_entry != after_entry:
         builder.entry(after_entry)
     return Compiled(
-        builder.build((base_digest or base.digest()) if check_base else None),
+        builder.build((base_digest or digest_of_base(base)) if check_base else None),
         creates=len(creates),
         sets=len(sets),
         deletes=len(deletes),
@@ -254,6 +258,14 @@ def compile(
 
 def digest_of(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def digest_of_base(base: Image) -> str:
+    """The name an image answers for `base`: the hash of its v7 canonical bytes (docs/32 5.4),
+    the window the live image's dump digest covers (``live.arena_image.digest_of``)."""
+    from . import arena_image
+
+    return arena_image.digest_of(base)
 
 
 def from_xml(

@@ -19,8 +19,15 @@ from dataclasses import dataclass
 from typing import Protocol
 from xml.etree import ElementTree as ET
 
+from pymergetic.rxftk.core.arena import (
+    FREE_LINKS,
+    MODULE_SIZE,
+    OBJ_MODULE,
+    OBJECT_HEADER_SIZE,
+    ObjectArena,
+)
 from pymergetic.rxftk.core.object import Image
-from pymergetic.rxftk.live import physical
+from pymergetic.rxftk.live import arena_image, physical
 from pymergetic.rxftk.live.client import Client
 
 RXF = "urn:pymergetic:rxf"
@@ -137,6 +144,49 @@ def _value_prefix(image: Image, handle: int) -> int:
     return image.layout(info["type"])["prefix"] if variable else 0
 
 
+# The end marker behind an arena's committed bytes (docs/32 1.3): a record header and the FREE
+# ring links; verify() finds it where it expects it, so the read of a live arena includes it.
+ARENA_FOOT = OBJECT_HEADER_SIZE + FREE_LINKS
+SKIPPED = ("sys", "honors")  # the arena's own subtrees below its root: not the world's
+
+
+def arena_at(machine: Machine, at: int) -> bytes:
+    """The arena of a machine as it lies in its memory: the v6 export's header names its body
+    size, the v7 one-arena image's superblock its committed size (docs/32 1)."""
+    head = machine.read(at, 192)
+    if head[:4] == b"RXFA":
+        (committed,) = struct.unpack_from("<Q", head, 8)
+        return machine.read(at, committed + ARENA_FOOT)
+    (body,) = struct.unpack_from("<Q", head, 16)
+    return machine.read(at, 192 + body)
+
+
+def value_places(arena: bytes, image: Image) -> dict[str, int]:
+    """Where the value of every object lies in the arena bytes, by path: the payload behind the
+    record header and behind the chain head a module's payload opens with (docs/32 1.2). The
+    v6 export's cells carry their own fixed part instead."""
+    if arena[:4] == b"RXFA":
+        va = ObjectArena.attach(arena)
+        places: dict[str, int] = {}
+        todo = [(va.root_handle, "")]
+        while todo:
+            parent, prefix = todo.pop()
+            for child in va.children(parent):
+                kind, _, _, name, *_ = va.load(child)
+                here = f"{prefix}.{va.symbol(name)}" if prefix else va.symbol(name)
+                if not prefix and here in SKIPPED:
+                    continue
+                _, payload = va.locate(child)
+                places[here] = payload + (MODULE_SIZE if kind == OBJ_MODULE else 0)
+                todo.append((child, here))
+        return places
+    return {
+        image.path(cell["handle"]): cell["offset"] + CELL_BYTES
+        for cell in image.arena_cells()
+        if cell["handle"] is not None
+    }
+
+
 def entries(image: Image, module: str = MODULE) -> list[Entry]:
     """The Functions of `module` and the ids they run under (read-only facts)."""
     parent = image.resolve(module)
@@ -187,7 +237,7 @@ class Front:
         self._work = work
         self._module = module
         self._state: Image | None = None
-        self._live: tuple[Image, dict[int, dict]] | None = None
+        self._live: tuple[Image, dict[str, int]] | None = None
 
     # -- what the image has ---------------------------------------------------------------
 
@@ -292,38 +342,35 @@ class Front:
         image state the next compile or install is staged against. Nothing is laundered by this
         — a base nothing rebased onto is refused exactly as it always was ("the base digest is
         not the digest of the image")."""
-        self._state = Image.from_bytes(self._client.emit()[0])
+        self._state = arena_image.load(self._client.emit()[0])
         self._live = None
 
     # -- the memory of the machine ----------------------------------------------------------
 
     def place(self, path: str) -> int:
         """Where the value of an object lies in the memory of the machine: the arena is mapped
-        where the image keeps it, and the value is the payload behind the fixed part of its
-        type."""
-        image, cells = self._live_arena()
+        where the image keeps it, and the value is the payload behind the chain head of a module
+        and the fixed part of its type (docs/32 1.2)."""
+        image, places = self._live_arena()
         handle = image.handle(path)
-        return self._arena.at + cells[handle]["offset"] + CELL_BYTES + _value_prefix(
-            image, handle
-        )
+        return self._arena.at + places[path] + _value_prefix(image, handle)
 
     # -- internals ---------------------------------------------------------------------------
 
     def _image(self) -> Image:
         """The state of the image as the host mirrors it (the deltas sent, and what the image
-        wrote itself)."""
+        wrote itself). The dump is the machine's v7 arena, read with the v7 reader
+        (``arena_image.load``, docs/32 5.5) -- the model's own bytes parser does not read it."""
         if self._state is None:
-            self._state = Image.from_bytes(self._client.emit()[0])
+            self._state = arena_image.load(self._client.emit()[0])
         return self._state
 
-    def _live_arena(self) -> tuple[Image, dict[int, dict]]:
-        """The arena as it lies in the machine, and every cell of its stream by handle."""
+    def _live_arena(self) -> tuple[Image, dict[str, int]]:
+        """The arena as it lies in the machine, and where the value of every object lies in it."""
         if self._live is None:
-            header = self._machine.read(self._arena.at, 192)
-            body = struct.unpack_from("<Q", header, 16)[0]
-            arena = self._machine.read(self._arena.at, 192 + body)
+            arena = arena_at(self._machine, self._arena.at)
             image = Image.from_bytes(arena)
-            self._live = (image, {cell["handle"]: cell for cell in image.arena_cells()})
+            self._live = (image, value_places(arena, image))
         return self._live
 
     def _place(self, *paths: str) -> dict[str, int]:
@@ -369,7 +416,11 @@ class Front:
         compiled = physical.from_xml(Image.from_bytes(state.to_bytes()), ("delta.rxfd", text))
         state.apply(text, links=False)
         digest = self._client.apply(compiled.data)
-        if digest != state.digest():
+        # The digest a running image answers is the hash of its v7 canonical bytes
+        # (docs/32 5.4, ``arena_image.digest_of``), not the Image's own superseded
+        # RXFB-6 form: comparing the two forms would always disagree even when the
+        # states are the same.
+        if digest != arena_image.digest_of(state):
             raise RuntimeError("the image and its mirror disagree")
         self._live = None
 

@@ -202,7 +202,9 @@ def test_a_function_made_of_existing_ones_is_compiled_in_the_running_image(
     expected.apply(text)
     compiled = physical.from_xml(Image.from_bytes(base), ("double.rxfd", text))
     channel = lw.Channel(machine)
-    assert channel.client.apply(compiled.data) == expected.digest()
+    # The answer is the digest of the result in the window the image speaks: the hash of its
+    # v7 canonical bytes (docs/32 5.4), not the superseded `Image.digest()` (the RXFB-6 form).
+    assert channel.client.apply(compiled.data) == physical.digest_of_base(expected)
     path = FUNCTION
     program = bytecode(expected, path)
     status, code, _, _ = compile_program(machine, program)

@@ -177,8 +177,8 @@ def _wire(
     _payload(source, handle, image, placed, like, made)
     rows = [
         (
-            placed[ref.target],
-            None if ref.role is None else placed[ref.role],
+            placed.get(ref.target, NONE),
+            None if ref.role is None else placed.get(ref.role, NONE),
             ref.index,
             ref.kind,
             ref.binding,
