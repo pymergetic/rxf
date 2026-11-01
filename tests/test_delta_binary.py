@@ -87,27 +87,15 @@ def test_the_physical_form_is_one_form(base: Image):
     }
 
 
-_WRITE_SIDE = pytest.mark.xfail(
-    reason="blocked on the arena lane: the live engine refuses the two-round "
-    "delta at operation 0 ('a path does not resolve'). The same delta replays "
-    "to the right world at the model level, so the divergence is the engine's "
-    "arena resolution of freshly-placed nodes (docs/32 5.5), not the delta or "
-    "the v7 oracle. The world-survey capacity fix (arena: size the rebuilt "
-    "index from the world survey) cleared seed 1 and the canonical-digest "
-    "drift of seeds 2 and 4; these three still hit the resolution refusal.",
-    strict=True,
-)
-
-
 @pytest.mark.parametrize(
     "seed",
     [
         0,
         1,
-        pytest.param(2, marks=_WRITE_SIDE),
+        2,
         3,
-        pytest.param(4, marks=_WRITE_SIDE),
-        pytest.param(5, marks=_WRITE_SIDE),
+        4,
+        5,
     ],
 )
 def test_random_edits_give_the_same_image_both_ways(base: Image, seed: int):

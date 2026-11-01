@@ -285,26 +285,24 @@ def random_edit(image: Image, rng: random.Random) -> None:
 
 
 def edited(before: Image, rng: random.Random) -> Image:
-    """A copy of `before` with a few random edits that leave an image that links."""
+    """A copy of `before` with a few random edits that leave an image that links.
+
+    An edit that leaves a reference to an object it removed is a world the writer
+    refuses (a dangling ref: `tools/native/arena_export.py`'s `_handle` raises),
+    so another is drawn - the same law `tests/test_arena_image.py`'s `worlds`
+    follows: a drawn world is only one the oracle can answer for."""
     while True:
         result = Image.from_bytes(before.to_bytes())
         for _ in range(5):
             random_edit(result, rng)
         try:
             result.digest()
+            link.arena_of(result)  # the writer accepts the world it draws
         except Exception:  # noqa: BLE001, S112 - the edits made a dangling handle; try others
             continue
         return result
 
 
-@pytest.mark.xfail(
-    reason="blocked on the arena lane: the canonical walk of 5b1bb80 lands the "
-    "dump of an untouched arena, but a committed apply still answers a digest "
-    "that is not the v7 oracle's (the write side is not the writer's "
-    "allocation sequence, docs/32 5.4), and the second round's emit is "
-    "refused 'image not usable' over the arena the apply rewrote",
-    strict=False,
-)
 @pytest.mark.parametrize("seed", range(4))
 def test_applying_the_physical_delta_gives_the_same_image_as_the_host(
     starter: bytes, seed: int
@@ -632,9 +630,11 @@ def test_relink_is_refused_with_its_reason(host: HostImage):
 def test_a_full_undo_log_refuses_and_restores(starter: bytes):
     base = model_copy(WORLD)
     result = model_copy(WORLD)
-    for h in range(
-        3, 12000, 3
-    ):  # the state word of thousands of objects: each one is a granule of the log
+    for h in range(3, 12000, 3):
+        # the state word of thousands of objects: each one is a granule of the
+        # log. A slot the world does not carry is not an object to set.
+        if not result.live(h):
+            continue
         result.set_state(h, 9)
     compiled = physical.compile(base, result, check_base=False)
     assert compiled.sets > 3000
@@ -674,10 +674,13 @@ def test_break_request_is_carried_to_the_area(host: HostImage):
 
 
 @pytest.mark.xfail(
-    reason="blocked on the arena lane: the lookup table is not rebuilt after "
-    "a commit (the engine refuses the second round with 'a path does not "
-    "resolve': the index the table carries is still the pre-apply one, "
-    "docs/32 1)",
+    reason="re-measured 2026-11-01: the per-round resolves and the digests "
+    "hold; what refuses is the arena's object index, which is sized at "
+    "bootstrap and does not grow (docs/32 5.1). The starter's arena carries "
+    "220 free slots (kIndexHeadroom 256 minus the export's own entries) and "
+    "the three rounds take 450 net creates, so the second round is refused "
+    "at its 71st create (reason 6: 'the arena has no room, or the index is "
+    "full')",
     strict=False,
 )
 def test_the_lookup_table_survives_many_edits_and_deletes(starter: bytes):
@@ -802,6 +805,22 @@ def test_compaction_in_place_gives_the_canonical_arena(starter: bytes):
     assert host.area.compactions == 2
 
 
+def test_the_compaction_digest_is_the_oracles_digest(starter: bytes):
+    """The oracle is pinned where docs/32 5.4 puts it: the image is compacted before
+    it is dumped. COMPACT lands that form in place, so its digest is the digest of the
+    v7 export of the same world (tests/support.py's `digest_of` over tools/native/
+    link.py's `arena_of`) and its bytes are those bytes - not a digest of the rooms
+    the apply's allocations happened to leave. This is the resolution the model
+    documents; the alternative (the apply allocating the writer's rooms exactly) is
+    what it pins against: nothing may depend on the allocation history."""
+    full, pruned = garbage()
+    host = HostImage(link.arena_of(full))
+    host.client.apply(physical.compile(full, pruned, check_base=False).data)
+    done = host.client.compact()
+    assert done.digest == digest_of(pruned)
+    assert host.area.arena_bytes() == canonical_of(pruned)
+
+
 def test_compaction_keeps_the_objects_it_remapped(starter: bytes):
     """COMPACT slides the arena onto its canonical form (docs/20 S8): the handles are the
     rebuild's - remapped, never promised stable - and the objects they name are the same.
@@ -892,13 +911,6 @@ def test_the_hello_of_a_running_image_carries_its_version_and_its_counters(
     assert hello.stage_capacity > 0 and hello.work_capacity > 0
 
 
-@pytest.mark.xfail(
-    reason="blocked on the arena lane: the committed apply answers a digest "
-    "that is not the v7 oracle's (the write side is not the writer's "
-    "allocation sequence, docs/32 5.4) - the walk of 5b1bb80 lands the dump "
-    "of an untouched arena, not the apply's write side",
-    strict=False,
-)
 def test_the_counters_of_a_session_move_with_what_the_image_takes_and_refuses(
     starter: bytes, host: HostImage
 ):

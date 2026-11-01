@@ -151,6 +151,28 @@ class Session {
         return true;
     }
 
+    /* Fixups are queued against the handle they write into. A reshape (a set
+     * that moves the record) hands out a new (index, generation); the fixups
+     * follow it (the twin re-points them: native/live.rxfs). A delete frees the
+     * index with no successor, so its fixups are dropped instead (the twin:
+     * "a delete has no successor, so its fixups are dropped"). Either way a
+     * fixup must never write through a stale (index, generation). */
+    void pend_repoint(uint32_t from, uint32_t to) {
+        for (uint32_t i = 0; i < pend_count_; i++)
+            if (pend_[i].handle == from)
+                pend_[i].handle = to;
+    }
+
+    void pend_drop(uint32_t handle) {
+        uint32_t j = 0;
+        for (uint32_t i = 0; i < pend_count_; i++) {
+            if (pend_[i].handle == handle)
+                continue;
+            pend_[j++] = pend_[i];
+        }
+        pend_count_ = j;
+    }
+
     /* The record's fields the replay writes around (docs/32 1.2). */
     bool arena_record(uint32_t handle, pymergetic_rxf_object **record) {
         return arena_.load(handle, record) == arena::Status::Ok;
@@ -267,6 +289,10 @@ class Session {
      * layout is more than the walk reads (LAYOUT). */
     bool check_all(uint32_t *reason) {
         *reason = PYMERGETIC_RXF_REASON_DANGLING;
+        at_ = 0x40000000u; /* the image itself: the run entry */
+        fail_target_ = arena_.super()->entry;
+        fail_p_ = reinterpret_cast<const uint8_t *>("(entry)");
+        fail_n_ = 7;
         if (arena_.super()->entry != PYMERGETIC_RXF_HANDLE32_NONE &&
             !holds_live(arena_.super()->entry))
             return false;
@@ -276,14 +302,23 @@ class Session {
             if (h == 0)
                 continue;
             const uint32_t handle = static_cast<uint32_t>(h);
+            at_ = handle; /* the source node: whichever check below fails names it */
+            const char *subject = nullptr;
+            uint32_t subject_len = 0;
+            if (name_of(handle, &subject, &subject_len)) {
+                fail_p_ = reinterpret_cast<const uint8_t *>(subject);
+                fail_n_ = subject_len;
+            }
             pymergetic_rxf_object *record = nullptr;
             if (arena_.load(handle, &record) != arena::Status::Ok)
                 return false;
+            fail_target_ = record->parent;
             if (record->parent != PYMERGETIC_RXF_HANDLE32_NONE && !holds_live(record->parent))
                 return false;
             pymergetic_rxf_spec row{};
             if (arena_.spec(handle, &row) != arena::Status::Ok)
                 return false;
+            fail_target_ = row.type;
             if (row.type != PYMERGETIC_RXF_HANDLE32_NONE && !holds_live(row.type))
                 return false;
             uint32_t held = 0;
@@ -302,9 +337,11 @@ class Session {
                 }
                 if (arena_.refs_of(handle, rows, held, &held) != Status::Ok)
                     return false;
-                for (uint32_t k = 0; k < held; k++)
+                for (uint32_t k = 0; k < held; k++) {
+                    fail_target_ = rows[k].target;
                     if (!holds_live(rows[k].target) || !holds_live(rows[k].role))
                         return false;
+                }
                 scratch_at_ = mark;
             }
             if (row.type == PYMERGETIC_RXF_HANDLE32_NONE || record->payload == 0)
@@ -338,6 +375,7 @@ class Session {
                         break;
                     uint64_t slot = 0;
                     mem::copy(&slot, value + at, 8);
+                    fail_target_ = static_cast<uint32_t>(slot);
                     if (!holds_live(slot))
                         return false;
                 }
@@ -370,7 +408,7 @@ class Session {
         switch (s) {
         case arena::Status::JournalFull:
             return PYMERGETIC_RXF_REASON_JOURNAL;
-        case arena::Status::IndexFull:
+        case arena::Status::NameTaken:
             return PYMERGETIC_RXF_REASON_EXISTS;
         case arena::Status::BadName:
             return PYMERGETIC_RXF_REASON_NAME;
@@ -384,7 +422,15 @@ class Session {
         case arena::Status::Dangling:
             return PYMERGETIC_RXF_REASON_DANGLING;
         case arena::Status::BadHandle:
+        case arena::Status::BadPath:
             return PYMERGETIC_RXF_REASON_PATH;
+        case arena::Status::IndexFull:
+            /* The index has no slot to hand out - live.h names it under ARENA
+             * ("the arena has no room, or the index is full"), the twin's map
+             * answers the same (its status 4 falls to the default 6). A create
+             * that names an object that is there is the pre-check's own EXISTS,
+             * never this. */
+            return PYMERGETIC_RXF_REASON_ARENA;
         default:
             return PYMERGETIC_RXF_REASON_ARENA;
         }
@@ -393,6 +439,8 @@ class Session {
     /* The object a dotted path names, under the root (docs/32 2: the root's own
      * name is the image, not a path segment). */
     bool delta_resolve(const uint8_t *p, uint32_t n, uint32_t *handle) {
+        fail_p_ = p;
+        fail_n_ = n;
         uint32_t at = arena_.root_handle();
         uint32_t cut = 0;
         while (cut < n) {
@@ -601,6 +649,7 @@ class Session {
         *reason = PYMERGETIC_RXF_REASON_PATH;
         pos = ops_start;
         for (uint32_t i = 0; i < head.op_count; i++) {
+            at_ = i;
             const uint32_t op = load<uint32_t>(d + pos);
             const uint8_t *p = nullptr;
             uint32_t n = 0;
@@ -732,11 +781,19 @@ class Session {
                             *reason = PYMERGETIC_RXF_REASON_PROTECTED;
                             return false;
                         }
+                        const uint32_t stale = handle;
                         const arena::Status s = arena_.create(parent, name, kind, want, &handle);
                         if (s != arena::Status::Ok) {
                             *reason = reason_of(s);
                             return false;
                         }
+                        /* A fixup that was pushed for the record before its
+                         * re-grow holds the handle the index carried then: the
+                         * index is handed out again with a new generation, so a
+                         * fixup left on the old handle would name a slot that
+                         * is no longer this object (the arena answers
+                         * BadHandle). The fixups follow the object. */
+                        pend_repoint(stale, handle);
                     }
                 }
                 /* The state: the semantic row (docs/32 5) and the value. */
@@ -784,7 +841,8 @@ class Session {
                         return false;
                     }
                 }
-                tail += uint64_t(o.patch_count) * sizeof(pymergetic_rxf_delta_patch);
+                /* tail has already walked past the patches above; the ref rows
+                 * follow them in the record (docs/32 5.2). */
                 if (o.ref_count != 0) {
                     if (!write_refs(p, n, o.ref_count, tail, reason))
                         return false;
@@ -839,6 +897,7 @@ class Session {
                     *reason = reason_of(s);
                     return false;
                 }
+                pend_drop(handle);
             } else { /* ENTRY: the image's entry, the path of the run */
                 const uint32_t s = load<uint32_t>(d + pos + 4);
                 delta_string(strings, ssize, s, &p, &n);
@@ -854,12 +913,20 @@ class Session {
 
         /* Pass 3: the fixups - the paths that only the replay made real. */
         for (uint32_t k = 0; k < pend_count_; k++) {
+            at_ = 0x80000000u | k;
             const Pending &q = pend_[k];
             const uint8_t *p = nullptr;
             uint32_t n = 0;
             delta_string(strings, ssize, q.string_id, &p, &n);
             uint32_t target = PYMERGETIC_RXF_HANDLE32_NONE;
             if (!delta_resolve(p, n, &target)) {
+                /* A fixup names its subject by path (live.h: every handle is a
+                 * path) and this pass runs after every create the delta makes:
+                 * a path that still names nothing is the model's own refusal
+                 * ("a name that names nothing", reason PATH) - an unset write
+                 * would commit a world the delta did not describe. The fixups
+                 * of a record this replay deleted are dropped where it is
+                 * deleted (pend_drop above), never here. */
                 *reason = PYMERGETIC_RXF_REASON_PATH;
                 return false;
             }
@@ -1031,9 +1098,20 @@ class Session {
             if (!apply(length, &reason)) {
                 arena_.journal_rollback();
                 a_->rejects++;
-                store<uint32_t>(rs, 0);
+                store<uint32_t>(rs, at_);
                 store<uint32_t>(rs + 4, reason);
-                *rsl = 8;
+                store<uint32_t>(rs + 8, fail_target_);
+                /* Carry the subject (the path whose resolve failed, or the
+                 * source node's name for a check_all dangling) after the (at,
+                 * reason, target) triple so the client names it; one that would
+                 * not fit a frame keeps the bare triple. */
+                uint32_t carried = 12;
+                if (fail_p_ != nullptr && fail_n_ != 0 &&
+                    12 + fail_n_ <= PYMERGETIC_RXF_FRAME_MAX) {
+                    mem::copy(rs + 12, fail_p_, fail_n_);
+                    carried = 12 + fail_n_;
+                }
+                *rsl = carried;
                 /* The delta was refused (frames.APPLY: "delta refused"): the
                  * payload is its reason, and the client answers it as Refused.
                  * "request refused" is the well-formed request not done. */
@@ -1514,6 +1592,18 @@ class Session {
     uint32_t slots_ = 0;
     uint64_t reclaimed_ = 0;
     uint8_t *scratch_base_ = nullptr, *scratch_at_ = nullptr, *scratch_end_ = nullptr;
+    /* Where a refused apply stopped: the index of the operation being replayed
+     * (or 0x80000000 | fixup index in the fixup pass) and the path whose resolve
+     * failed. The path points into the staged delta, valid until the answer is
+     * written. Carried out in the APPLY refusal so the client can name the exact
+     * operation and subject instead of a bare reason. */
+    uint32_t at_ = 0;
+    const uint8_t *fail_p_ = nullptr;
+    uint32_t fail_n_ = 0;
+    /* The dangling handle a check_all refusal names (0 when the refusal is a
+     * resolve that would not name one). Carried in the APPLY refusal beside the
+     * source so the client can say which subject holds a ref at what is gone. */
+    uint32_t fail_target_ = 0;
 };
 
 } // namespace
