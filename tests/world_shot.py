@@ -23,7 +23,9 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import uvicorn
-from playwright.sync_api import sync_playwright
+# playwright is a seat-optional dependency (only a seat with a browser records
+# shots): the checker resolves nothing on a seat that does not install it.
+from playwright.sync_api import sync_playwright  # pyright: ignore[reportMissingImports]
 
 ROOT = Path(__file__).parents[1]
 if str(ROOT) not in sys.path:  # run as a tool: the tree's `tools` package lives here

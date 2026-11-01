@@ -55,3 +55,14 @@ if(EXISTS ${RXFB_ENGINE_SRC}/pymergetic/rxftk/core/hash/sha256.cpp)
   target_include_directories(rxfb_dump_cpp PRIVATE ${RXFB_ENGINE_SRC})
   target_compile_options(rxfb_dump_cpp PRIVATE -Wall -Wextra -Werror)
 endif()
+
+# The layout pins (test/layout_pins.c): compile-time assertions that rxfb_layout.h is the engine's
+# ground.h, struct for struct. There is nothing to run — the compiler is the test — but building it
+# as an object both checks the layout at build time and gives an editor a compile-database entry
+# with the engine's include root, so an editor without one resolves ground.h and the pins can never
+# drift silently. tests/test_rxfb.py re-checks every pinned target; this is the host's own check.
+if(EXISTS ${RXFB_ENGINE_SRC}/pymergetic/rxftk/core/ground.h)
+  add_library(rxfb_layout_pins OBJECT test/layout_pins.c)
+  target_include_directories(rxfb_layout_pins PRIVATE ${RXFB_ENGINE_SRC})
+  target_compile_options(rxfb_layout_pins PRIVATE -ffreestanding -fno-builtin -Wall -Wextra -Werror)
+endif()
