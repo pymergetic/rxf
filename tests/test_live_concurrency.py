@@ -372,3 +372,26 @@ def test_a_live_apply_holds_the_transaction_around_its_whole_composite(
             assert not prober.is_alive()
     finally:
         runner.close()
+
+
+def test_closing_the_machine_waits_for_the_operation_in_flight(image: Image) -> None:
+    """The mapping of a linked image goes only through the gate of its link.
+
+    A request thread that is running the image's own leaf in the block must finish before the
+    block is unmapped: unmapping under a running leaf is a segmentation fault, not an error (it
+    took down a worker of the suite when a runner closed while a feed poll was still in `pump`).
+    A call that arrives after the close finds the machine closed and refuses in words.
+    """
+    with running(image) as runner:
+        machine = runner.machine
+        closer = threading.Thread(target=machine.close)
+        with machine.transaction():
+            closer.start()
+            closer.join(timeout=0.5)
+            assert closer.is_alive(), "the block was unmapped under an operation in flight"
+        closer.join(timeout=30)
+        assert not closer.is_alive()
+        with pytest.raises(RuntimeError, match="closed"):
+            machine.pump()
+        with pytest.raises(RuntimeError, match="closed"):
+            machine.read(machine.head.block, 8)

@@ -162,10 +162,12 @@ class Machine:
     # -- the machine of the front end (live.front.Machine) -----------------------------------
 
     def read(self, address: int, size: int) -> bytes:
+        self._check_open()
         at = address - self.head.block
         return bytes(self._memory[at : at + size])
 
     def write(self, address: int, data: bytes) -> None:
+        self._check_open()
         at = address - self.head.block
         self._memory[at : at + len(data)] = data
 
@@ -182,8 +184,9 @@ class Machine:
     def run(self, identity: int, arguments: bytes = b"") -> tuple[int, int]:
         """The interpreter of the image on one program (`graph.run`): its status and its value.
         A run is not a frame: this call IS this process running the image (docs/19)."""
-        self._check_open()
+        self._check_open()  # closed long ago: the gate's descriptor is gone with the machine
         with self._gate:
+            self._check_open()  # inside the gate: a close in another thread has finished or waits
             self.write(self.head.args, arguments or bytes(8))
             status = _run_at(self.head.run)(
                 self.head.context,
@@ -196,16 +199,26 @@ class Machine:
 
     def pump(self) -> int:
         """The image's own live leaf (leaf 29, `native/live.cpp`) serves its rings."""
-        self._check_open()
+        self._check_open()  # closed long ago: the gate's descriptor is gone with the machine
         with self._gate:
+            self._check_open()  # inside the gate: the block cannot be unmapped under the leaf
             return _leaf_at(self.slot(self.head.pump))(self.head.context, self.head.area)
 
     def close(self) -> None:
-        """The machine is done here: the mapping goes, the segment stays with its runner."""
+        """The machine is done here: the mapping goes, the segment stays with its runner.
+
+        The mapping goes only through the gate: an operation of another thread that is running
+        the image's code in this block finishes first, and one that arrives afterwards finds the
+        machine closed (`_check_open`) and refuses. Unmapping under a running leaf is a
+        segmentation fault, not an error.
+        """
         if self._closed:
             return
-        self._closed = True
-        self._drop()
+        with self._gate:
+            if self._closed:
+                return
+            self._closed = True
+            self._drop()
         close = getattr(self._gate, "close", None)
         if close is not None:
             close()
