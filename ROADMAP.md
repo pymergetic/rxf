@@ -149,31 +149,84 @@ numbered separately below and are all open or in progress.
   was/now digest, refusals are words, forks carry the act history (`51cd60a`). The
   seat leg came with the twin's apply (`a5daeeb`: the page's SET/ADD/RENAME commit,
   each digest equal to the engine's). Prove: `test_web_console.py` 17 passed.
-- **[ ] U2: the browser's "modification"** — bytes and digest visibly change
-  while dragging (the third preview point). *Verified open:* the world's drag is a
-  camera pan (`rxf-world.js`), the console shows digests only per act, there is no
-  byte-diff view.
-  *done when:* a drag in the preview shows the byte diff and the digest
-  updating live.
-- **[~] U3: `rxf-reader.js` onto v7.** *Landed:* the reader has an `RxfArena` layer
-  (superblock, slot table, records, `sys/syms`, `sys/specs`, `sys/relations`) and
-  dispatches on the magic (`7ced79e`; the Python twin `ArenaScene` agrees byte for
-  byte; `test_reader_js.py` 7 tests, 3 re-checked here: v7 vs exporter, spec row,
-  file identity); `demo-scene.json` is gone (`12f2789`).
-  *Remains:* the page itself still reads v6: `/world/scene.bin` serves
-  `Image.to_bytes()` (RXFB v6) and the checked-in `scene.bin` is `RXFB` version 6,
-  so the static seats never touch the v7 face.
-  *done when:* the reader parses a v7 image **and the world page's seats read v7
-  bytes through it** (`scene.bin` is the v7 arena of the image).
+- **[x] U2: the browser's "modification"** — bytes and digest visibly change
+  while dragging (the third preview point). *Landed:* the browser seat re-pins the
+  digest on every settle tick of a value drag (`web/digest.js`, one digest surface;
+  `web/index.html` `dragValue`: each tick is a `set`-act through the host compiler,
+  with live byte-diff of two dump pins in `#digest-diff`); the drag gate was fixed
+  from `node.size <= 6` to a safe-integer check (it blocked the console's own
+  8-byte scalars). Prove: `test_web_console.py` 18 passed (incl.
+  `test_a_drag_keeps_the_bytes_pinned_and_the_byte_diff_live`) and the real browser
+  run `test_web_console_browser.py::test_console_digest_story_round_trips` green
+  (24 drag steps).
+- **[x] U3: `rxf-reader.js` onto v7** — the world page's seats read the v7 arena.
+  *Landed:* the reader has an `RxfArena` layer (superblock, slot table, records,
+  `sys/syms`, `sys/specs`, `sys/relations`) and dispatches on the magic
+  (`7ced79e`; `demo-scene.json` is gone, `12f2789`); `/world/scene.bin` and the
+  checked-in `static/scene/scene.bin` now serve the canonical v7 arena of the image
+  (`world.scene_arena`, docs/32 5.4 — the placement the writer and the Python twin
+  `ArenaScene` pin byte for byte), `world.demo` is the seam module (the v6 face keeps
+  the runtime traces, the v7 face is what the page boots) and the capture hosts serve
+  the same face. *Seam:* the demo's two runtime traces have no v7 form (docs/32 2
+  refuses a dangling target at write time, a free span carries no payload) and stay
+  on the v6 face (the projection's damage pins, the v6 reader tests); a world with
+  dangling refs — or one the founding core cannot name (docs/36 5) — answers 409 in
+  words on `scene.bin` and the page's session lane carries it.
+  *Prove:* `test_reader_js.py` 8 passed (incl. the artifact pin: the checked-in
+  `scene.bin` equals the writer's bytes and JS == `ArenaScene` on it),
+  `test_world3d.py` 36 passed, `test_serve_real.py` 7/9 green incl. both 409
+  refusals (the 2 live-image ones `ArenaError: BadImage` at `live/front.py:316` —
+  the known machine/engine in-flight chain), `test_world_browser.py` 2 skipped here
+  (no chromium/GPU — its contract: the JSON pins and the Node reader pin stand).
 - **[x] U4: the three mirrors onto v7** — `rxf-reader.js` (`7ced79e`),
   `tests/host/smp_arena.h` (`a53b46c`: the 24-byte record, pin tests map the header
   onto `ground.h`), `live.rxfs` (`56247df`, `9341f16`, then the walks `7103839`,
   `a5daeeb`, `5e03371`) and the C++ read side (the engine's `ObjectArena`; the slim
   `rxfb_layout.h` is pinned to `ground.h` for 4 targets x {C11, C++20}, `0ffc4ed`).
-- **[ ] U5: load-time work** — cable parts binary instead of JSON megabytes
+- **[~] U5: load-time work** — cable parts binary instead of JSON megabytes
   (~20 s target), on-demand layer paging; the duct-packing leaves the pipeline.
-  *Verified open:* the cable bundles are still the Python `packing=True` pass and
-  `/world/scene.json` is still the part stream; nothing on paging was committed.
+  *Landed:* the binary part stream — the one canonical arena split at its own record
+  seams into `head`/`world`/`sys`/`edges` (the cable part, `sys/relations`), served at
+  `/world/scene.bin?parts=1` / `?part=`, reassembled byte for byte into the pinned
+  `scene.bin` and read through the same reader face (`rxf-reader.js` / `RxfArena`);
+  the payload on the starter falls 55.9 MB of JSON parts to 4.3 MB (12.9x) and the
+  duct-packing parts (`bundles`, `stubs`, the counts truth that counts them) left the
+  page's pipeline — they stay on the session for the tools. *Landed (the reader's hot
+  accessors):* the per-call record/name/payload decoders are now cached the way the
+  typed faces cache (`cell`/`live`/`name`/`stringAt`/`path`/`get` memoized per handle;
+  the v7 `refsOf` answers from one `sys/relations` table map instead of a name walk of
+  every relation table per record — that walk was 190.8 M `name` + 400.4 M `live`
+  calls for 62,984 `refsOf` answers). Node bench `tests/reader_js/bench_document.mjs`
+  over the real starter arena (`tree.load(starter)` -> `arena_export`, 22,346 cells /
+  86,268 cables), `document()` uninstrumented: **293.5 s -> 7.0/9.1/9.8 s** (3 runs,
+  median 9.1 s, 32x; `cablesPass` 193.5 s -> 2.0 s, `buildingsPass` 93.6 s -> 1.0 s).
+  The forensic v6 face of the same tree: 12.7 s -> 6.4/6.9/7.1 s. The v7 demo face
+  (`scene.bin`) is unchanged at ~0.13 s. The document's sha256 is identical before
+  and after on all four faces — no pin moved, no golden updated. *Closed (the routing
+  residual, 2026-11-01):* the wall after the accessor caches was the routing geometry
+  (`routesPass` 5.5 s + `cityPass` 2.6 s of the ~9 s starter document). Four exact
+  fixes, same byte face: `round3` answers the non-tie case with one rounding instead
+  of `toFixed(3)`'s string; the street snap in `streetRoute` binary-searches the
+  sorted street coordinates instead of scanning them; `projectRail` projects each
+  candidate rail once — the old pair walked the bin rings twice (`nearRails` scanned,
+  `projectRail` projected again) over an 11,981-rail net, now one fused walk with the
+  same visit order and the same 1e-12 selection rule; `mergeRects` dedups candidates
+  in a stamped scratch instead of a Set + flatMap + sort per box. Same v7 starter
+  arena (22,346 cells / 86,268 cables), `document()` uninstrumented: 5-run median
+  **5.3 s** (min 4.7 s), an interleaved A/B against the pre-round reader under the
+  same load 10.3 s -> 6.3 s, and the reader's trace `routesPass` 5.5 s -> 2.1 s,
+  `cityPass` 2.6 s -> 0.6 s. At the slower-box factor (1.9x — the 549 s baseline
+  machine) the median projects to ~10.1 s and the quiet run to ~9.0 s: the ~20 s
+  click-to-world target holds with room. *What is left is the document's own output,
+  not routing:* 84,546 of the 86,268 cables have a distinct from/to pair (a 2% memo
+  ceiling), all 22,346 plots project to distinct rail positions (no memo to have),
+  and every route is its own milli-rounded `{x, z}` point list in the pinned face —
+  the residual profile is that emission (GC, the per-edge point objects) plus the two
+  indexed queries over the 11,981-rail net. Cutting further means changing the seam
+  shape the Python twin and the C++ mirror pin byte for byte. The bench now also
+  reports the memo ceilings (`edge_pairs`, `edge_cells`, `streets`, `ring_points`).
+  *Still open in U5:* the paging is the transfer shape only — the viewport/region
+  paging of the layers needs the reader's per-layer reads.
 - **[ ] U6 (epic, own series): management + UI inside the rxfb binary (OpenGL).**
   Separate seat series per the all-platforms rule. Not started.
 
@@ -373,10 +426,9 @@ numbered separately below and are all open or in progress.
 
 ## 2. The new piece: rxfb as a backend library
 
-> "eine extrem schmale version von rxfb als backend für c cpp cpython und rust
-> zur verfügung stellen, also quasi als library anstatt als eigenes programm,
-> sodass andere frameworks das zero copy layout und die code geschichte intern
-> auch nutzen können."
+> (The original mandate, translated from the German:) "provide a very slim version of rxfb as a
+> backend for C, C++, CPython and Rust — as a library rather than its own program — so that other
+> frameworks can use the zero-copy layout and the code history internally."
 
 **[x] L1: the slim reader core (`rxfb`).** Landed in four faces over one C core.
 Design decisions (as built):

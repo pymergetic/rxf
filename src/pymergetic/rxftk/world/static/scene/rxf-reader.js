@@ -167,6 +167,17 @@ function round3(value) {
         const lower = Math.floor(value * 1000 - 0.5); // the two milli neighbors: lower, lower+1
         return (lower % 2 === 0 ? lower : lower + 1) / 1000;
     }
+    // `toFixed(3)` reads the double's exact value; `Math.round(value * 1000)` reads the
+    // rounded product. The two can only disagree where that product sits within its own
+    // rounding error of a half-milli (a near-tie the branch above does not cover — an exact
+    // tie of the value is a sixteenth). Guard those out and the fast path returns the same
+    // decimal `toFixed(3)` would have formatted — one rounding where toFixed built a string.
+    const scaled = value * 1000;
+    const nearTie = scaled - 0.5;
+    const boundary = Math.abs(nearTie - Math.round(nearTie));
+    if (boundary > 8 * Number.EPSILON * Math.max(1, Math.abs(scaled))) {
+        return Math.round(scaled) / 1000;
+    }
     return Number(value.toFixed(3));
 }
 
@@ -325,11 +336,18 @@ export class RxfReader {
     }
 
     live(handle) {
-        if (handle >= BigInt(this.handleCount)) return false;
-        const entry = this.slot(handle);
-        return (entry & INDEX_FREE) === 0n
-            && Number(entry) >= this.cellsOff
-            && Number(entry) < this.cellsOff + this.frontier;
+        if (this._live === undefined) this._live = new Map();
+        const cached = this._live.get(handle);
+        if (cached !== undefined) return cached;
+        let out = false;
+        if (handle < BigInt(this.handleCount)) {
+            const entry = this.slot(handle);
+            out = (entry & INDEX_FREE) === 0n
+                && Number(entry) >= this.cellsOff
+                && Number(entry) < this.cellsOff + this.frontier;
+        }
+        this._live.set(handle, out);
+        return out;
     }
 
     // The handle of one index of the handle table (v6: the index is the handle).
@@ -343,34 +361,58 @@ export class RxfReader {
     }
 
     cell(handle) {
-        if (!this.live(handle)) return null;
-        return this.recordAt.get(Number(this.slot(handle))) ?? null;
+        if (this._cells === undefined) this._cells = new Map();
+        const cached = this._cells.get(handle);
+        if (cached !== undefined) return cached;
+        const out = this.live(handle) ? this.recordAt.get(Number(this.slot(handle))) ?? null : null;
+        this._cells.set(handle, out);
+        return out;
     }
 
     // -- names and paths ---------------------------------------------------------------------------
 
     name(handle) {
+        if (this._names === undefined) this._names = new Map();
+        const cached = this._names.get(handle);
+        if (cached !== undefined) return cached;
         const record = this.cell(handle);
-        if (record === null || !record.nameOff) return "";
-        return this.stringAt(record.nameOff);
+        const out = record === null || !record.nameOff ? "" : this.stringAt(record.nameOff);
+        this._names.set(handle, out);
+        return out;
     }
 
     stringAt(offset) {
+        if (this._strings === undefined) {
+            this._strings = new Map();
+            this._decoder = new TextDecoder("utf-8");
+        }
+        const cached = this._strings.get(offset);
+        if (cached !== undefined) return cached;
         let end = offset;
         while (end < this.bytes.length && this.bytes[end] !== 0) end++;
-        return new TextDecoder("utf-8").decode(this.bytes.subarray(offset, end));
+        const out = this._decoder.decode(this.bytes.subarray(offset, end));
+        this._strings.set(offset, out);
+        return out;
     }
 
     path(handle) {
+        if (this._paths === undefined) this._paths = new Map();
+        const cached = this._paths.get(handle);
+        if (cached !== undefined) return cached;
         const parts = [];
         for (let at = handle; at !== this.none && parts.length < 4096;) {
             const record = this.cell(at);
-            if (record === null) return "";
+            if (record === null) {
+                this._paths.set(handle, "");
+                return "";
+            }
             if (record.parent === this.none) break;
             parts.push(this.name(at));
             at = record.parent;
         }
-        return parts.reverse().join(".");
+        const out = parts.reverse().join(".");
+        this._paths.set(handle, out);
+        return out;
     }
 
     // -- the object graph ---------------------------------------------------------------------------
@@ -406,9 +448,12 @@ export class RxfReader {
     }
 
     get(handle) {
+        if (this._got === undefined) this._got = new Map();
+        const cached = this._got.get(handle);
+        if (cached !== undefined) return cached;
         const record = this.cell(handle);
         if (record === null) throw new Error("BadHandle: " + handle);
-        return {
+        const out = {
             handle,
             type: record.type,
             parent: record.parent,
@@ -422,6 +467,8 @@ export class RxfReader {
             payload: this.payloadBytes(record),
             refs: this.refsOf(record),
         };
+        this._got.set(handle, out);
+        return out;
     }
 
     // The block-stack floors of one cell (the v6 cell layout).
@@ -773,13 +820,18 @@ export class RxfReader {
     enumerationName(enumType, value) {
         const info = this.typeInfo(enumType);
         if (info === null || info.form !== FORM_ENUM) return null;
-        const items = [];
-        for (const child of this.children(enumType)) {
-            const c = this.cell(child);
-            if (c === null || (c.flags & FLAG_KIND_MASK) !== NODE_ENUMERATOR || c.payloadSize < 8) continue;
-            items.push([this.name(child), this.payloadUint(c, 0, 8)]);
+        if (this._enumItems === undefined) this._enumItems = new Map();
+        let items = this._enumItems.get(enumType);
+        if (items === undefined) {
+            items = [];
+            for (const child of this.children(enumType)) {
+                const c = this.cell(child);
+                if (c === null || (c.flags & FLAG_KIND_MASK) !== NODE_ENUMERATOR || c.payloadSize < 8) continue;
+                items.push([this.name(child), this.payloadUint(c, 0, 8)]);
+            }
+            items.sort((a, b) => (a[1] !== b[1] ? (a[1] < b[1] ? -1 : 1) : (a[0] < b[0] ? -1 : 1)));
+            this._enumItems.set(enumType, items);
         }
-        items.sort((a, b) => (a[1] !== b[1] ? (a[1] < b[1] ? -1 : 1) : (a[0] < b[0] ? -1 : 1)));
         const head = this.path(enumType) + ".";
         if (!info.bitset) {
             for (const [name, item] of items) if (item === value) return head + name;
@@ -1243,15 +1295,22 @@ export class RxfReader {
         // streets — so every leg lies on a street centerline, never across a block.
         const xStreets = [...new Set(rails.filter((r) => r[0] === "x").map((r) => r[1]))].sort((a, b) => a - b);
         const zStreets = [...new Set(rails.filter((r) => r[0] === "z").map((r) => r[1]))].sort((a, b) => a - b);
+        // the street coordinate nearest `toward` (ties to the lower one): the sorted street
+        // lists answer it with a binary search — the same neighbor the linear scan found.
         const nearestStreet = (streets, toward) => {
             if (!streets.length) return null;
-            let best = streets[0];
-            for (const at of streets) {
-                const ka = Math.abs(at - toward);
-                const kb = Math.abs(best - toward);
-                if (ka < kb || (ka === kb && at < best)) best = at;
+            let low = 0;
+            let high = streets.length;
+            while (low < high) {
+                const mid = (low + high) >> 1;
+                if (streets[mid] < toward) low = mid + 1;
+                else high = mid;
             }
-            return best;
+            const right = low < streets.length ? streets[low] : null;
+            const left = low > 0 ? streets[low - 1] : null;
+            if (right === null) return left;
+            if (left === null) return right;
+            return toward - left <= right - toward ? left : right;
         };
         const grid = railGrid(rails);
         const plugs = new Map();
@@ -1550,8 +1609,13 @@ export class RxfArena extends RxfReader {
     }
 
     name(handle) {
+        if (this._names === undefined) this._names = new Map();
+        const cached = this._names.get(handle);
+        if (cached !== undefined) return cached;
         const record = this.cell(handle);
-        return record === null || record.nameOff === 0 ? "" : this.names[record.nameOff] ?? "";
+        const out = record === null || record.nameOff === 0 ? "" : this.names[record.nameOff] ?? "";
+        this._names.set(handle, out);
+        return out;
     }
 
     // -- the semantic face (sys/specs, docs/32 5): one row per object index -------------------------
@@ -1605,25 +1669,49 @@ export class RxfArena extends RxfReader {
     }
 
     path(handle) {
+        if (this._paths === undefined) this._paths = new Map();
+        const cached = this._paths.get(handle);
+        if (cached !== undefined) return cached;
         const parts = [];
         for (let at = handle; at !== this.none && at !== this.root && parts.length < 4096;) {
             const record = this.cell(at);
-            if (record === null) return "";
+            if (record === null) {
+                this._paths.set(handle, "");
+                return "";
+            }
             const name = this.name(at);
             if (name !== "") parts.push(name); // an anonymous object has no path segment
             at = record.parent;
         }
-        return parts.reverse().join(".");
+        const out = parts.reverse().join(".");
+        this._paths.set(handle, out);
+        return out;
+    }
+
+    // The relation tables of the arena keyed by the path they answer for: one walk of
+    // sys/relations, then every refsOf is a lookup instead of a walk per record.
+    relationTables() {
+        if (this._relationTables === undefined) {
+            this._relationTables = new Map();
+            const relations = this.findNamed(this.root, "relations", this.findNamed(this.root, "sys"));
+            if (relations !== null) {
+                for (const table of this.childrenChain(relations)) {
+                    const name = this.name(table);
+                    if (!this._relationTables.has(name)) this._relationTables.set(name, table);
+                }
+            }
+        }
+        return this._relationTables;
     }
 
     refsOf(record) {
+        if (record.handle === null) return [];
+        if (this._refs === undefined) this._refs = new Map();
+        const cached = this._refs.get(record.handle);
+        if (cached !== undefined) return cached;
         const out = [];
-        if (record.handle === null) return out;
-        const relations = this.findNamed(this.root, "relations", this.findNamed(this.root, "sys"));
-        if (relations === null) return out;
-        const path = this.path(record.handle);
-        for (const table of this.childrenChain(relations)) {
-            if (this.name(table) !== path) continue;
+        const table = this.relationTables().get(this.path(record.handle));
+        if (table !== undefined) {
             const t = this.byHandle.get(table);
             const base = t.offset + OBJECT_BYTES;
             for (let at = 0; at + REF_BYTES <= t.payloadSize; at += REF_BYTES) {
@@ -1642,8 +1730,8 @@ export class RxfArena extends RxfReader {
                     binding,
                 });
             }
-            break;
         }
+        this._refs.set(record.handle, out);
         return out;
     }
 
@@ -1657,18 +1745,32 @@ export class RxfArena extends RxfReader {
     }
 
     live(handle) {
-        if (handle === this.none) return false;
-        const index = Number(handle & 0xfffffn);
-        const gen = Number((handle >> 20n) & 0xfffn);
-        if (index >= this.slotCount) return false;
-        const entry = this.entries[index];
-        if (entry.slot === 0 || entry.gen !== gen) return false;
-        const record = this.recordAt.get(entry.slot);
-        return record !== undefined && record.gen === gen && record.role === entry.kind;
+        if (this._live === undefined) this._live = new Map();
+        const cached = this._live.get(handle);
+        if (cached !== undefined) return cached;
+        let out = false;
+        if (handle !== this.none) {
+            const index = Number(handle & 0xfffffn);
+            const gen = Number((handle >> 20n) & 0xfffn);
+            if (index < this.slotCount) {
+                const entry = this.entries[index];
+                if (entry.slot !== 0 && entry.gen === gen) {
+                    const record = this.recordAt.get(entry.slot);
+                    out = record !== undefined && record.gen === gen && record.role === entry.kind;
+                }
+            }
+        }
+        this._live.set(handle, out);
+        return out;
     }
 
     cell(handle) {
-        return this.live(handle) ? this.byHandle.get(handle) ?? null : null;
+        if (this._cells === undefined) this._cells = new Map();
+        const cached = this._cells.get(handle);
+        if (cached !== undefined) return cached;
+        const out = this.live(handle) ? this.byHandle.get(handle) ?? null : null;
+        this._cells.set(handle, out);
+        return out;
     }
 
     valueSize(record) {
@@ -2096,6 +2198,9 @@ function segmentHits(a, b, rect) {
     return [t0, t1];
 }
 
+// The empty candidate list: `?? []` in the bin index allocated one per miss.
+const NO_INDICES = [];
+
 function mergeRects(rects, touch = 0.6) {
     let boxes = [...rects].map((rect) => [...rect]).sort((a, b) => (
         a[0] !== b[0] ? a[0] - b[0] : a[1] !== b[1] ? a[1] - b[1] : a[2] !== b[2] ? a[2] - b[2] : a[3] - b[3]
@@ -2106,8 +2211,9 @@ function mergeRects(rects, touch = 0.6) {
         const out = [];
         const cell = Math.max(1.0, 2.0 * touch);
         const near = new Map();
+        const keys = [];
         const cellsOf = (box) => {
-            const keys = [];
+            keys.length = 0;
             for (let gx = Math.floor((box[0] - touch) / cell); gx <= Math.floor((box[2] + touch) / cell); gx++) {
                 for (let gz = Math.floor((box[1] - touch) / cell); gz <= Math.floor((box[3] + touch) / cell); gz++) {
                     keys.push(gx + "," + gz);
@@ -2115,8 +2221,22 @@ function mergeRects(rects, touch = 0.6) {
             }
             return keys;
         };
+        // the boxes already in `out` that this box may touch: deduped and ascending,
+        // stamped in one scratch instead of a fresh Set + flatMap + sort per box
+        const seen = new Int32Array(boxes.length);
+        const candidates = [];
+        let tick = 0;
         for (const box of boxes) {
-            const candidates = [...new Set(cellsOf(box).flatMap((key) => near.get(key) ?? []))].sort((a, b) => a - b);
+            candidates.length = 0;
+            tick++;
+            for (const key of cellsOf(box)) {
+                for (const index of near.get(key) ?? NO_INDICES) {
+                    if (seen[index] === tick) continue;
+                    seen[index] = tick;
+                    candidates.push(index);
+                }
+            }
+            candidates.sort((a, b) => a - b);
             let hit = false;
             for (const index of candidates) {
                 const other = out[index];
@@ -2416,17 +2536,45 @@ function railList(streets, ringPathPoints) {
 
 function projectRail(rails, x, z, grid = null) {
     if (rails.length === 0) return [x, z, -1];
-    const scan = grid === null ? rails.map((_, i) => i) : nearRails(rails, grid, x, z);
+    // One walk, one projection per rail visit: the candidate rails are considered in the
+    // ring order the bin walk visits them, deduped by the selection rule itself (a rail's
+    // second visit loses to its own first), and the walk stops at the same bound the old
+    // `nearRails` scan used. The selection rule is unchanged — the first rail within
+    // 1e-12 of the running best keeps the seat — so the winning rail is the one the
+    // scan-then-project pair returned.
     let best = [x, z, -1];
     let bestSquared = Infinity;
-    for (const r of scan) {
+    const consider = (r) => {
         const [axis, at, low, high] = rails[r];
-        const [px, pz] = axis === "x" ? [Math.min(Math.max(x, low), high), at] : [at, Math.min(Math.max(z, low), high)];
+        const px = axis === "x" ? Math.min(Math.max(x, low), high) : at;
+        const pz = axis === "x" ? at : Math.min(Math.max(z, low), high);
         const squared = (px - x) ** 2 + (pz - z) ** 2;
         if (squared < bestSquared - 1e-12) {
             bestSquared = squared;
             best = [px, pz, r];
         }
+    };
+    if (grid === null) {
+        for (let r = 0; r < rails.length; r++) consider(r);
+        return best;
+    }
+    const homeX = Math.floor(x / PROJECT_BIN);
+    const homeZ = Math.floor(z / PROJECT_BIN);
+    let found = false;
+    for (let ring = 0; ; ring++) {
+        const low = homeX - ring;
+        const high = homeX + ring;
+        for (let gx = low; gx <= high; gx++) {
+            const full = gx === low || gx === high; // the ring's columns, the same visit order
+            for (let gz = homeZ - ring; gz <= homeZ + ring; gz++) {
+                if (!full && Math.abs(gz - homeZ) !== ring) continue;
+                for (const r of grid.get(gx + "," + gz) ?? NO_RAILS) {
+                    found = true;
+                    consider(r);
+                }
+            }
+        }
+        if (found && (Math.max(0, ring - 1) * PROJECT_BIN) ** 2 > bestSquared + 1e-9) break;
     }
     return best;
 }
@@ -2448,29 +2596,8 @@ function railGrid(rails) {
     return bins;
 }
 
-function nearRails(rails, grid, x, z) {
-    const home = [Math.floor(x / PROJECT_BIN), Math.floor(z / PROJECT_BIN)];
-    const found = new Set();
-    const out = [];
-    let bestSquared = Infinity;
-    for (let ring = 0; ; ring++) {
-        for (let gx = home[0] - ring; gx <= home[0] + ring; gx++) {
-            for (let gz = home[1] - ring; gz <= home[1] + ring; gz++) {
-                if (ring && Math.max(Math.abs(gx - home[0]), Math.abs(gz - home[1])) !== ring) continue;
-                for (const r of grid.get(gx + "," + gz) ?? []) {
-                    if (found.has(r)) continue;
-                    found.add(r);
-                    out.push(r);
-                    const [axis, at, low, high] = rails[r];
-                    const [px, pz] = axis === "x" ? [Math.min(Math.max(x, low), high), at] : [at, Math.min(Math.max(z, low), high)];
-                    bestSquared = Math.min(bestSquared, (px - x) ** 2 + (pz - z) ** 2);
-                }
-            }
-        }
-        if (out.length && (Math.max(0, ring - 1) * PROJECT_BIN) ** 2 > bestSquared + 1e-9) break;
-    }
-    return out;
-}
+// The rails of the empty bin: the walk's `?? []` allocated one per miss.
+const NO_RAILS = [];
 
 // ---- the one face the page calls ---------------------------------------------------------------------
 
