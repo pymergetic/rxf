@@ -110,7 +110,8 @@ What is refused, by name (the message names the reason and the line):
                             ``**kwargs``, a keyword argument at a call), an annotation or
                             a decorator, a chained assignment (``x = y = expr``), a
                             starred or annotated assignment, ``del``, a walrus, a bare
-                            return (MicroPython answers ``None`` there: not a word), a
+                            return (MicroPython answers ``None`` there: the run answers
+                            no word), a
                             return that mixes arities, a path that falls off the end of a
                             function, ``while``/``else``, a global that names no
                             module-level binding, and a literal or frame that does not
@@ -195,6 +196,11 @@ from rxemit import (
 
 FULL = rxemit.FULL  # the word's mask, one home (the emitter's narrow-integer helpers)
 LOW_SIGNED = -(1 << 63)  # the word 0x8000000000000000 read as signed
+# the value word of ``None`` (native/graph.h, RXF_WORD_NONE): bit 62 set and no other, the
+# first word above the int range, a singleton of its own. ``None`` lowers to it, ``is`` /
+# ``is not None`` is word identity with it, and a ``= None`` default folds to it -- so a
+# caller's explicit None and an absent argument bind the very same word (docs/23 4.9 step 10).
+NONE_WORD = graph_header.numbers()["RXF_WORD_NONE"]
 NUMBERS = graph_header.numbers()
 DIVISION_BY_ZERO = NUMBERS["RXF_REFUSE_DIVISION_BY_ZERO"]
 OVERFLOW = NUMBERS["RXF_REFUSE_OVERFLOW"]
@@ -251,6 +257,10 @@ CMP_KEYS = {
     ast.LtE: "le",
     ast.Gt: "gt",
     ast.GtE: "ge",
+    # identity lowers only against None (the one singleton the words carry): `is` there is
+    # word identity with the None word, which is what `equal_uint64_t` answers on it
+    ast.Is: "is",
+    ast.IsNot: "is_not",
 }
 
 # the node kinds this pass refuses before it reaches one it knows: the walk of a def
@@ -667,12 +677,13 @@ def return_shape(src: Source, fn: ast.FunctionDef) -> tuple[int, bool]:
     whether it is a procedure.
 
     A def answers one shape on every path (the run entry's frame is fixed at its door): returns
-    of a tuple take the same length everywhere.  ``None`` has no word of its own -- a word
-    cannot be told from the int 0, so ``is None`` would answer wrong words -- but the ABSENCE of
-    an answer is representable: a def whose returns are all bare (or ``return None``), or that
-    has none, is a procedure; its Signature has no Result (the image says so) and its callers
-    call it as a statement.  A def that returns a word on one path and None on another is
-    refused: the caller could not tell which it got."""
+    of a tuple take the same length everywhere.  A bare ``return`` (or ``return None``) is no
+    answer at all -- the procedure contract: MicroPython answers ``None`` there, the run answers
+    no word -- and a def whose returns are all bare (or ``return None``), or that has none, is a
+    procedure; its Signature has no Result (the image says so) and its callers call it as a
+    statement.  A def that returns a word on one path and None on another is refused: the run
+    entry takes one shape, and a procedure's no-answer is not a word -- not even the None word,
+    which is a value of its own everywhere else."""
     found: int | None = None
     nones: list[ast.Return] = []
     for node in returns_of(fn.body):
@@ -703,7 +714,8 @@ def return_shape(src: Source, fn: ast.FunctionDef) -> tuple[int, bool]:
     if found is not None and nones:
         raise Refused(
             f"line {nones[0].lineno}: {fn.name} answers a word on one path and None on "
-            "another (a caller could not tell which it got: None has no word of its own)"
+            "another (a def answers one shape: a bare or None return is no answer at all, a "
+            "procedure called as a statement)"
         )
     if found is None:
         return 0, True
@@ -767,6 +779,8 @@ def fold_constant(
         value = 1 if node.value else 0
     elif isinstance(node, ast.Constant) and isinstance(node.value, int):
         value = node.value
+    elif isinstance(node, ast.Constant) and node.value is None:
+        value = NONE_WORD  # ``= None`` folds to the word a caller's explicit None passes
     elif isinstance(node, ast.Name) and names is not None and node.id in names:
         value = names[node.id]
     elif isinstance(node, ast.Name) and names is not None and node.id in src.cells:
@@ -939,12 +953,19 @@ class Lowering:
     of its path, a join takes one block parameter per name whose incoming words differ,
     and a loop's carried names are the header's parameters."""
 
-    def __init__(self, src: Source, fn: ast.FunctionDef, known: dict[str, str]) -> None:
+    def __init__(
+        self,
+        src: Source,
+        fn: ast.FunctionDef,
+        known: dict[str, str],
+        wiring: dict[int, str] | None = None,
+    ) -> None:
         self.src = src
         self.module = src.module
         self.fn = fn
         self.sig = src.signatures[fn.name]
         self.known = dict(known)
+        self.wiring = dict(wiring or {})  # the function words a dispatch's cards arm with
         self.path = f"{self.module}.{fn.name}"
         self.graph = f"{self.path}.{fn.name}_graph"
         self.signature = f"{self.path}.signature"
@@ -1008,6 +1029,15 @@ class Lowering:
                 "Literal", self.graph, f"const_{constant:x}", literal=constant
             )
         return ("literal", constant)
+
+    def fn_word(self, path: str) -> MOperand:
+        """A function as a word: the object id of the body's path (``rximport.object_id_of``,
+        the one handle both strands give a body), so a name that names a function carries
+        the word its call card names -- the unary_op slot of a MicroPython type cell, the
+        address the C import wires.  A word is data until a call dispatches on it: what it
+        names is the body whose word it is, never a guess (a word no arm of the dispatch
+        names refuses the run at the chain's fall-through)."""
+        return self.literal(rximport.object_id_of(path))
 
     def new_block(self) -> LBlock:
         made = LBlock(f"{self.graph}.block[{len(self.blocks)}]", len(self.blocks))
@@ -1294,11 +1324,7 @@ class Lowering:
                     )
                 return self.literal(node.value)
             if node.value is None:
-                raise Refused(
-                    f"line {node.lineno}: None as a value (it has no word of its own -- a word "
-                    "cannot be told from the int 0, so `is None` would answer wrong words; a "
-                    "def that answers nothing is a procedure, called as a statement)"
-                )
+                return self.literal(NONE_WORD)  # the None word of native/graph.h, a word of its own
             if isinstance(node.value, str):
                 raise Refused(
                     f"line {node.lineno}: a string as a value (the subset's values are "
@@ -1394,10 +1420,12 @@ class Lowering:
                 "module or an instance named at module level (an object held in a name or a "
                 "parameter has no cell the graph can resolve)"
             )
+        if bound.kind == "function":
+            return self.fn_word(bound.path)
         if bound.kind != "cell":
             raise Refused(
                 f"line {node.lineno}: {bound.path} is a {bound.kind}, not a word "
-                "(call a function; a module is not a value)"
+                "(a module is not a value)"
             )
         return self.load(self.foreign_cell(bound))
 
@@ -1415,11 +1443,17 @@ class Lowering:
             )
         if node.id in self.src.cells:
             return self.load(self.cell(node.id))
+        if node.id in self.src.signatures:
+            return self.fn_word(f"{self.module}.{node.id}")
+        if node.id in self.known:
+            return self.fn_word(self.known[node.id])
         bound = self.src.imports.get(node.id)
         if bound is not None:
+            if bound.kind == "function":
+                return self.fn_word(bound.path)
             raise Refused(
-                f"{where} is an imported {bound.kind}, not a word (call a function; "
-                "a module is not a value)"
+                f"{where} is an imported {bound.kind}, not a word "
+                "(a module is not a value)"
             )
         if node.id in self.src.data:
             raise Refused(
@@ -1559,14 +1593,21 @@ class Lowering:
         with b evaluated once and c only where the first holds."""
         if not node.ops:
             raise Refused(f"line {node.lineno}: an empty comparison")
-        for op in node.ops:
-            if type(op) not in CMP_KEYS:
-                what = (
-                    "is / is not (identity needs a None no word can be)"
-                    if isinstance(op, (ast.Is, ast.IsNot))
-                    else "in / not in (membership)"
+        before: ast.expr = node.left
+        for op, comparator in zip(node.ops, node.comparators, strict=True):
+            if isinstance(op, (ast.Is, ast.IsNot)):
+                if not (is_none(before) or is_none(comparator)):
+                    raise Refused(
+                        f"line {node.lineno}: a comparison the subset does not take: is / is not "
+                        "between two words (identity lowers only against None: the None word is "
+                        "the one singleton a word carries)"
+                    )
+            elif type(op) not in CMP_KEYS:
+                raise Refused(
+                    f"line {node.lineno}: a comparison the subset does not take: "
+                    "in / not in (membership)"
                 )
-                raise Refused(f"line {node.lineno}: a comparison the subset does not take: {what}")
+            before = comparator
         left = self.operand(env, node.left)
         prior = self.operand(env, node.comparators[0])
         made = self.one_compare(node.ops[0], left, prior, node.lineno)
@@ -1590,9 +1631,11 @@ class Lowering:
         if key is None:
             raise Refused(f"line {lineno}: a comparison the subset does not take")
         one = self.literal(1)
-        if key == "eq":
+        if key in ("eq", "is"):
+            # `is` against None is word identity with the None word: the same word equality
+            # the words answer on it (no int word equals it, so the read is exact)
             return self.call("equal_uint64_t", [a, b])
-        if key == "ne":
+        if key in ("ne", "is_not"):
             return self.call(
                 "wrapping_subtract_uint64_t", [one, self.call("equal_uint64_t", [a, b])]
             )
@@ -1880,8 +1923,8 @@ class Lowering:
             if not self.sig.procedure:
                 raise Refused(
                     f"line {self.fn.end_lineno}: a path of {self.fn.name} falls off the end "
-                    "(MicroPython answers None there: not a word) -- end the function with "
-                    "a return"
+                    "(MicroPython answers None there; the run answers no word) -- end the "
+                    "function with a return"
                 )
             self.finish_return(self.literal(0), word=False)  # a procedure ends by falling off
         if not self.results and not self.sig.procedure:

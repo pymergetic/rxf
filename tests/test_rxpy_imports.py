@@ -246,7 +246,11 @@ REFUSALS = [
     ("from . import x\n", "relative import"),
     ("import imp_base\ndef f(x):\n    return imp_base.nope(x)\n", "no such attribute"),
     ("import pkgx\ndef f(x):\n    return pkgx.leaf.inc(x)\n", "no import loaded"),
-    ("import imp_base\ndef f(x):\n    return imp_base.twice\n", "is a function, not a word"),
+    # (was "import imp_base / return imp_base.twice -> is a function, not a word": a function as
+    # a value lowered with the fn-word face -- it is the object id of its body now, so the row
+    # names the boundary that still holds: the word is data, and the call through a name that
+    # only holds it is not dispatched yet)
+    ("def f(g, x):\n    return g(x)\n", "the subset calls the functions it compiles or imports"),
     ("import imp_base\ndef f(x):\n    return imp_base\n", "an imported module, not a word"),
     ("import imp_base\ndef f(x):\n    return imp_base.twice(x, 1)\n", "takes 1 values"),
     ("import imp_base\ndef f(x):\n    return imp_base.COUNT(x)\n", "is a cell, not a function"),
@@ -274,6 +278,19 @@ def test_an_import_the_image_cannot_serve_is_refused_by_name(base_image, source,
     assert words.lower() in str(problem.value).lower(), (
         f"the refusal does not name the shape ({words}): {problem.value}"
     )
+
+
+def test_an_imported_function_as_a_value_is_the_object_id_of_its_body(base_image):
+    """The fn-word face (the function as a value): a name that names a function carries the word
+    its call card names -- ``rximport.object_id_of`` of the body's path, the one handle both
+    strands give a body.  The word is data until a call dispatches on it (the dispatch is a later
+    construct: a call through a name that only holds the word stays refused by name)."""
+    graphs = rxpy.graphs_of(
+        "import imp_base\ndef f(x):\n    return imp_base.twice\n",
+        "m", resolver=rxpy.Resolver(base_image),
+    )
+    literals = {v.literal for v in graphs["f"].values if v.kind == "Literal"}
+    assert rximport.object_id_of("imp_base.twice") in literals
 
 
 def test_an_import_without_an_image_is_refused_not_guessed():

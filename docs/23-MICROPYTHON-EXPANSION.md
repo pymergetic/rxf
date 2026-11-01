@@ -877,10 +877,10 @@ a construct of the def, not of the file's glue) the answer per top-level stateme
 <!-- rxpy_gap:begin (generated: python -m tests.rxpy_gap) -->
 | file | statements of the file served | compiles (ok / refused) | first refusal against the image |
 |---|---|---|---|
-| `core.py` | 2 imports, 6 dropped | def 2/7, class 0/5, method 3/12 | line 4: from time import ...: the image has no module time (the image is the module tree: import it first) |
+| `core.py` | 2 imports, 4 dropped | def 2/7, class 0/5, method 3/12 | line 4: from time import ...: the image has no module time (the image is the module tree: import it first) |
 | `task.py` | 1 imports, 0 dropped | def 0/3, class 0/2, method 0/6 | line 7: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
 | `event.py` | 1 imports, 1 dropped | def 0/0, class 0/1, method 0/4 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
-| `funcs.py` | 1 imports, 2 dropped | def 0/2, class 0/1, method 1/0 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
+| `funcs.py` | 1 imports, 2 dropped | def 1/1, class 0/1, method 1/0 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
 | `lock.py` | 1 imports, 0 dropped | def 0/0, class 0/1, method 0/3 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
 | `stream.py` | 1 imports, 7 dropped | def 0/1, class 0/2, method 1/8 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
 
@@ -890,47 +890,47 @@ a construct of the def, not of the file's glue) the answer per top-level stateme
 | `sleep` (`core.py`) | compiles |
 | `_promote_to_task` (`core.py`) | a conditional expression |
 | `create_task` (`core.py`) | raise (the exception seam) |
-| `run_until_complete` (`core.py`) | a default that folds to no word (None or a call) |
+| `run_until_complete` (`core.py`) | other: run_until_complete answers a word on one path and None on an |
 | `run` (`core.py`) | compiles |
 | `get_event_loop` (`core.py`) | a name the subset cannot bind (a class or a global of no cell) |
 | `current_task` (`core.py`) | raise (the exception seam) |
 | `new_event_loop` (`core.py`) | global of a name that is not an integer cell |
-| `ph_meld` (`task.py`) | is / is not / in / not in (identity and membership) |
-| `ph_pairing` (`task.py`) | None as a value (no word of its own) |
+| `ph_meld` (`task.py`) | an object held in a name or a parameter (no cell the graph can resolve) |
+| `ph_pairing` (`task.py`) | an object held in a name or a parameter (no cell the graph can resolve) |
 | `ph_delete` (`task.py`) | is / is not / in / not in (identity and membership) |
-| `wait_for_ms` (`funcs.py`) | a function as a value (a callee is not a word) |
+| `wait_for_ms` (`funcs.py`) | compiles |
 | `gather` (`funcs.py`) | *args, **kwargs or a keyword-only parameter |
-| `open_connection` (`stream.py`) | a default that folds to no word (None or a call) |
+| `open_connection` (`stream.py`) | other: an import inside a def (imports are module-level statements: |
 
 | reason (first refusal of a def, a method, a class or a statement) | count |
 |---|---|
-| an object held in a name or a parameter (no cell the graph can resolve) | 11 |
+| an object held in a name or a parameter (no cell the graph can resolve) | 13 |
 | async def (the coroutine frame of 4.5) | 8 |
 | yield (the coroutine frame of 4.5) | 6 |
-| a default that folds to no word (None or a call) | 5 |
-| a module-level binding that is not an integer constant | 5 |
+| assert (the panic seam) | 5 |
 | raise (the exception seam) | 4 |
 | a module-level binding that is not NAME = constant | 3 |
+| a module-level binding that is not an integer constant | 3 |
 | an attribute store on an object held in a name | 3 |
-| assert (the panic seam) | 3 |
 | global of a name that is not an integer cell | 3 |
 | try/except (the nlr seam of S11) | 3 |
 | a special method (only __init__ is of the subset) | 2 |
 | for (the subset loops with while) | 2 |
 | inheritance | 2 |
-| is / is not / in / not in (identity and membership) | 2 |
 | *args, **kwargs or a keyword-only parameter | 1 |
-| None as a value (no word of its own) | 1 |
 | a call of a name the strand does not compile (a builtin or a face) | 1 |
 | a callee that is not a name or an attribute | 1 |
 | a class attribute or a nested class | 1 |
 | a conditional expression | 1 |
 | a decorator | 1 |
-| a function as a value (a callee is not a word) | 1 |
+| a default that folds to no word (None or a call) | 1 |
 | a name the subset cannot bind (a class or a global of no cell) | 1 |
 | a subscript (a sequence cell) | 1 |
 | an expression or a control statement at module level | 1 |
 | del | 1 |
+| is / is not / in / not in (identity and membership) | 1 |
+| other: an import inside a def (imports are module-level statements: | 1 |
+| other: run_until_complete answers a word on one path and None on an | 1 |
 <!-- rxpy_gap:end -->
 
 Reading it: **2 of 15 top-level defs, 0 of 12 top-level classes and 5 of 38 methods compile.**

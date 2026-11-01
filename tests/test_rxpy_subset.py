@@ -5,10 +5,13 @@ No machine change: each of these is a lowering the existing words and cells alre
 * **default parameters and keyword arguments**: a default is the constant the def folded when it ran;
   a call that leaves a parameter out passes that word, a keyword argument binds by the
   parameter's name; the same for methods and for ``__init__`` (the fields it sets);
-* **None**: it has no word of its own (a word cannot be told from the int 0, so ``is None`` would
-  answer wrong words) and stays refused as a value. The ABSENCE of an answer is representable: a def
-  whose returns are all bare or ``return None``, or that falls off its end, is a procedure -- its
-  Signature has no Result, the image says so, and its callers call it as a statement;
+* **None**: it is the one value word ``RXF_WORD_NONE`` (docs/23 4.9 step 10) -- ``None`` lowers to
+  it wherever a word goes, ``is`` / ``is not None`` is word identity with it, and a ``= None``
+  default folds to the very word a caller passes explicitly (the lowerer stages that word in the
+  call's operands: a call card is never short).  ``is`` between two words stays refused by name.
+  The ABSENCE of an answer is separate: a def whose returns are all bare or ``return None``, or
+  that falls off its end, is a procedure -- its Signature has no Result, the image says so, and
+  its callers call it as a statement;
 * **tables**: a tuple, a list or bytes at module level is one named data cell (a FixedArray); an index
   is normalized (negative counts from the end) and checked, ``len`` is a constant, a list may be
   stored through an index; strings stay refused by name;
@@ -44,6 +47,7 @@ CORPUS = Path(__file__).parent / "rxpy_corpus" / "subset"
 DRIVER = Path(__file__).parent / "rxpy_mp_import.py"
 MPYS = micropythons()
 OUT_OF_RANGE = graph_header.numbers()["RXF_REFUSE_OUT_OF_RANGE"]
+NONE_WORD = graph_header.numbers()["RXF_WORD_NONE"]  # the value word of None (docs/23 4.9 step 10)
 
 # the corpus, in the order an import needs it
 NAMES = (
@@ -257,6 +261,40 @@ def test_a_procedure_of_another_module_is_called_as_a_statement_and_refused_as_a
     assert "answers None" in str(problem.value)
 
 
+def test_none_lowers_to_the_none_word_and_is_is_word_identity(served_image):
+    """The value word of ``None`` (``RXF_WORD_NONE``, docs/23 4.9 step 10): ``None`` lowers to
+    it wherever a word goes, ``is`` / ``is not None`` is word identity with it (word equality on
+    the one singleton a word carries), and a ``= None`` default folds to the very word a caller
+    passes explicitly -- the lowerer stages that word in the call's operands, because a call card
+    is never short."""
+    graphs = rxpy.graphs_of(
+        "def g(a, b=None):\n    return a\n"
+        "def f(x):\n    y = None\n    return (g(x) is None) + (x is not None) + (y is not None)\n",
+        "m", resolver=rxpy.Resolver(served_image),
+    )
+    words = [v.literal for v in graphs["f"].values + graphs["g"].values if v.kind == "Literal"]
+    assert words.count(NONE_WORD) == 1  # one None literal: every use reads the same word
+    staged = [
+        operand
+        for block in graphs["f"].blocks
+        for op in block.ops
+        if op.opcode == "CallCallback" and op.callee == "m.g"
+        for operand in op.inputs
+    ]
+    assert ("literal", NONE_WORD) in staged  # the = None default, staged in the call's operands
+    identity = [
+        op
+        for block in graphs["f"].blocks
+        for op in block.ops
+        if op.opcode == "CallCallback"
+        and op.callee == "pymergetic.rxf.numeric.compare.equal_uint64_t"
+    ]
+    assert len(identity) == 3  # is None, is not None, y is not None: each a word equality
+    assert all(("literal", NONE_WORD) in op.inputs for op in identity), [
+        op.inputs for op in identity
+    ]
+
+
 # ---- (c) tables --------------------------------------------------------------------------------
 
 def test_a_table_is_one_data_cell_padded_so_it_is_never_a_word_cell(image):
@@ -340,9 +378,7 @@ REFUSALS = [
     ("def f(x):\n    return None\ndef g(x):\n    return f(x) + 1\n", "answers None"),
     ("def f(x):\n    if x:\n        return 1\n    return None\n", "a word on one path and None"),
     ("def f(x):\n    if x:\n        return\n    return x\n", "a word on one path and None"),
-    ("def f(x):\n    y = None\n    return x\n", "None as a value"),
-    ("def f(x):\n    return x is None\n", "a comparison the subset does not take"),
-    ("def f(x):\n    return (None, x)\n", "None as a value"),
+    ("def f(x, y):\n    return x is y\n", "identity lowers only against None"),
     ("import sub_procs\ndef f(x):\n    return 1 + sub_procs.tick(x)\n", "answers None"),
     # tables
     ("T = (1, 2)\ndef f(i):\n    return T\n", "is a table, not a word"),

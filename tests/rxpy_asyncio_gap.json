@@ -33,7 +33,7 @@
       ],
       [
         "run_until_complete",
-        "a default that folds to no word (None or a call)"
+        "other: run_until_complete answers a word on one path and None on an"
       ],
       [
         "run",
@@ -52,7 +52,7 @@
         "global of a name that is not an integer cell"
       ]
     ],
-    "dropped": 6,
+    "dropped": 4,
     "imports": {
       "first_refusal": "line 4: from time import ...: the image has no module time (the image is the module tree: import it first)",
       "statements": 2
@@ -62,8 +62,8 @@
       "a callee that is not a name or an attribute": 1,
       "a class attribute or a nested class": 1,
       "a conditional expression": 1,
-      "a default that folds to no word (None or a call)": 2,
-      "a module-level binding that is not an integer constant": 3,
+      "a default that folds to no word (None or a call)": 1,
+      "a module-level binding that is not an integer constant": 1,
       "a name the subset cannot bind (a class or a global of no cell)": 1,
       "a special method (only __init__ is of the subset)": 1,
       "an attribute store on an object held in a name": 1,
@@ -75,6 +75,7 @@
       "for (the subset loops with while)": 2,
       "global of a name that is not an integer cell": 3,
       "inheritance": 2,
+      "other: run_until_complete answers a word on one path and None on an": 1,
       "raise (the exception seam)": 2,
       "try/except (the nlr seam of S11)": 1
     }
@@ -114,8 +115,8 @@
         1
       ],
       "def": [
-        0,
-        2
+        1,
+        1
       ],
       "method": [
         1,
@@ -125,7 +126,7 @@
     "defs": [
       [
         "wait_for_ms",
-        "a function as a value (a callee is not a word)"
+        "compiles"
       ],
       [
         "gather",
@@ -140,7 +141,6 @@
     "reasons": {
       "*args, **kwargs or a keyword-only parameter": 1,
       "a decorator": 1,
-      "a function as a value (a callee is not a word)": 1,
       "async def (the coroutine frame of 4.5)": 2
     }
   },
@@ -190,7 +190,7 @@
     "defs": [
       [
         "open_connection",
-        "a default that folds to no word (None or a call)"
+        "other: an import inside a def (imports are module-level statements:"
       ]
     ],
     "dropped": 7,
@@ -199,13 +199,13 @@
       "statements": 1
     },
     "reasons": {
-      "a default that folds to no word (None or a call)": 1,
       "a module-level binding that is not NAME = constant": 3,
       "a module-level binding that is not an integer constant": 2,
       "a subscript (a sequence cell)": 1,
       "an attribute store on an object held in a name": 1,
       "an object held in a name or a parameter (no cell the graph can resolve)": 1,
       "async def (the coroutine frame of 4.5)": 4,
+      "other: an import inside a def (imports are module-level statements:": 1,
       "yield (the coroutine frame of 4.5)": 5
     }
   },
@@ -227,11 +227,11 @@
     "defs": [
       [
         "ph_meld",
-        "is / is not / in / not in (identity and membership)"
+        "an object held in a name or a parameter (no cell the graph can resolve)"
       ],
       [
         "ph_pairing",
-        "None as a value (no word of its own)"
+        "an object held in a name or a parameter (no cell the graph can resolve)"
       ],
       [
         "ph_delete",
@@ -244,12 +244,10 @@
       "statements": 1
     },
     "reasons": {
-      "None as a value (no word of its own)": 1,
-      "a default that folds to no word (None or a call)": 2,
       "a special method (only __init__ is of the subset)": 1,
-      "an object held in a name or a parameter (no cell the graph can resolve)": 3,
-      "assert (the panic seam)": 1,
-      "is / is not / in / not in (identity and membership)": 2,
+      "an object held in a name or a parameter (no cell the graph can resolve)": 5,
+      "assert (the panic seam)": 3,
+      "is / is not / in / not in (identity and membership)": 1,
       "raise (the exception seam)": 1
     }
   }
