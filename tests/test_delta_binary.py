@@ -33,8 +33,9 @@ def checked(base: Image, compiled: physical.Compiled) -> bytes:
     """The compiled delta with the base it checks for baked in: the v7 canonical
     digest of `base` (docs/32 5.4 - the same oracle tests/support.py answers),
     the one the engine compares its own dump against (core/live/live.cpp's
-    `apply`). `physical.compile` still embeds the v6 `Image.digest()` of the
-    RXFB-6 form, so the Python side of the check is made here, at the seam."""
+    `apply`). `physical.compile` names that same digest by itself now
+    (`arena_image.digest_of`); this helper bakes it in from the oracle of the
+    test, independent of the code under test."""
     data = bytearray(compiled.data)
     data[16:20] = (struct.unpack_from("<I", data, 16)[0] | physical.CHECK_BASE).to_bytes(
         4, "little"
@@ -62,9 +63,8 @@ def test_xml_to_physical_to_image_to_xml_is_the_same_text(base: Image):
     assert (compiled.creates, compiled.sets, compiled.deletes) == (3, 1, 0)
     # the engine's two faces of the same answer (docs/32 5.4): the apply
     # answers the digest of the result, the dump its canonical bytes - both
-    # held against the v7 oracle (`link.arena_of` of the reference model),
-    # the same seam the CLI's Image.from_bytes readback will join when the
-    # v7 reader lands on the Python side.
+    # held against the v7 oracle (`link.arena_of` of the reference model);
+    # the CLI reads the running image back through `arena_image.load`.
     host = harness.HostImage(link.arena_of(base))
     assert host.client.apply(checked(base, compiled)) == digest_of(reference)
     dump, digest = host.client.emit()
@@ -125,11 +125,11 @@ def test_random_edits_give_the_same_image_both_ways(base: Image, seed: int):
         checked_data = checked(before, compiled)
         assert checked_data == checked(before, loose)  # the same delta either way
         for data in (checked_data, loose.data):
-            # each round runs on the base it was made for: the v6 readback of
-            # the running image (Image.from_bytes over v7 arena bytes) is not
-            # on the Python side yet, so the compare stays on the seam the
-            # engine answers - the apply's digest and the dump's bytes -
-            # against the v7 oracle of the model (tests/support.py).
+            # each round runs on the base it was made for, and the compare
+            # stays on the seam the engine answers - the apply's digest and
+            # the dump's bytes - against the v7 oracle of the model
+            # (tests/support.py), which is what the loader proves the model
+            # of a dump against (tests/test_arena_image.py).
             host = harness.HostImage(link.arena_of(before))
             answer = host.client.apply(data)
             expected = digest_of(after)

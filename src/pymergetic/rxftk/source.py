@@ -19,10 +19,10 @@ def load(source: str | Path) -> Image:
     """A directory is a module tree, `.rxfd` a delta on the empty image, `live:LINK` the dump of a
     running image (`pty:/dev/pts/3`, `shm:name`, see `live.link`), else image bytes."""
     if isinstance(source, str) and source.startswith(LIVE_PREFIX):
-        from pymergetic.rxftk.live import link
+        from pymergetic.rxftk.live import arena_image, link
 
         raw, _ = link.connect(source[len(LIVE_PREFIX) :]).emit()
-        return Image.from_bytes(raw)
+        return arena_image.load(raw)
     path = Path(source)
     if path.is_dir():
         return tree.load(path)

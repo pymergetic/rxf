@@ -171,14 +171,6 @@ def test_a_client_talks_to_the_image_over_a_pty(serial, image: Image):
     wire.close()
 
 
-@pytest.mark.xfail(
-    reason="blocked on the arena lane: `live apply` over the line exits 2 "
-    "(`rxf: BadImage`): the CLI's apply reads the running image back with "
-    "the v6 `Image.from_bytes` over v7 arena bytes - the host needs a v7 "
-    "image reader on the Python side (the engine's digest over the line "
-    "is the oracle's: the walk of 5b1bb80 lands the untouched dump)",
-    strict=False,
-)
 def test_the_rxf_live_commands_work_on_a_pty(serial, image: Image, tmp_path, capsys):
     path, _ = serial
     spec = f"pty:{path}"
@@ -196,9 +188,12 @@ def test_the_rxf_live_commands_work_on_a_pty(serial, image: Image, tmp_path, cap
         target = tmp_path / name
         assert main(["live", "emit", spec, str(target), "--timeout=60"]) == 0
         capsys.readouterr()
-        assert source.load(target).digest() == expected.digest()
+        # the dump is the model of the arena (the v7 reader): the arena keeps the room of a
+        # payload, not its length (docs/32 1.2), so the compare is the one the image makes -
+        # the digest of the canonical arena, which both models write alike
+        assert digest_of(source.load(target)) == digest_of(expected)
     # a running image is a source like any other
-    assert source.load(f"live:{spec}").digest() == expected.digest()
+    assert digest_of(source.load(f"live:{spec}")) == digest_of(expected)
     # the console reads a script
     script = tmp_path / "script.txt"
     script.write_text(

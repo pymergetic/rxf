@@ -443,6 +443,29 @@ The superseded model reached the same place by hashing compacted cells
 `tests/test_live_native.py` - the native pump, the host engine and the image all
 answer one digest - is the same sentence in both.
 
+### 5.5 The host's reader: the model loads through `rxfb`
+
+The host's commands (`delta patch`, `live apply`, `live emit`) need the running
+image as the model's `Image`. Decision: **the model loads through `pymergetic.rxfb`,
+and there is no second reader in the core.** `live/arena_image.py` walks the
+read-only, zero-copy views of the C reader (records, names, spec rows, relation
+tables) and only maps them onto `Image.add` - the inverse of
+`tools/native/arena_export.py`; the parsing stays in `rxfb/rxfb.c`, the one defining
+language of the reader. The one thing the model needed that the C reader lacked,
+the rows of a relation table by the table's own handle (`rxfb_table`,
+`Object.table()`), went into the C core: asking for one object's table by walking
+the chain is quadratic over a whole image (19 s for the starter, 2.5 s with the
+table read once). `ArenaScene` (the world page's scene source) answers a different
+question - the facts of the arena as a document, not a model - and shares the
+`ObjectArena` reader, not the loader. What the arena cannot say, the loader does
+not invent: it keeps the room of a payload, not its length (1.2), so a fixed
+layout gives the length back (its prefix) and a variable one stays as padded as
+the arena holds it, unless the caller passes the world the arena came from
+(`like`, the predecessor, whose unfilled form and lengths win where the bytes
+agree). The proof is a round trip: model -> `arena_of` -> `load` -> model is
+equal object by object, `arena_of` of the loaded model is the arena it came from,
+and its digest is the digest the live layer answers (`tests/test_arena_image.py`).
+
 ---
 
 ## 6. Related
