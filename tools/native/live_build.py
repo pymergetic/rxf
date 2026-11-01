@@ -74,7 +74,7 @@ def code(machine: str) -> str:
         SELF,
         *(f"@{letters}" for letters in seed_build.call_type_letters()),
     ]
-    return seed_cache.run(argv, source())
+    return seed_cache.run(argv, source(), label=f"{SOURCE.name} ({machine})")
 
 
 def build() -> dict[str, str]:

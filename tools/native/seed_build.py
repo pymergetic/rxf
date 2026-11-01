@@ -524,7 +524,7 @@ def code(machine: str, key: str) -> str:
         argv.extend(f"@{letters}" for letters in call_type_letters())
     else:
         argv.extend(shape.split())
-    return seed_cache.run(argv, (PACKAGE / source).read_text())
+    return seed_cache.run(argv, (PACKAGE / source).read_text(), label=f"{source} ({machine})")
 
 
 def compile_body(machine: str, body: str, params: str, specs: str, storew: int) -> str:
@@ -532,7 +532,7 @@ def compile_body(machine: str, body: str, params: str, specs: str, storew: int) 
     source = f"fn f({params}) {{ {body} }}\n"
     argv = [str(seed_bin()), "codegen", TARGET[machine], "object", str(storew), "!" + specs,
             *(f"@{letters}" for letters in call_type_letters())]
-    return seed_cache.run(argv, source)
+    return seed_cache.run(argv, source, label=f"compiled body ({machine})")
 
 
 def wasm_body(key: str) -> bytes:
