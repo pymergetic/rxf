@@ -5,16 +5,28 @@
  * Usage: node tests/web_console.mjs BASE OP PAYLOAD
  *        node tests/web_console.mjs BASE forks
  *        node tests/web_console.mjs BASE acts '[{"act": "set", ...}, ...]'
+ *        node tests/web_console.mjs BASE drag '[{"act": "set", ...}, ...]'
  *
  * BASE is where web/serve.py serves the page and the seat's artifacts. OP is
  * the name of a frames.js OP (RESOLVE, PING, ...), PAYLOAD its text: stdout is
  * the answer frames as JSON -- the same facts the page prints at its prompt.
  * `forks` walks the chain the snapshot button makes and reports what each
- * generation carries.
+ * generation carries. `drag` runs the chain the page runs while a value is
+ * dragged and reports the pin and the byte diff of every settled step.
  */
 import { Rxf } from "../web/rxf.js";
 import * as Frames from "../web/frames.js";
 import * as Acts from "../web/acts.js";
+import * as Digest from "../web/digest.js";
+
+/* The host fill of the face the browser seat has: WebCrypto, which the pin's
+ * SHA-256 hashes with. The page gets it from the browser (127.0.0.1 is a secure
+ * context); node 18 hides globalThis.crypto from modules, so the harness fills
+ * the same host API before anything hashes. Without it the pin would honestly
+ * answer "not checked here" and prove nothing. */
+if (!globalThis.crypto || !globalThis.crypto.subtle) {
+  globalThis.crypto = (await import("node:crypto")).webcrypto;
+}
 
 const [base, which, payload = ""] = process.argv.slice(2);
 const rxf = await Rxf.open(
@@ -71,6 +83,36 @@ if (which === "forks") {
     rxf.snapshot()
   );
   console.log(JSON.stringify({ steps, fork: Acts.digest(fork) }));
+} else if (which === "drag") {
+  // The browser digest while the hand moves (U2), headless: each settled value
+  // of a drag is one `set` act through the page's own web/acts.js - the same
+  // chain a typed act takes - and after every commit the page's own
+  // web/digest.js pins what the browser holds: the canonical bytes are hashed
+  // IN THE BROWSER against the word the seat answered, and the byte diff of the
+  // two pins says which bytes moved. Reported per step: the digests, the pin's
+  // verdict and the diff - the two things the preview shows live mid-drag.
+  const history = [];
+  const steps = [];
+  let was = (await Digest.view(rxf)).bytes;
+  for (const act of JSON.parse(payload)) {
+    const answer = await Acts.perform(rxf, history, act, base);
+    const seen = await Digest.view(rxf);
+    const d = Digest.diff(was, seen.bytes);
+    steps.push({
+      before: answer.before,
+      after: answer.after,
+      digest: seen.digest,
+      verified: seen.verified,
+      pinned: seen.verified && seen.digest === answer.after,
+      length: seen.length,
+      changed: d.changed,
+      spans: d.spans,
+      runs: d.runs,
+      grown: d.grown,
+    });
+    was = seen.bytes;
+  }
+  console.log(JSON.stringify({ steps }));
 } else if (which === "commit") {
   // the modification acts' first leg (U1 pre-work): stage a delta through the
   // channel and commit it. The delta here is the empty one - the 64-byte wire

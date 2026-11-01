@@ -109,6 +109,7 @@
   <div class="digest" id="digest-line">-</div>
   <div class="digest" id="digest-was"></div>
   <div class="checked" id="digest-checked">the bytes are not read yet</div>
+  <div class="checked" id="digest-diff">no byte diff yet</div>
   <hr>
   <h2>module tree</h2>
   <div class="pane" id="tree"></div>
@@ -121,6 +122,7 @@
   import { Rxf } from "./rxf.js";
   import * as Frames from "./frames.js";
   import * as Acts from "./acts.js";
+  import * as Digest from "./digest.js";
   import * as Tree from "./tree.js";
 
   const tabs = document.getElementById("tabs");
@@ -134,6 +136,7 @@
   const digestLine = document.getElementById("digest-line");
   const digestWas = document.getElementById("digest-was");
   const digestChecked = document.getElementById("digest-checked");
+  const digestDiff = document.getElementById("digest-diff");
   const treeEl = document.getElementById("tree");
   const objectsEl = document.getElementById("objects");
 
@@ -392,13 +395,40 @@
     if (!w) return;
     bytes.textContent = `${w.rxf.snapshot().length} bytes in memory`;
     stateEl.textContent = w.parent ? `fork of ${w.parent}` : "the one that booted";
-    const now = w.view ? w.view.digest : "-";
+    const now = w.digest || "-";
     digestMini.textContent = `digest ${now.slice(0, 16)}…`;
+  }
+
+  /* the byte diff as one line: what the change moved in the canonical form */
+  function diffText(d) {
+    if (!d) return "byte diff: no pin before this one";
+    if (!d.changed && !d.grown) return "byte diff: no bytes moved";
+    const runs = d.runs.map((r) => `0x${r.at.toString(16)}+${r.count}`).join(", ");
+    const more = d.spans > d.runs.length ? `, +${d.spans - d.runs.length} more` : "";
+    const grown = d.grown ? ` · ${d.grown > 0 ? "+" : ""}${d.grown} bytes of length` : "";
+    return `byte diff: ${d.changed} bytes in ${d.spans} run(s) at ${runs}${more}${grown}`;
+  }
+
+  /* the browser digest: the pin every change is shown through. The bytes the
+     browser holds are hashed against the word the seat answered (web/digest.js;
+     refused bytes never reach the strip), and the byte diff of the two pins
+     says what this change moved. */
+  function pinDigest(w, seen) {
+    const d = w.bytes ? Digest.diff(w.bytes, seen.bytes) : null;
+    w.bytes = seen.bytes;
+    w.digest = seen.digest;
+    digestLine.textContent = seen.digest;
+    digestMini.textContent = `digest ${seen.digest.slice(0, 16)}…`;
+    digestDiff.textContent = diffText(d);
+    digestChecked.textContent =
+      `${seen.length} canonical bytes · SHA-256 ${seen.verified ? "checked against the digest" : "not checked here"}`;
+    return d;
   }
 
   /* the digest and the panes follow every act and every drag: after any of
      them the browser-side view is re-read from the seat's own bytes - the
-     module tree and the object list show the new state with no reload. */
+     module tree and the object list show the new state with no reload. The
+     answer is the byte diff of this change against the pin before it. */
   async function changed(w, now, was = "") {
     if (was) {
       digestWas.textContent = `was ${was}`;
@@ -411,20 +441,21 @@
   }
 
   async function refreshView(w) {
-    if (!w || windows[current] !== w) return;
+    if (!w || windows[current] !== w) return null;
     digestChecked.textContent = "reading the canonical bytes…";
     try {
       const seen = await Tree.view(w.rxf);
+      const d = pinDigest(w, seen);
       w.view = seen;
-      digestLine.textContent = seen.digest;
-      digestChecked.textContent =
-        `${seen.length} canonical bytes · SHA-256 ${seen.verified ? "checked against the digest" : "not checked here"}`;
       renderTree(w);
       renderObjects(w);
+      refresh(w);
+      return d;
     } catch (error) {
       digestChecked.textContent = `the view failed: ${error.message}`;
+      refresh(w);
+      return null;
     }
-    refresh(w);
   }
 
   function renderTree(w) {
@@ -497,7 +528,7 @@
           renderObjects(w);
         };
       }
-      if (node.value !== null && node.size <= 6 && node.path) dragValue(w, node, value);
+      if (node.value !== null && node.path && Number(node.value) <= Number.MAX_SAFE_INTEGER) dragValue(w, node, value);
       objectsEl.appendChild(el);
     }
     if (!objectsEl.children.length) {
@@ -510,10 +541,16 @@
 
   /* the browser's own modification (U2): drag a value and the bytes and the
      digest change while the hand moves. Each settled value is one `set` act
-     through the host's compiler - the same chain a typed act takes - and the
-     panes re-read the seat's bytes when the drag ends. */
+     through the host's compiler - the same chain a typed act takes - and after
+     every one of them the browser digest is pinned again: the bytes the browser
+     holds are hashed against the word the seat answers, and the byte diff of
+     the two pins is shown beside it. The panes re-read the seat's bytes when
+     the drag ends - after the queued acts, never while one is still in flight.
+     A drag writes one JSON number (web/acts.js's `set`), so a value past the
+     safe integer range cannot round-trip that face and is shown, not dragged. */
   function dragValue(w, node, el) {
-    const max = 2 ** (8 * node.size) - 1;
+    const max = Math.min(2 ** (8 * node.size) - 1, Number.MAX_SAFE_INTEGER);
+    el.dataset.drag = node.path; // the row a hand can drag (the drag prove grabs it)
     el.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       el.setPointerCapture(e.pointerId);
@@ -530,11 +567,15 @@
         w.queue = w.queue.then(async () => {
           const answer = await Acts.perform(w.rxf, w.history, request, "", () => {});
           el.textContent = String(value);
-          line(w, `drag set ${node.name} ${answer.bytes} bytes · now ${answer.after.slice(0, 16)}…`, "ok");
-          digestLine.textContent = answer.after;
           digestWas.textContent = `was ${answer.before}`;
           digestWas.className = "digest was";
-          digestMini.textContent = `digest ${answer.after.slice(0, 16)}…`;
+          digestChecked.textContent = "reading the canonical bytes…";
+          const seen = await Digest.view(w.rxf);
+          const d = pinDigest(w, seen);
+          line(w, `drag set ${node.name} ${value} · ${answer.bytes} bytes · ${diffText(d)} · now ${seen.digest}`, "ok");
+          if (seen.digest !== answer.after) {
+            line(w, `drag set ${node.name}: the commit answered ${answer.after} but the seat is at ${seen.digest}`, "err");
+          }
         }).catch((error) => line(w, `drag set ${node.name}: ${error.message}`, "err"));
       };
       const move = (ev) => {
@@ -548,7 +589,12 @@
         el.removeEventListener("pointermove", move);
         el.removeEventListener("pointerup", up);
         settle(true);
-        Promise.resolve(refreshView(w));
+        /* the panes follow the drag after the last queued act has committed:
+           reading them here would pin the end of the drag to its middle. The
+           line at the end of the chain says the drag is whole. */
+        w.queue = w.queue
+          .then(() => refreshView(w))
+          .then(() => line(w, "drag end: the panes re-read the seat's bytes", "sys"));
       };
       el.addEventListener("pointermove", move);
       el.addEventListener("pointerup", up);
@@ -565,7 +611,7 @@
     where.textContent = w.parent ? `forked from ${w.parent}` : "boots";
     bytes.textContent = `${w.rxf.snapshot().length} bytes in memory`;
     if (w.view) {
-      digestLine.textContent = w.view.digest;
+      digestLine.textContent = w.digest || w.view.digest;
       renderTree(w);
       renderObjects(w);
     }
@@ -593,6 +639,8 @@
       rxf, stream, parent, history: [...history], title: parent ? `fork ${windows.length}` : "image",
       prompt: null,
       view: null,
+      bytes: null, // the pinned canonical bytes (the browser digest's own)
+      digest: null,
       selected: null,
       expanded: new Set(),
       stage: { bytes: Acts.emptyDelta(), sha256: null },

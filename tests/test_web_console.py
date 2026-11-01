@@ -338,3 +338,52 @@ def test_the_pages_acts_reach_the_seat_with_the_hosts_bytes(
         digest = engine.client.apply(bytes.fromhex(step["delta"]))
         assert step["after"] == digest, "the seat answers the engine's digest"
     assert result["fork"] == digest, "a fork carries the image the acts left"
+
+
+# ---- the browser's own modification (U2): the digest at the drag ---------------------------------
+#
+# The chain a drag runs while the hand moves: each settled value is one `set`
+# act through the same host-compiler chain a typed act takes, and after every
+# commit the browser pins what it holds - the canonical bytes are hashed IN THE
+# BROWSER against the word the seat answered and refused unless they hash to
+# it, and the byte diff of the two pins says which bytes moved. The page
+# (web/index.html's dragValue) does exactly this per settled step; the harness
+# drives the same modules (web/acts.js, web/digest.js) headlessly.
+
+
+def test_a_drag_keeps_the_bytes_pinned_and_the_byte_diff_live(
+    served: str, oracle: Bridge
+) -> None:
+    values = [51, 52, 53]
+    drag = [{"act": "set", "path": SET["path"], "value": value} for value in values]
+    done = subprocess.run(
+        ["node", str(HARNESS), served, "drag", json.dumps(drag)],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=900,
+    )
+    steps = json.loads(done.stdout)["steps"]
+    assert len(steps) == len(values)
+    assert steps[0]["before"] == oracle.digest(), "the drag starts at the seat's own digest"
+    moved: set[int] = set()
+    for index, step in enumerate(steps):
+        # the pin: the browser's own SHA-256 of the canonical bytes is the word
+        # the seat answered - what the preview shows mid-drag is checked here,
+        # and bytes that do not hash to their digest are never drawn
+        assert step["verified"], "the browser did not hash its own bytes"
+        assert step["pinned"], "the bytes the browser holds are not the commit's word"
+        assert step["digest"] == step["after"]
+        if index:
+            assert step["before"] == steps[index - 1]["after"], "one act moved the image"
+        # the byte diff: this step moved the value and only the value - bytes of
+        # the canonical form, in place, and never the whole world
+        assert 1 <= step["changed"] <= 8, f"one value moved {step['changed']} bytes"
+        assert step["grown"] == 0, "a set does not change the dump's length"
+        assert step["spans"] >= len(step["runs"])
+        for run in step["runs"]:
+            assert 0 <= run["at"] and run["at"] + run["count"] <= step["length"]
+            moved.add(run["at"])
+    # the drag writes one place: the byte diff names the same offset every step
+    assert len(moved) == 1, f"the drag moved bytes at {sorted(moved)}"
+    assert len({step["after"] for step in steps}) == len(steps), "the digest stood still"
