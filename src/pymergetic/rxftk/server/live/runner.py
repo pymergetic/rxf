@@ -27,14 +27,15 @@ end needs are the regions of that live block (`linked.live.regions`), derived ex
 
 from __future__ import annotations
 
+import atexit
 import ctypes
 import functools
 import importlib.util
 import mmap
 import platform
-import struct
 import sys
 import threading
+from multiprocessing import shared_memory
 from pathlib import Path
 from typing import Any, ClassVar, Self
 
@@ -42,8 +43,15 @@ import pymergetic.rxftk
 from pymergetic.rxftk.console.world import WorldIsRegistered
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live.client import Client
-from pymergetic.rxftk.live.front import Front, Region
-from pymergetic.rxftk.live.link import RingLink
+from pymergetic.rxftk.live.front import Front
+from pymergetic.rxftk.live.link import (
+    HEAD_SIZE,
+    Head,
+    SegmentGate,
+    create_segment,
+    segment_of,
+)
+from pymergetic.rxftk.live.machine import Machine
 from pymergetic.rxftk.server.live.session import Session
 
 SCRATCH = (
@@ -71,9 +79,23 @@ def _checkout() -> Path:
 
 
 _NEEDS: dict[str, tuple[str, ...]] = {
-    "compose": ("graph_header",),
+    "compile_build": ("graph_header", "seed_build", "seed_cache"),
+    "compose": ("graph_header", "seed_build"),
+    "graph_build": ("graph_header", "seed_build", "seed_cache"),
+    "graph_sync": ("graph_header",),
+    "link": ("arena_export", "compose", "graph_header", "programs"),
+    "live_build": ("seed_build", "seed_cache"),
+    "native_build": ("seed_build",),
+    "programs": (
+        "compile_build",
+        "graph_build",
+        "graph_sync",
+        "live_build",
+        "native_build",
+        "rxfc",
+    ),
     "rxfc": ("graph_header",),
-    "link": ("graph_header", "compose"),
+    "seed_build": ("seed_cache",),
 }
 
 
@@ -110,52 +132,13 @@ def _seed() -> tuple[bytes, bytes, dict[str, int]]:
     return rxfc.compile_file(source), source.read_bytes(), header.numbers()
 
 
-class _Handle(ctypes.Structure):
-    """`rxf_object_handle` (native/stdlib_runtime.h): the id a run names a program by."""
-
-    _fields_ = [
-        ("object_id", ctypes.c_uint64),
-        ("generation", ctypes.c_uint64),
-        ("offset", ctypes.c_uint64),
-    ]
-
-
-_RUN = ctypes.CFUNCTYPE(
-    ctypes.c_uint32,  # rxf_graph_run(...)
-    ctypes.c_void_p,  # rxf_runtime_context *
-    _Handle,  # rxf_object_handle, by value
-    ctypes.c_uint64,  # args
-    ctypes.c_uint64,  # argc
-    ctypes.c_void_p,  # out
-)
-_LEAF = ctypes.CFUNCTYPE(
-    ctypes.c_uint32,  # a leaf (context, argument)
-    ctypes.c_void_p,
-    ctypes.c_void_p,
-)
-
-
-@functools.cache
-def _run_at(address: int) -> Any:
-    """The interpreter at `address`, as a callable of this process — the entry `link.py`
-    computes from the Code of the image (a compaction moves it with everything else that does
-    not run)."""
-    return _RUN(address)
-
-
-@functools.cache
-def _leaf_at(address: int) -> Any:
-    """The leaf at `address`, as a callable of this process."""
-    return _LEAF(address)
-
-
 @functools.cache
 def _pump_id() -> int:
     """The id of the live leaf (leaf 29, `native/graph.h`): what serves the rings."""
     return int(_tool("graph_header").numbers()["RXF_LEAF_LIVE_PUMP"])
 
 
-class Seat:
+class Seat(Machine):
     """One linked image whose own code runs natively in this process.
 
     The image is linked (`tools/native/link.py`) into one block of host memory at its own
@@ -164,15 +147,22 @@ class Seat:
     `run` is the interpreter on one program, and `pump` is the image's own live leaf serving
     its rings — the frames face and the world face of one link, not two.
 
+    With `share`, the block is laid out in a shared-memory segment of that name — the area the
+    link `shm:NAME` promises — and the facts a peer maps it by (the head `live.link.Head` reads)
+    are written at the end of it: another process maps the very same block at the very same
+    addresses and runs the very same image (`live/machine.py`), one request at a time behind the
+    lock of the link. One link has one runner across processes too: a segment name that is
+    already taken is refused `WorldIsRegistered` and keeps its runner.
+
     The block is what `tests/live_world.py` maps for its machines, run natively instead of in an
     emulator: the code of the starter is relocation-free (`native_build.py`), which is what lets
     it run where the arena keeps it. The image moves its own code when it compacts itself, so a
     leaf is looked up in the function table of the context each time it is called (`slot`).
     """
 
-    def __init__(self, image: Image) -> None:
-        machine = NATIVE_MACHINES.get(platform.machine())
-        if machine is None:
+    def __init__(self, image: Image, share: str | None = None) -> None:
+        native = NATIVE_MACHINES.get(platform.machine())
+        if native is None:
             raise RuntimeError(
                 f"rxf serve runs the image on this host's own machine: {platform.machine()} "
                 "has no linked form to run here (x86_64 and aarch64 do)"
@@ -183,95 +173,78 @@ class Seat:
         )
         # One pass links at a placeholder to learn the size of the block, one at the address of
         # the mapping: linking computes every address from the base it is given.
-        probe = linking.link(image, machine, 0, spec)
-        self._memory = mmap.mmap(
-            -1,
-            max(len(probe.data), 1),
-            prot=mmap.PROT_READ | mmap.PROT_WRITE | mmap.PROT_EXEC,
-        )
-        self.base = ctypes.addressof(ctypes.c_char.from_buffer(self._memory))
-        self.linked = linking.link(image, machine, self.base, spec)
-        self._memory[: len(self.linked.data)] = self.linked.data
-        self._closed = False
+        probe = linking.link(image, native, 0, spec)
+        payload = max(len(probe.data), 1)
+        self._segment: shared_memory.SharedMemory | None = None
+        gate: SegmentGate | None = None
+        memory: mmap.mmap
+        if share is None:
+            memory = mmap.mmap(
+                -1,
+                payload,
+                prot=mmap.PROT_READ | mmap.PROT_WRITE | mmap.PROT_EXEC,
+            )
+        else:
+            self._segment = self._shared(share, ((payload + 7) & ~7) + HEAD_SIZE)
+            memory = mmap.mmap(
+                getattr(self._segment, "_fd"),  # noqa: B009
+                self._segment.size,
+                prot=mmap.PROT_READ | mmap.PROT_WRITE | mmap.PROT_EXEC,
+            )
+            gate = SegmentGate(getattr(self._segment, "_fd"))  # noqa: B009
+        self.base = ctypes.addressof(ctypes.c_char.from_buffer(memory))
+        self.linked = linking.link(image, native, self.base, spec)
+        memory[: len(self.linked.data)] = self.linked.data
         assert self.linked.live is not None
         live = self.linked.live
-        self.client = Client(RingLink(self, live.area), pump=self.pump)
         arena_at, arena_cap = live.regions["arena"]
         work_at, work_cap = live.regions["work"]
-        self.front = Front(
-            self.client,
-            self,
-            Region(arena_at, arena_cap),
-            Region(work_at + (work_cap - SCRATCH), SCRATCH),
+        pump = _pump_id()
+        facts = Head(
+            block=self.base,
+            area=live.area,
+            context=self.linked.context,
+            run=self.linked.run,
+            args=self.linked.args,
+            out=self.linked.out,
+            pump=pump,
+            pump_slot=self.linked.slots[pump],
+            arena_at=arena_at,
+            arena_cap=arena_cap,
+            work_at=work_at + (work_cap - SCRATCH),
+            work_cap=SCRATCH,
         )
+        if self._segment is not None:
+            memory[-HEAD_SIZE:] = facts.pack()  # the head a peer maps the block by
+        super().__init__(facts, memory, memory.close, gate)
+        atexit.register(self.close)  # a seat that ends without closing leaves nothing behind
 
-    # -- the machine of the front end (live.front.Machine) -----------------------------------
+    # -- the shared-memory segment of a `shm:` link -------------------------------------------
 
-    def read(self, address: int, size: int) -> bytes:
-        at = address - self.base
-        return bytes(self._memory[at : at + size])
-
-    def write(self, address: int, data: bytes) -> None:
-        at = address - self.base
-        self._memory[at : at + len(data)] = data
-
-    def slot(self, identity: int) -> int:
-        """Where a leaf is now: the address in the function table of the context in memory (the
-        image moves its own code when it compacts itself)."""
-        count, table = struct.unpack("<2Q", self.read(self.linked.context + 16, 16))
-        for k in range(count):
-            slot = self.read(table + 24 * k, 24)
-            if struct.unpack_from("<Q", slot)[0] == identity:
-                return (
-                    struct.unpack_from("<Q", slot, 16)[0] or self.linked.slots[identity]
-                )
-        raise KeyError(identity)
-
-    def run(self, identity: int, arguments: bytes = b"") -> tuple[int, int]:
-        """The interpreter of the image on one program (`graph.run`): its status and its value.
-        A run is not a frame: this call IS the host running the image (docs/19)."""
-        self._check_open()
-        self.write(self.linked.args, arguments or bytes(8))
-        status = _run_at(self.linked.run)(
-            self.linked.context,
-            _Handle(identity, 1, 0),
-            self.linked.args,
-            len(arguments) // 8,
-            self.linked.out,
-        )
-        return status, struct.unpack("<Q", self.read(self.linked.out, 8))[0]
-
-    # -- the channel of the image ------------------------------------------------------------
-
-    def pump(self) -> int:
-        """The image's own live leaf (leaf 29, `native/live.cpp`) serves its rings."""
-        self._check_open()
-        assert self.linked.live is not None
-        return _leaf_at(self.slot(_pump_id()))(
-            self.linked.context, self.linked.live.area
-        )
+    @staticmethod
+    def _shared(name: str, size: int) -> shared_memory.SharedMemory:
+        """The segment the link `shm:NAME` promises, laid out here. One link has one runner
+        across processes: a name that is taken keeps its runner and refuses this one."""
+        try:
+            return create_segment(name, size)
+        except FileExistsError:
+            raise WorldIsRegistered(
+                f"shm:{name} is already laid out: one link has one runner, and the runner "
+                "that has it keeps the link until it closes (stop it, or remove the segment "
+                f"when no runner is there: /dev/shm/{name})"
+            ) from None
 
     def close(self) -> None:
-        """The seat is over: the block is unmapped and no call goes in again. Nothing outlives
-        the machine that runs the image (docs/19, "who runs when")."""
+        """The seat is over: the block is unmapped, and a segment it laid out is unlinked. Nothing
+        outlives the machine that runs the image (docs/19, "who runs when")."""
         if self._closed:
             return
-        self._closed = True
-        self._memory.close()
-
-    # -- internals ----------------------------------------------------------------------------
-
-    def _check_open(self) -> None:
-        if self._closed:
-            raise RuntimeError(
-                "the seat is closed: this process no longer runs the image"
-            )
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(self, *problem: object) -> None:
-        self.close()
+        super().close()
+        atexit.unregister(self.close)
+        if self._segment is not None:
+            self._segment.close()
+            self._segment.unlink()
+            self._segment = None
 
 
 # One link, one runner (docs/19, "who runs when"): the attach decision is taken here, atomically,
@@ -297,7 +270,10 @@ class Runner:
 
     def __init__(self, image: Image, link: str = "shm:rxf") -> None:
         self.link = link
-        self._seat = Seat(image)  # its own machine; it runs no traffic until the world registers
+        # Its own machine; it runs no traffic until the world registers. A `shm:` link lays the
+        # image out in a shared-memory segment, which is what makes the link's promise to
+        # another process true (docs/19).
+        self._seat = Seat(image, share=segment_of(link))
         self.session = Session(link, self._seat.client, self._seat.front)
         try:
             with _ATTACH:  # one link, one runner: reserved atomically, refused honestly

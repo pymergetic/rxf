@@ -28,9 +28,10 @@ from pymergetic.rxftk.live.client import Client, LiveError
 
 
 def _client(spec: str, timeout: float) -> Client:
-    """The channel of the image at SPEC: the world of the runner in this process when one runs
-    here (`console/world`, the seam `rxf console` attaches through), else the wire (`live.link`)."""
-    if world.registered(spec):
+    """The channel of the image at SPEC: the world of whoever runs it when one can be reached
+    (`console/world`, the seam `rxf console` attaches through — the machine registered in this
+    process, or the same image mapped from a `shm:` link), else the wire (`live.link`)."""
+    if world.reachable(spec):
         return world.attach(spec, timeout=float(timeout)).client
     return link.connect(spec, timeout=float(timeout))
 

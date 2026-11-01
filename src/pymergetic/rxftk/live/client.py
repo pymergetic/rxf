@@ -11,6 +11,7 @@ import hashlib
 import struct
 import time
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -139,6 +140,11 @@ class Client:
         self._decoder = frames.Decoder()
         self._sequence = 0
         self._late: dict[int, Frame] = {}
+        # The gate of the link (`RingLink.gate`): one request at a time behind it, in this
+        # process and in every other that maps the same image. A client that waits for another
+        # process to pump takes no gate — its request is answered from there and locking here
+        # would lock that answer out.
+        self.gate = getattr(link, "gate", None) or nullcontext()
 
     def call(
         self,
@@ -147,6 +153,18 @@ class Client:
         argument: int = 0,
         *,
         accept: tuple[int, ...] = (frames.OK,),
+    ) -> Frame:
+        gate = self.gate if self._pump is not None else nullcontext()
+        with gate:
+            return self._round(op, payload, argument, accept=accept)
+
+    def _round(
+        self,
+        op: int,
+        payload: bytes,
+        argument: int,
+        *,
+        accept: tuple[int, ...],
     ) -> Frame:
         self._sequence = (self._sequence + 1) & 0xFFFFFFFF
         wanted = self._sequence

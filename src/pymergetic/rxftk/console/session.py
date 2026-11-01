@@ -16,6 +16,7 @@ from typing import Any, TextIO
 
 from pymergetic.rxftk.core.delta import DeltaError
 from pymergetic.rxftk.honors import Honors, HonorsError
+from pymergetic.rxftk.live.client import LiveError
 from pymergetic.rxftk.live.front import Front, Installed, Verdict
 
 PROGRAM = re.compile(r"(?m)^[ \t]*program[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*\(")
@@ -163,10 +164,12 @@ class Console:
         return summary
 
     def _safely(self, source: str) -> dict[str, Any]:
-        """A program that cannot even be sent answers like a refused one: the loop goes on."""
+        """A program that cannot even be sent answers like a refused one: the loop goes on. A
+        refusal of the channel itself counts as one (its own words travel in `str(problem)`,
+        docs/34) — a base that moved under the install is not a crash of the terminal."""
         try:
             return self.submit(source)
-        except (DeltaError, ValueError) as problem:
+        except (DeltaError, LiveError, ValueError) as problem:
             return {"ok": False, "message": str(problem)}
 
     def _meta(self, word: str) -> bool:
