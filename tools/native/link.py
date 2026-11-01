@@ -231,25 +231,45 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
         kind = made.load(target)[0]
         return made.locate(target)[1] + (MODULE_SIZE if kind == OBJ_MODULE else 0)
 
+    def room_of(handle: int) -> int:
+        """The slots an object's value takes in the arena, chain head excluded
+        (docs/32 5.4: the canonical form reads the room back as the object's
+        size): the record's payload word less a module's chain head."""
+        target = placed[handle]
+        kind = made.load(target)[0]
+        record = made.locate(target)[0]
+        room = struct.unpack_from("<I", arena, record + 20)[0]
+        return room - (MODULE_SIZE if kind == OBJ_MODULE else 0)
+
     # The entries: where the value of each live object is, in the arena
     rows: list[tuple[int, int, int, int, str]] = []  # id, type id, offset, size, path
     for handle in range(image.handle_count):
         if not image.live(handle):
             continue
         info = image.get(handle)
-        if info["kind"] in (254, 255) or info["type"] == HANDLE_NONE:
+        if info["kind"] in (254, 255) or (
+            info["type"] == HANDLE_NONE and not info["payload"]
+        ):
             continue  # a block or dead cell, or an object that has no type and no value
-        offset = prefix(handle)
-        size = len(info["payload"]) - offset
+        typed = info["type"] != HANDLE_NONE
+        offset = prefix(handle) if typed else 0
+        # The size is the room left after a module's chain head and the type's
+        # fixed words, never the tree's exact value length: that length is not
+        # in the record, and the RELINK twin derives its rows from the arena
+        # alone (native/live.rxfs m_relink). Both sides write the one number the
+        # arena carries, or a rebind cannot restore the context byte for byte.
+        size = room_of(handle) - offset
         fields = (
             dict(image.fields(handle))
             if image.type_name(handle) == "SemanticObject"
             else {}
         )
-        type_path = image.path(info["type"])
-        type_id = int.from_bytes(
-            hashlib.sha256(type_path.encode()).digest()[:8], "little"
-        )
+        type_id = 0  # an object with a value and no type: no type id (docs/32 1.2)
+        if typed:
+            type_path = image.path(info["type"])
+            type_id = int.from_bytes(
+                hashlib.sha256(type_path.encode()).digest()[:8], "little"
+            )
         rows.append(
             (
                 object_id(image, handle, fields),
@@ -297,9 +317,15 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
     table_size = 0
     if live:
         table_size = table_slots(arena)
+        # The undo log holds the before-image of every granule of the arena
+        # (docs/32 3: the journal grows with the arena): one 72-byte record per
+        # 64-byte granule, plus its bitmap (a bit per granule) and the head.
+        # Sized from the arena, never below live.log.
+        granules = (arena_room + 63) // 64
+        log_room = granules * 72 + granules // 8 + 24
         sizes = {
             "arena": arena_room,
-            "log": live.log,
+            "log": max(live.log, log_room),
             "stage": live.stage,
             "work": table_size * 4 + live.scratch,
             "emit": arena_room,

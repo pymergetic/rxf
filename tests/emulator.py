@@ -56,7 +56,13 @@ Argument = Integer | Real | Blob
 # test with the program counter it was left at, instead of eating a test lane
 # until somebody kills the run. The slices keep unicorn's timeout small enough
 # to notice the budget without another thread.
-CALL_TIMEOUT = 600.0
+#
+# The budget sits above the heaviest job that completes: a dump of the running
+# image measures ~370s here (unicorn, one pump call), and a full-image apply is
+# two dumps (the base check and the answer) plus the replay and the relink,
+# ~1275s measured. A budget below that healthy cost fails healthy tests as
+# runaways; a guest that really loops still fails its test well inside a lane.
+CALL_TIMEOUT = 2400.0
 SLICE_TIMEOUT = 5.0
 
 

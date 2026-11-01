@@ -454,6 +454,7 @@ sub s_rel_rows(Zh_rr) {
     var rr_keep;
     var rr_done;
     rt_at = 0;
+    rt_room = 0;
     rc_r = 0;
     if (raddr != 0) {
         callsub s_rec(Zh_rr);
@@ -465,6 +466,10 @@ sub s_rel_rows(Zh_rr) {
                 if (rr_rec != 0) {
                     rt_at = rr_rec + 24;
                     rr_n = load32(rr_rec + 20) / 24;
+                    # The room, in rows: what the delta may write (live.cpp
+                    # write_refs checks `room > record->payload`), unlike rc_r
+                    # below which counts the rows that carry something today.
+                    rt_room = rr_n;
                     # The room of a table is a whole number of rows and may carry the
                     # zero padding of an 8-byte slot. A real row names a target and a
                     # live handle32 is never 0, so an all-zero row is padding.
@@ -594,13 +599,16 @@ macro m_build_rels() {
     var br_rec;
     var br_name;
     var br_len;
+    var br_g;
     callsub s_zero(raddr, 4 * slts);
     if (arel != 0) {
         callsub s_rec(arel);
         br_mod = ce_r;
         if (br_mod != 0) {
             br_walk = load32(br_mod + 24);
-            while (br_walk != 4294967295) {
+            br_g = 0;
+            while (br_walk != 4294967295 & br_g < 200000) {
+                br_g = br_g + 1;
                 callsub s_rec(br_walk);
                 br_rec = ce_r;
                 if (br_rec == 0) {
@@ -621,6 +629,9 @@ macro m_build_rels() {
                     }
                     br_walk = load32(br_rec + 12);
                 }
+            }
+            if (br_g >= 200000) {
+                jb_reason = 463;
             }
         }
     }
@@ -827,8 +838,9 @@ sub s_ring_insert_after(Zanchor_ri, Zoff_ri) {
     }
 }
 
-# allocate(room) -> al_r (status), al_at (offset)
-sub s_allocate(Zbytes_allocate) {
+# allocate(room, absorb) -> al_r (status), al_at (offset): absorb is 1 for a raw
+# grant (the span is taken whole when its rest cannot split off), 0 for an object
+sub s_allocate(Zbytes_allocate, Zabs_alloc) {
     var al_room;
     var al_total;
     var al_anchor;
@@ -839,6 +851,7 @@ sub s_allocate(Zbytes_allocate) {
     var al_best_span;
     var al_best_mark;
     var al_found;
+    var al_ok;
     var al_mark;
     var al_next;
     var al_split;
@@ -868,7 +881,21 @@ sub s_allocate(Zbytes_allocate) {
             if (al_walk == al_anchor) {
                 al_mark = 1;
             }
+            # The candidate's contract (ObjectArena::s_allocate): a raw grant
+            # (Zabs_alloc) takes a span whole when its rest cannot carry ring
+            # links and absorbs the slack; an object's room is its request
+            # (docs/32 5.4: the canonical form reads the room back as the
+            # object's size), so the object paths pass no absorb and only take
+            # a span that splits cleanly or fits exactly - an absorbed slack
+            # would make the grant, and the dump that reads it, depend on the
+            # hole pattern of the moment.
+            al_ok = 0;
             if (al_span >= al_total) {
+                if (al_span == al_total | al_span >= al_total + 40 | Zabs_alloc == 1) {
+                    al_ok = 1;
+                }
+            }
+            if (al_ok == 1) {
                 if (al_mark == 0 | al_span >= al_total + 40) {
                     if (al_found == 0 | al_span < al_best_span) {
                         al_best = al_walk;
@@ -1141,13 +1168,16 @@ sub s_named_child(Zparent_cn, Zp_cn, Zn_cn) {
     var cn_name;
     var cn_i;
     var cn_ok;
+    var cn_g;
     cn_at = 4294967295;
+    cn_g = 0;
     callsub s_rec(Zparent_cn);
     cn_mod = ce_r;
     if (cn_mod != 0) {
         if (load16(cn_mod) == 1) {
             cn_walk = load32(cn_mod + 24);
-            while (cn_walk != 4294967295 & cn_at == 4294967295) {
+            while (cn_walk != 4294967295 & cn_at == 4294967295 & cn_g < 200000) {
+                cn_g = cn_g + 1;
                 callsub s_rec(cn_walk);
                 cn_rec = ce_r;
                 if (cn_rec == 0) {
@@ -1175,6 +1205,9 @@ sub s_named_child(Zparent_cn, Zp_cn, Zn_cn) {
                         cn_walk = load32(cn_rec + 12);
                     }
                 }
+            }
+            if (cn_g >= 200000) {
+                jb_reason = 462;
             }
         }
     }
@@ -1339,12 +1372,22 @@ sub s_rel_table_make(Zh_rm, Zrows_rm) {
                 callsub s_named_child(arel, rm_buf, rm_len);
                 if (cn_at != 4294967295) {
                     rm_h = cn_at;
+                    # The derived index is keyed by the OBJECT the table carries
+                    # the refs of (m_build_rels), never by the table's own index:
+                    # a lookup is raddr[object index], and a word under the
+                    # table's index answers for some other object (or for none).
+                    if (raddr != 0) {
+                        if ((Zh_rm & 1048575) < slts) {
+                            store32(raddr + 4 * (Zh_rm & 1048575), rm_h);
+                        }
+                    }
                 } else {
+                    if (Zrows_rm != 0) {
                     rm_ix = load32(ab + 4120);
                     if (rm_ix >= load32(ab + 4124)) {
                         rm_r = 4;
                     } else {
-                        callsub s_allocate(24 * Zrows_rm);
+                        callsub s_allocate(24 * Zrows_rm, 0);
                         rm_r = al_r;
                         if (al_r == 0) {
                             rm_at = al_at;
@@ -1374,13 +1417,20 @@ sub s_rel_table_make(Zh_rm, Zrows_rm) {
                                     if (bw_r == 0) {
                                         store32(ab + 4120, rm_ix + 1);
                                         rm_h = ((rm_gen & 4095) << 20) | (rm_ix & 1048575);
-                                        if (rm_ix < slts) {
-                                            store32(raddr + 4 * rm_ix, rm_h);
+                                        # Keyed by the object whose refs the
+                                        # table carries (m_build_rels' key):
+                                        # the table's own index is rm_ix, the
+                                        # word belongs under the object's.
+                                        if (raddr != 0) {
+                                            if ((Zh_rm & 1048575) < slts) {
+                                                store32(raddr + 4 * (Zh_rm & 1048575), rm_h);
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
+                    }
                     }
                 }
             }
@@ -1436,12 +1486,20 @@ sub s_syms_grow() {
     if (sg_room < 2 * load32(sg_old + 20)) {
         sg_room = 2 * load32(sg_old + 20);
     }
-    callsub s_allocate(sg_room);
+    callsub s_allocate(sg_room, 1);
     sg_r = al_r;
     if (al_r == 0) {
         sg_at = al_at;
         sg_new = sg_at + 24;
-        callsub s_before_write(sg_at - ab, sg_room + 24);
+        # The new span is a fresh allocation: a rollback releases it (the alloc's
+        # free-list words are logged by s_allocate), so its stale pre-write bytes
+        # are never a subject of the undo log. Logging the whole span here would
+        # make one growth cost its whole doubled size in log room and refuse a
+        # delta whose real write set is a couple of KB with "the undo log is full"
+        # -- only the record header (kind/gen, s_create's fresh-span policy) is
+        # logged; the strings and offsets below it are new memory, restored by
+        # the release, not by a granule.
+        callsub s_before_write(sg_at - ab, 24);
         sg_r = bw_r;
         if (bw_r == 0) {
             callsub s_zero(ab + sg_at, sg_room + 24);
@@ -1540,7 +1598,7 @@ sub s_create() {
                 # waste per object, and a dump that laid its objects out with
                 # room the writer never gave answers other bytes than the
                 # export's.
-                callsub s_allocate((cs_payload + 7) & ~7);
+                callsub s_allocate((cs_payload + 7) & ~7, 0);
                 cr_r = al_r;
                 if (al_r == 0) {
                     # The generation is the span's (ObjectArena::create reads it off
@@ -1558,11 +1616,12 @@ sub s_create() {
                         store32(ab + al_at + 8, cs_parent);
                         store32(ab + al_at + 12, 4294967295);
                         store32(ab + al_at + 16, cs_refc);
-                        # The record carries the room the allocator GRANTED
-                        # (ObjectArena::create: the span minus its header): a
-                        # span taken whole absorbs the slack that was too small
-                        # to split off, and a record that claimed less than its
-                        # span leaves a gap the stream walk cannot cross.
+                        # The record carries the room the allocator granted
+                        # (ObjectArena::create: the span minus its header). The
+                        # object paths refuse to absorb slack, so the granted
+                        # room IS the request - and a record that claimed less
+                        # than its span would leave a gap the stream walk
+                        # cannot cross.
                         store32(ab + al_at + 20, al_room);
                         if (cr_free == 1) {
                             cr_ix = cr_at;
@@ -1664,10 +1723,14 @@ sub s_create() {
                             } else {
                                 acursor = cr_ix + 1;
                             }
-                            if ((cr_r == 0) & (cs_refs != 0)) {
+                            if (cr_r == 0) {
                                 # The refs of an object live in a table named after
                                 # its path (docs/32 5.2); an object a delta makes
-                                # with refs needs that table made with it.
+                                # with refs needs that table made with it. Every
+                                # create relinks the derived word for its index
+                                # (the index may have been another object's, or
+                                # this object's own before a re-grow): a table is
+                                # made only where the delta names refs.
                                 callsub s_rel_table_make(cr_h, cs_refs);
                                 cr_r = rm_r;
                             }
@@ -1704,11 +1767,23 @@ macro m_into_module(Zh) {
                 im_oat = im_old - ab;
                 im_val = load32(im_old + 20);
                 im_gen = load16(im_old + 2);
-                callsub s_allocate(8 + im_val);
+                callsub s_allocate(8 + im_val, 0);
                 im_r = al_r;
                 if (al_r == 0) {
                     im_at = al_at;
-                    callsub s_before_write(im_at - ab, 32 + im_val);
+                    # The value is moved into a FRESH span s_allocate just made
+                    # (ObjectArena::reshape): a rollback releases that span (its
+                    # free-list words are logged by s_allocate), so the module's
+                    # bytes are never an undo-log subject. Logging `32 + im_val`
+                    # here would put a module's whole ROOM in the log - a module
+                    # whose payload field is hundreds of KB (the filled model's
+                    # code) fills a 256 KiB log on its own and refuses a delta
+                    # whose real write set is a couple of KB with "the undo log
+                    # is full". Only the record header (kind/gen + the chain head
+                    # s_create's fresh-span policy covers) is logged; the value
+                    # below it is new memory, restored by the release, not by a
+                    # granule (the s_syms_grow fresh-span policy).
+                    callsub s_before_write(im_at - ab, 32);
                     im_r = bw_r;
                 }
                 if (im_r == 0) {
@@ -1754,6 +1829,7 @@ macro m_destroy(Zh) {
     var de_cur;
     var de_next;
     var de_stop;
+    var de_g;
     callsub s_rec(Zh);
     de_r = 2;
     if (ce_r != 0) {
@@ -1777,7 +1853,9 @@ macro m_destroy(Zh) {
                         de_prev = 4294967295;
                         de_cur = load32(de_pr + 24);
                         de_stop = 0;
-                        while (de_cur != 4294967295 & de_stop == 0 & de_r == 0) {
+                        de_g = 0;
+                        while (de_cur != 4294967295 & de_stop == 0 & de_r == 0 & de_g < 200000) {
+                            de_g = de_g + 1;
                             callsub s_rec(de_cur);
                             if (ce_r == 0) {
                                 de_stop = 1;
@@ -1810,6 +1888,9 @@ macro m_destroy(Zh) {
                                 }
                             }
                         }
+                        if (de_g >= 200000) {
+                            jb_reason = 464;
+                        }
                     }
                 }
             }
@@ -1822,6 +1903,13 @@ macro m_destroy(Zh) {
                 store16(sp_r, 0);
                 store16(sp_r + 2, 0);
                 store64(sp_r + 8, 0);
+                # The derived relation word dies with the index entry
+                # (docs/32 5.2): the index is handed out again with a new
+                # generation, and a word that outlived its object would answer
+                # the next tenant's lookup with this object's table.
+                if (raddr != 0) {
+                    store32(raddr + 4 * de_ix, 0);
+                }
                 de_spc = aspec + 24 * de_ix;
                 callsub s_before_write(de_spc - ab, 24);
                 de_r = bw_r;
@@ -1857,7 +1945,7 @@ sub s_resize(Zh_resize, Zp_resize, Zr_resize) {
             # The room is the payload's (the header is s_allocate's): the same
             # formula the create answers, or a re-grown record lands 24 past
             # the room the writer would have given it.
-            callsub s_allocate((Zp_resize + 7) & ~7);
+            callsub s_allocate((Zp_resize + 7) & ~7, 0);
             rz_r = al_r;
             if (al_r == 0) {
                 rz_new = al_at;
@@ -1869,16 +1957,24 @@ sub s_resize(Zh_resize, Zp_resize, Zr_resize) {
                     if (rz_keep > Zp_resize) {
                         rz_keep = Zp_resize;
                     }
-                    callsub s_before_write(rz_new + 24 - ab, rz_keep);
-                    rz_r = bw_r;
-                    if (bw_r == 0) {
-                        callsub s_cpy(ab + rz_new + 24, ab + rz_off + 24, rz_keep);
-                        callsub s_write_slot(Zh_resize, rz_new);
-                        rz_r = ws_r;
-                        if (ws_r == 0) {
-                            callsub s_release(rz_off);
-                            rz_r = rl2_r;
-                        }
+                    # The kept payload is copied into the FRESH span s_allocate
+                    # just made (ObjectArena::resize): a rollback releases that
+                    # span (its free-list words are logged by s_allocate), so the
+                    # copied bytes are never an undo-log subject. Logging rz_keep
+                    # here would put a record's whole kept ROOM in the log - a
+                    # record whose payload field is hundreds of KB (the filled
+                    # model's code / a SPEC's layout) fills a 256 KiB log on its
+                    # own and refuses a delta whose real write set is a couple of
+                    # KB. Only the record header (logged above) is a subject; the
+                    # value below it is new memory, restored by the release, not
+                    # by a granule (the s_syms_grow / into_module fresh-span
+                    # policy).
+                    callsub s_cpy(ab + rz_new + 24, ab + rz_off + 24, rz_keep);
+                    callsub s_write_slot(Zh_resize, rz_new);
+                    rz_r = ws_r;
+                    if (ws_r == 0) {
+                        callsub s_release(rz_off);
+                        rz_r = rl2_r;
                     }
                 }
             }
@@ -1888,12 +1984,19 @@ sub s_resize(Zh_resize, Zp_resize, Zr_resize) {
 
 # ---- the undo log (docs/19): 64-byte granules, one record of 72 bytes each ----------------------
 
-# ensure_log(end) -> el_r: a log region committed whole.
+# ensure_log(end) -> el_r: commit the log region up to `end`, growing with the
+# arena (docs/32 3). The limit is the region itself (link.py sizes it from the
+# arena); only when the limit itself is reached is the undo log full.
 sub s_ensure_log(Zend_ensure_log) {
     if (Zend_ensure_log <= alog_comm) {
         el_r = 0;
     } else {
-        el_r = 12;
+        if (Zend_ensure_log <= alog_lim) {
+            alog_comm = Zend_ensure_log;
+            el_r = 0;
+            } else {
+                el_r = 12;
+            }
     }
 }
 
@@ -2027,28 +2130,38 @@ macro m_rollback() {
 # no. The record itself is never written through these - its fields have their own
 # setters, because what a reader calls the cell is the record and a spec row
 # (docs/32 5.3) and only the value bytes and the rows live in one place.
-sub s_payload_w(Zh_payload_w) {
+sub s_payload_w(Zh_payload_w, Zwoff_pw, Zwsize_pw) {
     var pw_rec;
+    var pw_base;
     callsub s_rec(Zh_payload_w);
     pw_r = 0;
     if (ce_r != 0) {
         pw_rec = ce_r;
-        callsub s_before_write(pw_rec + 24 - ab, load32(pw_rec + 20));
+        # Journal only the region the caller is about to write, never the whole
+        # ROOM: a record whose payload field is hundreds of KB (the filled model's
+        # code, a SPEC's layout) would put that entire room in the log for one
+        # small value or patch and refuse a delta whose real write set is a couple
+        # of KB with "the undo log is full". The bytes outside the write are not
+        # touched, so their pre-write state is not an undo-log subject.
+        pw_base = pw_rec + 24 - ab;
+        callsub s_before_write(pw_base + Zwoff_pw, Zwsize_pw);
         if (bw_r == 0) {
             pw_r = pw_rec + 24;
         }
     }
 }
 
-sub s_refs_w(Zh_refs_w) {
-    var rw_rec;
-    var rw_room;
+sub s_refs_w(Zh_refs_w, Zoff_rw, Zsize_rw) {
     callsub s_rel_rows(Zh_refs_w);
     rw_r = 0;
     if (rt_at != 0) {
-        rw_rec = rt_at - 24;
-        rw_room = load32(rw_rec + 20) / 24;
-        callsub s_before_write(rt_at - ab, 24 * rw_room);
+        # Journal only the row bytes the caller is about to write, never the whole
+        # ref ROOM: a cell with many refs would put that entire room in the log for
+        # one row's 8-byte patch and refuse a delta whose real write set is a
+        # couple of KB with "the undo log is full" (the s_payload_w write-set
+        # policy). The rows outside [off, off + size) are not touched, so their
+        # pre-write bytes are not an undo-log subject.
+        callsub s_before_write(rt_at + Zoff_rw - ab, Zsize_rw);
         if (bw_r == 0) {
             rw_r = rt_at;
         }
@@ -2109,7 +2222,7 @@ sub s_init(Zbase, Zcomm, Zlim, Zcap, Zname, Znlen) {
             store64(ab + in_at + 32, in_at);
 
             # The object index: the first object of the arena, at its own entry.
-            callsub s_allocate(8 + 16 * in_slots);
+            callsub s_allocate(8 + 16 * in_slots, 1);
             in_r = al_r;
             if (al_r == 0) {
                 if (al_at != 4096) {
@@ -2137,7 +2250,7 @@ sub s_init(Zbase, Zcomm, Zlim, Zcap, Zname, Znlen) {
 
             # sys/syms: the names the tree is walked by. Entry 1.
             if (in_r == 0) {
-                callsub s_allocate(8 + 4 * 32 + 256);
+                callsub s_allocate(8 + 4 * 32 + 256, 1);
                 in_r = al_r;
                 if (al_r == 0) {
                     in_syms_at = al_at;
@@ -2420,7 +2533,11 @@ macro m_verify() {
     if (load64(ab + 8) > load64(ab + 16)) {
         v_ok = 0;
     }
-    if (load64(ab + 16) > alim) {
+    # The committed stream must fit the region (ObjectArena::verify:
+    # super->committed > memory_.limit). The claim beyond it is the growth
+    # ceiling the host promises, not a mapped size: a claim of 256 MiB over a
+    # region of one growth step is what the world writer puts on disk.
+    if (load64(ab + 8) > alim) {
         v_ok = 0;
     }
     if ((load64(ab + 8) & 7) != 0) {
@@ -2600,12 +2717,15 @@ sub s_find_child(Zparent_find_child, Zp_find_child, Zn_find_child) {
     var fc_i;
     var fc_e;
     var fc_done;
+    var fc_g;
     fc_mask = slts - 1;
     callsub s_name_hash(Zparent_find_child, Zp_find_child, Zn_find_child);
     fc_i = nh_r & fc_mask;
     fc_r = 0xFFFFFFFFFFFFFFFF;
     fc_done = 0;
-    while (fc_done == 0) {
+    fc_g = 0;
+    while (fc_done == 0 & fc_g < 2097152) {
+        fc_g = fc_g + 1;
         fc_e = load32(taddr + 4 * fc_i);
         if (fc_e == 0) {
             fc_done = 1;
@@ -2634,6 +2754,7 @@ sub s_table_ins(Zh_table_ins) {
     var tin_i;
     var tin_n;
     var tin_par;
+    var tin_g;
     callsub s_cell(Zh_table_ins);
     tin_c = ce_r;
     tin_r = 0;
@@ -2662,8 +2783,14 @@ sub s_table_ins(Zh_table_ins) {
             tin_mask = slts - 1;
             callsub s_name_hash(tin_par, nm_r, tin_n);
             tin_i = nh_r & tin_mask;
-            while (load32(taddr + 4 * tin_i) != 0) {
+            tin_g = 0;
+            while (load32(taddr + 4 * tin_i) != 0 & tin_g < 2097152) {
+                tin_g = tin_g + 1;
                 tin_i = (tin_i + 1) & tin_mask;
+            }
+            if (tin_g >= 2097152) {
+                jb_reason = 466;
+                tin_r = 0;
             }
             store32(taddr + 4 * tin_i, Zh_table_ins + 1);
         }
@@ -2679,10 +2806,14 @@ macro m_table_del(Zh) {
     var tdl_between;
     var tdl_done;
     var tdl_inner;
+    var tdl_g;
+    var tdl_g2;
     tdl_mask = slts - 1;
     callsub s_home(Zh);
     tdl_i = hm_r & tdl_mask;
-    while (load32(taddr + 4 * tdl_i) != 0 & load32(taddr + 4 * tdl_i) != Zh + 1) {
+    tdl_g = 0;
+    while (load32(taddr + 4 * tdl_i) != 0 & load32(taddr + 4 * tdl_i) != Zh + 1 & tdl_g < 2097152) {
+        tdl_g = tdl_g + 1;
         tdl_i = (tdl_i + 1) & tdl_mask;
     }
     if (load32(taddr + 4 * tdl_i) != 0) {
@@ -2690,7 +2821,9 @@ macro m_table_del(Zh) {
         while (tdl_done == 0) {
             tdl_j = tdl_i;
             tdl_inner = 0;
-            while (tdl_inner == 0) {
+            tdl_g2 = 0;
+            while (tdl_inner == 0 & tdl_g2 < 2097152) {
+                tdl_g2 = tdl_g2 + 1;
                 tdl_j = (tdl_j + 1) & tdl_mask;
                 if (load32(taddr + 4 * tdl_j) == 0) {
                     store32(taddr + 4 * tdl_i, 0);
@@ -2729,6 +2862,17 @@ sub s_build_table() {
     callsub s_zero(taddr, 4 * slts);
     bt_r = 1;
     bt_n = load32(ab + 4120);
+    if (bt_n > 1048576) {
+        jb_reason = 461;
+        bt_r = 0;
+        bt_n = 0;
+    }
+    # s_table_ins rejects an insert once the table is past half full (its load
+    # guard, cells * 2 > slts). That guard is the same for every cell, so a table
+    # that trips it rejects every insert: fatal, not a per-cell skip.
+    if (bt_n * 2 > slts) {
+        bt_r = 0;
+    }
     bt_h = 0;
     while (bt_h < bt_n & bt_r == 1) {
         m_pack_i(bt_h);
@@ -2736,7 +2880,13 @@ sub s_build_table() {
         if (ce_r != 0) {
             if (load64(ce_r + 8) != 0xFFFFFFFFFFFFFFFF) {
                 callsub s_table_ins(hx_r);
-                bt_r = tin_r;
+                # A rejected insert here is a duplicate (parent, name) in the
+                # world, not a full table (that is caught above). It must not
+                # abort the build: stopping at the first reject left every later
+                # cell unindexed, and the replay then refused a Delete whose
+                # subject it could no longer see ("a path does not resolve").
+                # Skip the offending cell and keep indexing the rest, so the
+                # (parent, name) table is as complete as the world.
             }
         }
         bt_h = bt_h + 1;
@@ -2937,6 +3087,10 @@ sub s_build_kids(Zsorted_build_kids) {
     var bk_e;
     var bk_t;
     n_kids = load32(ab + 4120);
+    if (n_kids > 1048576) {
+        jb_reason = 475;
+        n_kids = 0;
+    }
     bk_r = 1;
     callsub s_take(4 * (n_kids + 1));
     kstart = tk_r;
@@ -3030,16 +3184,26 @@ sub s_type_info(Zt_type_info, Zbuf_type_info) {
 
 # field_info(f, buf) -> fif_r (1/0): the 48-byte Field payload, not CHILDREN/INVERSE.
 sub s_field_info(Zf_field_info, Zbuf_field_info) {
-    callsub s_cell(Zf_field_info);
+    var sfi_rec;
+    var sfi_chain;
+    callsub s_rec(Zf_field_info);
+    sfi_rec = ce_r;
     fif_r = 0;
-    if (ce_r != 0) {
-        if (load64(ce_r) == 2) {
-            if (load64(ce_r + 16) == 48) {
-                callsub s_cpy(Zbuf_field_info, ce_r + 64, 48);
-                if (load32(Zbuf_field_info) == 0x464C4420) {
-                    if ((load32(Zbuf_field_info + 4) & 0x30) == 0) {
-                        fif_r = 1;
-                    }
+    if (sfi_rec != 0) {
+        # The Field's value is the record's own body (ground.h
+        # pymergetic_rxf_field: 48 bytes, the "FLD " descriptor tag first),
+        # and a module's body sits behind its 8-byte chain head (docs/32
+        # 1.2). The face is the type test: s_refs_of reads the same words of
+        # a field record the same way, and the tag answers "FLD " only there.
+        sfi_chain = 0;
+        if (load16(sfi_rec) == 1) {
+            sfi_chain = 8;
+        }
+        if (load32(sfi_rec + 20) >= 48 + sfi_chain) {
+            callsub s_cpy(Zbuf_field_info, sfi_rec + 24 + sfi_chain, 48);
+            if (load32(Zbuf_field_info) == 0x464C4420) {
+                if ((load32(Zbuf_field_info + 4) & 0x30) == 0) {
+                    fif_r = 1;
                 }
             }
         }
@@ -3084,6 +3248,8 @@ sub s_refs_of(Ztype_refs_of) {
     var ro_cnt;
     var ro_fl;
     var ro_i;
+    var ro_chain;
+    var ro_span;
     var ro_hx;
     # The walk packs handles (hx_r): the caller's own is left as it was.
     ro_hx = hx_r;
@@ -3110,9 +3276,18 @@ sub s_refs_of(Ztype_refs_of) {
             callsub s_rec(hx_r);
             ro_tr = ce_r;
             if (ro_tr != 0) {
-                if (load32(ro_tr + 20) >= 48) {
-                    if (load32(ro_tr + 24) == 0x54595045) {
-                        ro_var = load32(ro_tr + 60) & 1;
+                # A type that has field children is a module: its record body
+                # sits behind the 8-byte chain head (ground.h), the same head
+                # m_relink steps over when it computes a row's address and size.
+                # A read at the head sees the chain word, not the type magic,
+                # and the prefix of a composite type answers 0.
+                ro_chain = 0;
+                if (load16(ro_tr) == 1) {
+                    ro_chain = 8;
+                }
+                if (load32(ro_tr + 20) >= 48 + ro_chain) {
+                    if (load32(ro_tr + 24 + ro_chain) == 0x54595045) {
+                        ro_var = load32(ro_tr + 60 + ro_chain) & 1;
                     }
                 }
             }
@@ -3132,7 +3307,12 @@ sub s_refs_of(Ztype_refs_of) {
                             if (ro_off > 1073741824 | ro_cnt > 1073741824) {
                                 ro_cnt = 0;
                             }
-                            if ((ro_fl & 8) != 0) {
+                            # A relation field (Children/Inverse) is declared,
+                            # not stored in the payload (ground.h
+                            # pymergetic_rxf_field_flags, FieldInfo::is_member):
+                            # it takes no ref slot in its owner's payload and
+                            # no room in the type's fixed part either.
+                            if ((ro_fl & 48) == 0 & (ro_fl & 8) != 0) {
                                 ro_i = 0;
                                 while (ro_i < ro_cnt & ro_r == 1) {
                                     if (ro_nrefs >= 128) {
@@ -3148,7 +3328,7 @@ sub s_refs_of(Ztype_refs_of) {
                                     ro_i = ro_i + 1;
                                 }
                             }
-                            if (ro_var == 1) {
+                            if (ro_var == 1 & (ro_fl & 48) == 0) {
                                 # where this field ends: its value type's size
                                 # times the count (a reference is a handle: 8)
                                 ro_vr = 0;
@@ -3160,9 +3340,17 @@ sub s_refs_of(Ztype_refs_of) {
                                     }
                                 }
                                 if (ro_vr != 0) {
-                                    if (load32(ro_vr + 24) == 0x54595045) {
-                                        if (ro_off + load64(ro_vr + 32) * ro_cnt > ro_end) {
-                                            ro_end = ro_off + load64(ro_vr + 32) * ro_cnt;
+                                    # the value type is a record too: a
+                                    # composite one is a module, its size
+                                    # behind the chain head
+                                    ro_chain = 0;
+                                    if (load16(ro_vr) == 1) {
+                                        ro_chain = 8;
+                                    }
+                                    if (load32(ro_vr + 24 + ro_chain) == 0x54595045) {
+                                        ro_span = load64(ro_vr + 32 + ro_chain) * ro_cnt;
+                                        if (ro_off + ro_span > ro_end) {
+                                            ro_end = ro_off + ro_span;
                                         }
                                     }
                                 }
@@ -4440,6 +4628,7 @@ macro m_relink() {
             rl_count = 0;
             rl_h = 0;
             while (rl_h < rl_n & rl_go == 1) {
+                jb_reason = 29;
                 m_pack_i(rl_h);
                 callsub s_cell(hx_r);
                 rl_c = ce_r;
@@ -4483,12 +4672,12 @@ macro m_relink() {
                                 if (rl_go == 1) {
                                     rl_prefix = load32(kpfx + 4 * rl_tix);
                                     if (rl_prefix > load32(rl_c + 20)) {
-                                        jb_reason = 11;
+                                        jb_reason = 22;
                                         rl_go = 0;
                                     }
                                 }
                                 if (rl_go == 1) {
-                                    jb_reason = 11;
+                                    jb_reason = 23;
                                     if (load8(rl_known + rl_tix) == 0) {
                                         callsub s_path_id(rl_type, rl_path);
                                         if (pi_r == 0) {                                            rl_go = 0;
@@ -4501,9 +4690,14 @@ macro m_relink() {
                                 if (rl_go == 1) {
                                     rl_named = 0;
                                     rl_id = 0;
+                                    # The id of a semantic object is the value
+                                    # of its object_id field, not the path hash
+                                    # (tools/native/compose.py object_id: the
+                                    # field of a "SemanticObject", else the
+                                    # first 8 bytes of the SHA-256 of the path).
                                     m_lit_semantic();
-                                    callsub s_name_is(rl_type, 14);
-                                    if (ni_r == 1) {
+                                    m_name_eq(rl_type, lit, 14);
+                                    if (ne_r == 1) {
                                         m_lit_object_id();
                                         callsub s_child_named(rl_type, 9);
                                         rl_f = cn_r;
@@ -4511,10 +4705,13 @@ macro m_relink() {
                                             callsub s_field_info(rl_f, flF);
                                             if (fif_r == 1) {
                                                 if (load64(flF + 24) + 8 <= load32(rl_c + 20)) {
-                                                    # the head of a module's value (link.py value()):
-                                                    # the chain word sits before the type's fixed part
+                                                    # the head of a module's value (docs/32 1.2):
+                                                    # the chain word sits before the type's fixed
+                                                    # part. The record that has children is the
+                                                    # module (ground.h), and its KIND WORD says so:
+                                                    # the semantic kind is another number.
                                                     rl_f = 0;
-                                                    if (rl_kind == 1) {
+                                                    if (load16(rl_c) == 1) {
                                                         rl_f = 8;
                                                     }
                                                     rl_id = load64(rl_c + 24 + rl_f + load64(flF + 24));
@@ -4526,7 +4723,7 @@ macro m_relink() {
                                     if (rl_named == 0) {
                                         callsub s_path_id(hx_r, rl_path);
                                         if (pi_r == 0) {
-                                            jb_reason = 11;
+                                            jb_reason = 24;
                                             rl_go = 0;
                                         } else {
                                             rl_id = pi_id;
@@ -4534,8 +4731,12 @@ macro m_relink() {
                                     }
                                 }
                                 if (rl_go == 1) {
+                                    # The record that has children is a
+                                    # module: its value sits behind the 8-byte
+                                    # chain head, named by the record's own
+                                    # kind word (docs/32 1.2).
                                     rl_f = 0;
-                                    if (rl_kind == 1) {
+                                    if (load16(rl_c) == 1) {
                                         rl_f = 8;
                                     }
                                     store64(rl_rows + 32 * rl_count, rl_id);
@@ -4543,9 +4744,49 @@ macro m_relink() {
                                             load64(rl_type_ids + 8 * rl_tix));
                                     store64(rl_rows + 32 * rl_count + 16,
                                             rl_c + 24 + rl_f + rl_prefix);
+                                    # The size is the room that is left after
+                                    # the chain head and the type's fixed words:
+                                    # the room IS the value's size (docs/32 5.4:
+                                    # the canonical form reads the room back as
+                                    # the object's size), and the linker writes
+                                    # the same number (tools/native/link.py).
                                     store64(rl_rows + 32 * rl_count + 24,
-                                            load32(rl_c + 20) - rl_prefix);
+                                            load32(rl_c + 20) - rl_f - rl_prefix);
                                     rl_count = rl_count + 1;
+                                }
+                            } else {
+                                # An object that has no type and no value is
+                                # not an object (the kind/kind-NONE matrix,
+                                # docs/32 1.2); one that has a value is, and
+                                # takes an entry with no type id - the object a
+                                # delta's create just made counts with it, and
+                                # the linker counts it the same way
+                                # (tools/native/link.py).
+                                rl_f = 0;
+                                if (load16(rl_c) == 1) {
+                                    rl_f = 8;
+                                }
+                                # The kind of the semantic row is the kind of a
+                                # world object (docs/32 1.2, the kind/kind-NONE
+                                # matrix): the arena's own tables (sys/objects,
+                                # sys/specs, the relation tables of docs/32 5.2)
+                                # carry no semantic row and take no entry, while
+                                # the object a delta's create made carries its
+                                # kind and counts with the context.
+                                if (rl_kind != 0 & load32(rl_c + 20) > rl_f) {
+                                    callsub s_path_id(hx_r, rl_path);
+                                    if (pi_r == 0) {
+                                        jb_reason = 25;
+                                        rl_go = 0;
+                                    } else {
+                                        store64(rl_rows + 32 * rl_count, pi_id);
+                                        store64(rl_rows + 32 * rl_count + 8, 0);
+                                        store64(rl_rows + 32 * rl_count + 16,
+                                                rl_c + 24 + rl_f);
+                                        store64(rl_rows + 32 * rl_count + 24,
+                                                load32(rl_c + 20) - rl_f);
+                                        rl_count = rl_count + 1;
+                                    }
                                 }
                             }
                         }
@@ -4573,7 +4814,7 @@ macro m_relink() {
         }
     }
     if (rl_go == 1) {
-        jb_reason = 11;
+        jb_reason = 26;
         rl_i = 0;
         while (rl_i < rl_count & rl_go == 1) {
             if (load64(rl_rows + 32 * rl_i) <= 8) {                rl_go = 0;
@@ -4588,12 +4829,17 @@ macro m_relink() {
     }
     if (rl_go == 1) {
         if (8 + rl_count > load32(ar + 248)) {
-            jb_reason = 11;
+            jb_reason = 27;
             rl_go = 0;
         }
     }
     if (rl_go == 1) {
+        jb_reason = 28;
         rl_fc = load64(ctx + 16);
+        if (rl_fc > 1048576) {
+            jb_reason = 472;
+            rl_go = 0;
+        }
         rl_ftable = load64(ctx + 24);
         callsub s_take(8 * (rl_fc + 1));
         rl_addrs = tk_r;
@@ -4623,16 +4869,26 @@ macro m_relink() {
                 m_lit_run();
                 callsub s_child_named(rl_run, 3);
                 rl_run = cn_r;
-                if (rl_run == 0xFFFFFFFFFFFFFFFF) {                    rl_go = 0;
+                if (rl_run == 0xFFFFFFFFFFFFFFFF) {                    jb_reason = 31; rl_go = 0;
                 } else {
                     callsub s_cell(rl_run);
                     rl_rc = ce_r;
-                    if (rl_rc == 0) {                        rl_go = 0;
+                    if (rl_rc == 0) {                        jb_reason = 32; rl_go = 0;
                     } else {
+                        # The count comes out of the view before the walk's own calls
+                        # fill view A (docs/32 5.3): m_code_addr and the name check
+                        # below take the view, so the bound cannot be read from the
+                        # view per row -- it would stop the walk at whatever object
+                        # filled it last.
+                        rl_rc = load32(rl_rc + 44);
+                        if (rl_rc > 1048576) {
+                            jb_reason = 471;
+                            rl_go = 0;
+                        }
                         callsub s_refs(rl_run);
                         rl_rp = rr_r;
                         rl_k = 0;
-                        while (rl_k < load32(rl_rc + 44) & rl_go == 1) {
+                        while (rl_k < rl_rc & rl_go == 1) {
                             rl_role = load64(rl_rp + 24 * rl_k + 8);
                             if (rl_role != 0xFFFFFFFFFFFFFFFF) {
                                 callsub s_cell(rl_role);
@@ -4641,12 +4897,12 @@ macro m_relink() {
                                     callsub s_name_is(rl_role, 4);
                                     if (ni_r == 1) {
                                         rl_lid = load32(rl_rp + 24 * rl_k + 20);
-                                        if (rl_lid == 0 | rl_lid > rl_fc) {                                            rl_go = 0;
+                                        if (rl_lid == 0 | rl_lid > rl_fc) {                                            jb_reason = 33; rl_go = 0;
                                         } else {
-                                            if (load64(rl_rp + 24 * rl_k) == 0xFFFFFFFFFFFFFFFF) {                                                rl_go = 0;
+                                            if (load64(rl_rp + 24 * rl_k) == 0xFFFFFFFFFFFFFFFF) {                                                jb_reason = 34; rl_go = 0;
                                             } else {
                                                 m_code_addr(load64(rl_rp + 24 * rl_k));
-                                                if (ca_r == 0) {                                                    rl_go = 0;
+                                                if (ca_r == 0) {                                                    jb_reason = 35; rl_go = 0;
                                                 } else {
                                                     store64(rl_addrs + 8 * (rl_lid - 1), ca_at);
                                                     if (jguard == 1) {
@@ -4675,16 +4931,16 @@ macro m_relink() {
                         }
                     }
                 }
-                if (rl_go == 1) {
-                    rl_k = 0;
-                    while (rl_k < rl_fc & rl_go == 1) {
-                        if (load64(rl_addrs + 8 * rl_k) == 0) {                            rl_go = 0;
-                        } else {
-                            if (load64(rl_ftable + 24 * rl_k) != rl_k + 1) {                                rl_go = 0;
-                            }
-                        }
-                        rl_k = rl_k + 1;
-                    }
+    if (rl_go == 1) {
+        rl_k = 0;
+        while (rl_k < rl_fc & rl_go == 1) {
+            if (load64(rl_addrs + 8 * rl_k) == 0) {                            rl_go = 0;
+            } else {
+                if (load64(rl_ftable + 24 * rl_k) != rl_k + 1) {                                rl_go = 0;
+                }
+            }
+            rl_k = rl_k + 1;
+        }
                 }
             }
         }
@@ -5067,6 +5323,8 @@ macro m_apply_replay() {
     var ar_kd;
     var ar_scan;
     var ar_si;
+    var ar_sj;
+    var ar_keep;
     var ar_mod;
     var ar_sp2;
     var ar_sn2;
@@ -5082,6 +5340,14 @@ macro m_apply_replay() {
     ar_d = load64(ar + 40);
     ar_strings = ar_d + 64;
     callsub s_scratch_reset();
+    # The (parent, name) index must reflect the base world before the first op
+    # runs: a Delete resolves its subject against the pre-delta state, so the
+    # table is rebuilt from the cells as they are now (docs/32 5.3). A table that
+    # is stale, partial, or left from another world makes the replay refuse with
+    # "a path does not resolve" (live.cpp REASON_PATH) on a subject the base
+    # image plainly has. Rebuilding here is idempotent when the table is already
+    # right and corrects it when it is not.
+    callsub s_build_table();
     jb_reason = 8;
     callsub s_take(20 * (jb_fixups + 1));
     ar_pend = tk_r;
@@ -5091,7 +5357,7 @@ macro m_apply_replay() {
     if (ar_ok == 1) {
         ar_npend = 0;
         jb_reason = 7;
-        m_begin(load64(ar + 24), load64(ar + 32), load64(ar + 32));
+        m_begin(load64(ar + 24), 0, load64(ar + 32));
         if (bg_r != 0) {
             ar_ok = 0;
         }
@@ -5099,6 +5365,10 @@ macro m_apply_replay() {
     if (ar_ok == 1) {
         ar_pos = jops_start;
         ar_i = 0;
+        if (load32(jdhead + 8) > 65536) {
+            jb_reason = 468;
+            ar_ok = 0;
+        }
         while (ar_i < load32(jdhead + 8) & ar_ok == 1) {
             jb_at_op = ar_i;
             ar_opos = ar_pos;
@@ -5268,6 +5538,7 @@ macro m_apply_replay() {
                                 ar_nl = len_r;
                             }
                             m_table_del(ar_h);
+                            ar_scan = ar_h;
                             m_destroy(ar_h);
                             if (de_r != 0) {
                                 callsub s_reason_of(de_r);
@@ -5284,9 +5555,31 @@ macro m_apply_replay() {
                                 cs_generation = load64(ar_d + ar_opos + 24);
                                 cs_index = load32(ar_d + ar_opos + 16);
                                 cs_payload = ar_want;
-                                cs_refs = 0;
+                                # The delta's own ref count (docs/32 1.2), the
+                                # create path's policy above: the re-grown
+                                # record reserves the rows the delta names and
+                                # s_create keys the derived relation index
+                                # (s_rel_table_make), so the refs write of the
+                                # tail finds them. Reserving none left the tail
+                                # refusing rows past a cell that had no ref
+                                # area - and reporting it as a full journal.
+                                cs_refs = load32(ar_d + ar_opos + 36);
                                 callsub s_create();
                                 ar_h = cr_h;
+                                # A fixup pushed for this record before its
+                                # re-grow holds the handle the index carried
+                                # then: the index is handed out again with a
+                                # new generation, so the fixups follow the
+                                # object to its new handle (live.cpp).
+                                if (cr_r == 0) {
+                                    ar_si = 0;
+                                    while (ar_si < ar_npend) {
+                                        if (load32(ar_pend + 20 * ar_si) == ar_scan) {
+                                            store32(ar_pend + 20 * ar_si, ar_h);
+                                        }
+                                        ar_si = ar_si + 1;
+                                    }
+                                }
                                 if (cr_r != 0) {
                                     callsub s_reason_of(cr_r);
                                     jb_reason = ro2_r;
@@ -5313,7 +5606,8 @@ macro m_apply_replay() {
                             callsub s_set_field(ar_h, 16, load64(ar_d + ar_opos + 24));
                         }
                         if (sf_r != 0) {
-                            jb_reason = 7;
+                            callsub s_reason_of(sf_r);
+                            jb_reason = ro2_r;
                             ar_ok = 0;
                         }
                     }
@@ -5329,9 +5623,17 @@ macro m_apply_replay() {
                         }
                     }
                     if (load32(ar_d + ar_opos + 32) != 0) {
-                        callsub s_payload_w(ar_h);
+                        callsub s_payload_w(ar_h, ar_head, load32(ar_d + ar_opos + 32));
                         if (pw_r == 0) {
-                            jb_reason = 7;
+                            if (ce_r == 0) {
+                                # A record that is gone under a payload write is
+                                # REASON_ARENA in the reference (live.cpp: the
+                                # arena_record lookup).
+                                jb_reason = 6;
+                            } else {
+                                callsub s_reason_of(bw_r);
+                                jb_reason = ro2_r;
+                            }
                             ar_ok = 0;
                         } else {
                             callsub s_cpy(pw_r + ar_head, ar_body, load32(ar_d + ar_opos + 32));
@@ -5349,7 +5651,8 @@ macro m_apply_replay() {
                     } else {
                         callsub s_set_field(ar_h, 0, 0xFFFFFFFF);
                         if (sf_r != 0) {
-                            jb_reason = 7;
+                            callsub s_reason_of(sf_r);
+                            jb_reason = ro2_r;
                             ar_ok = 0;
                         }
                     }
@@ -5358,9 +5661,14 @@ macro m_apply_replay() {
                     ar_k = 0;
                     while (ar_k < load32(ar_d + ar_opos + 40) & ar_ok == 1) {
                         if (load32(ar_patches + 8 * ar_k + 4) == 0xFFFFFFFF) {
-                            callsub s_payload_w(ar_h);
+                            callsub s_payload_w(ar_h, ar_head + load32(ar_patches + 8 * ar_k), 8);
                             if (pw_r == 0) {
-                                jb_reason = 7;
+                                if (ce_r == 0) {
+                                    jb_reason = 6;
+                                } else {
+                                    callsub s_reason_of(bw_r);
+                                    jb_reason = ro2_r;
+                                }
                                 ar_ok = 0;
                             } else {
                                 store64(pw_r + ar_head + load32(ar_patches + 8 * ar_k),
@@ -5380,21 +5688,35 @@ macro m_apply_replay() {
                 }
                 if (ar_ok == 1) {
                     if (load32(ar_d + ar_opos + 36) != 0) {
-                        callsub s_refs_w(ar_h);
+                        callsub s_refs_w(ar_h, 0, 24 * load32(ar_d + ar_opos + 36));
                         if (rw_r == 0) {
-                            jb_reason = 7;
+                            if (rt_at == 0) {
+                                # No relation table resolves for this object;
+                                # the relations root's own absence is REASON_PATH
+                                # in write_refs (live.cpp).
+                                jb_reason = 3;
+                            } else {
+                                callsub s_reason_of(bw_r);
+                                jb_reason = ro2_r;
+                            }
                             ar_ok = 0;
                         } else {
-                            # The rows the doc names must fit the cell's own ref
-                            # area: s_refs_w journals and returns only
-                            # 24 * load32(ce_r + 44) bytes, and a row count past
-                            # that writes ref fields over whatever follows the
-                            # cell (the frame). A doc that claims more refs than
-                            # the cell was made or resized with is refused.
-                            callsub s_cell(ar_h);
-                            ar_nref = load32(ce_r + 44);
-                            if (load32(ar_d + ar_opos + 36) > ar_nref) {
-                                jb_reason = 7;
+                            # The rows the doc names must fit the table's own
+                            # room: the writable ref rows are 24 * rt_room bytes
+                            # (the table record's payload in rows), and a row
+                            # count past that writes ref fields over whatever
+                            # follows the table. The room is what the delta may
+                            # write (live.cpp write_refs: `room >
+                            # record->payload` refuses with REASON_ARENA), not
+                            # the rows that carry something today: a table the
+                            # create just made is all zeros, and the
+                            # trailing-padding rule (docs/32 5.2) counts none of
+                            # its rows as present yet.
+                            if (load32(ar_d + ar_opos + 36) > rt_room) {
+                                # The engine's answer for rows past the room
+                                # (live.cpp write_refs: REASON_ARENA), not the
+                                # journal's.
+                                jb_reason = 6;
                                 ar_ok = 0;
                             } else {
                                 ar_to = rw_r;
@@ -5446,6 +5768,54 @@ macro m_apply_replay() {
                             ar_ok = 0;
                         } else {
                             m_table_del(ar_h);
+                            # A fixup pushed before this delete either writes
+                            # into this record (its subject: the handle the
+                            # index carried then) or resolves a reference to it
+                            # (its target). A delete frees the index, which a
+                            # later create hands out again with a new
+                            # generation, so a fixup still naming the old
+                            # (index, generation) writes through a stale handle
+                            # (BadHandle) or refuses the whole delta with "a
+                            # path does not resolve" (live.cpp reason_of:
+                            # BadHandle -> REASON_PATH). The Re-Grow path
+                            # re-points such fixups to the record's new handle
+                            # (live.cpp, ar_scan); a delete has no successor,
+                            # so its fixups are dropped instead.
+                            ar_scan = ar_h;
+                            ar_si = 0;
+                            ar_sj = 0;
+                            while (ar_si < ar_npend) {
+                                ar_keep = 1;
+                                if (load32(ar_pend + 20 * ar_si) == ar_scan) {
+                                    # A fixup this delete orphans is dropped
+                                    # (live.cpp pend_drop): its subject is gone
+                                    # and the write would go through a stale
+                                    # handle. What a fixup NAMES is not this
+                                    # walk's to consume (live.cpp pend_drop
+                                    # keys on the subject alone): the fixup
+                                    # pass is the one consumer of every
+                                    # remaining pending ref and resolves each
+                                    # one once, after every create.
+                                    ar_keep = 0;
+                                }
+                                if (ar_keep == 1) {
+                                    if (ar_sj != ar_si) {
+                                        store32(ar_pend + 20 * ar_sj,
+                                                load32(ar_pend + 20 * ar_si));
+                                        store32(ar_pend + 20 * ar_sj + 4,
+                                                load32(ar_pend + 20 * ar_si + 4));
+                                        store32(ar_pend + 20 * ar_sj + 8,
+                                                load32(ar_pend + 20 * ar_si + 8));
+                                        store32(ar_pend + 20 * ar_sj + 12,
+                                                load32(ar_pend + 20 * ar_si + 12));
+                                        store32(ar_pend + 20 * ar_sj + 16,
+                                                load32(ar_pend + 20 * ar_si + 16));
+                                    }
+                                    ar_sj = ar_sj + 1;
+                                }
+                                ar_si = ar_si + 1;
+                            }
+                            ar_npend = ar_sj;
                             m_destroy(ar_h);
                             if (de_r != 0) {
                                 callsub s_reason_of(de_r);
@@ -5482,53 +5852,74 @@ macro m_apply_replay() {
             callsub s_string_at(load32(ar_pend + 20 * ar_k + 12), ar_strings, jb_ssize);
             callsub s_resolve(sa_p, sa_n);
             ar_t = rv_r;
-            if (ar_t == 0xFFFFFFFFFFFFFFFF) {
-                jb_reason = 3;
-                ar_ok = 0;
+            # A fixup whose path is gone is an unset slot, not a refusal (live.cpp
+            # pass 3: "the ref/entry that named it becomes none rather than failing
+            # the whole delta"). This pass runs after every create, so a path that
+            # still does not resolve is one this replay removed; a forward
+            # reference would have resolved here. Each kind writes the unset word
+            # it writes a handle into: the type's 4-byte slot takes 0xFFFFFFFF
+            # (the create's own no-type write; the 64-bit none truncates to it),
+            # the value and row words take the 64-bit none.
+            if (load32(ar_pend + 20 * ar_k + 4) == 0) {
+                callsub s_set_field(load32(ar_pend + 20 * ar_k), 0, ar_t);
+                if (sf_r != 0) {
+                    callsub s_reason_of(sf_r);
+                    jb_reason = ro2_r;
+                    ar_ok = 0;
+                }
             } else {
-                if (load32(ar_pend + 20 * ar_k + 4) == 0) {
-                    callsub s_set_field(load32(ar_pend + 20 * ar_k), 0, ar_t);
-                    if (sf_r != 0) {
+                if (load32(ar_pend + 20 * ar_k + 4) == 1) {
+                    callsub s_payload_w(load32(ar_pend + 20 * ar_k),
+                                         load32(ar_pend + 20 * ar_k + 8), 8);
+                    if (pw_r == 0) {
+                        if (ce_r == 0) {
+                            jb_reason = 6;
+                        } else {
+                            callsub s_reason_of(bw_r);
+                            jb_reason = ro2_r;
+                        }
                         ar_ok = 0;
+                    } else {
+                        store64(pw_r + load32(ar_pend + 20 * ar_k + 8), ar_t);
                     }
                 } else {
-                    if (load32(ar_pend + 20 * ar_k + 4) == 1) {
-                        callsub s_payload_w(load32(ar_pend + 20 * ar_k));
-                        if (pw_r == 0) {
-                            ar_ok = 0;
-                        } else {
-                            store64(pw_r + load32(ar_pend + 20 * ar_k + 8), ar_t);
-                        }
-                    } else {
-                        callsub s_refs_w(load32(ar_pend + 20 * ar_k));
-                        if (rw_r == 0) {
-                            ar_ok = 0;
-                        } else {
-                            if (load32(ar_pend + 20 * ar_k + 4) == 2) {
-                                store64(rw_r + 24 * load32(ar_pend + 20 * ar_k + 8), ar_t);
-                            } else {
-                                store64(rw_r + 24 * load32(ar_pend + 20 * ar_k + 8) + 8, ar_t);
-                            }
-                        }
+                    # One row's target or role word, 8 bytes -- not the whole
+                    # ref room (s_refs_w's write-set policy).
+                    ar_to = 24 * load32(ar_pend + 20 * ar_k + 8);
+                    if (load32(ar_pend + 20 * ar_k + 4) != 2) {
+                        ar_to = ar_to + 8;
                     }
-                }
-                if (ar_ok == 0) {
-                    jb_reason = 7;
+                    callsub s_refs_w(load32(ar_pend + 20 * ar_k), ar_to, 8);
+                    if (rw_r == 0) {
+                        if (rt_at == 0) {
+                            jb_reason = 3;
+                        } else {
+                            callsub s_reason_of(bw_r);
+                            jb_reason = ro2_r;
+                        }
+                        ar_ok = 0;
+                    } else {
+                        store64(rw_r + ar_to, ar_t);
+                    }
                 }
             }
             ar_k = ar_k + 1;
         }
     }
-    if (ar_ok == 1) {
-        jb_reason = 11;
-        m_check_all();
-        if (ck_r == 1) {
-            m_verify();
-            if (vf_r == 0) {
-                ar_r = 1;
+        if (ar_ok == 1) {
+            jb_reason = 11;
+            m_check_all();
+            if (ck_r == 1) {
+                # check_all left its own reason standing; a link failure after a
+                # clean walk is reason 11, not the walk's 9 (the refusal names
+                # the check that refused).
+                jb_reason = 11;
+                m_verify();
+                if (vf_r == 1) {
+                    ar_r = 1;
+                }
             }
         }
-    }
 }
 
 # check_all() -> ck_r (live.cpp:1864): every handle something holds points at an object that is
@@ -5537,6 +5928,8 @@ macro m_check_all() {
     var ck_n;
     var ck_h;
     var ck_c;
+    var ck_typ;
+    var ck_rows;
     var ck_rp;
     var ck_k;
     var ck_words;
@@ -5547,6 +5940,10 @@ macro m_check_all() {
     var ck_head;
     callsub s_scratch_reset();
     ck_n = load32(ab + 4120);
+    if (ck_n > 1048576) {
+        jb_reason = 469;
+        ck_n = 0;
+    }
     jb_reason = 8;
     ck_r = 0;
     callsub s_build_kids(0);
@@ -5567,6 +5964,12 @@ macro m_check_all() {
                 callsub s_cell(hx_r);
                 ck_c = ce_r;
                 if (ck_c != 0) {
+                    # The type and the row count come out of the view before the
+                    # checks below fill view A (docs/32 5.3): the parent's s_cell
+                    # would otherwise leave the parent's words where the type and
+                    # the walk's bound are read.
+                    ck_typ = load64(ck_c);
+                    ck_rows = load32(ck_c + 44);
                     if (load64(ck_c + 8) != 0xFFFFFFFFFFFFFFFF) {
                         callsub s_cell(load64(ck_c + 8));
                         if (ce_r == 0) {
@@ -5574,8 +5977,8 @@ macro m_check_all() {
                         }
                     }
                     if (ck_r == 1) {
-                        if (load64(ck_c) != 0xFFFFFFFFFFFFFFFF) {
-                            callsub s_cell(load64(ck_c));
+                        if (ck_typ != 0xFFFFFFFFFFFFFFFF) {
+                            callsub s_cell(ck_typ);
                             if (ce_r == 0) {
                                 ck_r = 0;
                             }
@@ -5585,7 +5988,7 @@ macro m_check_all() {
                         callsub s_refs(hx_r);
                         ck_rp = rr_r;
                         ck_k = 0;
-                        while (ck_k < load32(ck_c + 44) & ck_r == 1) {
+                        while (ck_k < ck_rows & ck_r == 1) {
                             if (load64(ck_rp + 24 * ck_k) != 0xFFFFFFFFFFFFFFFF) {
                                 callsub s_cell(load64(ck_rp + 24 * ck_k));
                                 if (ce_r == 0) {
@@ -6466,7 +6869,7 @@ fn live_pump(context, area) {
     var ap_alb, ap_alc, ap_all, ap_amark, ap_abitmap, ap_aused, ap_fixups, ap_pos, ap_size, ap_go, ap_tail, ap_padded;
     var ap_asyms, ap_aspec, ap_arel, ap_raddr, ap_acursor;
     var gn_r, ar_r, ws_r, bw_r;
-    var cva, cvb, cvc, asyms, aspec, arel, fv_r, rc_r, rt_at, hx_r, raddr, rp_r, at_sys, pw2_r, rm_r, rm_h;
+    var cva, cvb, cvc, asyms, aspec, arel, fv_r, rc_r, rt_at, rt_room, hx_r, raddr, rp_r, at_sys, pw2_r, rm_r, rm_h;
     var cn_at, it_id, sr_at, sf_r, sk_r, sn2_r;
     var la_r, ru_r, ri_r, rl2_r, pi_r;
     var cb_r, en_r, disp_r, mob_r, so_r, pi_r, pi_id, pt_r;
