@@ -527,11 +527,21 @@ numbered separately below and are all open or in progress.
   `x86_64-uefi`: `RXFOK / rxf result 00000000 4b4f465852`); `x86_64-bios` hangs
   with an empty serial in this shared tree, the symptom H2 measured on any dirty
   state (tracked there, not this lane's deltas).
-  *Remains (gated, tracked with H2):* `test_boot_codes`'s glue pins
-  (`body_entry_aarch64` 3852 -> 3940) follow H2's run-cell constants and land with
-  the gated `boot_sync.py` starter write.
+  *Gate landed with H2's run-cell budget:* the `boot_sync.py` starter write
+  refreshed all six glue pins at once - `body_entry_aarch64` 3852 -> 3940,
+  `body_entry_x86_64` 5468 -> 5596, `body_wasm32` 3776 -> 3921, and the three
+  bodies that keep their size move digest only. The pins had been carried
+  since `1149c98`; measured per revision (each pin reproduces byte for byte at
+  the commit that last refreshed it): `b01b6a6`'s run cell moves the carrier
+  map constants (digests, no sizes), `ab51166`'s None word binding grows the
+  run entry one select per parameter word (the three entries above), and
+  `2be5b9d`'s budget moves the constants again (digests, sizes hold). The
+  growth is the None word's, not the budget's: the expected 3852 -> 3940 is
+  the net effect of both, measured and named here.
   *done when:* no delta carries a byte of machine code and the composed corpus runs
-  in the image (docs/32 5.6). *Not met:* the one gated boot glue pin above.
+  in the image (docs/32 5.6). *Met:* the strip runs, the composed corpus runs
+  on the shipped interpreter, and the pin gate is green (`test_native`,
+  `test_program_sources`, `test_boot_codes`).
 
 ---
 
