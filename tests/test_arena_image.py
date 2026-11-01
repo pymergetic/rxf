@@ -36,13 +36,19 @@ def raw(world: Image) -> bytes:
     return link.arena_of(world)
 
 
-def worlds(world: Image, seed: int) -> Image:
-    """The starter with a few random edits (adds, removes, retargets, rewrites, state words),
-    seed 0 being the starter itself."""
-    model = Image.from_bytes(world.to_bytes())
-    if seed:
-        model = edited(model, random.Random(seed))
-    return model
+def worlds(world: Image, seed: int) -> tuple[Image, bytes]:
+    """The starter with a few random edits (adds, removes, retargets, rewrites, state words) and
+    its arena, seed 0 being the starter itself. An edit that leaves a reference to an object it
+    removed is a world the writer refuses (a dangling ref), so another is drawn."""
+    if not seed:
+        return world, link.arena_of(world)
+    rng = random.Random(seed)
+    while True:
+        model = edited(Image.from_bytes(world.to_bytes()), rng)
+        try:
+            return model, link.arena_of(model)
+        except ValueError:
+            continue
 
 
 def padded(before: physical.Record, after: physical.Record) -> bool:
@@ -54,8 +60,7 @@ def padded(before: physical.Record, after: physical.Record) -> bool:
 
 @pytest.mark.parametrize("seed", range(4))
 def test_model_arena_model_is_the_model(world: Image, seed: int):
-    model = worlds(world, seed)
-    arena = link.arena_of(model)
+    model, arena = worlds(world, seed)
     loaded = arena_image.load(arena, like=model)
     # `like` is the world the arena came from: the model comes back object for object
     assert physical.records(loaded) == physical.records(model)
@@ -69,8 +74,7 @@ def test_model_arena_model_is_the_model(world: Image, seed: int):
 def test_without_a_predecessor_the_model_is_the_filled_one_up_to_the_rooms(
     world: Image, seed: int
 ):
-    model = worlds(world, seed)
-    arena = link.arena_of(model)
+    model, arena = worlds(world, seed)
     loaded = arena_image.load(arena)
     before, entry = physical.records(programs.filled(model))
     after, loaded_entry = physical.records(loaded)
