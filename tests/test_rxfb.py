@@ -542,7 +542,8 @@ def test_the_starter_reads_clean_under_the_sanitizers(dump_sanitized, starter_fi
         check=False,
     )
     assert result.returncode == 0, result.stderr[-2000:]
-    assert len(result.stdout.splitlines()) > 20000
+    # the starter after R1 walks 12,810 objects (the machine code left the deltas, docs/32 5.6)
+    assert len(result.stdout.splitlines()) > 12000
 
 
 # ---- the real image: the starter, through the exporter ------------------------------------------
@@ -704,9 +705,9 @@ def test_a_function_slot_resolves_to_the_leafs_bytes(
     dump, starter_file, world, machine
 ):
     codes = leaf_codes(world, machine)
-    # every leaf of the interpreter has code for the machine: the leaf slots are 1..49 and 51
-    # (index 50 is the handle operand's roleless ref, docs/23 4.9).
-    assert len(codes) == 50
+    # every leaf of the interpreter has code for the machine: the leaf slots are 1..51
+    # (slot 50 is runtime.allocate, the handle operand's allocator, docs/23 4.9).
+    assert len(codes) == 51
     slots = sorted(codes)
     result = run_dump(dump, starter_file, "code", machine, *map(str, slots))
     assert result.returncode == 0, result.stderr
@@ -739,7 +740,7 @@ def test_the_wasm32_slots_are_the_seats_table(dump, starter_file, world):
 
 @pytest.mark.slow
 def test_a_slot_the_interpreter_does_not_have_is_not_found(dump, starter_file):
-    for slot, machine in ((0, "wasm32"), (50, "wasm32"), (1, "riscv64")):
+    for slot, machine in ((0, "wasm32"), (52, "wasm32"), (1, "riscv64")):
         result = run_dump(dump, starter_file, "code", machine, str(slot))
         assert result.returncode == 1
         assert result.stderr.strip().endswith(f"status {STATUS_NOT_FOUND}"), (

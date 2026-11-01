@@ -189,7 +189,7 @@ def test_the_function_slots_read_as_the_c_example_prints_them(
     dump, starter_file, machine
 ):
     image = rxfb.attach(starter_file.read_bytes())
-    slots = (*range(1, 50), 51)  # every leaf: 1..49 and 51 (50 is the operand's ref)
+    slots = tuple(range(1, 52))  # every leaf: 1..51
     result = run_dump(dump, starter_file, "code", machine, *map(str, slots))
     assert result.returncode == 0, result.stderr
     assert result.stdout == "".join(code_text(image, machine, slot) for slot in slots)
@@ -218,7 +218,7 @@ def test_a_function_is_asked_for_its_code_by_machine(starter_file):
 @pytest.mark.slow
 def test_a_slot_the_interpreter_does_not_have_is_not_found(dump, starter_file):
     image = rxfb.attach(starter_file.read_bytes())
-    for slot, machine in ((0, "wasm32"), (50, "wasm32"), (1, "riscv64")):
+    for slot, machine in ((0, "wasm32"), (52, "wasm32"), (1, "riscv64")):
         with pytest.raises(rxfb.NotFound) as caught:
             image.slot(slot, machine)
         assert caught.value.status == STATUS_NOT_FOUND
@@ -264,7 +264,7 @@ def test_objects_know_their_neighbours(starter_file):
         for ref in refs
         if ref.role is not None and image.get(ref.role).name == "Leaf"
     }
-    assert sorted(leaves) == [*range(1, 50), 51]  # 50 is the operand's roleless ref
+    assert sorted(leaves) == list(range(1, 52))  # 50 is runtime.allocate, the operand's allocator
     rows = refs.view
     assert len(rows) == 24 * len(refs)
     target, role, kind, binding, index = struct.unpack_from("<QQHHI", rows, 24 * 3)
@@ -445,7 +445,7 @@ def test_the_starter_maps_from_a_file_without_a_copy(starter_file):
     ):
         image = rxfb.attach(mapped)
         assert image.view.obj is mapped
-        assert image.count > 20000
+        assert image.count > 12000  # the starter after R1 holds 12,810 objects
         run = image.lookup(RUN)
         payload = run.payload
         assert payload.obj is mapped

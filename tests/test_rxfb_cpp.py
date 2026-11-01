@@ -262,7 +262,7 @@ def test_every_object_of_the_starter_prints_as_the_c_examples(
 ):
     """Path, kind, payload size and payload SHA-256 of every object, byte for byte."""
     out = same_answer(c_dump, dump_cpp, starter, "walk")
-    assert len(out.splitlines()) > 20000
+    assert len(out.splitlines()) > 12000  # the starter after R1 holds 12,810 objects
     assert out.splitlines()[0].startswith("walk\t\t")  # the root's path is empty
 
 
@@ -290,7 +290,7 @@ def test_objects_print_in_full_as_the_c_examples(c_dump, dump_cpp, starter):
 
 @pytest.mark.parametrize("machine", ["x86_64_linux", "aarch64_linux", "wasm32"])
 def test_function_slots_print_as_the_c_examples(c_dump, dump_cpp, starter, machine):
-    slots = [str(slot) for slot in (*range(1, 50), 51)]  # 50 is the operand's ref
+    slots = [str(slot) for slot in range(1, 52)]  # every leaf: 1..51
     out = same_answer(c_dump, dump_cpp, starter, "code", machine, *slots)
     assert len(out.splitlines()) == len(slots)
 
@@ -299,7 +299,7 @@ def test_function_slots_print_as_the_c_examples(c_dump, dump_cpp, starter, machi
 def test_slots_that_do_not_exist_are_refused_as_the_c_example_does(
     c_dump, dump_cpp, starter
 ):
-    for slot, machine in ((0, "wasm32"), (50, "wasm32"), (1, "riscv64")):
+    for slot, machine in ((0, "wasm32"), (52, "wasm32"), (1, "riscv64")):
         out = same_answer(c_dump, dump_cpp, starter, "code", machine, str(slot))
         assert out == ""
 

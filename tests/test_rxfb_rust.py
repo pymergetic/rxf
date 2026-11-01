@@ -44,8 +44,8 @@ from .test_rxfb import (  # noqa: F401
 ROOT = Path(__file__).parents[1]
 WORKSPACE = ROOT / "rxfb" / "rust"
 MACHINES = ("x86_64_linux", "aarch64_linux", "wasm32")
-# The interpreter's leaf slots (1..49 in the starter); 0 and 50 are not leaves.
-SLOTS = (*range(1, 50), 51)  # every leaf slot: 50 is the operand's roleless ref
+# The interpreter's leaf slots (1..51 in the starter); 0 and 52 are not leaves.
+SLOTS = tuple(range(1, 52))  # every leaf slot
 FREESTANDING = ("wasm32-unknown-unknown", "x86_64-unknown-none")
 
 
@@ -131,7 +131,7 @@ def test_the_image_line_is_the_c_examples(dump, rust_dump, starter_file, bridge)
 def test_every_object_of_the_walk_is_the_c_examples(dump, rust_dump, starter_file):
     c, rust = both(dump, rust_dump, starter_file, "walk")
     assert c.returncode == 0, c.stderr
-    assert len(c.stdout.splitlines()) > 20000
+    assert len(c.stdout.splitlines()) > 12000  # the starter after R1 holds 12,810 objects
     same(c, rust)
 
 
