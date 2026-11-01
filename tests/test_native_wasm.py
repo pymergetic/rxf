@@ -52,7 +52,9 @@ def bits(type_name: str, value: float) -> tuple[str, str]:
 
 
 def test_the_starter_has_numeric_snippets_to_compare():
-    assert len(snippets()) >= 286
+    # after R1 the 42 typed wrappers are Semantic compositions over their uint64_t kernels and
+    # their machine bodies left the deltas (docs/32 5.6): 245 numeric snippets remain
+    assert len(snippets()) >= 245
 
 
 def test_a_wasm_snippet_computes_what_the_x86_64_snippet_computes():
