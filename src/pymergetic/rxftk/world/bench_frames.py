@@ -46,7 +46,7 @@ VIEWS = (
 
 
 class _SceneSwap(http.server.SimpleHTTPRequestHandler):
-    """Serve the bench's scene file at the URL the page fetches (``scene.bin``, the raw ``.rxfb``)."""
+    """Serve the bench's scene file at the URL the page fetches (``scene.bin``, the canonical arena)."""
 
     def __init__(self, *args, scene: Path, **kwargs):
         self._scene = scene

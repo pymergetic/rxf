@@ -11,12 +11,13 @@ Wiring into the server (the app in ``server/app.py``)::
     ...
     attach_world(app, inspector)                   # in create_app, after the other routes
 
-That registers: ``GET /world`` (the page), ``GET /world/scene.bin`` (the image itself: the raw
-``.rxfb`` bytes, which the page reads in the browser with ``static/scene/rxf-reader.js`` — no
-export on the host's blocking path at all), ``GET /world/scene.json`` (the scene session of the
-image the app inspects — see ``_Session`` for the query protocol: ``?parts=1`` the plan,
-``?part=…&offset=…&limit=…`` one slice, ``?region=`` one district), ``GET
-/world/scene.json/progress`` (where the layer the page is waiting on is), and ``/world/static``
+That registers: ``GET /world`` (the page), ``GET /world/scene.bin`` (the image itself: its
+canonical v7 arena (docs/32 5.4), which the page reads in the browser with
+``static/scene/rxf-reader.js`` — no export on the host's blocking path at all), ``GET
+/world/scene.json`` (the scene session of the image the app inspects — see ``_Session`` for
+the query protocol: ``?parts=1`` the plan, ``?part=…&offset=…&limit=…`` one slice, ``?region=``
+one district), ``GET /world/scene.json/progress`` (where the layer the page is waiting on is),
+and ``/world/static``
 (the scene, the HUD chrome, and the vendored Babylon.js bundle). Nothing outside this package
 changes.
 
@@ -66,6 +67,7 @@ __all__ = [
     "SchemaError",
     "attach_world",
     "export_world",
+    "scene_arena",
     "scene_json",
     "validate_scene",
 ]
@@ -76,6 +78,13 @@ __all__ = [
 # then say which legs each cable draws itself — the ``stubs``).
 PLAN = ("cells", "voids", "blocks", "streets", "frame", "edges", "bundles", "stubs", "counts")
 SLICE = 2000  # the default slice: one page of buildings or cables per request
+
+# The binary part stream's parts, in the order the page pages the arena in: the head (the
+# superblock, the slot table, the markers) first, then the world's own objects (the scene's
+# buildings and streets derive from them), then the frame the reader's passes ride on, and
+# the cable part (``sys/relations``) last. The parts are where the arena's own record seams
+# are (export.ArenaScene.stream_parts): one canonical image, a transfer shape over it.
+STREAM_ORDER = ("head", "world", "sys", "edges")
 
 
 class _Session:
@@ -198,30 +207,104 @@ class _Session:
         self.stage, self.done, self.total = stage, done, total
 
 
+def scene_arena(image: Any) -> bytes:
+    """The v7 arena of an image: what ``scene.bin`` carries (docs/32 5.4).
+
+    The canonical placement — the world walked in tree order into a fresh one-arena
+    image — so two images that carry the same world answer the same bytes. This is the
+    same face the reader parses and the twin ``ArenaScene`` reads (tests/test_reader_js.py):
+    one artifact, never a projection. A world that carries a dangling ref, or one the
+    founding core cannot name (docs/36 5), has no such bytes; the refusal is ``ValueError``
+    and reaches the caller as words.
+
+    The writer lives with the native tools of a checkout, reached the way
+    ``binary.package`` reaches the linker (``arena_export_module``).
+    """
+    from pymergetic.rxftk.binary import package
+
+    return package.arena_export_module().export_world(image).to_bytes()
+
+
 def attach_world(app: Any, inspector: Inspector) -> None:
     """Wires the world page into a FastAPI app: the page, the raw image bytes, the scene
     session, and the static assets.
 
     The page is served at ``/world/`` (``/world`` redirects there) so its relative asset URLs
-    resolve; the page's fast lane is ``/world/scene.bin`` (the raw ``.rxfb`` the browser reads
-    with ``static/scene/rxf-reader.js``), the scene session lives at ``/world/scene.json``
+    resolve; the page's fast lane is ``/world/scene.bin`` (the canonical v7 arena the browser
+    reads with ``static/scene/rxf-reader.js``), the scene session lives at ``/world/scene.json``
     (see ``_Session`` for the query protocol) and the assets under ``/world/static``.
     """
     from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
     from fastapi.staticfiles import StaticFiles
 
     session = _Session(inspector)
+    arena_cache: list[Any] = ["", b"", {}]
 
     def page() -> HTMLResponse:
         return HTMLResponse(WORLD_PAGE.read_text(encoding="utf-8"))
 
-    def scene_bin() -> Response:
-        """The image itself: the raw ``.rxfb`` bytes of the image the app inspects.
+    def scene_bin(
+        parts: int = 0,
+        part: str | None = None,
+        region: str | None = None,
+    ) -> Response:
+        """The image itself: its canonical v7 arena (docs/32 5.4), bytes the page reads in the
+        browser with ``static/scene/rxf-reader.js``.
 
-        This is the page's fast lane — the browser lays the world out from these bytes with
-        ``static/scene/rxf-reader.js`` and the host computes nothing. The bytes are the arena
-        verbatim (``Image.to_bytes()``): the one truth, not a projection."""
-        return Response(inspector.image.to_bytes(), media_type="application/octet-stream")
+        This is the page's fast lane — the browser lays the world out from these bytes and the
+        host computes nothing on the blocking path. The bytes are the one truth, not a
+        projection: the reader's document over them is the exporter's client face. A world
+        whose refs dangle has no canonical arena (docs/32 2: refused at write time); the
+        route refuses it in words (409) and the page's session lane answers such a world.
+
+        The same bytes also stream as the binary part stream (U5): ``?parts=1`` lists where
+        each part sits in the arena (the image split at its own record seams) and ``?part=``
+        answers one part's runs, concatenated. ``region=`` scopes either to one district —
+        the ranges the index lists under ``regions``, the ones the reader's per-layer reads
+        (``RxfArena.readLayer``) page by — so a viewport fetches one district's runs instead
+        of the whole layers. The page assembles the parts back into the one canonical image
+        and reads it through the same reader face — the parts are a transfer shape, never a
+        second format."""
+        digest = hashlib.sha256(inspector.image.to_bytes()).hexdigest()
+        if digest != arena_cache[0]:
+            try:
+                arena = scene_arena(inspector.image)
+            except ValueError as refusal:
+                return Response(str(refusal), status_code=409, media_type="text/plain")
+            from .export import ArenaScene
+
+            scene = ArenaScene(arena)
+            arena_cache[:] = [
+                digest,
+                arena,
+                scene.stream_parts(),
+                {
+                    b["id"]: [int(b["start"]), int(b["end"])]
+                    for b in scene.districts()
+                },
+                scene,
+            ]
+        arena, index = arena_cache[1], arena_cache[2]
+        scoped = index if region is None else arena_cache[4].stream_parts(region)
+        if parts:
+            return JSONResponse(
+                {
+                    "size": len(arena),
+                    "order": list(STREAM_ORDER),
+                    "parts": {name: scoped.get(name, []) for name in STREAM_ORDER},
+                    "regions": arena_cache[3],
+                }
+            )
+        if part is not None:
+            if part not in index:
+                return Response(
+                    f"no such part: {part}", status_code=404, media_type="text/plain"
+                )
+            return Response(
+                b"".join(arena[lo:hi] for lo, hi in scoped.get(part, [])),
+                media_type="application/octet-stream",
+            )
+        return Response(arena, media_type="application/octet-stream")
 
     def scene(
         parts: int = 0,

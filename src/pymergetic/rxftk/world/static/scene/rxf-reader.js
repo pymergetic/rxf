@@ -229,12 +229,16 @@ function fnv1a(bytes, from, to) {
 // ---- the arena: header, cell stream, handle index, names -------------------------------------------
 
 export class RxfReader {
-    constructor(bytes) {
+    constructor(bytes, runs) {
         const buffer = bytes instanceof Uint8Array
             ? bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
             : bytes;
         this.bytes = new Uint8Array(buffer);
         this.view = new DataView(buffer);
+        // the fetched spans of a paged read (U5's paging): the record runs the transfer
+        // carried, so the walk parses those records and no others. Without them the bytes
+        // are the whole image and the walk is the whole stream — one face, either way.
+        this.runs = runs ?? null;
         this.open(); // the format layer: the ground constants, the stream, the handles
     }
 
@@ -997,17 +1001,8 @@ export class RxfReader {
         const poisoned_at = poisonHosts(stream, poison_runs);
         const placements = new Map();
         for (const region of regions) {
-            const here = (inRegion.get(region.id) ?? []).slice().sort((a, b) => a.offset - b.offset);
-            const [raster, plots] = tiles(here.length, region.plot.w, region.plot.d);
-            region.tiles = raster;
-            for (let i = 0; i < plots.length; i++) {
-                const [x, z, col, row] = plots[i];
-                placements.set(here[i].offset, [
-                    round3(region.plot.x + x),
-                    round3(region.plot.z + z),
-                    col,
-                    row,
-                ]);
+            for (const [at, placed] of placeRegion(region, inRegion.get(region.id) ?? [])) {
+                placements.set(at, placed);
             }
         }
         return {
@@ -1024,75 +1019,82 @@ export class RxfReader {
 
     // -- the buildings pass: one building per cell, and the poison pits -------------------------------
 
+    // One cell of the city — the document's own shape, built from one stream record. The
+    // whole-layer pass and the per-region reads (readLayer) build their cells here, so a paged
+    // answer can never drift from the document's.
+    cellOf(base, record) {
+        const offset = record.offset;
+        const kind = record.kind;
+        const handle = record.handle;
+        let family;
+        let name = null;
+        let path = null;
+        let state = null;
+        let payload;
+        let identifier;
+        if (handle === null) {
+            family = familyOf(kind, null, -1n, this.root);
+            payload = new Uint8Array(0);
+            identifier = "c" + offset;
+        } else {
+            const got = this.get(handle);
+            family = familyOf(kind, handle, got.parent, this.root);
+            name = got.name === "" ? null : got.name;
+            path = got.path;
+            state = stateWord(record.flags);
+            payload = got.payload;
+            identifier = "h" + handle;
+        }
+        const [run_state, run_checksum] = runWords(family, payload);
+        let wordName;
+        if (kind === KIND_BLOCK) {
+            wordName = record.blockKind === 1 ? "Index" : record.blockKind === 2 ? "Names" : "Block";
+        } else if (kind === KIND_DEAD) {
+            wordName = "Dead";
+        } else {
+            wordName = word(NODE_KINDS, kind);
+        }
+        const [x, z, col, row] = base.placements.get(offset);
+        const [footprint, height] = bulk(family, record.payloadSize);
+        const region = regionOf(base.regions, offset);
+        const poisoned = base.poisoned_at.has(offset);
+        return {
+            id: identifier,
+            handle: handle === null ? null : Number(handle),
+            path,
+            name,
+            depth: !path ? 0 : path.split(".").length,
+            kind: wordName,
+            family,
+            offset,
+            size: record.size,
+            payload_size: record.payloadSize,
+            generation: record.generation,
+            region: region.id,
+            plot: { x, z },
+            tile: { x: col, z: row },
+            footprint,
+            height,
+            state,
+            run_state,
+            claim: null,
+            checksum: run_checksum,
+            poisoned,
+            forward: record.forward,
+            index: record.index,
+            ref_count: record.refCount,
+            anatomy: this.anatomy(record, family, poisoned),
+        };
+    }
+
     buildingsPass(base) {
-        const regions = base.regions;
         const stream = base.stream;
         const cells = [];
         const cellId = new Map();
         for (const record of stream) {
-            const offset = record.offset;
-            const kind = record.kind;
-            let handle = record.handle;
-            let family;
-            let name = null;
-            let path = null;
-            let state = null;
-            let payload;
-            let identifier;
-            if (handle === null) {
-                family = familyOf(kind, null, -1n, this.root);
-                payload = new Uint8Array(0);
-                identifier = "c" + offset;
-            } else {
-                const got = this.get(handle);
-                family = familyOf(kind, handle, got.parent, this.root);
-                name = got.name === "" ? null : got.name;
-                path = got.path;
-                state = stateWord(record.flags);
-                payload = got.payload;
-                identifier = "h" + handle;
-                cellId.set(handle, identifier);
-            }
-            const [run_state, run_checksum] = runWords(family, payload);
-            let wordName;
-            if (kind === KIND_BLOCK) {
-                wordName = record.blockKind === 1 ? "Index" : record.blockKind === 2 ? "Names" : "Block";
-            } else if (kind === KIND_DEAD) {
-                wordName = "Dead";
-            } else {
-                wordName = word(NODE_KINDS, kind);
-            }
-            const [x, z, col, row] = base.placements.get(offset);
-            const [footprint, height] = bulk(family, record.payloadSize);
-            const region = regionOf(regions, offset);
-            const poisoned = base.poisoned_at.has(offset);
-            cells.push({
-                id: identifier,
-                handle: handle === null ? null : Number(handle),
-                path,
-                name,
-                depth: !path ? 0 : path.split(".").length,
-                kind: wordName,
-                family,
-                offset,
-                size: record.size,
-                payload_size: record.payloadSize,
-                generation: record.generation,
-                region: region.id,
-                plot: { x, z },
-                tile: { x: col, z: row },
-                footprint,
-                height,
-                state,
-                run_state,
-                claim: null,
-                checksum: run_checksum,
-                poisoned,
-                forward: record.forward,
-                index: record.index,
-                ref_count: record.refCount,
-                anatomy: this.anatomy(record, family, poisoned),
-            });
+            const cell = this.cellOf(base, record);
+            if (record.handle !== null) cellId.set(record.handle, cell.id);
+            cells.push(cell);
         }
         const cellByOffset = new Map(cells.map((cell) => [cell.offset, cell]));
         const voids = [];
@@ -1110,7 +1112,7 @@ export class RxfReader {
                 const candidate = low > 0 ? cells[low - 1] : null;
                 host = candidate !== null && start < candidate.offset + candidate.size ? candidate : null;
             }
-            const region = regionOf(regions, start);
+            const region = regionOf(base.regions, start);
             let anchor;
             let hostId;
             if (host !== null) {
@@ -1155,8 +1157,8 @@ export class RxfReader {
 
     // -- the cables: every handle reference of the image ----------------------------------------------
 
-    cablesPass(base) {
-        return this.edgesPass(base.byHandle).map((edge) => {
+    cablesPass(base, handles = null) {
+        return this.edgesPass(base.byHandle, handles).map((edge) => {
             const source = edge.from;
             const target = edge.to;
             edge.from_handle = Number(source);
@@ -1171,11 +1173,15 @@ export class RxfReader {
         return base.byHandle.has(handle) ? "h" + handle : undefined;
     }
 
-    edgesPass(byHandle) {
+    // Every handle reference of the image — or of one set of handles (the per-region reads):
+    // the rows of those sources and no others, ranked within the answer.
+    edgesPass(byHandle, handles = null) {
         const fresh = (target) => this.live(target);
         const found = [];
-        const handles = [...byHandle.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-        for (const handle of handles) {
+        const wanted = handles === null ? null : new Set(handles);
+        const list = (handles === null ? [...byHandle.keys()] : [...handles])
+            .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+        for (const handle of list) {
             const got = this.get(handle);
             for (const row of got.refs) {
                 if (row.target !== this.noneValue) {
@@ -1206,6 +1212,7 @@ export class RxfReader {
             }
         }
         for (const [alias, user] of this.aliasUses()) {
+            if (wanted !== null && !wanted.has(user)) continue;
             found.push({
                 from: user, to: alias, how: "alias",
                 kind: null, binding: null,
@@ -1543,51 +1550,62 @@ export class RxfArena extends RxfReader {
         this.stream = [];
         this.recordAt = new Map();
         this.byHandle = new Map();
+        // The walk: the whole stream, or just the fetched runs of a paged read (U5's paging).
+        // Every run is cut at the record seams (the transfer shape's law), so a record is
+        // whole inside one run and the walk steps it exactly as the whole stream would — the
+        // sparse face of the one format, never a second one.
+        const whole = this.runs === null;
+        const spans = whole ? [[SUPER_BYTES, this.committed]] : this.runs;
         let at = SUPER_BYTES;
-        while (at < this.committed) {
-            const role = this.view.getUint16(at, true);
-            const gen = this.view.getUint16(at + 2, true);
-            const nameOff = this.view.getUint16(at + 6, true);
-            const parent = this.view.getUint32(at + 8, true);
-            const link = this.view.getUint32(at + 12, true);
-            const refCount = this.view.getUint32(at + 16, true);
-            const payloadSize = this.view.getUint32(at + 20, true);
-            const size = OBJECT_BYTES + ((payloadSize + 7) & ~7);
-            if (size < OBJECT_BYTES || at + size > this.committed) {
-                throw new Error("BadImage: malformed record at " + at);
+        for (const [lo, hi] of spans) {
+            at = Math.max(lo, SUPER_BYTES);
+            while (at < hi) {
+                const role = this.view.getUint16(at, true);
+                const gen = this.view.getUint16(at + 2, true);
+                const nameOff = this.view.getUint16(at + 6, true);
+                const parent = this.view.getUint32(at + 8, true);
+                const link = this.view.getUint32(at + 12, true);
+                const refCount = this.view.getUint32(at + 16, true);
+                const payloadSize = this.view.getUint32(at + 20, true);
+                const size = OBJECT_BYTES + ((payloadSize + 7) & ~7);
+                if (size < OBJECT_BYTES || at + size > (whole ? this.committed : hi)) {
+                    throw new Error("BadImage: malformed record at " + at);
+                }
+                const identity = this.bySlot.get(at);
+                let handle = null;
+                if (identity !== undefined) {
+                    const entry = this.entries[identity];
+                    if (entry.gen === gen && entry.kind === role) handle = BigInt((gen << 20) | identity);
+                }
+                const record = {
+                    offset: at,
+                    size,
+                    role,
+                    gen,
+                    kind: role === OBJ_FREE_REC ? KIND_DEAD : role,
+                    blockKind: 0,
+                    handle,
+                    type: this.none,
+                    parent: parent === HANDLE32_NONE ? this.none : BigInt(parent),
+                    payloadSize,
+                    refCount,
+                    flags: 0,
+                    generation: 0,
+                    nameOff,
+                    linkRaw: link,
+                    forward: link === HANDLE32_NONE ? 0 : link,
+                    index: 0,
+                    head: role === OBJ_MODULE_REC ? MODULE_HEAD : 0,
+                };
+                this.stream.push(record);
+                this.recordAt.set(at, record);
+                if (handle !== null) this.byHandle.set(handle, record);
+                at += size;
             }
-            const identity = this.bySlot.get(at);
-            let handle = null;
-            if (identity !== undefined) {
-                const entry = this.entries[identity];
-                if (entry.gen === gen && entry.kind === role) handle = BigInt((gen << 20) | identity);
-            }
-            const record = {
-                offset: at,
-                size,
-                role,
-                gen,
-                kind: role === OBJ_FREE_REC ? KIND_DEAD : role,
-                blockKind: 0,
-                handle,
-                type: this.none,
-                parent: parent === HANDLE32_NONE ? this.none : BigInt(parent),
-                payloadSize,
-                refCount,
-                flags: 0,
-                generation: 0,
-                nameOff,
-                linkRaw: link,
-                forward: link === HANDLE32_NONE ? 0 : link,
-                index: 0,
-                head: role === OBJ_MODULE_REC ? MODULE_HEAD : 0,
-            };
-            this.stream.push(record);
-            this.recordAt.set(at, record);
-            if (handle !== null) this.byHandle.set(handle, record);
-            at += size;
         }
-        if (at !== this.committed) throw new Error("BadImage: the record stream misses the marker");
+        if (whole && at !== this.committed) {
+            throw new Error("BadImage: the record stream misses the marker");
+        }
         // the two blocks of the v6 vocabulary: the object index and the names table
         this.stream[0].blockKind = 1;
         const syms = this.entries.length > 1 ? this.entries[1].slot : 0;
@@ -1623,6 +1641,7 @@ export class RxfArena extends RxfReader {
     readSpecs() {
         const found = this.findNamed(this.root, "specs", this.findNamed(this.root, "sys"));
         const specs = found === null ? null : this.byHandle.get(found);
+        this.specsRecord = specs;
         for (const record of this.stream) {
             if (record.handle === null) continue;
             const index = Number(record.handle & 0xfffffn);
@@ -1793,6 +1812,158 @@ export class RxfArena extends RxfReader {
     // The block-stack floors of one cell (the v7 record layout).
     anatomy(record, family, poisoned) {
         return anatomyRecord(record.size, record.payloadSize, family, poisoned);
+    }
+
+    // -- the per-region reads (U5's paging): a viewport's layer, not the whole one --------------------
+
+    // The body's districts: the 4 KiB runs a viewport pages by (docs/32 1). Fresh each call —
+    // the document's own passes stamp tiles and cell counts on theirs.
+    regions() {
+        return districts(this.headerWords());
+    }
+
+    // The records one district's range holds (the stream is offset order: one binary search).
+    recordsIn(region, out) {
+        let low = 0;
+        let high = this.stream.length;
+        while (low < high) {
+            const mid = (low + high) >> 1;
+            if (this.stream[mid].offset < region.start) low = mid + 1;
+            else high = mid;
+        }
+        for (let at = low; at < this.stream.length && this.stream[at].offset < region.end; at++) {
+            out.push(this.stream[at]);
+        }
+        return out;
+    }
+
+    // One layer of the world, region-scoped: only the records inside the districts' ranges are
+    // decoded — the same cell shapes ``document()`` writes (read-side only: the image, its pins
+    // and the four face shas do not move). Without ``region``/``regions`` the read answers the
+    // whole layer, which is what the bench compares the viewport's pull against.
+    //
+    // ``pull`` is what the answer costs to fetch — the shared tables every read consults (the
+    // superblock and its slot table, the interned names, the semantic rows, the cable frame)
+    // and the closure of the records it decodes (their ancestors, types, rows' targets and the
+    // scope aliases), merged the way ``stream_parts`` merges its runs — and ``bytes`` their
+    // total. A paged fetch of the answer carries exactly those runs: ``new RxfArena(bytes,
+    // runs)`` reads them into the same items the whole-arena read answers (the sparse face of
+    // the same document code).
+    //
+    // ``cells`` is the district's buildings: the document's own shapes, ids included (the ids
+    // ride the record offsets and handles, so they survive a paged read). ``edges`` is its
+    // cables: the document's edge shapes whose ``id`` is this read's own rank (the document
+    // ranks the whole layer's rows) and whose ``route`` is empty (the routed geometry rides the
+    // frame — the street network is the seam's law over every district).
+    readLayer(name, options = {}) {
+        if (name !== "cells" && name !== "edges") throw new Error("no such layer: " + name);
+        const picked = pickRegions(this.regions(), options);
+        const records = [];
+        for (const region of picked) this.recordsIn(region, records);
+        if (name === "cells") {
+            const placements = new Map();
+            const poisoned_at = new Set();
+            for (const region of picked) {
+                const here = records.filter((r) => r.offset >= region.start && r.offset < region.end);
+                for (const [at, placed] of placeRegion(region, here)) placements.set(at, placed);
+                for (const offset of poisonHosts(here, poisonRunsIn(here, this.bytes))) {
+                    poisoned_at.add(offset);
+                }
+            }
+            const base = { regions: picked, placements, poisoned_at };
+            return {
+                name,
+                regions: picked.map((region) => region.id),
+                items: records.map((record) => this.cellOf(base, record)),
+                pull: this.pullOf(records),
+            };
+        }
+        const handles = [];
+        for (const record of records) if (record.handle !== null) handles.push(record.handle);
+        const edges = this.cablesPass({ byHandle: this.byHandle }, handles);
+        for (const edge of edges) {
+            edge.route = [];
+            edge.stubs = [];
+        }
+        return {
+            name,
+            regions: picked.map((region) => region.id),
+            items: edges,
+            pull: this.pullOf(records),
+        };
+    }
+
+    // The byte runs one answer needs pulled: the shared tables plus the closure of the records
+    // the answer decodes — sorted and merged where they touch (the law ``stream_parts`` merges
+    // its runs with). ``bytes`` is their total: the number the bench compares against the whole
+    // layer.
+    //
+    // The closure is what a decode walks, and so what a paged fetch must carry for the sparse
+    // read (``new RxfArena(bytes, runs)``) to answer exactly what the whole-arena read answers:
+    // the records themselves, the ancestors whose paths it writes, the rows' types with their
+    // fields, the rows' targets and roles with their paths, and the aliases their scopes hold
+    // (the cable layer's alias rows name alias records). One fetch serves both layers; the runs
+    // stay cut at the record seams — the transfer shape never changes.
+    pullOf(records) {
+        const spans = [[0, SUPER_BYTES]];
+        const add = (record) => {
+            if (record !== undefined && record !== null) {
+                spans.push([record.offset, record.offset + record.size]);
+            }
+        };
+        const addChain = (word) => {
+            for (let at = word; at != null && at !== this.none && at !== this.noneValue && at !== this.root;) {
+                const here = this.byHandle.get(at);
+                if (here === undefined) break;
+                add(here);
+                at = here.parent;
+            }
+        };
+        add(this.stream[0]); // the slot table (the index block)
+        add(this.symsRecord); // the interned names (sys/syms)
+        add(this.specsRecord); // the semantic rows (sys/specs)
+        add(this.cell(this.root));
+        for (const child of this.childrenChain(this.root)) add(this.byHandle.get(child));
+        const sys = this.findNamed(this.root, "sys");
+        add(this.byHandle.get(sys));
+        if (sys !== null) for (const child of this.childrenChain(sys)) add(this.byHandle.get(child));
+        add(this.byHandle.get(this.findNamed(this.root, "relations", sys)));
+        for (const table of this.relationTables().values()) add(this.byHandle.get(table));
+        for (const record of records) {
+            add(record);
+            addChain(record.parent);
+            if (record.handle === null) continue;
+            const got = this.get(record.handle);
+            if (got.type !== this.none) {
+                add(this.byHandle.get(got.type));
+                for (const child of this.children(got.type)) add(this.byHandle.get(child));
+            }
+            for (const row of got.refs) {
+                addChain(row.target);
+                addChain(row.role);
+            }
+            // the field-leaved payload values (the ``field`` rows) name handles the answer
+            // reports ``fresh`` and ids — their records ride the fetch too
+            for (const leaf of referenceSlots(this, got.type)) {
+                if (leaf.offset + 8 > got.payload.length) continue;
+                addChain(this.payloadUint(record, leaf.offset, 8));
+            }
+            const scope = this.scopeOf(record.handle);
+            if (scope !== null) {
+                for (const child of this.children(scope)) {
+                    if (!this.isAlias(child)) continue;
+                    add(this.byHandle.get(child));
+                    const alias = this.get(child);
+                    if (alias.type !== this.none) {
+                        add(this.byHandle.get(alias.type));
+                        for (const leaf of this.children(alias.type)) add(this.byHandle.get(leaf));
+                    }
+                    addChain(this.aliasTarget(child));
+                }
+            }
+        }
+        const runs = mergeRuns(spans);
+        return { runs, bytes: runs.reduce((n, [lo, hi]) => n + hi - lo, 0) };
     }
 }
 
@@ -1996,6 +2167,75 @@ function anatomy(cellSize, payloadSize, refCount, family, poisoned) {
         return rows.filter((band) => band.size > 0);
     }
     return rows;
+}
+
+// One district's placements: the tile grid its records stand on (tiles). A record's placement
+// depends on its district's records alone — which is what lets the per-region reads place one
+// district without the rest of the stream.
+function placeRegion(region, records) {
+    const here = records.slice().sort((a, b) => a.offset - b.offset);
+    const [raster, plots] = tiles(here.length, region.plot.w, region.plot.d);
+    region.tiles = raster;
+    const placements = new Map();
+    for (let i = 0; i < plots.length; i++) {
+        const [x, z, col, row] = plots[i];
+        placements.set(here[i].offset, [
+            round3(region.plot.x + x),
+            round3(region.plot.z + z),
+            col,
+            row,
+        ]);
+    }
+    return placements;
+}
+
+// The runs one pull carries: the spans sorted and merged where they touch — the law
+// stream_parts merges its own runs with.
+function mergeRuns(spans) {
+    spans.sort((a, b) => a[0] - b[0]);
+    const runs = [];
+    for (const [lo, hi] of spans) {
+        if (runs.length > 0 && runs[runs.length - 1][1] >= lo) {
+            runs[runs.length - 1][1] = Math.max(runs[runs.length - 1][1], hi);
+        } else {
+            runs.push([lo, hi]);
+        }
+    }
+    return runs;
+}
+
+// The poison runs inside one district's records — the scan poisonRuns runs over the body,
+// clipped to what the district's records span. A run's host is the record holding its start,
+// so a district's hosts are found entirely inside that span.
+function poisonRunsIn(records, raw) {
+    const runs = [];
+    if (records.length === 0) return runs;
+    const start = records[0].offset;
+    const end = records[records.length - 1].offset + records[records.length - 1].size;
+    let at = start;
+    while (at < end) {
+        if (raw[at] !== POISON_BYTE) {
+            at += 1;
+            continue;
+        }
+        let stop = at + 1;
+        while (stop < end && raw[stop] === POISON_BYTE) stop += 1;
+        if (stop - at >= POISON_RUN) runs.push([at, stop - at]);
+        at = stop;
+    }
+    return runs;
+}
+
+// The districts one read answers: every district, one (``region``) or a list (``regions``).
+function pickRegions(all, options) {
+    const wanted = options.region !== undefined ? [options.region] : options.regions;
+    if (wanted === undefined || wanted === null) return all;
+    const byId = new Map(all.map((region) => [region.id, region]));
+    return wanted.map((id) => {
+        const region = byId.get(id);
+        if (region === undefined) throw new Error("no such region: " + id);
+        return region;
+    });
 }
 
 function tiles(count, width, depth) {

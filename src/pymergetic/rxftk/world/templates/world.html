@@ -55,7 +55,7 @@
     <canvas id="rxf-world-canvas" tabindex="0"></canvas>
 
     <!-- the loading face: the world on its way (rxf-world-hud.js drives it). The fast lane is
-         the raw image read in the browser (scene.bin + rxf-reader.js) with byte progress;
+         the image's canonical arena read in the browser (scene.bin + rxf-reader.js) with byte progress;
          where a lane is missing the face still says the layer and the count — the user never
          stares at a blank background until the first frame. -->
     <div class="world-loading" data-loading role="status" aria-live="polite">
@@ -139,7 +139,7 @@
     </footer>
   </div>
 
-  <!-- where the scene comes from: the raw image (scene.bin) read in the browser with
+  <!-- where the scene comes from: the image's canonical arena (scene.bin) read in the browser with
        rxf-reader.js — the fast lane, no export on the host — then the served scene session.
        There is no demo fallback: the world is always the image under test (tests/test_serve_real.py
        pins that it is never a checked-in synthetic scene). progressUrl is the host's compute
@@ -147,12 +147,12 @@
        where the host is. "plan" is what stands before the world is ready on the session
        lane — the rest (ducts, their stubs, the counts) streams in after the first frame. -->
   <script type="application/json" id="rxf-world-config">
-    {"binUrl": "scene.bin?v=20261018g", "readerUrl": "static/scene/rxf-reader.js?v=20261018g", "workerUrl": "static/scene/rxf-reader-worker.js?v=20261018g", "sceneUrl": "scene.json?v=20261018g", "progressUrl": "scene.json/progress", "plan": ["cells", "voids", "blocks", "streets", "frame", "edges"], "pose": "overview"}
+    {"binUrl": "scene.bin?v=20261031a", "readerUrl": "static/scene/rxf-reader.js?v=20261031a", "workerUrl": "static/scene/rxf-reader-worker.js?v=20261031a", "sceneUrl": "scene.json?v=20261031a", "progressUrl": "scene.json/progress", "plan": ["cells", "voids", "blocks", "streets", "frame", "edges"], "pose": "overview"}
   </script>
   <script src="static/vendor/babylon/babylon.js?v=20261015b"></script>
-  <script src="static/scene/rxf-world-hud.js?v=20261018g"></script>
+  <script src="static/scene/rxf-world-hud.js?v=20261031a"></script>
   <script src="static/scene/rxf-world-film.js?v=20261030a"></script>
-  <script src="static/scene/rxf-world.js?v=20261018g"></script>
+  <script src="static/scene/rxf-world.js?v=20261031a"></script>
   <script src="/static/ui/ui.js"></script>
 </body>
 </html>

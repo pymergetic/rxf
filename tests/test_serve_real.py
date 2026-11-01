@@ -4,8 +4,9 @@ Two things were demo before this file pinned them otherwise:
 
 * the 3D world fell back to the checked-in synthetic demo scene
   no matter which image the app inspected — now `create_app` wires `attach_world` and the world
-  page loads the image under test: `GET /world/scene.bin` hands the browser the raw `.rxfb`
-  (read in the page by `rxf-reader.js` — no export on the host at all), and the scene SESSION
+  page loads the image under test: `GET /world/scene.bin` hands the browser the image's
+  canonical v7 arena (docs/32 5.4; read in the page by `rxf-reader.js` — no export on the host
+  at all), and the scene SESSION
   face stays beside it: `GET /world/scene.json?parts=1` the plan, then the layers one after
   another, slice by slice (buildings, cables, ducts — computed on demand, never one blob).
   The full-starter pin runs in the gate at that shape:
@@ -34,8 +35,8 @@ from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live.front import identity
 from pymergetic.rxftk.server.app import PokeBody, SourceBody, create_app
 from pymergetic.rxftk.server.inspector import Inspector
-from pymergetic.rxftk.world import scene_json
-from pymergetic.rxftk.world.demo import demo_inspector
+from pymergetic.rxftk.world import STREAM_ORDER, scene_arena, scene_json
+from pymergetic.rxftk.world.demo import demo_image, demo_inspector, demo_v7_image
 
 pytestmark = pytest.mark.live
 
@@ -46,7 +47,7 @@ STARTER = ROOT / "starter"
 # demo's own content, not a stale golden on disk).
 DEMO_SCENE = json.loads(scene_json(demo_inspector()))
 DEMO_JSON = scene_json(demo_inspector()).encode()
-DEMO_IMAGE = demo_inspector().image.to_bytes()
+DEMO_ARENA = scene_arena(demo_v7_image())
 MODULE = "pymergetic.rxf.selfedit"
 
 TRIPLE = """\
@@ -85,19 +86,72 @@ def test_the_world_of_the_real_starter_app_is_wired_to_its_inspector(image: Imag
 
 
 def test_the_world_serves_the_raw_image_for_the_browser_reader(image: Image):
-    """`GET /world/scene.bin` is the image itself: the raw `.rxfb` bytes the page reads in the
-    browser with `static/scene/rxf-reader.js` — the very bytes `Image.to_bytes()` hands out
-    (the arena verbatim, never a projection, never the demo scene). The reader is served too:
-    the fast lane is bytes plus one reader file, nothing else."""
+    """`GET /world/scene.bin` is the image itself: its canonical v7 arena (docs/32 5.4) — the
+    very bytes `world.scene_arena` hands out (the one artifact, never a projection, never the
+    demo scene), read in the browser with `static/scene/rxf-reader.js`. The reader is served
+    too: the fast lane is bytes plus one reader file, nothing else."""
     client = TestClient(create_app(image))
     response = client.get("/world/scene.bin")
     assert response.status_code == 200
-    assert response.content == image.to_bytes()
-    assert response.content[:4] == b"RXFB"
-    assert response.content != DEMO_IMAGE
+    assert response.content == scene_arena(image)
+    assert response.content[:4] == b"RXFA"
+    assert response.content != DEMO_ARENA
     reader = client.get("/world/static/scene/rxf-reader.js")
     assert reader.status_code == 200
     assert "export function readWorld" in reader.text
+
+
+def test_the_world_streams_the_arena_as_binary_parts(image: Image):
+    """The binary part stream (U5): `GET /world/scene.bin?parts=1` is the stream's index —
+    the one canonical arena split at its own record seams (`ArenaScene.stream_parts`) — and
+    `?part=` answers one part's bytes, `edges` the cable part (`sys/relations`). The parts
+    reassemble byte for byte into the arena the route serves whole: the stream is a transfer
+    shape over the one format, never a second one, and the page reads the reassembled image
+    through the same reader face (rxf-reader.js / RxfArena)."""
+    client = TestClient(create_app(image))
+    arena = scene_arena(image)
+    index = client.get("/world/scene.bin?parts=1")
+    assert index.status_code == 200
+    head = index.json()
+    assert head["size"] == len(arena)
+    assert head["order"] == list(STREAM_ORDER)
+    assert "edges" in head["parts"] and head["parts"]["edges"]  # the cable part
+    out = bytearray(len(arena))
+    for name in head["order"]:
+        part = client.get(f"/world/scene.bin?part={name}")
+        assert part.status_code == 200
+        assert part.headers["content-type"] == "application/octet-stream"
+        body = part.content
+        cursor = 0
+        for lo, hi in head["parts"][name]:
+            out[lo:hi] = body[cursor : cursor + (hi - lo)]
+            cursor += hi - lo
+        assert cursor == len(body)  # the part answers exactly its runs, concatenated
+    assert bytes(out) == arena  # byte for byte: the stream's pin
+    assert client.get("/world/scene.bin?part=nope").status_code == 404
+
+
+def test_a_world_whose_refs_dangle_has_no_arena_and_the_route_says_so():
+    """The v6->v7 seam's refusal face: a dangling target is refused at write time (docs/32 2),
+    so the canonical arena of such a world does not exist. The route answers the refusal in
+    words (409) and the page's session lane carries the world instead — the runtime damage has
+    no v7 form and lives on the projection, never silently dropped."""
+    client = TestClient(create_app(demo_image()))
+    response = client.get("/world/scene.bin")
+
+    assert response.status_code == 409
+    assert "dangling ref" in response.text
+
+
+def test_a_world_the_founding_core_cannot_name_has_no_arena_either():
+    """The seam's other refusal face: the founding core names its inventor under `pymergetic`
+    (docs/36 5) and that ref must land inside the image — a bare world without the inventor
+    has no canonical arena either, and the route says so in words (409)."""
+    client = TestClient(create_app(Image.empty()))
+    response = client.get("/world/scene.bin")
+
+    assert response.status_code == 409
+    assert "no object at" in response.text
 
 
 def test_the_world_serves_the_scene_of_the_inspected_image_not_the_demo():

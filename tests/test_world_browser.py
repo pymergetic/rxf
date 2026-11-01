@@ -29,9 +29,11 @@ playwright_sync = pytest.importorskip(
 )
 
 from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.kinds import NodeKind
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.server.app import create_app
-from pymergetic.rxftk.server.inspector import Inspector
+from pymergetic.rxftk.world import scene_arena
+from pymergetic.rxftk.world.export import ArenaScene
 
 pytestmark = pytest.mark.live
 
@@ -187,10 +189,12 @@ def _counts(page) -> dict[str, str]:
 
 
 def test_the_page_boots_the_ground_image_from_the_raw_bytes(serve_app) -> None:
-    """The lane, on the bare ground image: the bytes land, the reader lays the world out in
+    """The lane, on the bare ground image (its inventor named — the one node the founding
+    core lands and names, docs/36 5): the bytes land, the reader lays the world out in
     the page — and the JSON export is never asked for."""
     image = Image.empty()
-    cells = sum(1 for _ in Inspector(image).cells())
+    image.add(0, "pymergetic", kind=int(NodeKind.Namespace))
+    cells = sum(1 for _ in ArenaScene(scene_arena(image)).cells())
     base, _, _ = serve_app(image)
     requested: list[str] = []
 
@@ -221,7 +225,7 @@ def test_the_real_tree_boots_from_the_raw_bytes_on_a_gpu_raster(serve_app) -> No
     5.5 MB of arena) read in the browser and built into the world — on a GPU raster, which is
     what draws a city this size in a gate (software renders it, in hours not minutes)."""
     image = tree.load(STARTER)
-    cells = sum(1 for _ in Inspector(image).cells())
+    cells = sum(1 for _ in ArenaScene(scene_arena(image)).cells())
     base, _, _ = serve_app(image)
     requested: list[str] = []
 

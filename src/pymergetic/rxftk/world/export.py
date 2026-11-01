@@ -2595,6 +2595,149 @@ class ArenaScene:
         self._children_cache[handle] = out
         return out
 
+    def districts(self) -> list[dict[str, Any]]:
+        """The body's districts (rxf-reader.js ``regions``): the bands a viewport pages by —
+        the header, the index and one ``DISTRICT_SPAN`` run of the cell stream each. The ids
+        are the chunk rank (``r0``...), a record belongs to the district its offset starts
+        in, and the ground plots of the world (``_districts``) stand on the same law."""
+        return _districts(self.header())
+
+    def stream_parts(self, region: str | None = None) -> dict[str, list[tuple[int, int]]]:
+        """The binary part stream's index: the one canonical image split at its own record
+        seams into the parts the page pages it in with - ``head`` (the superblock, the slot
+        table, the markers), ``edges`` (the cable part: ``sys/relations``, docs/32 2),
+        ``sys`` (the frame the reader's other passes ride on) and ``world`` (the world's own
+        objects). Each part is the disjoint list of byte runs its records occupy; the parts
+        reassemble onto the head into the byte-identical image, which the page reads through
+        the same reader face (rxf-reader.js) and the Python twin reads too
+        (tests/test_reader_js.py pins the reassembly byte-for-byte).
+
+        With ``region`` the index answers one district's share of every part instead of the
+        whole layer: the runs the reader's per-layer reads (``RxfArena.readLayer``) decode for
+        that district — its range's records, the ancestors their paths walk and the shared
+        tables, at the same record seams. That is what a viewport fetches, never a second
+        format; the whole-layer index is what the bench measures the saving against."""
+        wanted = self._district_offsets(region) if region is not None else None
+        groups: dict[str, list[tuple[int, int]]] = {}
+        for record in self.stream:
+            if wanted is not None and record["offset"] not in wanted:
+                continue
+            lo = record["offset"]
+            hi = record["offset"] + record["size"]
+            handle = record["handle"]
+            part = "head" if handle is None else self._part_of(self.path_of(handle))
+            groups.setdefault(part, []).append((lo, hi))
+        first = self.stream[0]["offset"]
+        head = groups.setdefault("head", [])
+        head.append((0, first))  # the superblock and the slot table, before the record stream
+        if wanted is None:
+            last = self.stream[-1]["offset"] + self.stream[-1]["size"]
+            if last < len(self._data):
+                head.append((last, len(self._data)))  # the marker that trails the record stream
+        out: dict[str, list[tuple[int, int]]] = {}
+        for name, spans in groups.items():
+            spans.sort()
+            runs: list[tuple[int, int]] = []
+            for lo, hi in spans:
+                if runs and runs[-1][1] >= lo:
+                    runs[-1] = (runs[-1][0], max(runs[-1][1], hi))
+                else:
+                    runs.append((lo, hi))
+            out[name] = runs
+        return out
+
+    def _district_offsets(self, region: str) -> set[int]:
+        """The byte offsets one district's answer covers — the mirror of the reader's pulls
+        (``RxfArena.pullOf``): the shared tables every read consults (the slot table, the
+        interned names, the semantic rows, the root cell and the cable frame, with the ground
+        chains open walks) and the closure of the records the answer decodes — their ancestors,
+        the rows' types with their fields, the rows' targets and roles with their paths, the
+        field-leaved payload values, and the aliases their scopes hold. ``stream_parts``
+        publishes under ``region=`` exactly those offsets' runs: what a viewport pulls, never
+        the whole layer (the bench's before/after)."""
+        ranges = {row["id"]: (int(row["start"]), int(row["end"])) for row in self.districts()}
+        if region not in ranges:
+            raise KeyError(region)
+        start, end = ranges[region]
+        out: set[int] = set()
+
+        def take(record: dict[str, Any] | None) -> None:
+            if record is not None:
+                out.add(int(record["offset"]))
+
+        def chain(word: int | None) -> None:
+            at = word
+            while at is not None and at not in (HANDLE32_NONE, HANDLE_NONE, self._root):
+                here = self._by_handle.get(at)
+                if here is None:
+                    break
+                take(here)
+                at = here["parent"]
+
+        # the shared tables (rxf-reader.js ``pullOf``)
+        take(self.stream[0])
+        if len(self._entries) > 1:
+            take(self._record_at.get(self._entries[1][2]))
+        take(self._by_handle.get(self._root))
+        for child in self.children(self._root):
+            take(self._by_handle.get(child))
+        sys_handle = self._find(self._root, "sys")
+        take(self._by_handle.get(sys_handle))
+        for child in self.children(sys_handle):
+            take(self._by_handle.get(child))
+        relations = self._find(sys_handle, "relations")
+        take(self._by_handle.get(relations))
+        for table in self.children(relations):
+            take(self._by_handle.get(table))
+
+        # the records a read decodes and the closure it walks
+        for record in self.stream:
+            offset = int(record["offset"])
+            if not (start <= offset < end):
+                continue
+            take(record)
+            chain(record["parent"])
+            handle = record["handle"]
+            if handle is None:
+                continue
+            type_handle = self._spec[handle][0]
+            take(self._by_handle.get(type_handle))
+            for child in self.children(type_handle):
+                take(self._by_handle.get(child))
+            for target, role, *_ in self._refs_of(handle):
+                chain(target)
+                chain(role)
+            # the field-leaved payload values (the ``field`` rows) name handles too
+            layout = self.layout(type_handle) if type_handle in self._by_handle else None
+            if layout is not None and not layout["error"] and not layout["raw"]:
+                payload = self._payload_of(handle)
+                for leaf in layout["leaves"]:
+                    if leaf["reference"] and leaf["offset"] + 8 <= len(payload):
+                        chain(struct.unpack_from("<Q", payload, leaf["offset"])[0])
+            # the scope's aliases (the cable layer's alias rows name alias records)
+            scope = self.scope_of(handle)
+            if scope is not None:
+                for child in self.children(scope):
+                    if not self.is_alias(child):
+                        continue
+                    take(self._by_handle.get(child))
+                    alias_type = self._spec[child][0]
+                    take(self._by_handle.get(alias_type))
+                    for leaf_handle in self.children(alias_type):
+                        take(self._by_handle.get(leaf_handle))
+                    chain(self.alias_target(child))
+        return out
+
+    @staticmethod
+    def _part_of(path: str) -> str:
+        """The part one record belongs to. The tree's paths are dot-separated
+        (``sys.relations.honors.works.blake2s``); the world's own objects hang under the
+        Genesis namespace (``pymergetic.rxf...``)."""
+        segments = path.split(".")
+        if segments[0] == "sys":
+            return "edges" if segments[1:2] == ["relations"] else "sys"
+        return "world"
+
     def is_alias(self, handle: int) -> bool:
         return self._kind_word(handle) == NODE_ALIAS
 

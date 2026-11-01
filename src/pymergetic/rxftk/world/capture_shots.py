@@ -142,13 +142,15 @@ def steady_shot(page: Any, frames: int = 24) -> bytes:
 
 
 def scene_document(kind: str) -> tuple[bytes, dict[str, Any]]:
-    """The raw ``.rxfb`` bytes the page boots on (served at ``scene.bin``, read in the browser by
-    ``rxf-reader.js``) and the export the camera poses read. Both are built live from the image in
-    this run — ``starter`` is the REAL starter tree, ``demo`` the deterministic demo world. The
-    binary is the artifact the reader lays out, never a checked-in scene dump, so a capture host
-    builds a scene with the compiled core (there is no pre-built file to fall back to)."""
+    """The canonical v7 arena bytes the page boots on (served at ``scene.bin``, read in the
+    browser by ``rxf-reader.js``) and the export the camera poses read. Both are built live
+    from the image in this run — ``starter`` is the REAL starter tree, ``demo`` the
+    deterministic demo world's v7 face. The binary is the artifact the reader lays out, never
+    a checked-in scene dump, so a capture host builds a scene with the compiled core (there is
+    no pre-built file to fall back to)."""
     from pymergetic.rxftk.server.inspector import Inspector
-    from pymergetic.rxftk.world.demo import demo_image
+    from pymergetic.rxftk.world import scene_arena
+    from pymergetic.rxftk.world.demo import demo_v7_image
     from pymergetic.rxftk.world.export import export_world
 
     if kind == "starter":
@@ -156,9 +158,8 @@ def scene_document(kind: str) -> tuple[bytes, dict[str, Any]]:
 
         image = tree.load(STARTER)
     else:
-        image = demo_image()
-    inspector = Inspector(image)
-    return inspector.image.to_bytes(), export_world(inspector)
+        image = demo_v7_image()
+    return scene_arena(image), export_world(Inspector(image))
 
 
 GPU_ARGS = [

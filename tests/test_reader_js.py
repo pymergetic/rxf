@@ -21,21 +21,15 @@ import arena_export
 import pytest
 
 from pymergetic.rxftk.core import tree
-from pymergetic.rxftk.core.kinds import NodeKind
-from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.server.inspector import Inspector
-from pymergetic.rxftk.world.demo import (
-    DELTA_FILE,
-    RUNS,
-    demo_image,
-    demo_inspector,
-    run_payload,
-)
+from pymergetic.rxftk.world import STREAM_ORDER
+from pymergetic.rxftk.world.demo import demo_image, demo_inspector, demo_v7_image
 from pymergetic.rxftk.world.export import ArenaScene, export_world, validate_scene
 
 HERE = Path(__file__).resolve().parent
 STARTER = HERE.parent / "starter"
 READER = HERE.parent / "src" / "pymergetic" / "rxftk" / "world" / "static" / "scene" / "rxf-reader.js"
+SCENE_BIN = READER.parent / "scene.bin"  # the checked-in artifact, beside the reader the page serves
 RUNNER = HERE / "reader_js" / "run.mjs"
 
 NODE = shutil.which("node")
@@ -99,19 +93,11 @@ def test_reader_js_survives_the_poison_and_the_stale(tmp_path: Path) -> None:
 
 
 def _demo_v7_arena(tmp_path: Path) -> Path:
-    """The demo world as the v7 one-arena image (docs/32): the delta and the run payloads,
-    written by the world->arena writer (tools/native/arena_export.py). The demo's v6-only
-    traces — a dead cell of poison and a dangling ref — have no v7 form yet (the writer
-    refuses a dangling target, and a free span carries no payload), so they stay pinned on
-    the v6 face above; the Genesis names its inventor under `pymergetic`, which the demo
-    scene itself does not carry (docs/36)."""
-    image = Image.empty()
-    image.apply(DELTA_FILE.read_text(encoding="utf-8"))
-    for index, (path, state) in enumerate(sorted(RUNS.items())):
-        image.set_payload(image.handle(path), run_payload(state, 3 + 4 * index))
-    image.add(0, "pymergetic", kind=int(NodeKind.Namespace))
+    """The demo world as the v7 one-arena image (docs/32 2): ``demo.demo_v7_image`` — the
+    traces that have no v7 form are not made, and the Genesis names its inventor (docs/36) —
+    written by the world->arena writer (tools/native/arena_export.py)."""
     out = tmp_path / "demo-v7.rxfa"
-    out.write_bytes(arena_export.export_world(image).to_bytes())
+    out.write_bytes(arena_export.export_world(demo_v7_image()).to_bytes())
     return out
 
 
@@ -145,6 +131,95 @@ def test_reader_js_surfaces_the_spec_row_on_v7(tmp_path: Path) -> None:
     # the run words the towers carry survive the export: the trams and the checksum census
     assert document["ring"]["occupied"] == 2
     assert document["metrics"]["checksum_status"] == "3 ok"
+
+
+def test_the_checked_in_scene_bin_is_the_v7_arena_both_languages_read(tmp_path: Path) -> None:
+    """The page's one artifact (``static/scene/scene.bin``): the canonical v7 arena of the
+    demo's v7 face (docs/32 5.4) — byte for byte what the writer places — and read by both
+    languages from those very bytes into the same document. This is the seam U3 closes: the
+    seats read v7 through the reader, and the Python twin keeps agreeing byte for byte."""
+    raw = SCENE_BIN.read_bytes()
+
+    assert raw == arena_export.export_world(demo_v7_image()).to_bytes()
+    document = _read_in_js(SCENE_BIN, tmp_path)
+    assert document == export_world(ArenaScene(raw), packing=False)
+    validate_scene(document)
+
+
+def test_the_binary_part_stream_reassembles_into_the_pinned_arena(tmp_path: Path) -> None:
+    """The binary part stream (U5): the one canonical image split at its own record seams into
+    the parts the page pages it in with (``ArenaScene.stream_parts``, the serve face at
+    ``/world/scene.bin?parts=1`` / ``?part=``). The parts reassemble into the byte-identical
+    pinned artifact and the reader faces agree over the reassembled bytes: the stream is a
+    transfer shape over the one format, never a second one. The pin discipline from
+    ``scene.bin`` carries to the stream: its bytes are the artifact's own, byte for byte."""
+    raw = SCENE_BIN.read_bytes()
+    parts = ArenaScene(raw).stream_parts()
+    assert set(STREAM_ORDER) <= set(parts)
+    assert "edges" in parts  # the cable part (sys/relations)
+
+    reassembled = bytearray(len(raw))
+    covered = bytearray(len(raw))
+    for name in STREAM_ORDER:  # the order the page pages the arena in
+        for lo, hi in parts[name]:
+            reassembled[lo : hi] = raw[lo : hi]
+            covered[lo : hi] = b"\x01" * (hi - lo)
+    assert all(covered)  # the parts cover the arena whole: no byte is unserved
+    assert bytes(reassembled) == raw  # byte for byte: the stream's pin
+
+    streamed = tmp_path / "streamed.rxfa"
+    streamed.write_bytes(bytes(reassembled))
+    document = _read_in_js(streamed, tmp_path)
+    assert document == export_world(ArenaScene(raw), packing=False)
+    validate_scene(document)
+
+
+PULLS = HERE / "reader_js" / "region_pulls.mjs"
+
+
+def _region_pulls_in_js(image: Path) -> dict[str, dict]:
+    """The reader's per-region pulls: the runs one viewport fetches, and whether the paged
+    read of exactly those runs answers what the whole-arena read answers."""
+    assert NODE is not None  # the module's skipif; the assertion also narrows NODE for the type checker
+    out = subprocess.run(
+        [NODE, str(PULLS), str(READER), str(image)],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    return json.loads(out)
+
+
+def _merge(spans):
+    out: list[tuple[int, int]] = []
+    for lo, hi in sorted(spans):
+        if out and out[-1][1] >= lo:
+            out[-1] = (out[-1][0], max(out[-1][1], hi))
+        else:
+            out.append((lo, hi))
+    return out
+
+
+def test_the_region_index_answers_exactly_what_a_viewport_pulls(tmp_path: Path) -> None:
+    """U5's paging law, pinned run for run across the seam: what a viewport fetches
+    (``ArenaScene.stream_parts(region=...)``) is exactly what the reader's per-layer reads
+    decode (``RxfArena.readLayer``'s ``pull``) — and those very runs read back the same items
+    through the sparse face (``new RxfArena(bytes, runs)``): the district's records, the
+    closure they walk (types, rows' targets, scope aliases) and the shared tables, at the
+    record seams. Read-side only: ``scene.bin``, its pins and the four face shas stand still;
+    the whole-layer index above still reassembles the pinned bytes."""
+    for image in (SCENE_BIN, _demo_v7_arena(tmp_path)):
+        world = ArenaScene(image.read_bytes())
+        pulls = _region_pulls_in_js(image)
+
+        assert {band["id"] for band in world.districts()} == set(pulls)
+        for band in world.districts():
+            got = pulls[band["id"]]
+            assert got["parity"], f"{band['id']}: the fetched runs do not read back the answer"
+            mine = _merge(
+                run for runs in world.stream_parts(band["id"]).values() for run in runs
+            )
+            assert mine == [tuple(run) for run in got["runs"]], band["id"]
 
 
 @pytest.mark.slow

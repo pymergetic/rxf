@@ -86,6 +86,45 @@ const documentStarted = process.hrtime.bigint();
 const document = arena.document();
 const documentMs = Number(process.hrtime.bigint() - documentStarted) / 1e6;
 
+// -- the per-region paging (U5): what a viewport pulls instead of the whole layer -----
+//
+// The reader's per-layer reads answer one district (or a window) from its own record runs
+// plus the shared tables; the whole layer pulls every run. The numbers below are the bytes a
+// paged fetch of each answer carries (readLayer's `pull`) — the before/after of paging in one
+// run. Each read gets its own fresh arena so the times are cold (the open is the shared cost
+// the report carries once).
+
+function coldLayer(name, options) {
+    const fresh = bytes.length > 3 && bytes[0] === 0x52 && bytes[1] === 0x58
+        && bytes[2] === 0x46 && bytes[3] === 0x41
+        ? new reader.RxfArena(bytes) : new reader.RxfReader(bytes);
+    fresh.open();
+    const started = process.hrtime.bigint();
+    const out = fresh.readLayer(name, options);
+    return {
+        regions: out.regions,
+        items: out.items.length,
+        pull_bytes: out.pull.bytes,
+        pull_runs: out.pull.runs.length,
+        ms: Math.round(Number(process.hrtime.bigint() - started) / 1e5) / 10,
+    };
+}
+const canPage = typeof arena.readLayer === "function";
+const districtIds = canPage ? arena.regions().map((region) => region.id) : [];
+const windowStart = Math.max(0, (districtIds.length >> 1) - 5);
+const paging = canPage
+    ? {
+        districts: districtIds.length,
+        viewport_1: coldLayer("cells", { region: districtIds[districtIds.length >> 1] }),
+        viewport_10: coldLayer("cells", {
+            regions: districtIds.slice(windowStart, windowStart + 10),
+        }),
+        whole_layer: coldLayer("cells"),
+        edges_viewport_1: coldLayer("edges", { region: districtIds[districtIds.length >> 1] }),
+        edges_whole_layer: coldLayer("edges"),
+    }
+    : null;
+
 const report = {
     image_bytes: bytes.length,
     reader: arena instanceof reader.RxfArena ? "RxfArena" : "RxfReader",
@@ -94,6 +133,7 @@ const report = {
     passes: passes.map((pass) => ({ name: pass.name, ms: Math.round(pass.ms * 100) / 100 })),
     cells: document.cells.length,
     edges: document.edges.length,
+    paging,
 };
 {
     // how many cable runs the routing actually has to compute: the distinct

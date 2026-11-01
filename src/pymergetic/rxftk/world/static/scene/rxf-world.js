@@ -2127,40 +2127,37 @@
     });
   }
 
-  function fetchBinary(url, report) {
-    /* the image itself: the raw .rxfb bytes (world/__init__.py: /world/scene.bin), read with
-     * the progress the loading face shows — byte counts while they land, not a bar in the dark */
-    return fetch(url).then(function (response) {
-      if (!response.ok) throw new Error("no image at " + url);
-      var total = Number(response.headers.get("content-length") || 0);
-      if (!response.body || !response.body.getReader) {
-        return response.arrayBuffer().then(function (buffer) {
-          report("the arena", buffer.byteLength, buffer.byteLength);
-          return new Uint8Array(buffer);
-        });
-      }
-      var reader = response.body.getReader();
-      var chunks = [];
-      var got = 0;
-      return (function pump() {
-        return reader.read().then(function (step) {
-          if (step.done) {
-            var bytes = new Uint8Array(got);
-            var at = 0;
-            for (var chunk of chunks) {
-              bytes.set(chunk, at);
-              at += chunk.length;
-            }
-            report("the arena", got, got);
-            return bytes;
+  function streamResponse(response, report) {
+    /* the arena's bytes as they land: the progress the loading face shows — byte counts
+     * while they arrive, not a bar in the dark */
+    var total = Number(response.headers.get("content-length") || 0);
+    if (!response.body || !response.body.getReader) {
+      return response.arrayBuffer().then(function (buffer) {
+        report("the arena", buffer.byteLength, buffer.byteLength);
+        return new Uint8Array(buffer);
+      });
+    }
+    var reader = response.body.getReader();
+    var chunks = [];
+    var got = 0;
+    return (function pump() {
+      return reader.read().then(function (step) {
+        if (step.done) {
+          var bytes = new Uint8Array(got);
+          var at = 0;
+          for (var chunk of chunks) {
+            bytes.set(chunk, at);
+            at += chunk.length;
           }
-          chunks.push(step.value);
-          got += step.value.length;
-          report("the arena", got, total || got);
-          return pump();
-        });
-      })();
-    });
+          report("the arena", got, got);
+          return bytes;
+        }
+        chunks.push(step.value);
+        got += step.value.length;
+        report("the arena", got, total || got);
+        return pump();
+      });
+    })();
   }
 
   function nextFrame() {
@@ -2228,6 +2225,13 @@
     bundles: "bundles"
   };
 
+  /* the duct-packing's parts (the bundles, the stubs they cut the cables down to, and the
+   * counts truth that counts the bundles): the packing is a Python pass that takes minutes on
+   * a real image and nothing the scene draws waits on it — it left the page's pipeline (U5).
+   * The parts stay on the session for the tools that want the packed view; the page's counts
+   * grow from the layers' totals instead. */
+  var PACKING_PARTS = ["bundles", "stubs", "counts"];
+
   function loadParts(url, manifest, report, wanted) {
     /* the interactive session with the host (world/__init__.py): the plan first, then the
      * layers ONE AFTER ANOTHER, each as slices. The page loads what it wants next and says so
@@ -2235,8 +2239,9 @@
      * slice can be one district (?region=) when a viewport-driven load wants just that.
      *
      * The config's "plan" names the layers that stand before the world is ready; the rest
-     * streams in after the first frame (rest()). On a real image the duct packing alone takes
-     * minutes and nothing the scene draws needs it — the world stands on the fast layers. */
+     * streams in after the first frame (rest()) — minus the duct-packing's parts (they left
+     * the pipeline: on a real image the packing alone takes minutes and nothing the scene
+     * draws needs it). The world stands on the fast layers. */
     var doc = {
       schema: manifest.schema,
       arena: manifest.arena,
@@ -2263,7 +2268,7 @@
         return plan.indexOf(name) >= 0;
       });
       later = plan.filter(function (name) {
-        return now.indexOf(name) < 0;
+        return now.indexOf(name) < 0 && PACKING_PARTS.indexOf(name) < 0;
       });
       plan = now;
     }
@@ -2325,6 +2330,49 @@
     });
   }
 
+  function streamParts(url, report) {
+    /* the binary part stream (world/__init__.py, /world/scene.bin): the one canonical arena
+     * split at its own record seams into the parts the page pages it in with — head, the
+     * world's own objects, the frame, and the cable part (edges) last. The parts are binary
+     * and reassemble into the same image the same reader face reads (rxf-reader.js /
+     * RxfArena): a transfer shape over the one format, never a second one. A host that does
+     * not know the index answers the arena itself and the stream is one part. */
+    return fetch(sceneQuery(url, "parts=1")).then(function (response) {
+      if (!response.ok) throw new Error("no image at " + url);
+      if ((response.headers.get("content-type") || "").indexOf("json") < 0) {
+        return streamResponse(response, report);
+      }
+      return response.json().then(function (index) {
+        var bytes = new Uint8Array(index.size);
+        function next(at) {
+          if (at >= index.order.length) {
+            report("the arena", index.size, index.size);
+            return Promise.resolve(bytes);
+          }
+          var name = index.order[at];
+          report(name, at, index.order.length);
+          return fetch(sceneQuery(url, "part=" + encodeURIComponent(name)))
+            .then(function (part) {
+              if (!part.ok) throw new Error("no part " + name + " at " + url);
+              return part.arrayBuffer();
+            })
+            .then(function (body) {
+              var runs = index.parts[name] || [];
+              var view = new Uint8Array(body);
+              var cursor = 0;
+              for (var run of runs) {
+                var size = run[1] - run[0];
+                bytes.set(view.subarray(cursor, cursor + size), run[0]);
+                cursor += size;
+              }
+              return next(at + 1);
+            });
+        }
+        return next(0);
+      });
+    });
+  }
+
   function loadScene(config, report) {
     /* the scene, three fills of one face, all answering {doc, rest}: the raw image laid out in
      * the browser (scene.bin + rxf-reader.js — the fast lane, no host export at all), the
@@ -2346,7 +2394,7 @@
       });
     }
     if (!config.binUrl || !config.readerUrl) return fromJson();
-    return fetchBinary(config.binUrl, report)
+    return streamParts(config.binUrl, report)
       .then(function (bytes) {
         report("reading the world", 0, 0);
         return readWorldIn(bytes, config).then(function (doc) {
@@ -2406,9 +2454,9 @@
           if (hud && hud.ready) hud.ready();
           if (hud && hud.film) hud.film();
           if (loaded.rest) {
-            /* the layers that follow the world (ducts, their stubs, the counts): streamed in
-               after the first frame — nothing the scene draws waits on them, and the counts
-               slot fills when they land. The world stands on the fast layers. */
+            /* the layers that follow the world: streamed in after the first frame — nothing
+               the scene draws waits on them, and the counts slot fills when they land. The
+               duct-packing's parts are not among them (they left the pipeline, U5). */
             loaded
               .rest()
               .then(function () {
