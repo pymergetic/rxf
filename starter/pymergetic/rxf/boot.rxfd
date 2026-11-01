@@ -35,7 +35,7 @@
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
       </Code>
     </Function>
-    <CompilerProvenance name="recipe" compiler_major="1" recipe_digest="1ab605cf4f850022ff3f78cb4f3f1537a16526ef8daf86bcf83695d9ba8dcdc6" />
+    <CompilerProvenance name="recipe" compiler_major="1" recipe_digest="b559f400603dc1b363dbef67e3938eb98d6bdff5f7f29578e78ed224f978a37d" />
     <Function name="start_aarch64" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.start_aarch64.signature" semantic_digest="a1560af7f68bbd8a9f82423b308e755ec4545e261217f0bf1c70ee3f531a2ab0">
       <Code name="aarch64_linux" owner_function="@boot.start_aarch64" runtime_target="@targets.aarch64_linux_aapcs64" signature="@boot.start_aarch64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="2264" semantic_digest="a1560af7f68bbd8a9f82423b308e755ec4545e261217f0bf1c70ee3f531a2ab0" source="@sources.boot_aarch64_S.text" body="@boot.start_aarch64.body_aarch64">
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
@@ -57,10 +57,10 @@
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
       </Code>
     </Function>
-    <Function name="start_x86_64" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.start_x86_64.signature" semantic_digest="6b559826ab0c9be68ab84d9464af03266b65b00489db1a227375b0465ca8ea7f">
-      <CodeBlob name="body_bios" byte_count="1518" content_digest="f305b028fe4b4c4893f0699527e470c7a9d649ab2d74c217d7dfbb271cfd029f" />
+    <Function name="start_x86_64" implementation="@kinds.FunctionImplementation.Capability" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@boot.start_x86_64.signature" semantic_digest="bf7cb199e2152023746c4ea5c6cd8d696bc2890bf3fed17c174c68caaf74c800">
+      <CodeBlob name="body_bios" byte_count="1518" content_digest="2b7482d949f729e908443ac5fd2db73332193f9ebfdd3cff869e9e603fcaf514" />
       <Signature name="signature" return_type="void" />
-      <Code name="x86_64_bios" owner_function="@boot.start_x86_64" runtime_target="@targets.x86_64_bios_sysv" signature="@boot.start_x86_64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="1518" semantic_digest="6b559826ab0c9be68ab84d9464af03266b65b00489db1a227375b0465ca8ea7f" source="@sources.boot_x86_64_S.text" body="@boot.start_x86_64.body_bios">
+      <Code name="x86_64_bios" owner_function="@boot.start_x86_64" runtime_target="@targets.x86_64_bios_sysv" signature="@boot.start_x86_64.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="1518" semantic_digest="bf7cb199e2152023746c4ea5c6cd8d696bc2890bf3fed17c174c68caaf74c800" source="@sources.boot_x86_64_S.text" body="@boot.start_x86_64.body_bios">
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@boot.recipe" />
       </Code>
     </Function>

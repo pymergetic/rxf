@@ -138,11 +138,17 @@ Per seat:
 
 The x86_64 base sits above the firmware rooms (OVMF hands its own allocations
 out around and below 16 MiB; the package seat runs at the same base,
-`tests/test_boot_qemu.py`). Other glue-owned places: x86_64 stack at `0x7C00`
-growing down (page tables at `0x2000`–`0x5000`, GDT in the sector, DAP buffer
-at `0x7000`, bounce buffer at `0x10000`); aarch64 stack in the boot ELF's
-`.boot.bss` (64 KiB: room for a run cell of `RXF_GRAPH_CELL_BYTES`); wasm32 C
-stack 8 KiB below the module's data
+`tests/test_boot_qemu.py`). On x86_64 the loader's stack is at `0x7C00` growing down (page tables at
+`0x2000`–`0x5000`, GDT in the sector, DAP buffer at `0x7000`, bounce buffer at
+`0x10000`) and the **run's** stack is the bounce buffer's room once the image is
+staged (`0x10000`–`0x20000`, 64 KiB like the aarch64 seat's `.boot.bss`): the
+loader's room cannot carry a run — the page tables own `0x2000`–`0x5000` and a
+run whose frames pass the 11 KiB above them overwrites the page directory and
+page-faults the next walk (no IDT: a triple fault, the seat hangs before it
+reports). The migrated image's pump turn measures past 14 KiB of stack (its
+high-water, roundly `0x0e` KiB). The
+aarch64 stack is in the boot ELF's `.boot.bss` (64 KiB: room for a run cell of
+`RXF_GRAPH_CELL_BYTES`); the wasm32 C stack is 8 KiB below the module's data
 (`--stack-first`), the image written at `0x10000`.
 
 On wasm32 the Uart capability is not the carrier's FIFO row but the block of

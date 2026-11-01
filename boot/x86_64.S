@@ -55,7 +55,18 @@
     .equ CHUNK_SEG, 0x1000      /* 64 KiB in real-mode paragraphs */
     .equ BOUNCE, 0x10000        /* the bounce buffer the chunks land in */
     .equ STAGE2, 0x8000
-    .equ STACK_TOP, 0x7C00      /* below the sector: the loader's and entry's stack */
+    .equ STACK_TOP, 0x7C00      /* below the sector: the loader's stack */
+    /* The RUN's stack: the top of the bounce buffer, 64 KiB of room below it
+     * (0x10000..0x20000, the room the aarch64 seat's .boot.bss gives its run).
+     * The bounce buffer is dead once the image is staged. It must NOT be the
+     * low room below the sector: the page tables own 0x2000..0x5000 and a run
+     * whose frames reach past the 11 KiB between them and STACK_TOP overwrites
+     * the page directory (PDE[49] at 0x4188) and page-faults the next walk --
+     * with no IDT that is a triple fault and the seat hangs before it reports.
+     * The migrated image's pump turn (the live_pump of the starter, its delta
+     * work) needs past that: its high-water measured past 14 KiB, which is
+     * below PDE[49] when the top is 0x7C00. */
+    .equ RUN_STACK_TOP, 0x20000
     .equ MAGIC_PORT, 0xF4       /* wrap.h: the coarse answer QEMU turns into an exit */
     .equ MAGIC_OK, 0x10
     .equ MAGIC_FAIL, 0x11
@@ -224,7 +235,10 @@ start64:
     movw %ax, %ds
     movw %ax, %es
     movw %ax, %ss
-    movq $STACK_TOP, %rsp
+    /* The run's stack, not the loader's: the entry and the machine it runs need
+     * the 64 KiB below this top (RUN_STACK_TOP's note), and the loader's room
+     * below the sector cannot give them (the page tables sit in it). */
+    movq $RUN_STACK_TOP, %rsp
 
     /* The image's C may widen a copy or a clear with SSE (clang can, at -Os);
      * a handoff leaves the callee's ISA usable, so this opens SSE: CR0.MP=1
