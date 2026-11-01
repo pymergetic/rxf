@@ -191,7 +191,7 @@ proc w_begin {
     byte(0x00);
     w_get(2);
     w_i64(q0);
-    byte(0x52);
+    byte(0x56);
     byte(0x04);
     byte(0x40);
     w_i32(OUT_OF_RANGE);
@@ -201,11 +201,41 @@ proc w_begin {
     w_zero(W_FRAME, 0, frame);
 }
 
+# The parameter at slot g0, g1 wide, from g2 bytes into the arguments (local 1), argc in local 2.
+# An argument word the caller did not give (argc is below the argument words the program
+# declares) is the None word of native/graph.h, never the word of int 0; a parameter whose width
+# is not a whole number of words is given whole or refuses OUT_OF_RANGE, so the None word is never
+# cut. This is native/compile.rxfs m_be_param_w, instruction by instruction.
 proc w_param {
     q0 = g0;
     q1 = g1;
     q2 = g2;
-    w_copy(W_FRAME, q0, 1, q2, q1);
+    if (q1 & 7) == 0 {
+        q3 = 0;
+        while q3 < q1 {
+            w_get(W_FRAME);
+            w_load(8, 1, 1, q2 + q3);
+            w_i64(4611686018427387904);
+            w_get(2);
+            w_i64((q2 + q3) >> 3);
+            # i64.gt_u, select: the argument when argc is above the index, else the None word
+            byte(86);
+            byte(27);
+            w_mem(55, q0 + q3);
+            q3 = q3 + 8;
+        }
+    } else {
+        w_get(2);
+        w_i64((q2 + q1 + 7) >> 3);
+        byte(84);
+        byte(4);
+        byte(64);
+        w_i32(OUT_OF_RANGE);
+        call w_leave;
+        byte(15);
+        byte(11);
+        w_copy(W_FRAME, q0, 1, q2, q1);
+    }
 }
 
 proc w_move {
