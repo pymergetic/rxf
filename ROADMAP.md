@@ -495,7 +495,7 @@ numbered separately below and are all open or in progress.
   classification per `@kinds.FunctionImplementation.*` over the smallest intrinsic
   core that covers the starter — the 51-leaf table `native/graph.h` and
   `seed_build.LEAF_LETTERS` agree on (`RXF_LEAF_*`, the pumps, the crypto kernels).
-  The seed key table's **322 snippets shrink to 280 functions with machine
+  The seed key table's **321 native snippets shrink to 280 functions with machine
   bodies**; the **42 typed wrappers** (`bit_and_int16_t` and its `numeric/` families)
   are `Semantic` one-call compositions over their `uint64_t` leaf twins — they keep
   the Signature (semantics) and lose `Code`/`CodeBlob` and the derived register maps
@@ -505,13 +505,13 @@ numbered separately below and are all open or in progress.
   1,166,584 bytes, `__init__.rxfd` Reexport aliases); `source_sync`, `boot_sync` and
   the tests resolve `@sources.<name>.text`. Sizes: the starter **8,223,920 ->
   4,105,101 bytes** (68 -> 102 files), `numeric/` 4,602,351 -> 1,191,797,
-  `foundation/` 1,103,651 -> 478,664; objects **19,067 -> 9,743** (the three
+  `foundation/` 1,103,651 -> 478,664; objects **18,987 -> 9,743** (the three
   `test_starter_delta` pins, bumped together). Prove:
   `tests/test_composed_wrappers.py` 11 passed — the round trip: a composed wrapper
   runs in the image on the shipped interpreter with **no machine body of its own**;
   `test_starter_delta` 13 passed (the list laws' specimens moved off the register
   maps onto `binary_search_graph`); `test_source_objects` 5 passed (its count pin
-  follows 322 -> 280); `test_native`, `test_program_sources` and `test_arch_proxy`
+  follows 321 -> 280); `test_native`, `test_program_sources` and `test_arch_proxy`
   7 passed (the proxy answers a code's ABI from its target now — the derived maps it
   read are gone); `test_binary` + `test_binary_build` 24 passed — the binary checker
   derives the call boundary's register map from the Signature and the target

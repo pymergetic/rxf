@@ -62,9 +62,9 @@ def test_the_starter_names_roles_and_list_places_not_numbers():
                     image.path(role).startswith(prefix)
                     and image.type_name(role) == "Role"
                 )
-    # the 1,104 register-map locations per word function left with the register
-    # maps (docs/32 5.6: never stored again); the list places that remain are the
-    # signatures', the graphs' and the calls' own.
+    # the register-map locations (1,104 in numeric/bitwise.rxfd alone) left with
+    # the register maps (docs/32 5.6: never stored again); the list places that
+    # remain are the signatures', the graphs' and the calls' own.
     assert roles > 5000 and indexed > 1500
 
 
