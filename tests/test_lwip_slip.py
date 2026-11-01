@@ -1,13 +1,17 @@
-"""The SLIP line of the lwIP card (docs/23 4.4, docs/25 13): the face, the host seat's fill, and
-the contract every seat's fill must meet.
+"""The SLIP line of the lwIP card (docs/23 4.4, docs/25 13): the face, the seat fills, and the
+contract every seat's fill must meet.
 
 The line is a byte line. The face (``native/lwip/slip_line_face.c``) is imported with the card;
 a seat's fill (``native/lwip/slip_line_*.c``) is native C that moves bytes between the line cell
-and the seat's real line. ``LineContract`` is the one suite every seat runs: open/close, TX
-bytes in order, TX overrun counted and never short-written, RX bytes in order, RX backpressure
-(a full ring loses nothing), the readiness word, the ``framing`` and ``overrun`` counters as
-words of the cell, and the MTU word. A seat that cannot run it in the current environment is a
-stub that FAILS, named in ``SEATS`` (never a skipped seat).
+and the seat's real line -- a socketpair (host), a tun device (unix tap), a FIFO block (browser,
+wasm32), a 16550/PL011 UART (firmware). ``LineContract`` is the one suite every seat runs:
+open/close, TX bytes in order, TX overrun counted and never short-written, RX bytes in order,
+RX backpressure (a full ring loses nothing), the readiness word, the ``framing`` and ``overrun``
+counters as words of the cell, and the MTU word. ``ParkWakeContract`` runs the RX readiness
+park/wake (docs/25 4) on every seat: a sleeping consumer wakes on an arriving frame and no
+frame is lost across the wake. Every seat's fill is written and meets both contracts; the
+seats whose image does not carry the card yet name that wall in
+``tests/test_lwip_echo_seats.py`` (a strict xfail per seat, never a skipped seat).
 """
 
 from __future__ import annotations
@@ -17,7 +21,11 @@ import errno
 import os
 import socket
 import struct
+import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Protocol
 
 import graph_header
 import lwip_import
@@ -26,10 +34,19 @@ import pytest
 from pymergetic.rxftk.net.link import slip
 
 from . import lwip_udp_echo, rxf_native
+from .lwip_slip_fills import (
+    JsSeat,
+    UartFill,
+    UartSeat,
+    UART_NS16550_MMIO,
+    UART_NS16550_PORT,
+    UART_PL011_MMIO,
+)
 from .test_lwip_import import CORPUS, OK, Host
 
 ROOT = Path(__file__).resolve().parents[1]
 LINE = ROOT / "native" / "lwip"
+PARK_POSIX = LINE / "slip_line_park_posix.c"
 FACE_BODIES = (
     "sio_open",
     "sio_send",
@@ -41,14 +58,59 @@ RING = 4096
 MTU = 1000
 END, ESC, ESC_END, ESC_ESC = 0xC0, 0xDB, 0xDC, 0xDD
 
-# offsets in the line cell (native/lwip/slip_line.h): four words, then the TX ring, then the RX
+# the Uart capability's device word (native/graph.h): the kind in the low byte, the register
+# shift at bit 8, RXF_UART_WIDE for a 32-bit register
+UART_NS16550_MMIO = 2
+UART_PL011_MMIO = 3
+UART_NS16550_PORT = 4
+UART_WIDE = 4096
+
+
+def uart_device(kind: int, shift: int = 0, wide: bool = False) -> int:
+    return kind | (shift << 8) | (UART_WIDE if wide else 0)
+
+
+# offsets in the line cell (native/lwip/slip_line.h): six words, then the TX ring, then the RX
 COUNTERS = struct.Struct("<4I")  # open, mtu, overrun, framing
-TX_AT = COUNTERS.size
+PARK_WORDS = struct.Struct("<2I")  # waiting, wakes
+TX_AT = COUNTERS.size + PARK_WORDS.size
 RX_AT = TX_AT + 8 + RING
 
 
 def cell_words(cell, at: int) -> tuple[int, int]:
     return struct.unpack_from("<2I", cell, at)
+
+
+def bind_park(lib: ctypes.CDLL) -> None:
+    """The seat's park/wake pair over the library (slip_line_fill.h's two names)."""
+    lib.rxf_slip_line_wait.restype = ctypes.c_uint32
+    lib.rxf_slip_line_wait.argtypes = [ctypes.c_void_p]
+    lib.rxf_slip_line_notify.argtypes = [ctypes.c_void_p]
+
+
+class Seat(Protocol):
+    """What every seat's harness offers the contracts: the fill's far side, the peer."""
+
+    def deliver(self, packet: bytes) -> None: ...
+
+    def pump(self, face: Face) -> int: ...
+
+    def close(self) -> None: ...
+
+
+class WireSeat(Protocol):
+    """What a stream seat's harness offers ``LineContract``: the SLIP byte stream of the far
+    side (the host's socketpair, the browser's FIFO block, the firmware's UART registers)."""
+
+    def wire_send(self, data: bytes) -> int: ...
+
+    def wire_recv(self) -> bytes: ...
+
+    def pump(self, face: Face) -> int: ...
+
+    def pump_all(self, face: Face) -> int: ...
+
+    def close(self) -> None: ...
 
 
 class Face:
@@ -63,8 +125,20 @@ class Face:
         return COUNTERS.unpack_from(self.cell, 0)
 
     @property
+    def park(self) -> tuple[int, int]:
+        """the cell's park/wake words: (waiting, wakes)"""
+        return PARK_WORDS.unpack_from(self.cell, COUNTERS.size)
+
+    @property
     def tx_waiting(self) -> int:
         head, tail = cell_words(self.cell, TX_AT)
+        return (head - tail) & 0xFFFFFFFF
+
+    @property
+    def rx_waiting(self) -> int:
+        """The RX ring's waiting bytes, read off the cell (never a program run: the parked
+        consumer's thread owns the runs)."""
+        head, tail = cell_words(self.cell, RX_AT)
         return (head - tail) & 0xFFFFFFFF
 
     def open(self, device: int) -> int:
@@ -116,7 +190,7 @@ class ImportedFace(Face):
 class NativeFace(Face):
     def __init__(self, lib: ctypes.CDLL) -> None:
         self.lib = lib
-        size = COUNTERS.size + 2 * (8 + RING)
+        size = COUNTERS.size + PARK_WORDS.size + 2 * (8 + RING)
         symbol = ctypes.c_uint8.in_dll(lib, "rxf_slip_line")
         super().__init__((ctypes.c_uint8 * size).from_address(ctypes.addressof(symbol)))
         self.address = ctypes.addressof(symbol)
@@ -126,6 +200,7 @@ class NativeFace(Face):
         lib.sio_tryread.restype = ctypes.c_uint32
         lib.sio_tryread.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint32]
         lib.rxf_slip_line_ready.restype = ctypes.c_uint32
+        bind_park(lib)
 
     def open(self, device: int) -> int:
         return self.lib.sio_open(device) or 0
@@ -179,14 +254,22 @@ class HostSeat:
         assert moved >= 0, "the fill's I/O failed"
         return moved
 
-    def peer_send(self, data: bytes) -> int:
+    def pump_all(self, face: Face) -> int:
+        moved = 0
+        while True:
+            step = self.pump(face)
+            moved += step
+            if step == 0:
+                return moved
+
+    def wire_send(self, data: bytes) -> int:
         """Bytes the peer manages to put on the line (a full socket buffer takes a part)."""
         try:
             return os.write(self.fill.far_fd, data)
         except BlockingIOError:
             return 0
 
-    def peer_recv(self) -> bytes:
+    def wire_recv(self) -> bytes:
         out = b""
         while True:
             try:
@@ -196,6 +279,15 @@ class HostSeat:
             if not got:
                 return out
             out += got
+
+    def deliver(self, packet: bytes) -> None:
+        """One IP packet onto the wire as one RFC 1055 frame (the peer speaks SLIP)."""
+        line = slip.encode(packet)
+        assert self.wire_send(line) == len(line)
+
+    def replies(self) -> tuple[bytes, ...]:
+        """The reply packets the peer deframed from what the line delivered."""
+        return slip.SlipDecoder().feed(self.wire_recv())
 
 
 def frame(payload: bytes) -> bytes:
@@ -207,11 +299,20 @@ def frame(payload: bytes) -> bytes:
 class LineContract:
     """The contract suite of the SLIP line: the same assertions on every seat and every face."""
 
-    def __init__(self, face: Face, seat: HostSeat) -> None:
+    def __init__(self, face: Face, seat: WireSeat) -> None:
         self.face, self.seat = face, seat
+
+    def send_wire(self, data: bytes) -> None:
+        """All of ``data`` onto the wire, whatever the transport takes per call."""
+        queued = 0
+        while queued < len(data):
+            wrote = self.seat.wire_send(data[queued:])
+            assert wrote > 0, "the wire takes nothing"
+            queued += wrote
 
     def run(self) -> None:
         face, seat = self.face, self.seat
+        face.close()  # a cell outlives one run of the suite: start from a closed line
         # open: only device 0 exists; a send on a closed line goes nowhere
         face.send(0x41)
         assert face.tx_waiting == 0, "a closed line takes no byte"
@@ -229,8 +330,8 @@ class LineContract:
         for byte in sent:
             face.send(byte)
         assert face.tx_waiting == 256
-        assert seat.pump(face) == 256
-        assert seat.peer_recv() == sent
+        assert seat.pump_all(face) == 256
+        assert seat.wire_recv() == sent
         assert face.tx_waiting == 0
 
         # TX overrun: a full ring drops the rest and counts every dropped byte
@@ -239,14 +340,14 @@ class LineContract:
             face.send(index & 0xFF)
         assert face.tx_waiting == RING
         assert face.counters[2] == before + 10, "ten bytes dropped, ten counted"
-        seat.pump(face)
-        assert seat.peer_recv() == bytes(index & 0xFF for index in range(RING))
+        seat.pump_all(face)
+        assert seat.wire_recv() == bytes(index & 0xFF for index in range(RING))
 
         # RX: bytes arrive in order, and the readiness word says how many wait
         assert face.ready() == 0 and face.tryread(8) == b""
         data = bytes((index * 7 + 3) & 0xFF for index in range(3000))
-        assert seat.peer_send(data) == 3000
-        seat.pump(face)
+        self.send_wire(data)
+        seat.pump_all(face)
         assert face.ready() == 3000
         got = b""
         for chunk in (1, 7, 100, 1000):
@@ -258,27 +359,23 @@ class LineContract:
 
         # RX backpressure: a full ring loses nothing, the rest waits on the line
         big = bytes(index & 0xFF for index in range(6000))
-        queued = 0
-        while queued < len(big):
-            wrote = seat.peer_send(big[queued:])
-            assert wrote > 0
-            queued += wrote
-        seat.pump(face)
+        self.send_wire(big)
+        seat.pump_all(face)
         assert face.ready() == RING, "the ring holds what it can"
         received = face.tryread(RING)
-        seat.pump(face)
+        seat.pump_all(face)
         assert face.ready() == 6000 - RING
         received += face.tryread(RING)
         assert received == big, "not one byte lost across the full ring"
 
         # framing: an escape followed by a byte that is neither ESC_END nor ESC_ESC
         base = face.counters[3]
-        seat.peer_send(bytes([END, ESC, ESC_END, ESC, ESC_ESC, END]))
-        seat.pump(face)
+        self.send_wire(bytes([END, ESC, ESC_END, ESC, ESC_ESC, END]))
+        seat.pump_all(face)
         face.tryread(16)
         assert face.counters[3] == base, "well-formed escapes are not errors"
-        seat.peer_send(bytes([END, ESC, 0x41, END]))
-        seat.pump(face)
+        self.send_wire(bytes([END, ESC, 0x41, END]))
+        seat.pump_all(face)
         face.tryread(16)
         assert face.counters[3] == base + 1, (
             "ESC then 0x41 is a framing error, counted once"
@@ -286,17 +383,17 @@ class LineContract:
 
         # MTU: exactly the MTU is fine, one more is an overrun, counted once per frame
         base = face.counters[2]
-        seat.peer_send(frame(b"\x41" * MTU))
-        seat.pump(face)
+        self.send_wire(frame(b"\x41" * MTU))
+        seat.pump_all(face)
         face.tryread(RING)
         assert face.counters[2] == base
-        seat.peer_send(frame(b"\x41" * (MTU + 1)))
-        seat.pump(face)
+        self.send_wire(frame(b"\x41" * (MTU + 1)))
+        seat.pump_all(face)
         face.tryread(RING)
         assert face.counters[2] == base + 1
         # a stuffed frame is counted by its decoded length, not its wire length
-        seat.peer_send(frame(b"\xc0" * (MTU // 2 + 1)))
-        seat.pump(face)
+        self.send_wire(frame(b"\xc0" * (MTU // 2 + 1)))
+        seat.pump_all(face)
         face.tryread(RING)
         assert face.counters[2] == base + 1, "stuffing is not payload"
 
@@ -307,13 +404,85 @@ class LineContract:
         assert face.tx_waiting == 0
 
 
+class ParkWakeContract:
+    """The RX readiness park/wake of the line (docs/25 4): a sleeping consumer is woken by an
+    arriving frame and no frame is lost across the wake. The same assertions on every seat.
+
+    The consumer is a thread that sleeps in the seat's park (``rxf_slip_line_wait``) and never
+    polls; what wakes it is the fill's publish of the arriving frame (the seat's
+    ``rxf_slip_line_notify``), and the readiness word is the condition it answers (a wake is a
+    hint, the word is the data -- docs/20 S4). What the wakes carry to the consumer is the
+    frames of the packets the peer sent, byte for byte and in order: a frame may reach the ring
+    as two publishes (the ring's contiguous runs end where it wraps) and then wakes twice, which
+    is why the contract counts wakes per publish and bytes per frame, never one wake per
+    frame."""
+
+    PACKETS = (b"park wake", bytes(range(200)), b"\xc0\xdb" * 40)
+
+    def __init__(self, face: Face, seat: Seat, lib: ctypes.CDLL) -> None:
+        self.face, self.seat, self.lib = face, seat, lib
+        bind_park(lib)
+
+    def run(self) -> None:
+        face, seat, lib = self.face, self.seat, self.lib
+        answered: list[int] = []
+        chunks: list[bytes] = []
+
+        def consume() -> None:
+            while True:
+                ready = lib.rxf_slip_line_wait(face.address)  # the park
+                if ready == 0:  # the line is closed: the park ends
+                    return
+                answered.append(ready)
+                chunks.append(face.tryread(ready))
+
+        assert face.open(0) == face.address
+        _waiting, wakes_before = face.park  # ``wakes`` counts for the cell's life, not the run
+        consumer = threading.Thread(target=consume)
+        consumer.start()
+        frames = [slip.encode(packet) for packet in self.PACKETS]
+        try:
+            for count, packet in enumerate(self.PACKETS, start=1):
+                self._until(lambda: face.park[0] == 1, "the consumer is parked")
+                assert face.rx_waiting == 0, "the consumer sleeps with nothing waiting"
+                seat.deliver(packet)
+                seat.pump(face)  # the publish is the wake
+                self._until(
+                    lambda count=count: sum(map(len, chunks)) == sum(map(len, frames[:count])),
+                    "the wake reaches the consumer",
+                )
+        finally:
+            face.close()  # the park ends with the line ...
+            lib.rxf_slip_line_notify(face.address)  # ... and the sleeper is woken to see it
+            consumer.join(timeout=10)
+            assert not consumer.is_alive(), "the consumer never woke"
+        assert b"".join(chunks) == b"".join(frames), "not one byte lost across the wake"
+        assert sum(answered) == sum(map(len, frames)), (
+            "every park ended on the readiness word, at the bytes that arrived"
+        )
+        waiting, wakes = face.park
+        assert waiting == 0, "the park token is down when the run ends"
+        assert wakes - wakes_before >= len(self.PACKETS), (
+            f"every arriving frame woke the sleeper (wakes={wakes - wakes_before}): one wake "
+            "per publish, and a frame that crosses the ring's end is two publishes (docs/20 "
+            "S4: a wake is a hint, the readiness word is the condition)"
+        )
+
+    @staticmethod
+    def _until(condition: Callable[[], bool], what: str) -> None:
+        deadline = time.monotonic() + 10
+        while not condition():
+            assert time.monotonic() < deadline, f"timeout: {what}"
+            time.sleep(0.001)
+
+
 @pytest.fixture(scope="module")
 def line_host(tmp_path_factory: pytest.TempPathFactory) -> Host:
     return Host(
         tmp_path_factory.mktemp("lwip_line"),
         CORPUS / "slip_line.c",
         FACE_BODIES,
-        natives=(LINE / "slip_line_host.c",),
+        natives=(LINE / "slip_line_host.c", PARK_POSIX),
     )
 
 
@@ -330,6 +499,23 @@ def test_the_host_seat_fill_meets_the_contract_on_the_native_reference(line_host
     seat = HostSeat(line_host.native)
     try:
         LineContract(NativeFace(line_host.native), seat).run()
+    finally:
+        seat.close()
+
+
+def test_the_host_seat_park_wakes_on_an_arriving_frame_on_the_imported_face(line_host: Host):
+    seat = HostSeat(line_host.native)
+    try:
+        with rxf_native.Memory(1 << 16) as memory:
+            ParkWakeContract(ImportedFace(line_host, memory), seat, line_host.native).run()
+    finally:
+        seat.close()
+
+
+def test_the_host_seat_park_wakes_on_an_arriving_frame_on_the_native_reference(line_host: Host):
+    seat = HostSeat(line_host.native)
+    try:
+        ParkWakeContract(NativeFace(line_host.native), seat, line_host.native).run()
     finally:
         seat.close()
 
@@ -383,8 +569,16 @@ class TapSeat:
         assert moved >= 0, "the bridge's I/O failed"
         return moved
 
-    def peer_send(self, packet: bytes) -> None:
-        self.far.send(packet)
+    def pump_all(self, face: Face) -> int:
+        moved = 0
+        while True:
+            step = self.pump(face)
+            moved += step
+            if step == 0:
+                return moved
+
+    def peer_send(self, packet: bytes) -> int:
+        return self.far.send(packet)
 
     def peer_recv(self) -> list[bytes]:
         packets: list[bytes] = []
@@ -393,6 +587,15 @@ class TapSeat:
                 packets.append(self.far.recv(4096))
             except BlockingIOError:
                 return packets
+
+    def deliver(self, packet: bytes) -> None:
+        """One IP packet onto the wire: the tap's device side speaks packets, and the fill
+        frames what it is given for the guest's SLIP deframer."""
+        self.peer_send(packet)
+
+    def replies(self) -> tuple[bytes, ...]:
+        """The reply packets the device side received."""
+        return tuple(self.peer_recv())
 
 
 class PacketContract:
@@ -424,28 +627,28 @@ class PacketContract:
             self.send_frame(packet)
         face.send(END)  # an empty frame (a doubled END) is a flush, not a packet
         assert seat.pump(face) == len(packets)
-        assert seat.peer_recv() == packets
+        assert seat.replies() == tuple(packets)
         assert face.tx_waiting == 0 and face.counters[2:] == (0, 0)
 
         # TX over the MTU: dropped whole, counted once, and the line goes on
         self.send_frame(bytes(MTU + 1))
         seat.pump(face)
-        assert seat.peer_recv() == [] and face.counters[2] == 1
+        assert seat.replies() == () and face.counters[2] == 1
         self.send_frame(b"after")
         seat.pump(face)
-        assert seat.peer_recv() == [b"after"]
+        assert seat.replies() == (b"after",)
 
         # RX: every device packet is one RFC 1055 frame, byte for byte the model's
         for packet in packets[:3]:
-            seat.peer_send(packet)
-            seat.pump(face)
+            seat.deliver(packet)
+            seat.pump_all(face)
             assert face.tryread(RING) == slip.encode(packet)
         assert face.ready() == 0
 
         # RX backpressure: a full ring loses no packet; the rest wait for room
         burst = [bytes([index]) * 900 for index in range(12)]
         for packet in burst:
-            seat.peer_send(packet)
+            seat.deliver(packet)
         received = b""
         for _ in range(40):
             seat.pump(face)
@@ -456,7 +659,7 @@ class PacketContract:
 
         # RX over the MTU: never enters the line, counted
         before = face.counters[2]
-        seat.peer_send(bytes(MTU + 1))
+        seat.deliver(bytes(MTU + 1))
         seat.pump(face)
         assert face.ready() == 0 and face.counters[2] == before + 1
 
@@ -470,7 +673,7 @@ def tap_host(tmp_path_factory: pytest.TempPathFactory) -> Host:
         tmp_path_factory.mktemp("lwip_tap"),
         CORPUS / "slip_line.c",
         FACE_BODIES,
-        natives=(LINE / "slip_line_tap.c",),
+        natives=(LINE / "slip_line_tap.c", PARK_POSIX),
     )
 
 
@@ -487,6 +690,23 @@ def test_the_tap_fill_meets_the_packet_contract_on_the_native_reference(tap_host
     seat = TapSeat(tap_host.native)
     try:
         PacketContract(NativeFace(tap_host.native), seat).run()
+    finally:
+        seat.close()
+
+
+def test_the_tap_fill_park_wakes_on_an_arriving_frame_on_the_imported_face(tap_host: Host):
+    seat = TapSeat(tap_host.native)
+    try:
+        with rxf_native.Memory(1 << 16) as memory:
+            ParkWakeContract(ImportedFace(tap_host, memory), seat, tap_host.native).run()
+    finally:
+        seat.close()
+
+
+def test_the_tap_fill_park_wakes_on_an_arriving_frame_on_the_native_reference(tap_host: Host):
+    seat = TapSeat(tap_host.native)
+    try:
+        ParkWakeContract(NativeFace(tap_host.native), seat, tap_host.native).run()
     finally:
         seat.close()
 
@@ -510,39 +730,131 @@ def test_the_tun_device_open_needs_net_admin(tap_host: Host):
     )
 
 
-# ---- the seats whose fill is not written: named, failing (all-platforms: no dark ports) ----------
-
-UNPROVEN_SEATS = {
-    "browser (wasm32 FIFO block <-> WebSocket)": (
-        "slip_line_js.c",
-        (
-            "needs the wasm32 FIFO block bridged to a WebSocket gateway and a browser harness, "
-            "and the card is not in the wasm32 seat's image"
-        ),
-    ),
-    "firmware (UART 16550 / PL011)": (
-        "slip_line_uart.c",
-        "needs QEMU firmware images that carry the card (they do not) and a UART loopback harness",
-    ),
-}
+# ---- the browser and firmware fills: the FIFO block and the UART registers (slip_line_*.c) ------
 
 
-@pytest.mark.parametrize(
-    ("seat", "file", "why"),
-    [
-        pytest.param(
-            seat,
-            file,
-            why,
-            marks=pytest.mark.xfail(strict=True, reason=f"{file}: {why}"),
-        )
-        for seat, (file, why) in UNPROVEN_SEATS.items()
-    ],
+@pytest.fixture(scope="module")
+def line_js(tmp_path_factory: pytest.TempPathFactory) -> Host:
+    return Host(
+        tmp_path_factory.mktemp("lwip_line"),
+        CORPUS / "slip_line.c",
+        FACE_BODIES,
+        natives=(LINE / "slip_line_js.c", PARK_POSIX),
+    )
+
+
+def test_the_browser_seat_fill_meets_the_contract_on_the_imported_face(line_js: Host):
+    seat = JsSeat(line_js.native)
+    try:
+        with rxf_native.Memory(1 << 16) as memory:
+            LineContract(ImportedFace(line_js, memory), seat).run()
+    finally:
+        seat.close()
+
+
+def test_the_browser_seat_fill_meets_the_contract_on_the_native_reference(line_js: Host):
+    seat = JsSeat(line_js.native)
+    try:
+        LineContract(NativeFace(line_js.native), seat).run()
+    finally:
+        seat.close()
+
+
+def test_the_browser_seat_park_wakes_on_an_arriving_frame_on_the_imported_face(line_js: Host):
+    seat = JsSeat(line_js.native)
+    try:
+        with rxf_native.Memory(1 << 16) as memory:
+            ParkWakeContract(ImportedFace(line_js, memory), seat, line_js.native).run()
+    finally:
+        seat.close()
+
+
+def test_the_browser_seat_park_wakes_on_an_arriving_frame_on_the_native_reference(line_js: Host):
+    seat = JsSeat(line_js.native)
+    try:
+        ParkWakeContract(NativeFace(line_js.native), seat, line_js.native).run()
+    finally:
+        seat.close()
+
+
+@pytest.fixture(scope="module")
+def line_uart(tmp_path_factory: pytest.TempPathFactory) -> Host:
+    return Host(
+        tmp_path_factory.mktemp("lwip_line"),
+        CORPUS / "slip_line.c",
+        FACE_BODIES,
+        natives=(LINE / "slip_line_uart.c", PARK_POSIX),
+    )
+
+
+UART_KINDS = (
+    ("16550 (MMIO)", UART_NS16550_MMIO),
+    ("16550 (I/O ports)", UART_NS16550_PORT),
+    ("PL011 (MMIO)", UART_PL011_MMIO),
 )
-def test_the_seat_has_a_fill_that_meets_the_contract(seat: str, file: str, why: str):
-    """A stub that fails its prove: the fill file does not exist, so the seat is not claimed. When
-    it is written this xpasses and the strict xfail forces the contract suite onto it."""
-    assert (LINE / file).is_file(), f"{seat}: {file} ({why})"
+
+
+@pytest.mark.parametrize(("name", "kind"), UART_KINDS)
+def test_the_firmware_seat_fill_meets_the_contract_on_the_native_reference(
+    line_uart: Host, name: str, kind: int
+):
+    seat = UartSeat(line_uart.native, kind, f"firmware ({name})")
+    try:
+        LineContract(NativeFace(line_uart.native), seat).run()
+    finally:
+        seat.close()
+
+
+@pytest.mark.parametrize(("name", "kind"), UART_KINDS)
+def test_the_firmware_seat_park_wakes_on_an_arriving_frame_on_the_native_reference(
+    line_uart: Host, name: str, kind: int
+):
+    seat = UartSeat(line_uart.native, kind, f"firmware ({name})")
+    try:
+        ParkWakeContract(NativeFace(line_uart.native), seat, line_uart.native).run()
+    finally:
+        seat.close()
+
+
+def test_the_firmware_seat_fill_meets_the_contract_on_the_imported_face(line_uart: Host):
+    seat = UartSeat(line_uart.native, UART_NS16550_MMIO, "firmware (16550 MMIO)")
+    try:
+        with rxf_native.Memory(1 << 16) as memory:
+            LineContract(ImportedFace(line_uart, memory), seat).run()
+    finally:
+        seat.close()
+
+
+def test_the_firmware_seat_park_wakes_on_an_arriving_frame_on_the_imported_face(
+    line_uart: Host,
+):
+    seat = UartSeat(line_uart.native, UART_NS16550_MMIO, "firmware (16550 MMIO)")
+    try:
+        with rxf_native.Memory(1 << 16) as memory:
+            ParkWakeContract(ImportedFace(line_uart, memory), seat, line_uart.native).run()
+    finally:
+        seat.close()
+
+
+def test_the_firmware_fill_refuses_a_device_word_it_cannot_claim(line_uart: Host):
+    """DEVICE_MACHINE is the seat's to resolve; the fill answers EINVAL, never claims blind."""
+    lib = ctypes.CDLL(line_uart.native._name, use_errno=True)
+    fill = UartFill()
+    lib.rxf_slip_line_uart_init.restype = ctypes.c_int
+    lib.rxf_slip_line_uart_init.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    ]
+    lib.rxf_slip_line_uart_deinit.argtypes = [ctypes.c_void_p]
+    assert (
+        lib.rxf_slip_line_uart_init(ctypes.byref(fill), 0, 0, None, None, None) != 0
+    ), "device word 0 (DEVICE_MACHINE unresolved) must be refused"
+    assert ctypes.get_errno() == errno.EINVAL, "the refusal is EINVAL, as the fill says"
+
 
 
 # ---- the real UDP echo over the line (tests/lwip_udp_echo.py) -----------------------------------
@@ -571,12 +883,11 @@ def assert_same(
     assert imported.status == 0, f"the imported run was refused ({imported.status})"
     for scenario in lwip_udp_echo.scenarios():
         assert imported.replies[scenario.name] == reference.replies[scenario.name], (
-            f"{scenario.name}: the imported graphs put {imported.replies[scenario.name].hex()} "
-            f"on the line, natively it is {reference.replies[scenario.name].hex()}"
+            f"{scenario.name}: the imported graphs put "
+            f"{[packet.hex() for packet in imported.replies[scenario.name]]} on the line, "
+            f"natively it is {[packet.hex() for packet in reference.replies[scenario.name]]}"
         )
-        lwip_udp_echo.check_reply(
-            scenario, lwip_udp_echo.decode(reference.replies[scenario.name])
-        )
+        lwip_udp_echo.check_reply(scenario, reference.replies[scenario.name])
     assert imported.counters == reference.counters
     assert imported.counters[2:] == (0, 0), (
         "no overrun and no framing error on a clean line"
@@ -612,4 +923,16 @@ def test_the_udp_echo_matches_native_on_the_shipped_interpreter(echo_host: Host)
     shipped interpreter, the seat every run takes (the experiment of an interpreter with room
     ended when the budget grew: docs/35's machine need)."""
     imported, reference = lwip_udp_echo.run_both(echo_host)
+    assert_same(imported, reference)
+
+
+@pytest.mark.slow
+def test_the_parked_echo_run_wakes_on_the_rx_word_and_replies_without_polling(echo_host: Host):
+    """Q3's done-when: a parked echo run. The driver of the imported side sleeps in
+    ``rxf_slip_line_wait`` and runs the stack only when the arriving frame's publish wakes it --
+    no poll anywhere on that side -- and the replies still equal the native reference byte for
+    byte, scenario by scenario. The stack runs are counted: one per publish of an arriving
+    frame (two when a frame crosses the ring's end), never a poll
+    (``lwip_udp_echo.run_parked``)."""
+    imported, reference = lwip_udp_echo.run_parked(echo_host)
     assert_same(imported, reference)

@@ -23,14 +23,17 @@ import json
 import struct
 import sys
 import tempfile
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pymergetic.rxftk.net.link import slip
 
 if TYPE_CHECKING:
     from .test_lwip_import import Host
+    from .test_lwip_slip import WireSeat
 
 ROOT = Path(__file__).resolve().parents[1]
 PEER = bytes((10, 0, 0, 1))
@@ -181,9 +184,9 @@ class Outcome:
     """What one side did with the scenarios."""
 
     status: int = 0  # the first refusal of a poll run (0: none)
-    replies: dict[str, bytes] = field(
+    replies: dict[str, tuple[bytes, ...]] = field(
         default_factory=dict
-    )  # line bytes out, by scenario
+    )  # the reply packets, by scenario
     counters: tuple[int, int, int, int] = (
         0,
         0,
@@ -192,18 +195,21 @@ class Outcome:
     )  # the line cell's four words at the end
 
 
-def exchange(face, seat, poll, packet: bytes) -> tuple[int, bytes]:
-    """One datagram in over the line, the stack polled, the line's reply bytes out."""
-    seat.peer_recv()
-    assert seat.peer_send(slip.encode(packet)) == len(slip.encode(packet))
+def exchange(face, seat, poll, packet: bytes) -> tuple[int, tuple[bytes, ...]]:
+    """One datagram in over the line, the stack polled, the line's reply packets out."""
+    seat.wire_recv()
+    seat.deliver(packet)
     seat.pump(face)
     status = poll()
     seat.pump(face)
-    return status, seat.peer_recv()
+    return status, seat.replies()
 
 
-def run_both(host: Host) -> tuple[Outcome, Outcome]:
-    """The scenarios on the imported graphs and on the native reference."""
+def run_both(
+    host: Host, make_seat: Callable[[Any], "WireSeat"] | None = None
+) -> tuple[Outcome, Outcome]:
+    """The scenarios on the imported graphs and on the native reference, over one seat's fill
+    (``make_seat`` builds it over the reference library; the default is the host seat)."""
     import ctypes
 
     from . import rxf_native
@@ -212,7 +218,8 @@ def run_both(host: Host) -> tuple[Outcome, Outcome]:
     native = host.native
     native.slip_echo_boot.restype = ctypes.c_uint64
     native.slip_echo_poll.restype = ctypes.c_uint64
-    seat_imported, seat_native = HostSeat(native), HostSeat(native)
+    build: Callable[[Any], "WireSeat"] = make_seat or HostSeat
+    seat_imported, seat_native = build(native), build(native)
     imported, reference = Outcome(), Outcome()
     try:
         with rxf_native.Memory(1 << 16) as memory:
@@ -251,16 +258,116 @@ def run_both(host: Host) -> tuple[Outcome, Outcome]:
     return imported, reference
 
 
+def run_parked(host: Host) -> tuple[Outcome, Outcome]:
+    """The same differential with the imported side driven by a parked consumer (docs/25 4,
+    Q3's done-when): a consumer sleeps in ``rxf_slip_line_wait`` and runs the stack when the
+    arriving frame's publish wakes it -- the RX word is what it answers, never a poll. The
+    reply it produces is read off the line and must equal the native reference byte for byte.
+
+    The consumer runs the stack; this thread only moves the line's bytes (the fill's pump and
+    the wire). The two touch the cell's rings from one side each (SPSC), the park words under
+    the seat's park lock, which is the whole of the contract's concurrency."""
+    import ctypes
+    import threading
+
+    from . import rxf_native
+    from .test_lwip_slip import HostSeat, ImportedFace, NativeFace
+
+    native = host.native
+    native.slip_echo_boot.restype = ctypes.c_uint64
+    native.slip_echo_poll.restype = ctypes.c_uint64
+    native.rxf_slip_line_wait.restype = ctypes.c_uint32
+    native.rxf_slip_line_wait.argtypes = [ctypes.c_void_p]
+    native.rxf_slip_line_notify.argtypes = [ctypes.c_void_p]
+    seat_imported, seat_native = HostSeat(native), HostSeat(native)
+    imported, reference = Outcome(), Outcome()
+    try:
+        with rxf_native.Memory(1 << 16) as memory:
+            face = ImportedFace(host, memory)
+            assert host.run(memory, "__wires_boot") == (0, 0)
+            assert host.run(memory, BOOT) == (0, 0), "the imported boot"
+            assert native.slip_echo_boot() == 0, "the native boot"
+            reference_face = NativeFace(native)
+
+            def poll_native() -> int:
+                native.slip_echo_poll()
+                return 0
+
+            rounds: list[int] = []
+
+            def consume() -> None:
+                while True:
+                    ready = native.rxf_slip_line_wait(face.address)  # the park
+                    if ready == 0:
+                        return
+                    status, _ = host.run(memory, POLL)  # only ever on a wake
+                    rounds.append(status)
+
+            consumer = threading.Thread(target=consume)
+            consumer.start()
+            try:
+                for scenario in scenarios():
+                    before = len(rounds)
+                    seat_imported.wire_recv()
+                    seat_imported.deliver(scenario.packet)
+                    seat_imported.pump(face)  # the publish is the wake
+                    until(
+                        lambda before=before: len(rounds) > before
+                        and face.park[0] == 1
+                        and face.rx_waiting == 0,
+                        f"{scenario.name}: the parked consumer never answered",
+                    )  # answered every byte and parked again (the cell words say so)
+                    seat_imported.pump(face)  # the reply frame onto the wire
+                    out = decode(seat_imported.wire_recv())
+                    if rounds[-1] and not imported.status:
+                        imported.status = rounds[-1]
+                    imported.replies[scenario.name] = out
+                    _, out = exchange(
+                        reference_face, seat_native, poll_native, scenario.packet
+                    )
+                    reference.replies[scenario.name] = out
+                    if imported.status:
+                        break
+                imported.counters = face.counters  # the run's words, before the close below
+            finally:
+                face.close()
+                native.rxf_slip_line_notify(
+                    face.address
+                )  # the wake of a close: the park ends
+                consumer.join(timeout=10)
+                assert not consumer.is_alive(), "the parked consumer never ended"
+                assert len(rounds) >= len(imported.replies), (
+                    "one stack run per publish of an arriving frame (a frame that crosses the "
+                    "ring's end is two publishes), never a poll"
+                )
+            reference.counters = reference_face.counters
+    finally:
+        seat_imported.close()
+        seat_native.close()
+    return imported, reference
+
+
 def decode(line: bytes) -> tuple[bytes, ...]:
     return slip.SlipDecoder().feed(line)
 
 
+def until(condition: Callable[[], bool], what: str) -> None:
+    """Wait, bounded, for the cell's words to say what the parked run needs."""
+    deadline = time.monotonic() + 10
+    while not condition():
+        assert time.monotonic() < deadline, f"timeout: {what}"
+        time.sleep(0.001)
+
+
 def build_host(directory: Path) -> Host:
     from .test_lwip_import import CORPUS, Host
-    from .test_lwip_slip import LINE
+    from .test_lwip_slip import FACE_BODIES, LINE
 
     return Host(
-        directory, CORPUS / "udp_echo.c", BODIES, natives=(LINE / "slip_line_host.c",)
+        directory,
+        CORPUS / "udp_echo.c",
+        BODIES + FACE_BODIES,  # the face bodies too: the parked run closes the imported line
+        natives=(LINE / "slip_line_host.c", LINE / "slip_line_park_posix.c"),
     )
 
 
@@ -307,7 +414,10 @@ def main(argv: list[str] | None = None) -> int:
             name: imported.replies.get(name) == out
             for name, out in reference.replies.items()
         },
-        "replies": {name: out.hex() for name, out in reference.replies.items()},
+        "replies": {
+            name: [packet.hex() for packet in out]
+            for name, out in reference.replies.items()
+        },
         "counters": [list(imported.counters), list(reference.counters)],
     }
     sys.stdout.write(json.dumps(answer))

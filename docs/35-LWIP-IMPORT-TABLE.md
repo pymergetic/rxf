@@ -17,12 +17,16 @@ of this file). The prose around the block is hand-written.
 | the card's translation unit (the verbatim upstream files, `#include`d) | `native/lwip/core_slice.c` | C |
 | the import tool | `tools/native/lwip_import.py` | Python (over `rximport`) |
 | differential corpus | `tests/lwip_corpus/payload_echo.c` and `tests/lwip_corpus/wire_words.c` (+ `native_line.c`, the native reference's SLIP line, never a seat fill) | C |
-| the SLIP line cell and its contract (rings, MTU 1000, `overrun`/`framing` words) | `native/lwip/slip_line.h` | C |
+| the SLIP line cell and its contract (rings, MTU 1000, `overrun`/`framing` words, the park/wake `waiting`/`wakes` words) | `native/lwip/slip_line.h` | C |
 | the line face lwIP calls (`sio_open`/`sio_send`/`sio_tryread`, close, readiness), imported with the card | `native/lwip/slip_line_face.c` | C |
-| the ring moves every native fill shares | `native/lwip/slip_line_fill.h` | C |
+| the ring moves every native fill shares (and the publish's wake) | `native/lwip/slip_line_fill.h` | C |
+| the park/wake pair of the POSIX edges (`rxf_slip_line_wait`/`rxf_slip_line_notify`, docs/20 S4's token) | `native/lwip/slip_line_park_posix.c` | C |
 | the host seat's fill (a socketpair to the harness) | `native/lwip/slip_line_host.c` | C |
 | the unix seat's tap fill (SLIP <-> IP packet bridge over a tun device) | `native/lwip/slip_line_tap.c`, `slip_line_tap.h` | C |
-| the real UDP echo corpus and its harness | `tests/lwip_corpus/udp_echo.c`, `tests/lwip_udp_echo.py`, `tests/test_lwip_slip.py` | C, Python |
+| the browser seat's fill (the wasm32 FIFO block, image half of the WebSocket carrier) | `native/lwip/slip_line_js.c`, `slip_line_js.h` | C |
+| the firmware seat's fill (the Uart device word: NS16550 MMIO/ports, PL011) | `native/lwip/slip_line_uart.c`, `slip_line_uart.h` | C |
+| the seat harnesses of the FIFO block and the UARTs (register-level device models) | `tests/lwip_slip_fills.py` | Python |
+| the real UDP echo corpus and its harness (polled and parked runs) | `tests/lwip_corpus/udp_echo.c`, `tests/lwip_udp_echo.py`, `tests/test_lwip_slip.py` | C, Python |
 
 The slice is the smallest honest core: `NO_SYS=1` (the run-cell machine is the only scheduler: no
 tcpip thread, no mailbox, no semaphore), IPv4 + UDP + ICMP over one SLIP netif, and nothing above
@@ -278,18 +282,43 @@ One contract (`native/lwip/slip_line.h`: open/close, TX byte, RX byte source and
 MTU 1000, `overrun` and `framing` as words of the line cell), one imported face, and a fill per
 seat that only moves bytes between the cell and the seat's real line. `tests/test_lwip_slip.py`
 runs the contract suite (`LineContract`) on every fill against both the imported face and the
-natively compiled face. Status per seat, as proven in this run:
+natively compiled face, and the park/wake suite (`ParkWakeContract`, section 4.3) beside it.
+Status per seat, as proven in this run:
 
 | seat | fill | status |
 |---|---|---|
-| host (unix process, the harness) | `slip_line_host.c`, socketpair | **proven**: contract suite on the imported face and on the native reference; the real UDP echo over it (section 4.1) |
-| unix, tap/tun | `slip_line_tap.c` | the SLIP <-> IP packet bridge is proven against a datagram socketpair standing in for the tun fd; the **device open** (`TUNSETIFF`) fails with EPERM here (no `CAP_NET_ADMIN`) and is unproven; the lwIP card itself is not wired on the unix µPy seat |
-| browser (emcc / wasm32) | `slip_line_js.c` | **not written**: needs the wasm32 FIFO block bridged to a WebSocket and a browser harness, and the card is not on the wasm32 seat; a strict xfail names it |
-| firmware (UART 16550 / PL011) | `slip_line_uart.c` | **not written**: needs QEMU firmware images that carry the card, which they do not; a strict xfail names it |
+| host (unix process, the harness) | `slip_line_host.c`, socketpair | **proven**: contract suite on the imported face and on the native reference; the park/wake; the real UDP echo over it (section 4.1), parked and polled |
+| unix, tap/tun | `slip_line_tap.c` | the SLIP <-> IP packet bridge meets the packet contract against a datagram socketpair standing in for the tun fd (both faces), and the park/wake; the **device open** (`TUNSETIFF`) fails with EPERM here (no `CAP_NET_ADMIN`) and is unproven; the lwIP card itself is not wired on the unix µPy seat |
+| browser (emcc / wasm32) | `slip_line_js.c` | **proven at the fill**: the FIFO block of `native/graph.h` (the image half of the decided SLIP-over-WebSocket carrier, docs/23 decision 8) meets the contract and the park/wake on both faces, the block driven host-side by `tests/lwip_slip_fills.py`; the seat's image carries the live pump, not the card, so the echo on that seat is named in `tests/test_lwip_echo_seats.py` |
+| firmware (UART 16550 / PL011) | `slip_line_uart.c` | **proven at the fill**: one fill over the Uart capability's device word (NS16550 in memory, NS16550 behind I/O ports, PL011 in memory — three register-level device models in `tests/lwip_slip_fills.py`) meets the contract and the park/wake on both faces; the QEMU firmware images carry the entry glue, not the card, so the echo on those seats is named in `tests/test_lwip_echo_seats.py` |
 
-The card is not wired on the unix µPy, emcc, firmware or wasmmod seats (their images do not carry
-the imported graphs); a missing fill is a stub that fails its prove, not a dark port, and none of
-those seats is claimed.
+The card is not wired on the unix µPy, emcc, firmware or wasmmod seats (their images do not
+carry the imported graphs). Every fill is written and proven above; what stands is the
+all-platforms rule's second wall — the seat's image must carry the card — and each emulated
+seat names it as a strict xfail in `tests/test_lwip_echo_seats.py` (a stub that fails its
+prove, never a dark port).
+
+### 4.3 The RX readiness park/wake
+
+`slipif_poll` used to be the only way to learn that bytes wait (`sio_tryread` polled until 0).
+The line cell now carries the park/wake pair of docs/25 §4 beside its counters: the `waiting`
+token and the monotonic `wakes` count, over the protocol docs/20 S4 decided (the token goes up
+before the park re-checks the readiness word, so a wake that arrived before the park is never
+lost; a wake is a hint and the readiness word is the condition). The names are the module's own
+and every seat binds them (`native/lwip/slip_line_fill.h`): `rxf_slip_line_wait` (the
+consumer's park, answering the bytes that wait) and `rxf_slip_line_notify` (what every publish
+calls through `rxf_slip_fill_wake`). `slip_line_park_posix.c` is the POSIX pair (a mutex and a
+condvar); a wasm32 seat binds the JS event loop and a firmware seat the RX interrupt and WFI
+under the same two names.
+
+Proven two ways. `ParkWakeContract` (tests/test_lwip_slip.py) runs on every fill on both
+faces: a consumer thread sleeps in the park and never polls; the peer's frame wakes it through
+the fill's publish; the frames arrive whole and in order across the wakes (a frame that
+crosses the ring's end is two publishes and two wakes — one wake per publish, bytes per
+frame) and the park token is down at the end. `tests/lwip_udp_echo.run_parked` runs the real
+UDP echo with the imported side driven that way — the stack runs only on a wake, never a poll
+— and the replies are byte-equal to the native reference (tests/test_lwip_slip.py::
+test_the_parked_echo_run_wakes_on_the_rx_word_and_replies_without_polling).
 
 ## 5. What remains for the card (the next packages)
 
@@ -301,18 +330,21 @@ those seats is claimed.
    out-param call card is done (`netif_add`, `pbuf_dechain`, section 3.1).
 2. **libc faces** as IR bodies under `RXF_IMPORT_FACES` (`strlen`, `strncmp`, `strtol`), the way
    `tests/import_corpus/qstr_faces.c` does it.
-3. **The other seats' SLIP line fills and the card on those seats.** Done: the face, the host seat
-   (section 4.2). Open: the card in the unix µPy, emcc, firmware and wasmmod images, then
-   `slip_line_js.c` (browser, WebSocket bridge) and `slip_line_uart.c` (16550/PL011) with the same
-   contract suite, and the real `TUNSETIFF` open of `slip_line_tap.c` on a host with
-   `CAP_NET_ADMIN`.
+3. **The other seats' SLIP line fills and the card on those seats.** Done: the face, every
+   seat's fill and its contract (section 4.2) — `slip_line_host.c`, `slip_line_tap.c`,
+   `slip_line_js.c` (browser, the FIFO block of the decided WebSocket carrier) and
+   `slip_line_uart.c` (16550/PL011, one fill over the Uart device word) — with the park/wake
+   of section 4.3 on every one. Open: the card in the unix µPy, emcc, firmware and wasmmod
+   images (the named walls of `tests/test_lwip_echo_seats.py`), then the echo's differential
+   over each of those seats' lines, and the real `TUNSETIFF` open of `slip_line_tap.c` on a
+   host with `CAP_NET_ADMIN`.
 4. **Provenance**: the importer lifts the comments of the file it is given; the verbatim upstream
    files reach it through `#include`, so their comments and their per-file citations are not
    lifted yet (docs/22: one origin record, one citation per upstream file).
 5. **Machine budget** (machine lane): `RXF_GRAPH_CELL_BYTES` >= 16384 and `RXF_GRAPH_CALL_DEPTH` >= 9
-   for the echo path (section 4.1); the readiness park/wake of docs/25 §4 for the RX byte source
-   (today `slipif_poll` polls `sio_tryread`; `rxf_slip_line_ready` is the word the run's
-   wait/notify will watch).
+   for the echo path (section 4.1); the readiness park/wake of docs/25 §4 is done (section 4.3:
+   `rxf_slip_line_ready` is the word the park's re-check watches, `rxf_slip_line_wait`/
+   `rxf_slip_line_notify` the pair the run binds).
 6. **The importer's pointer-to-local rule for call cards**: done (section 4.1, the cell route).
 7. **netif_add**: done: `slip_echo_boot` calls the real `netif_add` (section 3.1).
 8. **TCP and the socket echo** (`LWIP_TCP`; the pcb readiness park/wake of docs/25 §4), then the

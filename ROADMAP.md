@@ -400,20 +400,39 @@ numbered separately below and are all open or in progress.
   `test_lwip_import` 22 passed, 5 xfailed (the tun open, js seat, uart seat, shipped
   interpreter echo, icmp-unreachable defect), 354 s, in a clean scratch worktree.
   *Remains:* Q2, Q3, I1, I2 (H2 landed the run-cell budget, 32768/16).
-- **[ ] Q2: the SLIP line fills per seat** (all-platforms: the module and face are
-  the same, each seat's prove hits it). Status: host socketpair PROVEN; unix tap
-  bridge proven on a stand-in, `TUNSETIFF` is EPERM here (no CAP_NET_ADMIN) and
-  UNPROVEN; browser `slip_line_js.c` not written (decided line: `rxf net gateway`, SLIP
-  over WebSocket, docs/23 decision 8); firmware `slip_line_uart.c` (16550/PL011) not
-  written; the unix µPy and wasmmod seats do not carry the card at all. A missing fill is
-  a stub that fails its prove, not a dark port.
+- **[~] Q2: the SLIP line fills per seat** (all-platforms: the module and face are
+  the same, each seat's prove hits it). *Landed:* every seat's fill is written and
+  meets the contract (`LineContract`/`PacketContract`) on the imported face and on
+  the native reference: host socketpair `slip_line_host.c`; the unix tap bridge
+  `slip_line_tap.c` (SLIP <-> IP packets, proven over a datagram stand-in); the
+  browser fill `slip_line_js.c` (the wasm32 FIFO block of `native/graph.h`, the
+  image half of the decided SLIP-over-WebSocket carrier, docs/23 decision 8); the
+  firmware fill `slip_line_uart.c` (one fill over the Uart capability's device word:
+  NS16550 in memory, NS16550 behind I/O ports, PL011 in memory). The FIFO block and
+  both UARTs are driven at register level by `tests/lwip_slip_fills.py`, so each
+  fill is proven exactly as its seat speaks it, and `ParkWakeContract` runs the RX
+  park/wake on every one of them. *Remains:* the real `TUNSETIFF` open of
+  `slip_line_tap.c` (EPERM here, no `CAP_NET_ADMIN`: named xfail), and the card on
+  the seats' images (they carry entry glue, not the card — the named strict xfails
+  of `tests/test_lwip_echo_seats.py`, one per seat, fall when an image carries the
+  echo and then force its differential onto that seat).
   *done when:* the contract suite (`LineContract`/`PacketContract`) passes on every
-  seat with its fill.
-- **[ ] Q3: RX readiness park/wake and the rest of the card.** Today `slipif_poll`
-  polls `sio_tryread`; `rxf_slip_line_ready` is the word to watch (docs/25 4) — the
-  run-cell machine needs the park/wake. Then per-upstream-file citations through
-  `#include` (provenance), TCP + the socket echo, and the uasyncio binding.
-  *done when:* a parked echo run is woken by the RX word and replies without polling.
+  seat with its fill — met at the fill level; the image-level echo per seat is the
+  named wall above.
+- **[~] Q3: RX readiness park/wake and the rest of the card.** *Landed (its done
+  when):* the RX readiness park/wake of docs/25 4 with the token protocol of docs/20
+  S4: the line cell carries `waiting`/`wakes` beside the counters, every publish
+  wakes through `rxf_slip_fill_wake`, and the seat's pair is
+  `rxf_slip_line_wait`/`rxf_slip_line_notify` (`slip_line_park_posix.c` on the POSIX
+  edges; a wasm32 seat binds the JS event loop and a firmware seat the RX interrupt
+  and WFI under the same two names). Proven on every fill by `ParkWakeContract` (a
+  sleeping consumer wakes on an arriving frame, no frame lost across the wake) and by
+  a parked echo run (`tests/lwip_udp_echo.run_parked`): the imported side sleeps in
+  the park, runs the stack only on a wake, and its replies are byte-equal to native
+  lwIP. *Remains:* per-upstream-file citations through `#include` (provenance), TCP +
+  the socket echo, and the uasyncio binding.
+  *done when:* a parked echo run is woken by the RX word and replies without polling —
+  met (`test_the_parked_echo_run_wakes_on_the_rx_word_and_replies_without_polling`).
 
 **Y — the Python strand and uasyncio (`tools/native/rxpy.py`, docs/23).**
 

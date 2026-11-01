@@ -10,13 +10,21 @@
  *                  counts it in ``overrun`` (a void send has no way to push back)
  *   RX byte source sio_tryread takes bytes from the RX ring; ``rxf_slip_line_ready`` is the
  *                  readiness word (the bytes waiting) the run's wait/notify watches
+ *   park / wake    ``rxf_slip_line_wait`` parks the consumer while the readiness word is 0 and
+ *                  answers the bytes that wait; the fill's publish is the wake
+ *                  (``rxf_slip_line_notify``). The pair is the seat's edge (docs/25 13: a
+ *                  semaphore is a park/wake pair), the protocol over the cell words is the
+ *                  same on every seat: ``waiting`` is the park token (docs/20 S4 -- set before
+ *                  the readiness re-check, consumed at the park, so a wake that arrives before
+ *                  the park is never lost) and ``wakes`` counts the wakes performed
  *   MTU            ``mtu`` is the largest datagram a peer may send, 1000 by default
  *                  (docs/25 13; lwIP's SLIP_MAX_SIZE is set to it by lwipopts.h)
  *   counters       ``overrun`` (bytes the TX ring dropped, frames the fill dropped for
  *                  exceeding the MTU) and ``framing`` (a bad escape sequence seen on RX) are
  *                  words of the line cell, i.e. image words -- never state in a fill's C
  *
- * The two rings and the counters are ONE cell of the image (``rxf_slip_line``). The face that
+ * The two rings, the counters and the park/wake words are ONE cell of the image
+ * (``rxf_slip_line``). The face that
  * lwIP calls (slip_line_face.c) is imported with the card: its bodies read and write the cell.
  * A seat's FILL is native C that moves bytes between the cell and the seat's real line (a pty,
  * a tap device, a WebSocket, a UART) -- slip_line_host.c, slip_line_tap.c, slip_line_js.c,
@@ -51,6 +59,8 @@ struct rxf_slip_line {
     uint32_t mtu;     /* the settable MTU word */
     uint32_t overrun; /* bytes or frames dropped for want of room or over the MTU */
     uint32_t framing; /* bad escape sequences seen on RX (counted by the fill) */
+    uint32_t waiting; /* the park token (docs/20 S4): 1 while a consumer sleeps on the line */
+    uint32_t wakes;   /* the wakes the line performed (evidence, counted with the token) */
     struct rxf_slip_ring tx;
     struct rxf_slip_ring rx;
 };

@@ -171,6 +171,7 @@ int64_t rxf_slip_line_tap_pump(struct rxf_slip_line *line, struct rxf_slip_line_
         if (!rx_publish(line, tap)) {
             break; /* no room: the packet waits in rx_packet, the next pump publishes it */
         }
+        rxf_slip_fill_wake(line); /* the frame arrived: wake a parked consumer */
         moved++;
     }
     return moved;
