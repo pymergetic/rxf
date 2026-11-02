@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import struct
+import subprocess
 
 import link
 
@@ -123,3 +124,22 @@ class Bridge:
     def body_size(self) -> int:
         """The canonical form's claim (the hello's `body_size`)."""
         return struct.unpack_from("<Q", self.arena, 8)[0]
+
+
+# A node process that holds a 56 MB wasm memory needs time to exit on a loaded machine: ten
+# seconds was not enough there, and a teardown that raised turned a passed test into an error.
+NODE_GRACE = 60.0
+
+
+def stop_node(process: subprocess.Popen, grace: float = NODE_GRACE) -> None:
+    """Close the stdin of a harness process, wait for it to exit, and kill it when it does not.
+
+    The test has its answer by now; a harness that will not exit within ``grace`` seconds is
+    cleaned up, not reported."""
+    if process.stdin is not None:
+        process.stdin.close()
+    try:
+        process.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()

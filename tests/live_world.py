@@ -33,6 +33,7 @@ from pymergetic.rxftk.live.front import model_of
 
 from . import graph_world as world
 from .emulator import Blob, Emulator, Integer
+from .support import stop_node
 from .wasm import module_of
 
 HERE = Path(__file__).parent
@@ -305,9 +306,7 @@ class Node:
         return status, struct.unpack("<Q", self.read(linked.out, 8))[0]
 
     def close(self) -> None:
-        if self.process.stdin is not None:
-            self.process.stdin.close()
-        self.process.wait(timeout=10)
+        stop_node(self.process)
 
 
 def linked_image(

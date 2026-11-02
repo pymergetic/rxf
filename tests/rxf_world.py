@@ -23,6 +23,7 @@ import graph_header
 from . import graph_world as world
 from . import scenario
 from .emulator import Emulator, Integer
+from .support import stop_node
 from .wasm import module_of
 
 BASE = scenario.BASE
@@ -336,9 +337,7 @@ class Node(Session):
         )
 
     def close(self) -> None:
-        if self.process.stdin is not None:
-            self.process.stdin.close()
-        self.process.wait(timeout=10)
+        stop_node(self.process)
 
 
 def session_of(machine: str, code: world.Code) -> Session:
