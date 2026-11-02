@@ -32,7 +32,6 @@ from pymergetic.rxftk.cli import main
 from pymergetic.rxftk.console import world
 from pymergetic.rxftk.console.session import Console
 from pymergetic.rxftk.core import tree
-from pymergetic.rxftk.core.arena import HANDLE_ROOT
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live.front import Front, NotReady, Region, identity, value_of
 from pymergetic.rxftk.server.live import Session
@@ -374,7 +373,7 @@ def test_a_live_session_registers_the_world_of_the_image_it_runs(solo: Seat):
         attached = world.attach("shm:live-runs")
         assert attached is session.world
         assert attached.client.ping(b"the channel") == b"the channel"
-        assert attached.client.resolve("") == HANDLE_ROOT
+        assert attached.client.resolve("") == solo.channel.client.resolve("")
         assert attached.client.digest() == digest_of(solo.channel.loaded())
         outcome = Console(attached.front, io.StringIO()).submit(TRIPLE)
         assert outcome["ok"] is True
