@@ -92,6 +92,11 @@ Read in order:
 23. [Editing: one mutation is one delta](27-EDITING.md)
 24. [Unified seat design: the image, the face, the fill, and the shell](28-UNIFIED-SEAT-DESIGN.md)
 25. [The seed compiler: an image that is `.rxfs` only](29-THE-SEED-COMPILER.md)
+26. [One arena, one object model](32-ONE-ARENA-OBJECT-MODEL.md)
+27. [Sealed and compressed areas](33-SEALED-AND-COMPRESSED-AREAS.md)
+28. [Extending RXF](34-EXTENDING.md)
+29. [The Honors](36-THE-HONORS.md)
+30. [The lwIP card, slice 1: the import table](35-LWIP-IMPORT-TABLE.md)
 
 These documents specify RXF independently of any runtime provider. The optional Metal binding
 is described separately in [`integrations/metal.md`](integrations/metal.md).
@@ -244,8 +249,8 @@ seam — `pymergetic.rxftk.console.world` — with no second channel and no seco
 
 The image renders as an RTS city over the same cells the inspector reads: every cell is a
 block-stack building whose floors are the cell anatomy in S1 payload coloring — checksum
-teal, poison red, generation gold — and one grid law runs the city (*jede Zelle gleiche
-Grundgröße*): every district plots on the same rule whether its bytes carry cells or not,
+teal, poison red, generation gold — and one grid law runs the city (*every cell the same base
+size*): every district plots on the same rule whether its bytes carry cells or not,
 every floor tile is exactly one grid step, and every building stands on the same base, its
 height carrying its mass. The reference edges are Manhattan-routed flat traces over the
 streets, shown by click: select a building and its linked objects and their tracks light up
@@ -255,10 +260,13 @@ units under glowing curbs. The minimap is a real top-down projection of the same
 family, void tiles in red, the camera's viewport); clicking it jumps the camera, clicking a
 building selects its cell in the HUD, and WASD moves camera-relative. The scene draws the
 checked-in demo world — the `demo_world.rxfd`
-delta plus the traces a running snapshot carries (a stale handle's ghost cables, the 0xA5
-poison of compaction), exported to the raw `scene.bin` the browser reads (the export pinned as a
-content digest in the tests) — with no randomness behind any frame. The page loads it **from the raw image bytes**
-(`GET /world/scene.bin`) and reads the arena in the browser (`static/scene/rxf-reader.js`),
+delta — exported to the canonical `scene.bin` the browser reads (the export pinned as a
+content digest in the tests) — with no randomness behind any frame. The traces a running
+snapshot carries (a stale handle's ghost cables, the 0xA5 poison of compaction) have no v7
+form (docs/32: a dangling target is refused at write time, a free span carries no payload),
+so they stay on the v6 face — the projection's damage pins and the v6 reader tests. The page
+loads it **from the image's own arena bytes**
+(`GET /world/scene.bin`, the canonical v7 arena of docs/32 5.4) and reads the arena in the browser (`static/scene/rxf-reader.js`),
 pinned to the Python exporter's client face by `tests/test_reader_js.py`; the JSON scene
 session (`/world/scene.json`, sliced by layer and region) stays the tool and test face beside
 it.

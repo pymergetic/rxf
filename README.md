@@ -132,7 +132,7 @@ it.
 ### The 3D world: the image as an RTS city
 
 The world view draws the checked-in demo world over the same cells the inspector reads. One
-grid law runs the whole city (**jede Zelle gleiche Grundgröße**): every district plots on the
+grid law runs the whole city (**every cell the same base size**): every district plots on the
 same rule — its byte span at the one layout scale, whether its bytes carry cells or not, so an
 empty district is the same plate as a built one — every floor tile is exactly one grid step,
 and every building stands on the same base, its height carrying its mass. Cells are block-stack
@@ -145,10 +145,11 @@ light up **by degree** — the 1st degree in one color, from those the 2nd, from
 and no further. One look answers what talks to this, and to what of that. WASD moves
 camera-relative; the minimap is a real top-down projection of the same document.
 
-The world loads **from the raw image**: the page fetches `/world/scene.bin` — the arena
-verbatim, the same `.rxfb` bytes the inspector reads — and lays the city out in the browser
-with `static/scene/rxf-reader.js`, the real reader of the arena format (header, cells,
-references, the type meta). No export runs on the host's blocking path, and the packing of
+The world loads **from the image's own arena**: the page fetches `/world/scene.bin` — the
+canonical v7 arena (docs/32 5.4), the same bytes the reader and the Python twin parse — and
+lays the city out in the browser
+with `static/scene/rxf-reader.js`, the real reader of the arena format (superblock, slot
+table, records, the interned names and the semantic rows). No export runs on the host's blocking path, and the packing of
 the ducts (the slow pass of a real image — minutes) is deliberately not on this lane at all:
 cables draw their own routes and nothing shares a duct until the JSON face says so. The read
 runs in its own thread (`rxf-reader-worker.js`), so the loading face keeps breathing while
@@ -177,10 +178,12 @@ degree up to the 3rd.
 
 ![The selected cell's datasheet pane open](docs/images/world-datasheet.png)
 
-The scene draws `demo_world.rxfd` plus the traces a running snapshot carries (a stale
-handle's ghost cables, the `0xA5` poison of compaction), exported to the raw `scene.bin` the
+The scene draws `demo_world.rxfd` exported to the canonical `scene.bin` the
 browser reads (the export pinned as a content digest in the tests) — no randomness behind any
-frame. At the extreme angles the
+frame. The traces a running snapshot carries (a stale handle's ghost cables, the `0xA5` poison
+of compaction) have no v7 form — a dangling target is refused at write time, a free span
+carries no payload — so they live on the v6 face: the projection's damage pins and the v6
+reader tests, never the page's arena. At the extreme angles the
 text stays readable: name labels and checksums hold at pitch 90 and pitch 68.
 
 ![Pitch 90 straight down: name labels and checksums stay readable](docs/images/world-proof-topdown.png)

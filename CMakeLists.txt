@@ -33,7 +33,7 @@ target_compile_options(rxf_kinds PRIVATE -Wall -Wextra -Werror)
 set_target_properties(rxf_kinds PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # pymergetic::rxf::core::arena is freestanding: no exceptions, no RTTI, nothing from the standard library.
-add_library(rxf_arena STATIC ${RXF_CORE}/arena/arena.cpp)
+add_library(rxf_arena STATIC ${RXF_CORE}/arena/arena.cpp ${RXF_CORE}/arena/object_arena.cpp)
 target_link_libraries(rxf_arena PUBLIC rxf_ground)
 target_compile_options(rxf_arena PRIVATE -fno-exceptions -fno-rtti -Wall -Wextra -Werror)
 set_target_properties(rxf_arena PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -122,3 +122,11 @@ target_link_libraries(core PRIVATE rxf_tree rxf_hash rxf_live rxf_edit)
 set_target_properties(core PROPERTIES OUTPUT_NAME "__init__")
 
 install(TARGETS core LIBRARY DESTINATION pymergetic/rxftk/core)
+
+# rxfb: the slim reader library (rxfb/, ROADMAP section 2). A target of its own, not part of the
+# wheel: `cmake --build <dir> --target rxfb rxfb_dump`.
+add_subdirectory(rxfb EXCLUDE_FROM_ALL)
+
+# pymergetic.rxfb: the CPython face of that library, one extension over the same C core (L1c). Part
+# of the wheel, next to the engine's own extension.
+add_subdirectory(rxfb/python)

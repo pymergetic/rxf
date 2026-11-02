@@ -57,7 +57,7 @@ five pieces, in this order of dependency:
 | blocking hal call (`mp_hal_delay_ms`) | a park (S4) with a timed edge wake (S9) | docs/20 S11 |
 | `import` / `mp_import_stat` | a lookup of named cells under root | docs/22, §4.6 |
 | coroutine / `uasyncio.Task` | a run cell (S1) whose coroutine frame chain lives in the heap | §4.5 |
-| C call chain | run-cell frame links: `(base, size)` frames carved from the run cell, at most `RXF_GRAPH_CALL_DEPTH` (8) open, their sum within `RXF_GRAPH_CELL_BYTES` (8192); a Python call chain is heap frames (`mp_code_state_t`), not links | docs/20 S6, `native/graph.h` |
+| C call chain | run-cell frame links: `(base, size)` frames carved from the run cell, at most `RXF_GRAPH_CALL_DEPTH` (16) open, their sum within `RXF_GRAPH_CELL_BYTES` (16384); a Python call chain is heap frames (`mp_code_state_t`), not links | docs/20 S6, `native/graph.h` |
 
 The C stack of a carrier is empty at every safe point; the guest's C-graph nesting is the bounded
 link stack of the run cell, and its Python nesting is the heap frame chain. The two do not share a
@@ -156,6 +156,23 @@ caller holds — never through a raw pointer to a caller's value.
 | unrefuses (gate) | a corpus body where the out-param callee is a **call card**, not an inlined body, and its writes land in the caller's slot; then the out-param half of `mp_obj_get_int_maybe` |
 | docs | out cells and imported bodies are named objects (the paths `import_into` fixes); the lift places on them by path. No new contract |
 
+**Status of the local route (2026-10-31).** The gate above has a second half the first slice did not
+draw: a pointer to a LOCAL of the caller's frame handed to a call card. A callee runs in a frame of its
+own and the call copies the bytes of the value it is handed, so the callee used to receive the local's
+*content* where it expected an address (lwIP's `icmp_dest_unreach` sent its ICMP reply to 0.0.0.0, a
+larger reader segfaulted the host runner: a silent wrong word, the same family as the card's pointer
+carrier). Landed in `rximport.lower_card` (`local_cell_argument`) with the **existing operands**: the
+local rides in a cell the caller owns, an Object like a static (`<module>.localcell<i>`, one per
+argument position, 16 bytes); the bytes go in before the call, the callee gets the flat address the
+cell has, they come back after it, and the cell's previous bytes are saved in the frame and put back
+so a re-entering callee finds it as its own activation left it. `tests/import_corpus/localptr.c` pins
+read, write, both, two calls in a row, two locals in one call and three levels of re-entry; every one
+crashed or answered wrong before. What this does NOT cover, and what it needs: two runs of one graph in
+flight at once share the cell as statics do (the SMP policy); the block-per-activation answer is the
+allocation leaf of §4.9, which would replace the cell. A local larger than 16 bytes is refused where
+its slot is made (it used to overflow into the next value of the frame), and the address of a local
+derived by getelementptr (local arrays and structs) stays refused by name.
+
 ### 4.2 i3 — runtime dispatch (function words)
 
 `lower_indirect` already dispatches a call through a function word where the **same import** wires
@@ -206,6 +223,15 @@ Packet path (both directions are the same story reversed):
 | implements | the `net.io` face's body as one card; `mp_hal`-style blocking reads park the run; the boot-wiring card that stores callback words into `netif`/pcb cells (the `obj_port_boot` idiom of `tests/import_corpus/obj.c`, generalized — static initializers carrying addresses are refused relocations, `global_reloc.c`) |
 | unrefuses (gate) | i2 + i3 first; then the corpus gate: `slipif` + `tcpip` core + one socket echo **as imported graphs** on H, with the seat proves of §2 |
 | docs | upstream lwIP comments lift through §4.7's tool (definition comments and free-floating ones, TODOs as `DocKind.Todo`); at `cite` level the citations are the permalinks into the pinned upstream commit |
+
+**Status (slice 1, measured):** lwIP 2.2.0 is vendored and pinned (`third_party/lwip`), the NO_SYS=1 port
+face is `native/lwip/`, and the import lane has been run over IPv4 + UDP + ICMP + `slipif` as far as it
+honestly goes -- 85 of 115 bodies import and compose, 8 are refused with the importer's own reasons
+(two for `llvm.memmove`, four local-array address arithmetics, two out-pointer writes), 22 wait for libc faces, the SLIP line fills or a body of the path that waits.
+Slice 1 first measured 68 / 38, 30 of the refusals for `llvm.bswap`/`umin`/`abs` intrinsics; the
+importer lowers those now (docs/35 §3.1) and every body of the UDP echo path lowers, the path ends
+at the SLIP line. The table, the differentials that run today and the next packages are
+[docs/35](35-LWIP-IMPORT-TABLE.md); `tests/test_lwip_import.py` pins them.
 
 The face is `net.io` **now** and the object world later (net as addressable objects, like
 everything else); that is a rename of the body's owner, not a second face (the platform rule:
@@ -311,6 +337,356 @@ types), and the widths ride what it already states (`literal_size`, the payload 
 | refuses (by name, at import) | what the model cannot decide honestly: a pointer of a module that states no width, two pointer widths in one layout, a width that is neither 4 nor 8, the alignment of a 64-bit scalar under ILP32 (i386 and arm32 disagree — an ABI decision), a relocation slot that is not at a word of its cell or is narrower than the word, a relocation of a C++ runtime symbol (`_ZTV*`/`_ZTI*` and kin), and a declaration without bytes — each with its reason, never a slot silently left wrong |
 | docs | the flip of `global_reloc.c:use_reloc` (the relocation wires now) is in docs/20's flip history; the width policy is pinned in `tests/test_import_width.py`, both models of one source against their own host C builds |
 
+### 4.9 The handle operand and the allocation leaf (machine lane H1, design)
+
+**Status: design, no code.** It is written so that a worker who has not read the transcript that
+produced it can execute it. It waits for the twin lane (the starter pins: step 9 regenerates
+Code objects), and it is the machine half of the question the measurement of section 7 ended on:
+*an object held in a name or a parameter has no cell the graph can resolve* (the largest single
+refusal reason of `extmod/asyncio`, and the reason `rxpy` instances are named cells today).
+
+#### What exists today (measured; read this before believing the premise)
+
+The first draft of this lane said "no operand resolves a handle, and no allocation exists". Reading
+the machine says it is narrower than that:
+
+| piece | state | where |
+|---|---|---|
+| the reference interpreter | **`native/graph.c` is gone** (`a8f1cb5`, "the Seed is the only source of truth"). The interpreter is `native/graph.rxfs` (Seed `fn` dialect), seed-built per machine for x86_64, aarch64 and wasm32; the oracle is the Python `tests/graph_reference.py` (written from the header, it calls the leaves as x86_64 code in an emulator); the host seat is `tests/rxf_native.py` over `tests/host/runner.c`; the python tool simulator is `tests/rxf_sim.py` | `native/graph.rxfs`, `tests/graph_reference.py`, `tests/test_graph.py` ("the interpreter on three machines against a second interpreter") |
+| operand kinds | three: `SLOT` (frame offset), `LITERAL`, `OBJECT` (a constant durable object id; the value is the payload address). `OBJECT` is resolved **at each use** by `m_locate` (a halving search of the sorted entry table `c->objects`), so a cell may move between uses; its generation is not checked | `native/graph.h` `enum rxf_graph_operand`, `native/graph.rxfs` `m_locate`/`m_load`/`m_pointer` |
+| the in-image compiler | resolves `OBJECT` operands **at compile time** and bakes the payload address into the machine code (`m_check`/`m_value_check`); any other kind answers status 6 | `native/compile.rxfs` (x86_64, aarch64, wasm32 backends), `tests/test_compile.py` |
+| handles in slots | **exist**: a handle is three words (id, generation, offset) in a 24-byte slot; the leaves take it by value (shape letter `H`: `runtime_resolve`, `read`, `write`, `append`, `pin`, `unpin`, `borrow`, `release_borrow`, `allocate_prepare`, ...); a call card passes it as its three words; a callee returns it in a wide out slot | `native/graph.rxfs` `m_call_leaf` (`cl_ish`), `native/runtime/runtime.rxfs` |
+| using a held handle as an address | only through the leaf `runtime_resolve(handle, n) -> address`, which writes a **raw address into a slot** for the next instruction to use. Legal on a single carrier with no compaction; forbidden by S7 under the SMP policy (docs/20: a step is one instruction, the end of a step is a safe point, "after a safe point, resolve again") | `runtime_resolve` |
+| allocation | `runtime_allocate_prepare` exists (leaf 9) and is **transactional and caller-named**: it needs an `rxf_transaction` (`runtime_begin_private`), a caller-chosen `id` that is an already reserved free row (state 0) of the sorted entry table (`UNBOUND` otherwise), and bumps `heap_frontier` inside `heap_limit`; the row becomes PENDING until `runtime_publish`. There is no id source, no pool, no single-step form | `native/runtime/runtime.rxfs` `runtime_allocate_prepare` |
+| release | `rxf_runtime_release` exists as a C-ABI function but **is not a leaf** (leaf ids stop at 49); it clears the row and returns no memory | `native/stdlib_runtime.h`, `native/graph.h` |
+| pins and compaction | `pin`/`unpin` are leaves 14/15 (`pin_count` of the row); the sliding pass of docs/20 S8 and docs/17 (decision 7: compaction, not free lists) skips pinned cells. The host runner has **no heap at all** (`runner.c` sets no `heap_*`, so `allocate_prepare` refuses there); `tests/graph_world.py` cases do carry a context with heap and journal | `tests/host/runner.c`, `tests/graph_world.py` |
+| two physical models of "an object" | the **runtime context** (`rxf_runtime_context`, 144 bytes, ABI 2: sorted 80-byte entries id/generation/type/payload/size/capacity/state/borrows/pins/owner) that `graph.rxfs`, `runtime.rxfs`, `compile.rxfs` and the host runner use; and the **v7 slot table** (docs/32 4) that `boot/image_stub/entry.c`'s mini interpreter (MOVE, RETURN, REFUSE, CALL of shape 6 only) and the live engine use. This design is written against the first; the second is named in section "Open" | |
+| the machine budget (measured 2026-10-31, after the expansion of this lane) | the run cell is **16384 bytes** (`RXF_GRAPH_CELL_BYTES`) and a call chain at most **16 links** (`RXF_GRAPH_CALL_DEPTH`), each link 88 bytes (11 words, `rxf_call_frame`), each frame variable-length and at most the cell itself. The budget is parameterized inside the language (`m_cell_bytes`, `m_call_depth`, `m_link_bytes`, `m_frames_bytes` of `native/graph.rxfs`) and as the `RXF_*` numbers `native/graph.h` compiles with; `tests/graph_programs.py` pins the two together by the refusals it provokes (a 16400-byte frame and a chain past 16384 bytes answer `RXF_REFUSE_CELL_BUDGET`, sixteen links answer `RXF_REFUSE_CALL_DEPTH`, and 16080 bytes of chain run). The boot carrier gives its guest one **16 KiB frame** at `RXF_BOOT_FRAME` (`0x8800`/`0x4000`), a 2 KiB FIFO at `0xC800` and an 8 KiB entry cell at `RXF_BOOT_ENTRY` (`0xD000`/`0x2000`) | `native/graph.h`, `native/graph.rxfs`, `boot/image_stub/world_v7.h`, `tests/graph_programs.py` |
+
+So the minimum that makes `Foo(...)`, `self.f` with `self` a parameter, and a node holding another
+node's handle lowerable **under S7** is two things, and only two: an operand that resolves a held
+handle *inside the instruction that uses it*, and a single-step allocation (plus its inverse) that
+needs no transaction and no caller-chosen id. A strand that is content with the single-carrier,
+no-compaction reading of S7 could lower dynamic objects today as `runtime_resolve` + `memory_copy`
+with no machine change; this lane exists because the policy of the project is the SMP one.
+
+#### Step 0, run: what the tree said (2026-10-31, the machine lane's worker)
+
+The premises were checked against the tree before any code. Seven needed a correction and one is
+confirmed (the last item); the corrections replace the sentences of this section they touch (the
+sections that follow are already written with them).
+
+1. **`runtime_release` is not a new Function.** `fn runtime_release(c, h_id, h_gen, h_off)` is
+   already in `native/runtime/runtime.rxfs`, with a row in `seed_build.SOURCES` (`!pH`), the letters
+   `pH` in `tests/scenario.py` `SPEC`, a place in `native_build.RUNTIME`, a Function
+   `foundation.runtime.release` in the starter, and steps in the scenario that prove it on three
+   machines. It already does what the design asks of the leaf (the refusals 10/11/12/13, the row
+   back to state 0 with `payload`, `size` and `capacity` cleared and the generation kept). Leaf 51
+   is therefore **the id of the function that exists**: step 4 adds one fn (`runtime_allocate`),
+   not two, and there is no `runtime_release_leaf`.
+2. **`tests/rxf_sim.py` is not an interpreter of contexts.** It runs flat memory with the numeric
+   and the memory leaves; it has no entry table, no runtime leaf and no generation. "Learns kind 3
+   and the leaves 50/51" reads as: it **refuses** a HANDLE operand by name with
+   `RXF_REFUSE_UNSUPPORTED` (16, the answer the compilers give) instead of reading it as a slot,
+   which an unknown kind did before. The simulator of runtime leaves is the host seat
+   (`tests/host/runner.c`), which gains the heap, the pool and the slide below.
+3. **A leaf the header names must not break an image that does not wire it yet.**
+   `tools/native/link.py` (`_leaf`) and `tools/native/wasm_table.py` answer an error for any leaf
+   of `graph.h` that the image's `graph.run` has no `Leaf` reference for. With ids 50 and 51 in the
+   header and the starter regenerated last (step 9), that would break every seat that links the
+   starter in between -- the boot smoke, the live engine's twin, the wasm32 table. The rule that
+   lasts: **an image's slot table (and its wasm32 table) lists the leaves its `graph.run` wires**;
+   an image may wire fewer leaves than the header names (a seat that runs no dynamic guest needs
+   no allocator). After step 9 the two lists are equal and nothing changes.
+4. **The tests that hard-code the leaf count are step 9's, not step 4's.** `tests/test_compose.py`
+   (`range(1, 50)`, "the leaves of the interpreter are the ids of its header"), `tests/test_rxfb.py`
+   (`len(codes) == 49`), `tests/test_rxfb_rust.py` (`SLOTS = 1..49`, "0 and 50 are not leaves") and
+   `tests/test_graph.py` ("the runs reach every leaf") read the **starter**; they move when the
+   starter gains the Functions that wire 50 and 51.
+5. **`b` of a HANDLE operand in a composed program is `RXF_GRAPH_NONE`.** The marker type
+   (`ObjectHandle`) is untyped as to what it points at, so the composer cannot know the width an
+   operand denotes where it resolves; the readers that consult `b` take `min(width, b)`, which is
+   `width`, and every reader bounds the access by the row's size anyway. A hand-written program
+   may name a smaller `b` (MOVE then copies no more than that).
+6. **"A call-card argument that is a handle" is decided by the callee's parameter width**: the
+   run-entry shape says a handle is three words, so a parameter 24 bytes wide is in a handle
+   position and a HANDLE operand there answers 6; a scalar parameter reads **through** the handle
+   (the callee gets the word the field holds).
+7. **The allocator cell has four words and the leaf writes one of them.** `pool_first_id`,
+   `pool_count`, `next_id` (the scan starts here and wraps once; the leaf writes `id + 1`), and
+   `generation`, reserved for the growth of docs/17 phase 2 -- the leaf neither reads nor writes
+   it. The numbers are in `graph.h` (`RXF_ALLOCATOR_*`).
+8. **Verified as written:** capability id 3 is unused (`graph.h` lists 1 and 2; `link.py` binds
+   those two; the starter has no `RXF_CAPABILITY_*`); a seat context already reserves free
+   rows (`link.py` `SPARE`, ids 1..8, state 0 -- the pool of a seat can start there); the host
+   runner and `graph_world` build their own tables, so they gain the pool and the capability
+   themselves; the boot mini interpreter (`boot/image_stub/entry.c`) already answers
+   `REFUSE_RANGE` for every operand kind it does not know, which is what the pin of step 8 states.
+
+#### The operand (what the lane builds first)
+
+`RXF_OPERAND_HANDLE = 3`. An operand is three words `(kind, a, b)` as before:
+
+| word | meaning for `HANDLE` |
+|---|---|
+| `a` | the byte offset **in the frame** of a 24-byte handle (id, generation, offset), exactly like a `SLOT`'s offset; must satisfy `in_frame(a, 24)`, else status 6 |
+| `b` | the width the operand denotes at the address it resolves to (the role `OBJECT`'s `b` has: `MOVE` copies `min(width, b)` bytes of it) |
+
+It is resolved by the **one** function every reader of the format already shares, `m_locate`, so
+`MOVE`, `FIELD`, `CONSTRUCT` sources, `LESS`, the pointer parameters of a leaf call and the
+`m_load` of a pointer argument all gain it at once:
+
+```
+locate(HANDLE a b, need):
+    h = frame[a .. a+24)                         # (id, gen, off); a refusal here is status 6
+    e = entry(c, h.id)                           # the same halving search as OBJECT
+    e == 0                       -> 13 UNBOUND
+    e.generation != h.gen        -> 12 STALE_GENERATION     # never rebinds to a reused row
+    e.state != LIVE(1)           -> 13 UNBOUND              # a PENDING row is not readable here
+    h.off > e.size               -> 6
+    need > e.size - h.off        -> 6
+    where = e.payload + h.off
+load(HANDLE)   = where             # as OBJECT: the payload address (for a pointer parameter)
+```
+
+Rules the readers enforce, each one a pin of step 2:
+
+1. **Resolve at use, never cache.** The halving search runs for every use of the operand. Nothing
+   writes the resolved address into a slot: an operand that must become a *value* in a slot is
+   moved with `MOVE` (the bytes), never its address. The only place an address exists is the
+   operand of the **same** instruction (a pointer parameter of `memory_copy`, a `FIELD` source).
+2. **Handle position refuses.** A leaf parameter that is a handle (shape letter `H`, `cl_ish` in
+   `m_call_leaf`) and a call-card argument that is a handle take the three **words** of a slot or of
+   an `OBJECT` payload. A `HANDLE`-kind operand in those positions would be a dereference where a
+   value is meant: the interpreter answers status 6, and the composer never emits it (see below).
+3. **No `HANDLE` destination.** Destinations are slots; the format has no write-through-operand.
+   A field is written with `memory_copy` whose pointer parameter is a `HANDLE` operand (the same
+   `store` idiom `rxpy` uses on flat memory), a field is read with `FIELD` from a `HANDLE` source.
+4. **The compiler refuses, explicitly.** `compile.rxfs` bakes `OBJECT` addresses at compile time,
+   which a handle in a slot cannot be. `m_check`/`m_value_check` answer `RXF_REFUSE_UNSUPPORTED`
+   (16, "left to the interpreter") for kind 3 instead of the accidental 6 of an unknown kind. The
+   three machine backends gain **nothing** in H1; a later lane may emit the entry search inline.
+5. **The boot mini interpreter is unchanged.** `boot/image_stub/entry.c` refuses every operand
+   kind it does not know with `OUT_OF_RANGE` already; a pin makes that a stated contract.
+
+How a graph says "dereference" (the marker). The semantic graph has per-input type references
+(`InputType`, written by `rxemit._operation`, ignored by `compose.py`). The marker is **an input
+whose `InputType` is `pymergetic.rxf.stdlib.types.ObjectHandle`** (a 24-byte type the starter must
+gain: today only `FixedArrayU8Of16` exists, which is why `rxpy`'s out handles are two words, identity
+and offset, the generation being the cell's own). The composer rule, identical in `tools/native/
+compose.py` and in the in-image composer `native/compose/*.rxfs`: a value of type `ObjectHandle`
+that is an input of a leaf in a **non-handle** position, or the source of a `FIELD`, is emitted as
+`HANDLE`; in a handle position or as a call-card argument it stays a `SLOT`. No core enumeration
+changes (no new `ValueKind`, no new `RefKind`), which keeps `core/**` out of the lane.
+
+#### Composition with S7 and S8
+
+* **S7.** The claim of a resolve is the claim of the instruction: in the context model there is no
+  claim word (one carrier); in the SMP product (`tests/host/smp_*.c`, docs/20) the interpreter takes
+  the claim of the entry for the duration of one instruction and releases it before the instruction
+  ends. The invariant list the proof reads: no address in a slot after an instruction; a frame holds
+  identities, never addresses (`m_rebind` already rebinds the program words of every live frame
+  after a safe point, so a handle in a frame needs nothing more); a stale generation is refused,
+  never rebound.
+* **S8 (the sliding pass).** A slide changes `e.payload` of the rows it moves and nothing else a
+  graph can see; because a `HANDLE` operand reads `e.payload` at each use, a program that holds a
+  handle across any number of safe points keeps working, and one that holds only the handle survives
+  a slide **between two instructions of one run** (the mid-flight case of S8). A pinned row
+  (`pin_count > 0`) is skipped by the pass: the pbuf case of decision 4 allocates with the pin flag
+  below and releases it explicitly. Compiled code is the exception that proves the rule: it bakes
+  `OBJECT` addresses, which is why H1 keeps `HANDLE` out of the compilers.
+* **What the handle operand does not do.** It is not an `Object` reference in the image (no new
+  object kind): a handle is a run-time value of a frame. Cross-run persistence of a handle is the
+  `REFERENCE` field of docs/17 (export turns it into a path), unchanged.
+
+#### The allocation leaf
+
+Two leaves, both with **shapes the machine already has** (so `shape_of`, `m_shape_of`, the plan of
+`compile.rxfs` and the Seed's shaped calls grow nothing):
+
+| leaf | id | shape | parameters after the context | answers |
+|---|---|---|---|---|
+| `runtime_allocate` | 50 | `QQQQQPO` (`call_pqqqqqpp`, the shape of `allocate_prepare`) | `type_id`, `initial_size`, `capacity`, `align`, `flags`, a pointer that must be 0 (the slot the transaction occupies in `allocate_prepare`), out: the 24-byte handle | status 0 and the handle |
+| `runtime_release` | 51 | `H` (`call_pH`, the shape of `pin`) | the handle | status 0 |
+
+`runtime_allocate` is `allocate_prepare` + `publish` in one step on a row the leaf picks itself:
+
+1. checks as `allocate_prepare`: valid context (6 on a bad ABI), `type_id != 0`, `initial_size <=
+   capacity`, `align` a non-zero power of two (all 6), `flags` has no bit above bit 0 (6; bit 0 is
+   *pin*), the pointer parameter is 0 (6);
+2. the **allocator state** is a cell (the `AllocatorState` of docs/17 phase 2: `pool_first_id`,
+   `pool_count`, `next_id`, `generation`, all words), reached through a **capability**
+   `RXF_CAPABILITY_ALLOCATOR = 3` of the context's capability table (ids 1 channel and 2 uart are
+   taken). The context struct is untouched: **no ABI 3** (the object of docs/17 decision 8, which stays
+   open for growth, and of the twin lane's pins). No such capability bound -> status 13 UNBOUND;
+3. the id is the first row of the pool `[pool_first_id, pool_first_id + pool_count)` with state 0,
+   scanning from `next_id` and wrapping once; the pool rows exist in the sorted table and are
+   reserved free by the context builder; none free -> 9 OUT_OF_MEMORY;
+4. the payload is carved from the same bump region `allocate_prepare` uses: `p =
+   align_up(heap_frontier, align)`, `capacity <= heap_limit - p` else 9 (the checks and the order
+   of `allocate_prepare`, including `p < heap_frontier` for the wrap); `heap_frontier = p +
+   capacity`; **the payload is zero-filled for `capacity` bytes** (a Python object's fields are
+   deterministic words on every machine; `allocate_prepare` does not zero, the leaf must);
+5. the row becomes `generation + 1`, `type_id`, `payload = heap_base + p`, `size = initial_size`,
+   `capacity`, state **LIVE (1)** (no journal row, no PENDING window), `pin_count = flags & 1`;
+6. `*out = (id, row.generation, 0)`; `next_id = id + 1`.
+
+`runtime_release` is `rxf_runtime_release` made a leaf with the same refusals (`BORROW_CONFLICT`
+10 while borrowed, `PINNED` 11 while pinned, `STALE_GENERATION` 12, `UNBOUND` 13) and one more
+effect: the row returns to the pool (state 0, `payload`/`size`/`capacity` cleared, `generation`
+kept so the next allocation bumps it and a stale handle is refused with 12). **No memory is returned
+by a release**: "compaction, not free lists" (docs/17 decision 7) means the sliding pass reclaims
+the dead payload; `heap_frontier` only moves down when the pass runs. A guest that wants to free a
+pbuf unpins it first (`runtime_unpin`, leaf 15), then releases it.
+
+`allocate_prepare`/`publish`/`rollback` are **unchanged and stay the transactional writers' API**
+(the live engine's write side): the lane must prove their pins byte-identical.
+
+#### Prove matrix (what "done" is)
+
+| layer | what runs | where | oracle |
+|---|---|---|---|
+| operand semantics | every rule above as a table of hand-built programs: ok, stale generation (12), unbound id (13), PENDING row (13), offset or width past the size (6), handle slot outside the frame (6), `HANDLE` in a handle position (6), `FIELD`/`MOVE`/pointer-parameter sources; a handle of a reused row after release | new `tests/test_graph_handle.py` through `tests/graph_world.py` cases | `tests/graph_reference.py` (written first, red first), then `rxf_graph_run` as x86_64 and aarch64 in the emulator and as wasm32 in node: status, out and the whole memory equal, the table of `tests/test_graph.py` |
+| S8 mid-flight | a program that holds a handle, calls the safe-point leaf (a pump that slides one registered cell and rewrites its row), and goes on reading and writing through the handle | `tests/host/runner.c` gains a slide mode of its pump; the oracle's pump hook does the same move | host seat vs oracle byte for byte (the other machines run the non-sliding matrix: their pump is the seed's) |
+| allocation | allocate -> write -> read -> release -> allocate again (generation +1, the old handle refused 12); exhaustion of the pool (9) and of the heap (9); pin flag (release refused 11 until `unpin`); alignment; zero fill; ids deterministic; `allocate_prepare` pins unchanged | new `tests/test_runtime_allocate.py` over `tests/graph_world.py` (heap, journal and pool rows added to its context) | the oracle plus equality of the whole memory across the three machines |
+| the compiler | a program holding a `HANDLE` operand: `compile.program` answers 16 on all three machines and the interpreter runs the same program to the same answer | `tests/test_compile.py` (new cases) | interpreter on the same machine |
+| composer parity | the `InputType` marker: `ObjectHandle` in a non-handle position composes to kind 3, in a handle position it stays a `SLOT` (kind 0); the in-image composer reads and writes the same words | `tests/test_compose.py`, `tests/test_compose_corpus.py`, `tests/test_compose_image.py` (new cases) | `tools/native/compose.py` |
+| the strand (a later lane, same prove) | dynamic instances, objects as arguments, a linked node, `self` a parameter: differential against a real MicroPython | `tests/test_rxpy_dynamic.py` | MicroPython (decision 10) |
+| seats (all-platforms) | the interpreter is seat code of the three machines (x86_64, aarch64, wasm32 -- the `unix`/`emcc`/`firmware` rows of the platform rule run no graph of their own); the boot smoke (`boot/run_smoke.sh`, four seats) must stay green and `entry.c` refuses kind 3 with `OUT_OF_RANGE` (a pin) | `tests/test_graph.py`, `boot/run_smoke.sh` | |
+
+#### The files, in order
+
+0. **Verify the premises** (an hour, no edit): that `RXF_CAPABILITY_ALLOCATOR` 3 is unused
+   (`native/graph.h` lists 1 and 2; grep the starter's `capabilities.rxfd`), that the sorted entry
+   table of a seat context can carry reserved free rows (`tools/native/link.py` builds it; the
+   host runner and `graph_world` build their own), and that the pins named in step 9 are the
+   only ones the new leaf ids move.
+1. `native/graph.h`: `RXF_OPERAND_HANDLE = 3`; `RXF_LEAF_RUNTIME_ALLOCATE = 50`,
+   `RXF_LEAF_RUNTIME_RELEASE = 51`; `shape_of` maps 50 to `RXF_SHAPE_QQQQQPO` and 51 to
+   `RXF_SHAPE_H`; `RXF_CAPABILITY_ALLOCATOR 3ULL` with the layout of the allocator-state cell;
+   the comment block that documents operands and refusals. (`tools/native/graph_header.py` reads
+   the numbers; the Seed knows `graph.h`'s constants already, no table to sync.)
+2. **Red tests first**: `tests/graph_reference.py` and `tests/rxf_sim.py` learn kind 3 and the
+   leaves 50/51 (their leaf tables), then `tests/test_graph_handle.py` and
+   `tests/test_runtime_allocate.py` are written against the oracle and fail against the interpreter.
+3. `native/graph.rxfs`: `m_locate` (kind 3, the pseudo-code above), `m_load` (kind 3 like kind 2),
+   `m_shape_of` (50 -> 5, 51 -> 8), `m_call_leaf` (a kind 3 operand in a handle position -> 6).
+   `m_move`, `m_store` and `m_pointer` need no edit: they all go through `m_locate`/`m_load`.
+4. `native/runtime/runtime.rxfs`: `fn runtime_allocate(c, type_id, initial_size, capacity, align,
+   flags, zero, out)` and `fn runtime_release_leaf(c, h_id, h_gen, h_off)` reusing the macros
+   `rt_ctx`, `rt_entry`, `rt_access_plain`; `tools/native/seed_build.py` (the `SOURCES` row and
+   `LEAF_LETTERS`: `"pqqqqqpp"` and `"pH"`) and `tests/scenario.py` (`SPEC` letters).
+   `tools/native/link.py` takes the function slots from `graph_header.leaves()` (count 49 -> 51), so
+   `tests/test_rxfb.py` / `test_rxfb_*` (which pin "function slots 1..49" and compare the walk to
+   the engine) move with it.
+5. The writers of the format: `tools/native/compose.py` (the `InputType` marker -> kind 3; `Operand`
+   gains the kind) and its twin in `native/compose/*.rxfs` (byte-identical parity is a test);
+   `tools/native/rxemit.py` only gains the constant `OBJECT_HANDLE` of the type path (additive,
+   separate commit, as every rxemit edit); the decoders `tools/native/rxfgraph.py`, `tools/native/
+   rxfc.py` and the inspector's graph views learn to print kind 3.
+6. `native/compile.rxfs`: `m_check` and `m_value_check` answer 16 for kind 3 (and a pin in
+   `tests/test_compile.py`). `native/tiny/*.rxfs` (the other compiler) takes the same constant
+   through its `words.rxfs` and refuses the same way.
+7. The contexts that run programs: `tests/host/runner.c` (a heap region, pool rows, the allocator
+   capability and the slide-mode pump), `tests/graph_world.py` (pool rows and the capability in
+   its context), and, for the seats that will run dynamic guests, `tools/native/link.py` /
+   `tools/native/boot_image.py` (reserve the pool rows and bind the capability; a seat that does
+   not run such guests binds none and the leaf answers 13).
+8. `boot/image_stub/entry.c`: no code change; a test pins that kind 3 answers `OUT_OF_RANGE`.
+9. **The starter and its pins**, only after the twin lane has landed: a Foundation Function for
+   each of the leaves 50 and 51 and the `ObjectHandle` type in `starter/pymergetic/rxf/stdlib/
+   types.rxfd`, then `tools/native/boot_sync.py`, `tools/native/live_sync.py`,
+   `tools/native/graph_sync.py`/`blob_sync.py` in the order `tools/native/sync.py` runs them, and
+   `tests/test_boot_codes.py`'s pins in the **same commit** (the pattern of `31fb454`). `graph.run`'s
+   Code changes (the interpreter is a Code object of the starter), so every `body_entry_*` pin and
+   the receipt digest move: that is why this step is last and why it waits.
+10. Docs: docs/20 S6/S7 (the operand as policy: no address survives an instruction), docs/18 (the new
+    leaves in the snippet list), and this section's table in section 7 flips from *design* to
+    *landed*.
+
+Commit shape: one commit per numbered step from 1 to 8 with its prove numbers (a red test commit
+is allowed to precede its green partner only on a branch that is not merged), step 9 alone.
+
+#### Step 10: the value words — the None word (landed 2026-10-31)
+
+The word model (`native/graph.h`) has a value for `None` that is not `int 0`, so `is` / `is not`
+None is a readable word test and `= None` defaults and `None`-as-value work (the `ph_meld`,
+`ph_pairing`, `run_until_complete` and `open_connection` rows of the census below). The shape is
+a reserved word in the frame-word space, with the int range declared around it:
+
+* an **int word** is a word whose bits 63 and 62 are the same -- the sign-extended 63-bit word.
+  The int range the data model exposes is `[-2^62, 2^62 - 1]`, exactly where a MicroPython small
+  int of a 64-bit port is the same number as the word (section 6, decision 10: MicroPython is
+  the reference).
+* **`RXF_WORD_NONE` is `0x4000000000000000`** (bit 62 set and no other): the first word above
+  the int range. None is a **singleton** -- `is` / `is not` lower to word equality with it -- and
+  no int word equals it, so the read is exact for every value in the range. It is not the word of
+  `int 0` (the wall the census hit) and it is not `1 << 63`: that word is what a signed compare
+  lowers through (the bias add of `rxpy.py`) and it stays out of the value faces.
+* the words the int range does not take and None does not name are **wrap words** -- what a wrap
+  leaves where MicroPython answers a bignum (section 6's one-sided pins). They are raw words to
+  the numeric leaves and no Python value.
+
+An **absent argument binds the None word**. The run entry (`rxf_graph_run`'s argc, the shape
+run-entry ARGS takes) fills every word of the parameters the arguments do not reach with
+`RXF_WORD_NONE`, so a `= None` default folds to the very word a caller passes explicitly and a
+callee cannot tell the two apart (which is what Python means). A parameter whose width is not a
+whole number of words is refused `OUT_OF_RANGE` where its argument is absent: the None word is a
+frame word and is never cut. A **call card is never short** -- its operand count is program text,
+and a count that is not the callee's parameter count is refused 6 -- so a lowerer that stages a
+default stages the None word as the literal it is.
+
+Wired on every seat in one change (the module/Python/C face is `native/graph.h`, one header):
+
+* the interpreter (`native/graph.rxfs`, its one defining source) on host C
+  (`tests/host/runner.c`), x86_64 and aarch64 (the emulators of `tests/graph_world.py`) and
+  wasm32 in node: `tests/graph_programs.py`'s `none is none`, `none is not int 0`,
+  `none default`, `none default passed` and `none value` run on all of them against the Python
+  oracle (`tests/graph_reference.py`, which binds the same words).
+* the boot entry (`boot/image_stub/entry.c`, the subset run the four boot images share): a seat
+  answers the None word for the parameter its one argument word does not reach
+  (`tests/test_boot_words.py`, the wasm32 seat under node -- the entry is shared, so the other
+  seats compile the same code; `tests/test_boot_handle.py` holds the `RXFOK` control).
+* the sims the suites run (`tests/rxf_sim.py`, `tests/rxf_native.py`) take the same rule.
+* the compiler's emitted entry stub (`native/compile.rxfs`, the `m_be_param_x`/`_a`/`_w` of its
+  three backends): each parameter word is the argument word where `argc` reaches it and the
+  None word else -- one branchless select per word (`cmovbe`, `csel`, `select`), and a
+  parameter of a width that is not whole words is given whole or refuses 6 where the prologue
+  refuses an `argc` above the words. `tests/test_compile_cases.py`'s `none default` case is the
+  prove: the same case runs on the interpreter and on the compiled code and both answer the
+  None word.
+
+The machine face is the word and the equality that reads it; the lowering is the strand's
+(`tools/native/rxpy.py` owns `int_face` and the call sites): a default is staged as the
+`RXF_WORD_NONE` literal and `is None` is `equal_uint64_t` against it. No opcode and no leaf was
+added: a program that can compare words can read None.
+
+#### After the machine lane (the strand's half, not part of it)
+
+`rxpy` stops monomorphizing methods per instance: `self` becomes a `Parameter` of type `ObjectHandle`
+and the method is compiled **once per class**; `Foo(args)` becomes `runtime_allocate` + the field
+stores; an object passed to a function is a three-word argument; a node holding another node is a
+24-byte field copied with `memory_copy`. `None` is the word of step 10 (`RXF_WORD_NONE` of
+`native/graph.h`): a value slot of any type reads it and `x is None` is an equality with the word,
+so no type tracking is needed to tell it from `int 0` (the zero-handle plan this paragraph used to
+carry is gone with it). A handle that is None is not dereferenceable -- every word of it is the
+None word and no row has that id, so a resolve answers `UNBOUND`, the same honest refusal the zero
+handle had. Inheritance and
+`isinstance` are i3 function words over a type id in the object's row (`type_id` is already a row
+field): a separate lane.
+
+#### Open (named, not decided here)
+
+* **The v7 slot table.** The handle operand is specified against the context's entry table. The boot
+  seats resolve through the v7 slot table (`entry.c`'s `bind`: index/generation packed in word 0).
+  A seat that runs this operand on the superblock directly needs the same rules with the slot
+  index and generation of docs/32 4; the mini interpreter refuses kind 3 until then.
+* **Growth of the heap** (docs/17 decision 8): the leaf bumps `heap_frontier` inside `heap_limit`
+  as `allocate_prepare` does; dynamic growth stays the ABI 3 question and needs no change here.
+* **Claims in the SMP product**: the interpreter of `tests/host/smp_*.c` models claims, the
+  context-model interpreter has none; the instruction-scoped claim above is the contract the SMP
+  seat must satisfy when it runs graphs.
+
 ## 5. Provenance: both import strands
 
 One machinery, one knob per import run, two entrances (docs/22 extends verbatim; only the
@@ -350,7 +726,7 @@ records each.** The items below stand as the risk statement that prompted them.
    word (32- vs 64-bit) is the one open piece" — `rximport.py`). Most MicroPython ports run
    32-bit `mp_int_t`. Until this is decided, the breadth claim is x86-64/wasm32-shaped.
 2. **The lowerers' frame budget is not flipped.** The run's variable-length frames landed
-   (`RXF_GRAPH_CELL_BYTES` 8192), but `RXF_GRAPH_FRAME` (1024) still refuses at import:
+   (`RXF_GRAPH_CELL_BYTES` 16384), but `RXF_GRAPH_FRAME` (1024) still refuses at import:
    `qstr_from_strn` is 1608 frame bytes and stays refused ("needs a frame"), and qstr interning
    is on every builtin's path. `native/graph.h` names the flip "the importer lane's follow-up" —
    breadth is blocked on it.
@@ -367,7 +743,7 @@ records each.** The items below stand as the risk statement that prompted them.
    ("a relocation it cannot know", `global_reloc.c`); the `obj_port_boot` boot-wiring idiom must
    be generalized (a boot card per subsystem) or the card has no dispatch words to find.
 6. **Recursion and call depth.** `calls.c` `ping`/`pong` still refuse as "recursion" although
-   call cards land cross-file (`qstr_str` is a call card), and `RXF_GRAPH_CALL_DEPTH` is 8 links
+   call cards land cross-file (`qstr_str` is a call card), and `RXF_GRAPH_CALL_DEPTH` is 16 links
    with `RXF_REFUSE_CALL_DEPTH` past it. C builtins that recurse (repr of nested structures,
    nested packages) need either graph-call recursion or a heap-frame story at the C level too.
    Note: the header's "next steps" list still names "graph calls" as missing — the tests say call
@@ -408,7 +784,7 @@ All fourteen are decided; two were answered by work that landed in the meantime.
    both first-class; the importer's operand policy carries the width. No deferral — the
    breadth claim stops being x86-64/wasm32-shaped when the lanes land.
 2. **Frame budget — resolved by landed work.** Frames measure against `RXF_GRAPH_CELL_BYTES`
-   (8192); `qstr_from_strn` (1608 B) is its own program and no longer refused for a frame.
+   (16384, expanded 2026-10-31); `qstr_from_strn` (1608 B) is its own program and no longer refused for a frame.
 3. **Wiring universe — decided: a link fact.** `function_wiring` survives import runs as
    objects; a boot and its bodies may be separate imports, so the per-module provenance knob
    stays clean.
@@ -418,7 +794,7 @@ All fourteen are decided; two were answered by work that landed in the meantime.
    `rximport.py` for structs of callbacks; the `obj_port_boot` idiom remains the fallback
    shape, not the only door.
 6. **Recursion — decided: one frame model.** C recursion uses heap frames like Python calls
-   (no depth-8 ceiling for it); the budgets stay honest (`RXF_GRAPH_CELL_BYTES`, the cell
+   (no frame-link ceiling for it); the budgets stay honest (`RXF_GRAPH_CELL_BYTES`, the cell
    budget) and a refused chain is still a budget refusal, never a stack overflow.
 7. **uasyncio semantics — decided: model everything.** The run model unifies threads and
    async (S11 is no-GIL): `run_in_executor` spawns a run cell — no OS threads, no second
@@ -442,3 +818,234 @@ All fourteen are decided; two were answered by work that landed in the meantime.
     (2026-10-15); the "slices 4-5"/"slice 1" wording is retired there.
 14. **docs/19 — resolved by landed work.** `docs/19-SELF-EDITING-PATH.md` is in the tree
     (verified 2026-10-15; its links resolve).
+
+## 7. Measured status of the pieces (2026-10-31)
+
+The design above was written before several lanes landed. This section is a **measurement**, not
+a plan: for every piece of docs/23, whether code exists, where, which test proves it, and the gap.
+It supersedes the prose of the status block and §5 ("`rximport.py` has neither the knob nor the
+debug-info parse") where they disagree: the `--provenance` knob, the Python strand and the shared
+emitter exist (below); the debug-info citation does not.
+
+| piece | exists? | where | proven by | gap |
+|---|---|---|---|---|
+| (a) lwIP card, SLIP/netif bridge | in flight (another worker; not measured here) | `third_party/lwip`, `native/lwip`, `tools/native/lwip_import.py` (uncommitted) | — | everything past the vendored import |
+| i2 out cells | **landed** | `rximport.py` `lower()`, `native/graph.h` | `tests/test_import.py` (`test_the_out_param_callee_is_a_call_card`) | — |
+| i3 runtime dispatch | **landed** | `rximport.py` `lower_indirect`/`function_wiring`, `native/graph.c` | `tests/test_import.py` (`test_the_unary_slot_dispatch_routes_to_the_type_body`) | — |
+| MicroPython seam model (S11) | **landed** (a model, not MicroPython) | `tests/host/smp_mpmodel.c`, docs/20 S11 | `tests/test_smp.py` (10 passed) | the real interpreter does not run on the image yet |
+| value width (decision 1) | **landed** | `rxemit.DataModel`, `rximport.module_model` | `tests/test_import_width.py` | — |
+| shared emitter (decision 9) | **landed** (extracted) | `tools/native/rxemit.py` (`emit_delta`; `rximport` and `rxpy` both call it) | `tests/test_import.py`, `tests/test_rxpy.py` | — |
+| Python-import strand (4.3) | **landed, a subset** | `tools/native/rxpy.py` (`import_py_file(image, source, module, known=, provenance=)`; ints, `if`/`while`/`break`/`continue`, calls with default parameters and keyword arguments, tuple returns as out cells, procedures (a def that answers None), module cells, tables (tuple / list / bytes data cells), imports of modules of the image, simple classes as named instance cells) | `tests/test_rxpy.py`: 2253 passed (both MicroPython seats, 1076 in-domain differential pins and the one-sided out-of-domain pins per seat, 91 shape/refusal pins); `tests/test_rxpy_imports.py` 202; `tests/test_rxpy_objects.py` 43; `tests/test_rxpy_subset.py` 255 | no `try`, `raise`, `for`, generators, `async`/`await`, strings, floats, `None` as a value, slices, dict/set; an instance is a named cell only (nothing made at run time, no object in a name or a parameter) — see the census below |
+| imports as a lookup of named cells (4.6, compile side) | **landed (2026-10-31)** | `rxpy.Resolver` (reads `Image.resolve_module`, the children of a `Module` cell, a Function's Signature), `bind_import`, `nest` (dotted modules as nested Modules, `rxf:parent` onto an existing package), `rxemit.LValue.foreign` | `tests/test_rxpy_imports.py` (202 passed on both MicroPython seats: the reference IMPORTS the corpus `tests/rxpy_corpus/imports` with its own machinery, packages and relative imports included; 18 named refusals) | a cell no def reads or writes is not in the image, so it cannot be imported (the emitter writes cells from their uses); the guest side is the next row |
+| simple classes (1, 4.3) | **landed (2026-10-31)** | `rxpy.declare_class`/`declare_instance`: `NAME = C(constants)` is one named cell of the fields' words, a method is a graph per instance over that cell | `tests/test_rxpy_objects.py` (43 passed on both seats: three call streams incl. methods called directly as `m.a.bump`, layout, 30 named refusals) | no run-time construction and no object held in a name or a parameter: the graph machine's one cell operand (`OBJECT`) names a cell by a constant id, no operand resolves a handle held in a slot (docs/23 4.1 "resolve at use", risk 4) and no allocation leaf exists; no inheritance; an instance of another module is reached through that module's functions only (the layout is not in the image) |
+| in-subset closures (2026-10-31): defaults, procedures, tables, every cell emitted, probed classes | **landed** | `rxpy.py`: `Sig.defaults/names/procedure`, `return_shape`, `DataCell`/`table_of`, `with_cells`, `probe_classes`, `compile_module` | `tests/test_rxpy_subset.py` (255 passed on both MicroPython seats: pure cases, three call streams, one-sided out-of-domain pins for a table index past the length, 31 named refusals) | `None` has no word (a word cannot be told from the int 0, so `is None` would answer wrong words): only the absence of an answer is representable (a procedure: a Signature with no Result), so `NAME = None` cells and `None` as a value stay refused; an imported function carries neither parameter names nor defaults (the Signature has none), so it takes its words by position; a table of another module is not readable by an importer (its length is not in the image); strings have no operation in the subset |
+| Python differential (decision 10) | **landed** | `tests/rxpy_mp_answer.py` runs the corpus under a real MicroPython unix port | `tests/test_rxpy.py`. Until 2026-10-31 it **skipped silently in every worktree**: the binary search used `parents[2]`, which is `worktrees/` there. `tests/mp_reference.py` now walks up to `packages/`; the 1086 pins run | — |
+| provenance knob, `was once Python` marker (5) | **landed** | `rximport.Provenance`, `--provenance` of `rximport.py` and `rxpy.py` | `tests/test_import.py` (C import not marked), `tests/test_rxpy.py` (marker set, report shape) | per-object citations from debug info (`!DILocation`): the citation spans the whole file ("the importer never guesses") |
+| comment lifting (4.7) | partly | `rximport.py` comment capture, `Provenance` | `tests/test_import.py` | the call-site contract of 4.7 as a separate tool |
+| hybrid module tree (4.6), host side | **landed** | `Image.resolve_module`/`module_children`/`module_roots`, `src/pymergetic/rxftk/mount/` | `tests/test_module_tree.py` (10), `tests/test_module_tree_view.py`, `tests/test_mount.py` | — |
+| `mp_import_stat` fill, guest side | **no** | none: no RXF hook in `packages/micropython`'s `py/builtinimport.c` or `packages/metalpython/extmod` | — | the guest import face on every seat (unix, emcc, firmware); needs the interpreter on the image |
+| uasyncio: semantics of the mapping (4.5) | **landed as a model (this lane)** | `tests/host/smp_asyncio.{h,c}`, `smp_asyncio_prove.c`; corpus `tests/asyncio_corpus/` | `tests/test_smp_asyncio.py` (110 passed) | the model is not uasyncio compiled; see the next row |
+| uasyncio: the source as imported graphs | **no** | `tests/test_rxpy_asyncio_gap.py` + `tests/rxpy_gap.py` pin the distance | the same file (9 passed): against the image as it is all six upstream `extmod/asyncio` files stop at their first import and the refusal names the module the tree lacks (`time`, the package `asyncio`) | the guest stdlib is not in the module tree; with the imports served the per-statement answer is the table below |
+| S3 ready-ring binding of asyncio tasks | **landed as a model (this lane)** | `smp_asyncio.c`: a Task is a run cell, `create_task`/yield push `smp_ring_push`, an await is `smp_park`, a task end / `Event.set` is `smp_wake` on the run | `tests/test_smp_asyncio.py` (the reference differential and the S10 differential, below) | the product binding of `mp_sched_*` inside the compiled loop |
+| world picture: tram count = ring occupancy (4.5) | **landed** | `server`/world export | `tests/test_world3d.py` (36), `tests/test_reader_js.py` | — |
+| handle operand + allocation leaf (machine lane H1) | **design (4.9), nothing built** | `native/graph.h`, `native/graph.rxfs`, `native/runtime/runtime.rxfs`, `native/compile.rxfs`, the composers, the host runner (file list and order in 4.9) | — (the prove matrix is in 4.9) | waits for the twin lane's starter pins; unlocks instances made at run time and objects held in names or parameters |
+| breadth: corpus (e) | partial | `tests/import_corpus` (48 digests), `tests/rxpy_corpus` (8 modules) | `tests/test_import.py`, `tests/test_rxpy.py` | MicroPython `py/*.c`, `extmod/uasyncio`, lwIP |
+
+**The gap to uasyncio's source, measured before and after the imports / attributes / classes
+lane (2026-10-31).** `tests/rxpy_gap.py` is the measurement (`PYTHONPATH=tools/native:. python -m
+tests.rxpy_gap --write` regenerates `tests/rxpy_asyncio_gap.json` and prints the rows below from
+the one run); `tests/test_rxpy_asyncio_gap.py` pins both and goes red when the strand learns or
+loses a construct.
+
+Before (HEAD 52909ad, AST node kinds in the six pinned `extmod/asyncio` files): imports 14,
+classes 13, attributes 377, `try` 12, `raise` 18, `assert` 7, `del` 1, `yield` 11, `yield from` 1,
+`async def` 13, `await` 9, `for` 4, comprehension 1, `nonlocal` 1, subscripts 51 — **every file
+refused at its first statement** ("an import"), 0 of 15 top-level defs and 0 of 12 top-level
+classes compiled (the 13th class sits inside a `try`), every one of the 38 methods refused.
+
+After: import, class and attribute **left the unconditional blockers** (an import binds a module
+of the image, a simple class has a layout and instances, an attribute of an imported module or a
+named instance is a field or a cell); the kinds still blocking are `try`, `raise`, `assert`,
+`del`, `yield`, `yield from`, `async def`, `await`, `for`, comprehension, `nonlocal`, subscripts
+(same counts as before). Against the image as it is, **no file moves past its first import** — but
+the refusal now names the module the tree lacks (`time`, the package `asyncio`) instead of "an
+import": the guest stdlib is not in the module tree. With every import served **and the file's own
+defs bound where the file binds them** (the measurement's `Served` resolver plus a `known` map of
+the file's defs: a call of a sibling def names the function the file defines, so a def's refusal is
+a construct of the def, not of the file's glue) the answer per top-level statement is:
+
+<!-- rxpy_gap:begin (generated: python -m tests.rxpy_gap) -->
+| file | statements of the file served | compiles (ok / refused) | first refusal against the image |
+|---|---|---|---|
+| `core.py` | 2 imports, 4 dropped | def 2/7, class 0/5, method 3/12 | line 4: from time import ...: the image has no module time (the image is the module tree: import it first) |
+| `task.py` | 1 imports, 0 dropped | def 0/3, class 0/2, method 0/6 | line 7: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
+| `event.py` | 1 imports, 1 dropped | def 0/0, class 0/1, method 0/4 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
+| `funcs.py` | 1 imports, 2 dropped | def 1/1, class 0/1, method 1/0 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
+| `lock.py` | 1 imports, 0 dropped | def 0/0, class 0/1, method 0/3 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
+| `stream.py` | 1 imports, 7 dropped | def 0/1, class 0/2, method 1/8 | line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first) |
+
+| def | the first construct that refuses it |
+|---|---|
+| `sleep_ms` (`core.py`) | a default that folds to no word (None or a call) |
+| `sleep` (`core.py`) | compiles |
+| `_promote_to_task` (`core.py`) | a conditional expression |
+| `create_task` (`core.py`) | raise (the exception seam) |
+| `run_until_complete` (`core.py`) | other: run_until_complete answers a word on one path and None on an |
+| `run` (`core.py`) | compiles |
+| `get_event_loop` (`core.py`) | a name the subset cannot bind (a class or a global of no cell) |
+| `current_task` (`core.py`) | raise (the exception seam) |
+| `new_event_loop` (`core.py`) | global of a name that is not an integer cell |
+| `ph_meld` (`task.py`) | an object held in a name or a parameter (no cell the graph can resolve) |
+| `ph_pairing` (`task.py`) | an object held in a name or a parameter (no cell the graph can resolve) |
+| `ph_delete` (`task.py`) | is / is not / in / not in (identity and membership) |
+| `wait_for_ms` (`funcs.py`) | compiles |
+| `gather` (`funcs.py`) | *args, **kwargs or a keyword-only parameter |
+| `open_connection` (`stream.py`) | other: an import inside a def (imports are module-level statements: |
+
+| reason (first refusal of a def, a method, a class or a statement) | count |
+|---|---|
+| an object held in a name or a parameter (no cell the graph can resolve) | 13 |
+| async def (the coroutine frame of 4.5) | 8 |
+| yield (the coroutine frame of 4.5) | 6 |
+| assert (the panic seam) | 5 |
+| raise (the exception seam) | 4 |
+| a module-level binding that is not NAME = constant | 3 |
+| a module-level binding that is not an integer constant | 3 |
+| an attribute store on an object held in a name | 3 |
+| global of a name that is not an integer cell | 3 |
+| try/except (the nlr seam of S11) | 3 |
+| a special method (only __init__ is of the subset) | 2 |
+| for (the subset loops with while) | 2 |
+| inheritance | 2 |
+| *args, **kwargs or a keyword-only parameter | 1 |
+| a call of a name the strand does not compile (a builtin or a face) | 1 |
+| a callee that is not a name or an attribute | 1 |
+| a class attribute or a nested class | 1 |
+| a conditional expression | 1 |
+| a decorator | 1 |
+| a default that folds to no word (None or a call) | 1 |
+| a name the subset cannot bind (a class or a global of no cell) | 1 |
+| a subscript (a sequence cell) | 1 |
+| an expression or a control statement at module level | 1 |
+| del | 1 |
+| is / is not / in / not in (identity and membership) | 1 |
+| other: an import inside a def (imports are module-level statements: | 1 |
+| other: run_until_complete answers a word on one path and None on an | 1 |
+<!-- rxpy_gap:end -->
+
+Reading it: **2 of 15 top-level defs, 0 of 12 top-level classes and 5 of 38 methods compile.**
+The per-def rows are this census' contract: every still-refused def names the first construct of
+*the def* that refuses it, and a def counts as compiled when every construct of the def lowers --
+a callee's own refusal is the callee's row (`run` calls `run_until_complete` and `create_task`,
+whose rows name their blockers).
+
+| census | before this package | after this package | why it moved |
+|---|---|---|---|
+| top-level defs compiling | 0 of 15 | 2 of 15 (`run`, `sleep`) | `run` moved when the measurement started binding the file's own defs (the old measurement compiled each def alone and refused `run`, `sleep` and `wait_for_ms` at a call of a function of their own file -- a call, not a construct); `sleep` moved on the `int` builtin this package lowered |
+| top-level classes compiling | 0 of 12 | 0 of 12 | no class's methods pass over its probe instance yet |
+| methods compiling | 4 of 38 | 5 of 38 | `Loop.create_task` binds its sibling `create_task` the same honest way |
+
+**The construct that unblocks the most defs is measured, and it is not `async def`/`await` nor
+generators**: none of the fifteen plain defs is refused at one -- uasyncio's coroutines are the
+five `async def` top-level defs the census does not count (`_stopper`, `_run`, `wait_for`,
+`start_server`, `stream_awrite`; `wait_for` is the name the earlier table listed as a plain def)
+and `yield` inside methods, which are the 8 + 6 histogram rows above and the first refusal of no
+plain def. Measured per def, the construct that carries the most first refusals is **a default
+that folds to no word** (3 of the 15 rows: `sleep_ms`'s `SingletonGenerator()` default, a
+run-time allocation, and the `= None` defaults of `run_until_complete` and `open_connection`);
+behind the two `= None` rows stands the **None word**, which in total stands behind 4 rows
+(`None` as a value in `ph_pairing`, `is None` in `ph_meld`, and those two defaults). Lowering the
+default alone does not compile one of the three, and that is measured too (every default of the
+three folded to a word, then re-compiled): `sleep_ms` then stops at `assert` (the panic seam),
+`run_until_complete` at a body that answers a word on one path and `None` on another,
+`open_connection` at an import inside a def. Both walls are machine-lane decisions and not this
+strand's to make: the word ABI has no spare word for `None` (a word cannot be told from the int 0
+-- the refusal says so by name) and a class-call default needs the handle-resolving operand and
+heap allocation of 4.1. This package therefore lowered the construct it can reach and pin
+honestly: **the `int` builtin**, `sleep`'s one construct -- the word-coercion face, `int` of a
+word is the word, differentially pinned against real MicroPython (`tests/rxpy_corpus/words.py`
+`coerce*`, in-domain answers identical). The next single item is the **None word** (with
+`is`/`is not` against it and `= None` defaults): it stands behind 4 of the 15 rows and unblocks
+`ph_pairing`, `ph_meld`'s first line and the two default rows -- but it is an ABI decision the
+machine lane must take first.
+
+Earlier (the imports / attributes / classes lane), for the record: before the in-subset closures
+(defaults, procedures, tables, probed classes) the reading was 0 / 3 of 12 (by layout only) / 1 of
+38; a class now counts as compiled only when its methods pass over a probe instance, which is why
+the class column reads 0 while the method column is at 5. `event.py` and `lock.py` do not become
+importable: their methods read `self.x` of an object **held in a name** (the largest single reason
+of the histogram, with the module-level bindings that are not integer constants -- chiefly
+`NAME = None` and dict literals: `None` has no word) and `wait`/`acquire` are generators /
+`async def` (the coroutine frame of 4.5). Integer default parameters, which were 7 of the first
+refusals, are gone from the table; what stays of defaults is named for what it is, a default that
+folds to no word.
+
+**What this lane landed (2026-10-31): the binding as a tested model.** Option (1) of the lane's
+priority list: nothing of the ring binding existed, so the model came first (the compiler strand
+exists; the semantics it must reach did not have a pin).
+
+`tests/host/smp_asyncio.c` maps the table of 4.5 onto `smp_sched.c` (unchanged scheduler, shared
+with the S10 witness): a **Task is a run cell** (pc and the result fold live in the cell);
+`create_task`/`call_soon` is `READY` plus `smp_ring_push` — **the ring is the loop's ready
+deque**, there is no second queue; `await` on a Task or an Event registers the waiter on the
+object's list under one loop lock and calls `smp_park` (**`PARKED`**); a task's end or `Event.set`
+calls `smp_wake` on each waiting **run** (never a carrier); `sleep` is the **edge timer** — the
+edge fires it on a virtual clock that advances only when the world is quiescent (no run `READY`
+or `RUNNING`, an epoch re-check closes the scan against a wake in flight), so the answer never
+depends on which carrier ran what; `Task.cancel` is a **raise deposit** into `mp_raise_slot`
+(`smp_mp_schedule_raise`) plus a wake, consumed at the head of the next step by
+`smp_mp_handle_pending` — the safe point — and it is forwarded to the task the target awaits,
+exactly as uasyncio forwards it; `run_until_complete` is the main run reaching `TERMINAL`.
+
+The corpus (`tests/asyncio_corpus/programs.py`, 15 programs) is **data** — tasks of ops, no code
+in strings — run by two executors: MicroPython's real `asyncio` (`reference.py`, the reference of
+decision 10, both unix seats) and the model. What is pinned:
+
+- **reference differential**: at one carrier the model's report (every task's end state and
+  result fold, and the shared trace in order) equals MicroPython's for all 15 programs: the
+  ring's FIFO order is uasyncio's queue order, timers, event fan-out, cancel and forwarded
+  cancel included;
+- **the S10 differential extended to task-level results** (risk 7, decision 7): at 1, 2, 4, 8
+  carriers, with and without the sliding compaction pass running under the live tasks, results are
+  byte-identical to one carrier and equal MicroPython's; the trace's multiset and each task's own
+  sequence are equal (the total order across tasks is the interleaving: evidence, not result);
+  900 additional runs at 2 to 8 carriers were byte-identical in a stress loop; ThreadSanitizer and
+  AddressSanitizer/UBSan clean;
+- **the mapping as evidence**: ring pops equal steps, parks equal wakes (plus the tasks left
+  pending), a cancel is one deposit plus a wake, the clock moves only by edge-timer fires, a
+  deadlock is a report (never a hang), and 10 refusals are named by the parser.
+
+Two defects the corpus found in the shared scheduler (`tests/host/smp_sched.c`), fixed in the
+same lane:
+
+1. **Lost wake under compaction.** `smp_wake` resolved the target with a plain resolve and
+   answered "not parked" when the compactor held the cell for its copy: no token, no wake. The
+   S10 witness hid it behind its watchdog; an asyncio program has none. The wake (and the
+   cancel's deposit, and the retract) now resolve through `smp_run_resolve`, which waits out the
+   claim and answers NULL only for a stale handle.
+2. **The token outlives a successful wake.** `smp_wake` stores the token before the
+   `PARKED to READY` attempt and nothing takes it back when the attempt wins, so the run's *next*
+   park returns at once. The binding's rule is the condvar's: a wake is a hint and the condition
+   is data — a blocked op re-checks its registration (the waker clears it under the lock before
+   it wakes) and parks again when it has not been served (`spurious_resumes` is the evidence,
+   pinned). Whether `smp_wake` should consume its own token is a protocol question for docs/20 S4;
+   the model does not depend on the answer.
+
+**Seats (all-platforms, honestly):** host C only. This is a model proof like `smp_mpmodel.c`.
+The unix/emcc/firmware/upywm seats run the real interpreter lane (4.3 and 4.6); none of them has
+uasyncio on the image, and none is claimed. The model's report format is the contract those
+seats reproduce when the lane lands.
+
+**What remains, in dependency order:**
+
+1. the graph machine learns an operand that resolves a handle held in a slot (and an allocation
+   leaf): it unlocks instances made at run time, objects passed to functions, and the 10 + 3
+   "object held in a name" refusals above; then the strand's `try`/`raise` (the nlr seam), then
+   generators and `async` (they unlock `core.py` and `stream.py`); each construct that leaves the
+   census flips `test_the_blocking_constructs_are_the_measured_work_list` on purpose;
+   (default parameters, procedures, tables, emitted cells and probed classes are done: the
+   in-subset closures row above);
+2. the guest `mp_import_stat` fill on every seat over `Image.resolve_module`;
+3. per-object citations from debug info (`!DILocation`) in `rximport`, and from the AST in `rxpy`;
+4. the net card's line events into the shim's wait/notify (docs/25), which this model leaves as
+   the edge timer's sibling (the `Readiness` frame is another wake targeting a run).

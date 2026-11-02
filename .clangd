@@ -13,9 +13,9 @@ CompileFlags:
 # and every declaration of the module entry is red.
 CompileFlags:
   Add:
-    - -I/home/ladmin/Devel/os-sdk/packages/rxf/src
-    - -I/home/ladmin/Devel/os-sdk/packages/rxf/third_party/pugixml
-    - -isystem/home/ladmin/Devel/os-sdk/packages/rxf/.venv/lib/python3.14/site-packages/nanobind/include
+    - -Isrc
+    - -Ithird_party/pugixml
+    - -isystem.venv/lib/python3.14/site-packages/nanobind/include
     - -isystem/home/ladmin/.local/share/uv/python/cpython-3.14.4-linux-x86_64-gnu/include/python3.14
 ---
 If:
@@ -31,6 +31,10 @@ If:
 CompileFlags:
   CompilationDatabase: None
   Add:
+    # A .h in a generic fallback is pinned to -xobjective-c++-header (clangd's
+    # header default), and -std=c11 is rejected before anything is parsed. The
+    # last -x wins, so name the language the seats actually build in.
+    - -xc
     - -target
     - x86_64-unknown-linux-gnu
     - -std=c11
@@ -44,7 +48,7 @@ CompileFlags:
 # red. entry.c, world.c and uart_x86_64.c build for several seats; they are
 # pinned to their first seat (x86_64), the rest is one seat each.
 If:
-  PathMatch: .*boot/(image_stub/)?.*\.(c|h)$
+  PathMatch: .*boot/[^/]*\.(c|h)$
 CompileFlags:
   CompilationDatabase: None
   Add:
@@ -53,9 +57,29 @@ CompileFlags:
     - -fno-stack-protector
     - -fno-pic
     - -fno-asynchronous-unwind-tables
-    - -I/home/ladmin/Devel/os-sdk/packages/rxf/boot
-    - -I/home/ladmin/Devel/os-sdk/packages/rxf/boot/image_stub
-    - -I/home/ladmin/Devel/os-sdk/packages/rxf/native
+    # boot/Makefile passes INC := -I. -Iimage_stub -I../native -I../src with
+    # make running in boot/; a fallback command runs in the TU's own directory,
+    # so the same roots spelled from boot/ are exactly right here.
+    - -I.
+    - -Iimage_stub
+    - -I../native
+    - -I../src
+---
+If:
+  PathMatch: .*boot/image_stub/[^/]*\.(c|h)$
+CompileFlags:
+  CompilationDatabase: None
+  Add:
+    - -ffreestanding
+    - -fno-builtin
+    - -fno-stack-protector
+    - -fno-pic
+    - -fno-asynchronous-unwind-tables
+    # the same roots boot/Makefile passes, spelled from boot/image_stub/
+    - -I..
+    - -I.
+    - -I../../native
+    - -I../../src
 ---
 If:
   PathMatch: .*boot/image_stub/(entry|world|uart_x86_64)\.c$
@@ -93,3 +117,100 @@ If:
   PathMatch: .*boot/.*\.(S|s)$
 Diagnostics:
   Suppress: ["*"]
+---
+# rxfb/test/ holds compile-only assertion TUs (test/layout_pins.c is the layout pin) that
+# tests/test_rxfb.py builds across every pinned target, not CMake: no compile-database entry, so an
+# editor analyzes them with host defaults and `#include <pymergetic/rxftk/core/ground.h>` never
+# resolves — every pinned type goes red. Pin them to the engine's include root and the freestanding
+# C the tests pass, exactly as the wrapper seats above, or the pins look broken when they are not.
+If:
+  PathMatch: .*rxfb/test/.*\.(c|h)$
+CompileFlags:
+  CompilationDatabase: None
+  Add:
+    - -std=c11
+    - -ffreestanding
+    - -fno-builtin
+    # relative to rxfb/test/ (a fallback command runs in the TU's own directory)
+    - -I../../src
+---
+# tests/lwip_corpus/ and native/lwip/ are the lwIP card and its differential corpus. They
+# compile only with the card's include roots (tools/native/lwip_import.py INCLUDES), which
+# ride the compiler's CPATH in the real builds and never a compile-database entry. Without
+# them an editor cannot resolve lwip/opt.h and the whole card goes red. Pin the same roots
+# and the same warning suppressions the reference build passes (tests/test_lwip_import.py).
+#
+# A relative -I in this file resolves against the ANALYZED FILE's directory (a fallback
+# command runs with the TU's directory as its working directory), not against the checkout
+# root -- so each depth spells the roots with its own ../ count. native/lwip/arch/cc.h is
+# one deeper and has its own fragment below; it only pulls <stdint.h>, but a red cc.h
+# would poison every lwIP analysis that includes it.
+If:
+  PathMatch: .*(tests/lwip_corpus|native/lwip)/[^/]*\.(c|h)$
+CompileFlags:
+  CompilationDatabase: None
+  Add:
+    - -xc
+    - -std=c11
+    - -I../../native/lwip
+    - -I../../third_party/lwip/src/include
+    - -Wno-unused-function
+    - -Wno-unused-but-set-variable
+---
+If:
+  PathMatch: .*native/lwip/arch/[^/]*\.(c|h)$
+CompileFlags:
+  CompilationDatabase: None
+  Add:
+    - -xc
+    - -std=c11
+    - -I../../../native/lwip
+    - -I../../../third_party/lwip/src/include
+    - -Wno-unused-function
+    - -Wno-unused-but-set-variable
+---
+# third_party/lwip is included verbatim and never edited (native/lwip/core_slice.c says so).
+# Its config-dependent upstream warnings (timeouts.c type-limits under -Wextra) are not this
+# tree's lint surface -- the same treatment the gas files get above.
+If:
+  PathMatch: .*third_party/lwip/.*
+Diagnostics:
+  Suppress: ["*"]
+---
+# tests/host/ is the model-proof C built by tests/host_build.py: -std=c11 plus -pthread
+# (libc's nanosleep and friends sit behind _REENTRANT). No compile-database entry, so an
+# editor analyzes it with host defaults and every sleep is an implicit declaration.
+If:
+  PathMatch: .*tests/host/.*\.(c|h)$
+CompileFlags:
+  CompilationDatabase: None
+  Add:
+    - -xc
+    - -std=c11
+    - -pthread
+---
+# tests/ground/ holds the ground-layout checks (check.c, check.cpp) that
+# tests/test_ground_layout.py compiles with its own driver, never CMake: no
+# compile-database entry, so an editor falls back and
+# `#include <pymergetic/rxftk/core/ground.h>` goes red. Pin the same roots and
+# dialects the workspace config pins for the packages/rxf copy of these files.
+If:
+  PathMatch: .*tests/ground/check\.c$
+CompileFlags:
+  CompilationDatabase: None
+  Add:
+    - -xc
+    - -std=c11
+    - -ffreestanding
+    # relative to tests/ground/ (a fallback command runs in the TU's own directory)
+    - -I../../src
+---
+If:
+  PathMatch: .*tests/ground/check\.cpp$
+CompileFlags:
+  CompilationDatabase: None
+  Add:
+    - -xc++
+    - -std=c++20
+    - -ffreestanding
+    - -I../../src
