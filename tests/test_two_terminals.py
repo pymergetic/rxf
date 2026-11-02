@@ -26,8 +26,8 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Iterator
 from pathlib import Path
+from typing import Self
 
 import pytest
 
@@ -64,6 +64,7 @@ def rxf(*words: str, timeout: float = 300.0) -> subprocess.CompletedProcess[str]
         capture_output=True,
         text=True,
         timeout=timeout,
+        check=False,
     )
 
 
@@ -85,7 +86,7 @@ class Serving:
         self.lines: list[str] = []
         self.process: subprocess.Popen[str] | None = None
 
-    def __enter__(self) -> Serving:
+    def __enter__(self) -> Self:
         stale = segment(self.name)
         if stale.exists():
             stale.unlink()  # a stale segment of a crashed run, never a runner's
@@ -169,16 +170,6 @@ def test_a_serve_lays_its_image_out_in_shared_memory_and_the_console_of_another_
         assert f"{MODULE}.front" in [entry["path"] for entry in shown["installed"]]
 
 
-@pytest.mark.xfail(
-    reason="blocked on the live lane: the apply's SET resizes a record whose new value is "
-    "LONGER than the room it has (native/live.rxfs + core/live/live.cpp, the grow path) "
-    "and never one whose value is shorter - a delta whose value shrinks the seeded one "
-    "lands with the old bytes behind it, so the image's state is not the delta's state "
-    "and the mirror's honest digest check refuses the result ('the image and its mirror "
-    "disagree'). The same wall stands in-process (tests/test_serve_real.py's install "
-    "pin); when the apply truncates, this test turns to a pass.",
-    strict=False,
-)
 def test_the_console_of_another_process_installs_a_program_and_the_image_shows_it(
     tmp_path: Path,
 ):

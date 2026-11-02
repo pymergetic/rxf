@@ -206,7 +206,7 @@ def exchange(face, seat, poll, packet: bytes) -> tuple[int, tuple[bytes, ...]]:
 
 
 def run_both(
-    host: Host, make_seat: Callable[[Any], "WireSeat"] | None = None
+    host: Host, make_seat: Callable[[Any], WireSeat] | None = None
 ) -> tuple[Outcome, Outcome]:
     """The scenarios on the imported graphs and on the native reference, over one seat's fill
     (``make_seat`` builds it over the reference library; the default is the host seat)."""
@@ -218,7 +218,7 @@ def run_both(
     native = host.native
     native.slip_echo_boot.restype = ctypes.c_uint64
     native.slip_echo_poll.restype = ctypes.c_uint64
-    build: Callable[[Any], "WireSeat"] = make_seat or HostSeat
+    build: Callable[[Any], WireSeat] = make_seat or HostSeat
     seat_imported, seat_native = build(native), build(native)
     imported, reference = Outcome(), Outcome()
     try:

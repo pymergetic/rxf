@@ -35,12 +35,13 @@ from pymergetic.rxftk.net.link import slip
 
 from . import lwip_udp_echo, rxf_native
 from .lwip_slip_fills import (
-    JsSeat,
-    UartFill,
-    UartSeat,
     UART_NS16550_MMIO,
     UART_NS16550_PORT,
     UART_PL011_MMIO,
+    UART_WIDE,
+    JsSeat,
+    UartFill,
+    UartSeat,
 )
 from .test_lwip_import import CORPUS, OK, Host
 
@@ -58,12 +59,6 @@ RING = 4096
 MTU = 1000
 END, ESC, ESC_END, ESC_ESC = 0xC0, 0xDB, 0xDC, 0xDD
 
-# the Uart capability's device word (native/graph.h): the kind in the low byte, the register
-# shift at bit 8, RXF_UART_WIDE for a 32-bit register
-UART_NS16550_MMIO = 2
-UART_PL011_MMIO = 3
-UART_NS16550_PORT = 4
-UART_WIDE = 4096
 
 
 def uart_device(kind: int, shift: int = 0, wide: bool = False) -> int:

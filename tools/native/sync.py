@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import copy
 import shutil
-import struct
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
@@ -43,7 +42,6 @@ import host_sync
 import live_sync
 import native_build
 import programs
-import seed_build
 import source_sync
 
 from pymergetic.rxftk.core import tree
