@@ -375,6 +375,262 @@ PYMERGETIC_RXF_PIN(pymergetic_rxf_doc, kind, 0, 4);
 PYMERGETIC_RXF_PIN(pymergetic_rxf_doc, status, 4, 4);
 PYMERGETIC_RXF_PIN(pymergetic_rxf_doc, codec, 8, 4);
 
+/* ---- one arena: the superblock and the object record (docs/32) ----------
+ * The one-arena object model supersedes the RXFB v6 header/index/cell split
+ * above: one linear region, a 4 KiB superblock as the only fixed structure,
+ * and everything after the superblock an object. A handle is (index, gen) into
+ * the object table, so a stale handle fails its check instead of resolving.
+ * The object record is a 24-byte header with its payload inline behind it,
+ * packed in 8-byte slots. Cell size = 24 + ceil(payload/8) slots.
+ */
+
+/* The superblock: 4 KiB at byte 0, the only non-object. The rest of it is
+ * zero, reserved; the version byte is the gate for later formats. */
+#define PYMERGETIC_RXF_SUPER_SIZE 4096U
+#define PYMERGETIC_RXF_SUPER_VERSION 1U
+
+typedef struct PYMERGETIC_RXF_ALIGNED8 pymergetic_rxf_superblock {
+    uint8_t magic[4];  /* "RXFA" */
+    uint32_t version;  /* PYMERGETIC_RXF_SUPER_VERSION */
+    uint64_t committed; /* first free offset */
+    uint64_t limit;     /* end of the claimed region */
+    uint32_t root;      /* root handle: the image itself */
+    uint32_t entry;     /* entry handle: the first run */
+    uint8_t reserved[PYMERGETIC_RXF_SUPER_SIZE - 32]; /* must be zero */
+} pymergetic_rxf_superblock;
+
+PYMERGETIC_RXF_GROUND_ASSERT(sizeof(pymergetic_rxf_superblock) == PYMERGETIC_RXF_SUPER_SIZE,
+                             "superblock is one page");
+PYMERGETIC_RXF_GROUND_ASSERT(PYMERGETIC_RXF_ALIGNOF(pymergetic_rxf_superblock) == 8,
+                             "superblock alignment");
+PYMERGETIC_RXF_PIN(pymergetic_rxf_superblock, magic, 0, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_superblock, version, 4, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_superblock, committed, 8, 8);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_superblock, limit, 16, 8);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_superblock, root, 24, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_superblock, entry, 28, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_superblock, reserved, 32, PYMERGETIC_RXF_SUPER_SIZE - 32);
+
+/* A handle is (index, gen): the index names a slot of the object table and the
+ * generation makes a stale handle fail its check instead of resolving. The
+ * all-ones handle is PYMERGETIC_RXF_HANDLE32_NONE. */
+typedef uint32_t pymergetic_rxf_handle32;
+#define PYMERGETIC_RXF_HANDLE32_NONE 0xFFFFFFFFU
+#define PYMERGETIC_RXF_HANDLE32_INDEX_BITS 20U
+#define PYMERGETIC_RXF_HANDLE32_GEN_BITS 12U
+#define PYMERGETIC_RXF_HANDLE32_INDEX_MASK                                                             \
+    ((1U << PYMERGETIC_RXF_HANDLE32_INDEX_BITS) - 1U)
+#define PYMERGETIC_RXF_HANDLE32_GEN_MASK ((1U << PYMERGETIC_RXF_HANDLE32_GEN_BITS) - 1U)
+PYMERGETIC_RXF_GROUND_ASSERT(PYMERGETIC_RXF_HANDLE32_INDEX_BITS + PYMERGETIC_RXF_HANDLE32_GEN_BITS ==
+                                 32,
+                             "a handle fills 32 bits");
+
+static inline pymergetic_rxf_handle32 pymergetic_rxf_handle32_pack(uint32_t index, uint32_t gen) {
+    return (pymergetic_rxf_handle32)(((gen & PYMERGETIC_RXF_HANDLE32_GEN_MASK)
+                                      << PYMERGETIC_RXF_HANDLE32_INDEX_BITS) |
+                                     (index & PYMERGETIC_RXF_HANDLE32_INDEX_MASK));
+}
+
+static inline uint32_t pymergetic_rxf_handle32_index(pymergetic_rxf_handle32 handle) {
+    return handle & PYMERGETIC_RXF_HANDLE32_INDEX_MASK;
+}
+
+static inline uint32_t pymergetic_rxf_handle32_gen(pymergetic_rxf_handle32 handle) {
+    return (handle >> PYMERGETIC_RXF_HANDLE32_INDEX_BITS) & PYMERGETIC_RXF_HANDLE32_GEN_MASK;
+}
+
+/* Object kinds. FREE marks a free span: its payload carries the FREE ring
+ * links, so a later allocation can split one. */
+enum {
+    PYMERGETIC_RXF_OBJ_MODULE = 1,
+    PYMERGETIC_RXF_OBJ_FUNC = 2,
+    PYMERGETIC_RXF_OBJ_HASH = 3,
+    PYMERGETIC_RXF_OBJ_SPEC = 4,
+    PYMERGETIC_RXF_OBJ_SYM = 5,
+    PYMERGETIC_RXF_OBJ_BLOB = 6,
+    PYMERGETIC_RXF_OBJ_FRAME = 7,
+    PYMERGETIC_RXF_OBJ_JOURNAL = 8
+};
+#define PYMERGETIC_RXF_OBJ_FREE 0xFFFFU
+
+/* Object flags. */
+#define PYMERGETIC_RXF_OFLAG_RO 0x1U
+#define PYMERGETIC_RXF_OFLAG_ROOT 0x2U
+#define PYMERGETIC_RXF_OFLAG_DIRTY 0x4U
+#define PYMERGETIC_RXF_OFLAG_JOURNALED 0x8U
+
+/* The object header: 24 bytes, then the payload inline in 8-byte slots. */
+#define PYMERGETIC_RXF_OBJECT_ALIGN 8U
+typedef struct PYMERGETIC_RXF_ALIGNED8 pymergetic_rxf_object {
+    uint16_t kind;    /* PYMERGETIC_RXF_OBJ_* */
+    uint16_t gen;     /* generation (stale-handle detection) */
+    uint16_t flags;   /* PYMERGETIC_RXF_OFLAG_* */
+    uint16_t name;    /* symbol id (interned, 0 = anonymous) */
+    uint32_t parent;  /* handle of the parent object */
+    uint32_t link;    /* next sibling under the parent */
+    uint32_t refs;    /* reference count */
+    uint32_t payload; /* the payload room in bytes: the length of the value when the
+                       * span fits exactly, and the whole span's room when a remainder
+                       * too small to be a record was absorbed into it. The span is
+                       * 24 + ceil(payload/8); see docs/32 1.2 for what a reader can
+                       * recover from this field. */
+} pymergetic_rxf_object;
+
+PYMERGETIC_RXF_GROUND_ASSERT(sizeof(pymergetic_rxf_object) == 24, "object header is 24 bytes");
+PYMERGETIC_RXF_GROUND_ASSERT(PYMERGETIC_RXF_ALIGNOF(pymergetic_rxf_object) ==
+                                 PYMERGETIC_RXF_OBJECT_ALIGN,
+                             "object header alignment");
+PYMERGETIC_RXF_PIN(pymergetic_rxf_object, kind, 0, 2);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_object, gen, 2, 2);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_object, flags, 4, 2);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_object, name, 6, 2);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_object, parent, 8, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_object, link, 12, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_object, refs, 16, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_object, payload, 20, 4);
+
+/* object size = 24 + ceil(payload/8) slots, packed 8-byte aligned */
+static inline __attribute__((unused)) uint64_t
+pymergetic_rxf_object_size(const pymergetic_rxf_object *object) {
+    return (uint64_t)sizeof(pymergetic_rxf_object) +
+           (((uint64_t)object->payload + 7ULL) & ~7ULL);
+}
+
+/* The FREE ring links (docs/32 1.3): a FREE span whose payload room is at least
+ * 16 bytes carries the ring in its payload - prev and next are the arena offsets
+ * of the neighbouring FREE objects - and the ring is circular. The span length is
+ * the object size (24 + room), so the links are the only payload words. The end
+ * marker (the FREE span at superblock.committed) is the ring anchor: a span with
+ * room below 16 cannot carry links and stays a linkless fragment until the tail
+ * merge or compaction takes it. */
+#define PYMERGETIC_RXF_FREE_PREV 0U
+#define PYMERGETIC_RXF_FREE_NEXT 8U
+#define PYMERGETIC_RXF_FREE_LINKS 16U
+#define PYMERGETIC_RXF_FREE_MIN_SPAN                                                                    \
+    ((uint64_t)sizeof(pymergetic_rxf_object) + PYMERGETIC_RXF_FREE_LINKS)
+
+PYMERGETIC_RXF_GROUND_ASSERT(PYMERGETIC_RXF_FREE_MIN_SPAN == 40,
+                             "a ring free span is 40 bytes (24 header + 16 links)");
+
+/* The object index (sys/objects, docs/32 2): the payload of the index object is a
+ * two-word head and then `capacity` slot entries. slot[index] is the one hop a
+ * handle takes (docs/32 4); the entry carries the published identity - kind and
+ * generation - and the arena slot of the record. The record mirrors both and a
+ * handle is checked against both before it touches payload bytes. */
+typedef struct PYMERGETIC_RXF_ALIGNED8 pymergetic_rxf_slot {
+    uint16_t kind;
+    uint16_t gen;
+    uint32_t reserved;
+    uint64_t slot; /* the arena offset of the record */
+} pymergetic_rxf_slot;
+
+typedef struct PYMERGETIC_RXF_ALIGNED8 pymergetic_rxf_slots {
+    uint32_t count;    /* entries published: the next free index */
+    uint32_t capacity; /* entries this table holds */
+    /* pymergetic_rxf_slot slot[capacity]; */
+} pymergetic_rxf_slots;
+
+PYMERGETIC_RXF_GROUND_ASSERT(sizeof(pymergetic_rxf_slot) == 16, "a slot entry is 16 bytes");
+PYMERGETIC_RXF_GROUND_ASSERT(sizeof(pymergetic_rxf_slots) == 8, "the slot head is 8 bytes");
+PYMERGETIC_RXF_PIN(pymergetic_rxf_slot, kind, 0, 2);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_slot, gen, 2, 2);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_slot, slot, 8, 8);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_slots, count, 0, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_slots, capacity, 4, 4);
+
+/* The object index is the first object of the arena (docs/32 1: the skeleton at
+ * byte 4096) and it never moves: it is the one anchor a cold attach needs, since
+ * every handle resolves through the table. Entry 0 is the table's own identity.
+ * The capacity is chosen at bootstrap and a full table refuses (IndexFull), the
+ * shape the v6 index has. */
+#define PYMERGETIC_RXF_INDEX_OFFSET PYMERGETIC_RXF_SUPER_SIZE
+#define PYMERGETIC_RXF_INDEX_SELF 0U
+#define PYMERGETIC_RXF_INDEX_SYMS 1U /* the interned symbol table's entry */
+
+/* A Module's payload (docs/32 1.2): the head of the children chain and its
+ * length. The chain itself is the header `link` fields - one forward walk from
+ * the head, not a ring. */
+typedef struct PYMERGETIC_RXF_ALIGNED8 pymergetic_rxf_module {
+    uint32_t children; /* handle32 of the first child, PYMERGETIC_RXF_HANDLE32_NONE = none */
+    uint32_t count;
+} pymergetic_rxf_module;
+
+PYMERGETIC_RXF_GROUND_ASSERT(sizeof(pymergetic_rxf_module) == 8, "a module payload is 8 bytes");
+PYMERGETIC_RXF_PIN(pymergetic_rxf_module, children, 0, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_module, count, 4, 4);
+
+/* The interned symbol table (sys/syms, docs/32 2): a head, then `capacity` string
+ * offsets from the payload start, then the packed NUL-terminated strings. Id 0 is
+ * anonymous and stored nowhere; the first interned string takes id 1. The table
+ * grows by moving to a larger object: the index entry is repointed and the handle
+ * stands. */
+typedef struct PYMERGETIC_RXF_ALIGNED8 pymergetic_rxf_syms {
+    uint32_t count;    /* the next id to hand out */
+    uint32_t capacity; /* string offsets this table holds */
+    /* uint32_t offset[capacity]; the strings are packed behind the offsets */
+} pymergetic_rxf_syms;
+
+PYMERGETIC_RXF_GROUND_ASSERT(sizeof(pymergetic_rxf_syms) == 8, "the syms head is 8 bytes");
+PYMERGETIC_RXF_PIN(pymergetic_rxf_syms, count, 0, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_syms, capacity, 4, 4);
+#define PYMERGETIC_RXF_SYMS_ANONYMOUS 0U
+
+/* sys/journal: the undo ring (docs/32 3, steps 4-5). Every granule written is
+ * recorded before the store; commit drops the ring; rollback walks it in reverse
+ * and restores every granule, so a crash leaves the state of the last commit. */
+static const uint32_t PYMERGETIC_RXF_JOURNAL_GRANULE = 8u;
+
+/* One undo record: a granule's offset and its bytes before the write. */
+typedef struct PYMERGETIC_RXF_ALIGNED8 pymergetic_rxf_undo {
+    uint64_t at;     /* the granule's offset in the arena */
+    uint64_t before; /* its bytes before the write */
+} pymergetic_rxf_undo;
+
+PYMERGETIC_RXF_GROUND_ASSERT(sizeof(pymergetic_rxf_undo) == 16, "an undo record is 16 bytes");
+PYMERGETIC_RXF_PIN(pymergetic_rxf_undo, at, 0, 8);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_undo, before, 8, 8);
+
+/* The journal head. The records follow it as one append stack (walked in reverse
+ * by rollback); the ring grows by moving to a larger object like sys/syms. */
+typedef struct PYMERGETIC_RXF_ALIGNED8 pymergetic_rxf_journal {
+    uint32_t count;       /* undo records held */
+    uint32_t capacity;    /* records this ring holds */
+    uint32_t granularity; /* always PYMERGETIC_RXF_JOURNAL_GRANULE */
+    uint32_t reserved;
+    uint64_t base; /* the covered region starts here (docs/32: granularity, base) */
+} pymergetic_rxf_journal;
+
+PYMERGETIC_RXF_GROUND_ASSERT(sizeof(pymergetic_rxf_journal) == 24, "a journal head is 24 bytes");
+PYMERGETIC_RXF_PIN(pymergetic_rxf_journal, count, 0, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_journal, capacity, 4, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_journal, granularity, 8, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_journal, reserved, 12, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_journal, base, 16, 8);
+
+/* sys/specs: the semantic face of an object (docs/32 5). The record carries the
+ * storage role; what the world says about an object beyond that - its Type, the
+ * packed flags word (node kind, state, owner: the PYMERGETIC_RXF_FLAG_*_SHIFT
+ * layout of the v6 cell, kept whole so nothing is lost), its position among the
+ * ordered siblings and its 64-bit generation - is one row of this table, keyed
+ * by the same index as the slot table. The payload of the object is `capacity`
+ * rows and nothing else; the table never moves its rows, a row is written through
+ * the journal like every other store, and a released index is reset to the
+ * default row (untyped, all zero). */
+typedef struct PYMERGETIC_RXF_ALIGNED8 pymergetic_rxf_spec {
+    uint32_t type;       /* handle32 of the Type object, PYMERGETIC_RXF_HANDLE32_NONE = untyped */
+    uint32_t flags;      /* the world's flags word: kind | state | owner */
+    uint32_t index;      /* position among the ordered siblings; 0 = the order is the name */
+    uint32_t reserved;   /* must be zero */
+    uint64_t generation; /* the world's generation of the object */
+} pymergetic_rxf_spec;
+
+PYMERGETIC_RXF_GROUND_ASSERT(sizeof(pymergetic_rxf_spec) == 24, "a spec row is 24 bytes");
+PYMERGETIC_RXF_PIN(pymergetic_rxf_spec, type, 0, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_spec, flags, 4, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_spec, index, 8, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_spec, reserved, 12, 4);
+PYMERGETIC_RXF_PIN(pymergetic_rxf_spec, generation, 16, 8);
+
 #ifdef __cplusplus
 }
 #endif

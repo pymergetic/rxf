@@ -2,6 +2,7 @@
 #include <nanobind/stl/vector.h>
 
 #include <pymergetic/rxftk/core/bindings.hpp>
+#include <pymergetic/rxftk/core/ground.h>
 #include <pymergetic/rxftk/core/live/live.hpp>
 
 #include <cstring>
@@ -161,8 +162,13 @@ class LiveArea {
     }
 
     nb::bytes arena_bytes() const {
-        const auto *h = reinterpret_cast<const pymergetic_rxf_arena_header *>(area_->arena_base);
-        return nb::bytes(reinterpret_cast<const char *>(area_->arena_base), h->body_size);
+        const auto *super = reinterpret_cast<const pymergetic_rxf_superblock *>(area_->arena_base);
+        /* The committed image (docs/32 1): the superblock, every object up to the
+         * superblock's committed, and the tail marker's ring links - the allocator
+         * state a loader verifies (ObjectArena::image). */
+        const uint64_t foot = sizeof(pymergetic_rxf_object) + PYMERGETIC_RXF_FREE_LINKS;
+        return nb::bytes(reinterpret_cast<const char *>(area_->arena_base),
+                         super->committed + foot);
     }
 
     nb::bytes emit_bytes() const {
@@ -220,7 +226,7 @@ void bind_live(nb::module_ &m) {
         .def("pump", &LiveArea::pump, nb::arg("limit") = 64,
              "Serves up to `limit` requests; returns how many.")
         .def("arena_bytes", &LiveArea::arena_bytes,
-             "The bytes of the arena, header to end of the cell stream.")
+             "The committed image of the arena (docs/32 1): superblock to tail marker.")
         .def("emit_bytes", &LiveArea::emit_bytes, "The last dump.")
         .def("digest", &LiveArea::digest, "The digest of the last dump.")
         .def_prop_ro("grow_request", [](LiveArea &s) { return s.area()->grow_request; })

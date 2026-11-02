@@ -21,6 +21,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <pymergetic/rxftk/core/ground.h>
 #include <pymergetic/rxftk/core/object/image.hpp>
 
 namespace pymergetic::rxf::core::meta {

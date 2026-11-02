@@ -14,6 +14,7 @@
  * calls except what the live area holds.
  */
 
+#include <pymergetic/rxftk/core/ground.h>
 #include <pymergetic/rxftk/core/live/live.h>
 
 #include <stdint.h>

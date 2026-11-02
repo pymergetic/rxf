@@ -35,7 +35,9 @@ class Area:
         """Serves up to `limit` requests; returns how many."""
 
     def arena_bytes(self) -> bytes:
-        """The bytes of the arena, header to end of the cell stream."""
+        """
+        The committed image of the arena (docs/32 1): superblock to tail marker.
+        """
 
     def emit_bytes(self) -> bytes:
         """The last dump."""

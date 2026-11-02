@@ -1,0 +1,20 @@
+[workspace]
+resolver = "3"
+members = ["rxfb-sys", "rxfb"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+publish = false
+
+# One conduct for both crates: the unsafe code lives in rxfb-sys's declarations and in the few
+# call sites of the safe crate, each with the reason next to it.
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
+all = { level = "warn", priority = -1 }

@@ -12,6 +12,7 @@
 #include <string>
 
 #include <pymergetic/rxftk/core/delta/delta.hpp>
+#include <pymergetic/rxftk/core/ground.h>
 #include <pymergetic/rxftk/core/object/image.hpp>
 
 namespace pymergetic::rxf::core::delta {

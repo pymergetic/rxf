@@ -1,0 +1,16 @@
+[package]
+name = "rxfb-sys"
+description = "Raw bindings of rxfb: the freestanding C reader of an RXFB v7 image"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+links = "rxfb"
+build = "build.rs"
+
+[lints]
+workspace = true
+
+[build-dependencies]
+cc = "1"

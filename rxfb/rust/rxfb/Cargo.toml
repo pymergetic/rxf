@@ -1,0 +1,20 @@
+[package]
+name = "rxfb"
+description = "Safe, zero-copy, allocation-free reader of an RXFB v7 image over the freestanding C core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+rxfb-sys = { path = "../rxfb-sys" }
+
+# The example is a hosted program: it maps the file (libc) and digests (sha2). The library hashes
+# nothing and maps nothing; neither crate is a dependency of it.
+[dev-dependencies]
+libc = "0.2"
+sha2 = "0.10"
