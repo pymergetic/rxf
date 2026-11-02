@@ -1,0 +1,11 @@
+lwIP 2.2.0 (https://github.com/lwip-tcpip/lwip), BSD-3-Clause, unmodified.
+tag      STABLE-2_2_0_RELEASE
+commit   0a0452b2c39bdd91e252aef045c115f88f6ca773 (2023-09-25, "Prepare 2.2.0 release")
+         (the annotated tag object is 07a0dec3d4fa08ec332e5c297c40899ae6c727c6)
+tree     sha256 over this directory's files, in the form checked by tests/test_lwip_import.py:
+         the sorted "<sha256>  <path relative to third_party/lwip>" lines of every file but
+         this one, hashed again. Digest: edf7bb6f62f4801293014a851a77e1a2da96f181e489a343f0aeb56d1ce451bf
+
+Vendored: COPYING, README, UPGRADING, FILES, src/{api,core,include,netif}, src/Filelists.*,
+src/FILES. Omitted (never compiled by the card): src/apps, src/netif/ppp, test/, contrib/,
+doc/. No file of the vendored tree is edited; the port lives in native/lwip/.
