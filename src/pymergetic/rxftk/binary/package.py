@@ -76,10 +76,23 @@ def link_module() -> ModuleType:
     The native tools are scripts, not a package (see the pytest path of the repo), so
     they are reached by their directory.
     """
+    return _native_module("link")
+
+
+def arena_export_module() -> ModuleType:
+    """``tools/native/arena_export.py``: the world->arena writer (docs/32 5.4).
+
+    The scene face (``world.scene_arena``) reaches it the way ``link_module`` reaches the
+    linker: the writer lives with the native tools of a checkout.
+    """
+    return _native_module("arena_export")
+
+
+def _native_module(name: str) -> ModuleType:
     tools = str(NATIVE_TOOLS)
     if tools not in sys.path:
         sys.path.insert(0, tools)
-    return importlib.import_module("link")
+    return importlib.import_module(name)
 
 
 def build(

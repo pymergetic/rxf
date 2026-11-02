@@ -1,14 +1,16 @@
-"""Host binding of the cap.crypto card: ctypes over the one Rust C ABI.
+"""Host binding of the cap.crypto card: ctypes over the one C ABI.
 
-The card is ``impl = rs`` (``native/crypto``); this file is only the host fill,
-like the other capability fills — **no crypto lives here**. Python reaches the
-card through the frozen C ABI of ``native/crypto/include/pm_crypto.h`` (docs/25
-§11: one card, one defining lang, one set of test vectors), and a negative
-return becomes a named Python exception rather than a bare error code.
+The card is ``impl = words`` (``native/crypto``, the .rxfs programs) with the
+C fill ``native/crypto/pm_crypto.c`` over them; this file is only the host
+fill, like the other capability fills — **no crypto lives here**. Python
+reaches the card through the frozen C ABI of
+``native/crypto/include/pm_crypto.h`` (docs/25 §11: one card, one defining
+lang, one set of test vectors), and a negative return becomes a named Python
+exception rather than a bare error code.
 
     from pymergetic.rxftk.net import crypto
 
-    card = crypto.load()                    # builds via cargo if the library is missing
+    card = crypto.load()                    # builds the card if the library is missing
     tag_wrapped = card.aead_seal(
         crypto.CIPHER_CHACHA20_POLY1305, key, nonce, aad, plaintext
     )
@@ -18,10 +20,10 @@ Lifecycle: the module pair is ``init``/``deinit`` (never ``fini``); ``Crypto``
 calls ``pm_crypto_init()`` on construction and ``pm_crypto_deinit()`` on
 ``close()``. There is no global state in the card itself.
 
-Timing: the Rust primitives aim at constant time where the language allows
-(mask-swapped X25519 ladder, fixed-iteration GHASH, XOR tag compares); AES
-uses a table S-box and is not claimed constant-time against cache timing. See
-``native/crypto/src/*.rs`` for exactly what is done.
+Timing: the words aim at constant time where their shapes allow (mask-swapped
+X25519 ladder, computed AES S-box, fixed-iteration GHASH, XOR tag compares);
+the notes in the kernels of ``native/crypto`` (``x25519_kernel.rxfs`` and its
+fellows) say exactly what is done.
 """
 
 from __future__ import annotations
@@ -91,7 +93,7 @@ class CryptoLength(CryptoRefusal):
 
 
 class CryptoBuildError(RuntimeError):
-    """cargo is missing, the build failed, or the card library is absent."""
+    """A C compiler is missing, the build failed, or the card library is absent."""
 
 
 _REFUSALS: Final = {
@@ -139,7 +141,8 @@ class Crypto:
     Construction runs ``pm_crypto_init``; ``close()`` runs ``pm_crypto_deinit``
     (the pair that opens with ``init`` closes with ``deinit``). Usable as a
     context manager. The methods mirror the ABI names without the
-    ``pm_crypto_`` prefix; the Rust card is the only implementation.
+    ``pm_crypto_`` prefix; the words of ``native/crypto/*.rxfs`` are the one
+    definition behind every call (docs/28, one defining lang).
     """
 
     def __init__(self, path: str | Path) -> None:
@@ -368,11 +371,11 @@ def _helper() -> Path:
 
 
 def build(*, force: bool = False) -> Path:
-    """Build the Rust card with cargo (via ``tools/native/crypto_build.py``)
-    and return the library path. Cached by source mtime unless ``force``.
+    """Build the card (via ``tools/native/crypto_build.py``, the one build
+    helper) and return the library path. Cached by source mtime unless
+    ``force``.
 
-    With cargo's default target directory the library lands at
-    ``native/crypto/target/release/libpm_crypto.so``.
+    The library lands at ``native/crypto/build/libpm_crypto.so``.
     """
     command = [sys.executable, str(_helper())]
     if force:

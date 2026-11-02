@@ -32,6 +32,7 @@ import pymergetic.rxftk
 from pymergetic.rxftk.core.arena import ArenaError
 from pymergetic.rxftk.core.delta import DeltaError
 from pymergetic.rxftk.core.tree import TreeError
+from pymergetic.rxftk.honors import HonorsError
 from pymergetic.rxftk.live.client import LiveError
 from pymergetic.rxftk.live.link import LinkError
 
@@ -150,7 +151,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Problems as stop:
         print(json.dumps(stop.report, indent=2))
         return EXIT_PROBLEMS
-    except (ArenaError, DeltaError, TreeError, LiveError, LinkError, OSError) as error:
+    except (ArenaError, DeltaError, TreeError, HonorsError, LiveError, LinkError, OSError) as error:
         print(f"{NAME}: {error}", file=sys.stderr)
         return EXIT_UNUSABLE
     return 0

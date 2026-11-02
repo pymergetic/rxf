@@ -48,6 +48,7 @@ class Session:
     def __init__(self, spec: str, client: Client, front: Front) -> None:
         self.spec = spec
         self._gate = threading.RLock()
+        self._link_gate = client.gate  # the lock of the link itself: one operation across processes
         self._world = world.World(client, front, transaction=self.transaction)
         self._open = False
 
@@ -65,9 +66,11 @@ class Session:
         instead of landing mid-flight inside it. The gate is a thread lock because the server
         drives the channel from its threadpool (sync endpoints run one thread per request); it is
         reentrant, so an operation that enters again (through the seam of another face) does not
-        deadlock against itself.
+        deadlock against itself. A channel that lives in shared memory carries the lock of the
+        link (`live.link.SegmentGate`): the operation is one at a time across processes too —
+        a console in another terminal lands before or after it, never inside it.
         """
-        with self._gate:
+        with self._gate, self._link_gate:
             yield
 
     def open(self) -> Self:

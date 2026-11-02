@@ -11,6 +11,7 @@ import hashlib
 import struct
 import time
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -59,11 +60,17 @@ class Refused(LiveError):
     """A staged delta was not applied; the image is as it was."""
 
     def __init__(self, op: int, payload: bytes) -> None:
-        at, reason = struct.unpack("<II", payload[:8])
+        at, reason, target = struct.unpack("<III", payload[:12].ljust(12, b"\0"))
         self.at = at
         self.reason = reason
+        self.target = target
+        self.path = payload[12:].decode("utf-8", "replace") if len(payload) > 12 else ""
         super().__init__(op, frames.APPLY, payload)
-        self.args = (f"delta refused at operation {at}: {REASONS.get(reason, reason)}",)
+        where = f" on {self.path!r}" if self.path else ""
+        what = f" -> {target}" if target else ""
+        self.args = (
+            f"delta refused at operation {at}{where}{what}: {REASONS.get(reason, reason)}",
+        )
 
 
 class Declined(LiveError):
@@ -139,6 +146,11 @@ class Client:
         self._decoder = frames.Decoder()
         self._sequence = 0
         self._late: dict[int, Frame] = {}
+        # The gate of the link (`RingLink.gate`): one request at a time behind it, in this
+        # process and in every other that maps the same image. A client that waits for another
+        # process to pump takes no gate — its request is answered from there and locking here
+        # would lock that answer out.
+        self.gate = getattr(link, "gate", None) or nullcontext()
 
     def call(
         self,
@@ -147,6 +159,18 @@ class Client:
         argument: int = 0,
         *,
         accept: tuple[int, ...] = (frames.OK,),
+    ) -> Frame:
+        gate = self.gate if self._pump is not None else nullcontext()
+        with gate:
+            return self._round(op, payload, argument, accept=accept)
+
+    def _round(
+        self,
+        op: int,
+        payload: bytes,
+        argument: int,
+        *,
+        accept: tuple[int, ...],
     ) -> Frame:
         self._sequence = (self._sequence + 1) & 0xFFFFFFFF
         wanted = self._sequence
@@ -309,13 +333,43 @@ class Client:
             self.call(frames.STAGE_WRITE, data[at : at + frames.MAX_PAYLOAD], at)
 
     def apply(self, delta: bytes) -> str:
-        """Stages `delta` and applies it. Returns the digest of the new image; `Refused` leaves the image as it was."""
-        self.stage(delta)
-        answer = self.call(
-            frames.STAGE_COMMIT,
-            struct.pack("<I", len(delta)) + hashlib.sha256(delta).digest(),
+        """Stages `delta` and applies it. Returns the digest of the new image; `Refused` leaves the image as it was.
+
+        A refusal for lack of room is not the last word (docs/19): the image states how far its
+        arena should be committed -- `grow_request` of the live area -- and the client commits that
+        much with `grow` and tries again. The image is as it was after a refusal, so a retry is
+        safe, and it is what the growth of the regions is for. When the image asks for no more
+        than is committed (or the same refusal comes back unchanged), the refusal stands.
+        """
+        while True:
+            self.stage(delta)
+            try:
+                answer = self.call(
+                    frames.STAGE_COMMIT,
+                    struct.pack("<I", len(delta)) + hashlib.sha256(delta).digest(),
+                )
+                return answer.payload[:32].hex()
+            except Refused:
+                if not self._commit_more():
+                    raise
+
+    def _commit_more(self) -> bool:
+        """Commits the arena up to what the image asked for after a refusal; whether it asked.
+
+        The request lives in the shared live area (`RingLink.grow_request`); a link that does not
+        map one (a serial line) cannot see it, and its refusals stand.
+        """
+        ask, have = (
+            getattr(self._link, "grow_request", None),
+            getattr(self._link, "arena_committed", None),
         )
-        return answer.payload[:32].hex()
+        if ask is None or have is None:
+            return False
+        want = ask()
+        if want == 0 or want <= have():
+            return False
+        self.grow(want)
+        return True
 
     def grow(self, committed: int) -> int:
         """Tells the image that its arena region is committed up to `committed` bytes."""

@@ -36,14 +36,15 @@ Region (a district — a ground plot over one band of the arena)::
       "band":  "header" | "index" | "cells",
       "start": 16384, "end": 20480,    # byte range [start, end) of the arena
       "plot":  {"x": 42.0, "z": 0.0, "w": 12.0, "d": 18.0},  # world units, x/z = min corner
-      "tiles": {"cols": 5, "rows": 4, "step_x": 3.0, "step_z": 3.4},  # the tile raster of the plot
+      "tiles": {"cols": 7, "rows": 10, "step_x": 2.2, "step_z": 2.2},  # the tile raster: one
+                                       # tile size everywhere, empty districts included
       "cell_count": 12,                # cells whose offset starts in this district
       "empty": false                   # cell_count == 0 (an empty region stays a plot)
     }
 
 ``tiles`` is the placement raster: the floor of the district is tiled on it and every building
-stands on one of its tiles (``cell.tile``). An empty district still gets a raster, so its floor
-tiles like every other.
+stands on one of its tiles (``cell.tile``). One tile size everywhere — every step is
+``GRID_STEP``, centered in the plot — so an empty district's floor tiles exactly like any other.
 
 Block (a city block — the massing of one tile-raster bin)::
 
@@ -259,6 +260,18 @@ checksum verdicts of the S1 words. The counters a run of the machine keeps outsi
 (``state_refused``, claim spins, the step rate, the carrier count) are runtime evidence the
 exporter cannot read from an image — those slots stay null, honestly empty.
 
+Layers (how the page is served)
+===============================
+
+The document is one schema, but it is **not** handed to the page as one blob. ``Layers`` computes
+it layer by layer, on demand and once each — buildings, cables, ducts, streets — and the world
+session (``world/__init__.py``) serves those layers as paged slices (``?part=cells&offset=…``,
+or one district with ``?region=…``): the page loads the layer it wants next, one slice per
+request, and says so ("buildings · 4,000 of 17,924"). A real image's packing of the ducts takes
+minutes; the buildings, streets and cables stand long before that, and the ducts load last or
+not at all. ``export_world`` is the one-shot face of the same layers (compute all, assemble) —
+one implementation, one truth.
+
 Determinism
 ===========
 
@@ -279,14 +292,29 @@ import enum
 import json
 import math
 import struct
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from itertools import pairwise
-from typing import Any
+from typing import Any, Protocol
 
-from pymergetic.rxftk.core.arena import HANDLE_NONE, KIND_BLOCK, KIND_DEAD
+from pymergetic.rxftk.core.arena import (
+    FLAG_KIND_MASK,
+    FLAG_OWNER_SHIFT,
+    FLAG_STATE_MASK,
+    FLAG_STATE_SHIFT,
+    HANDLE32_NONE,
+    HANDLE_NONE,
+    INDEX_OFFSET,
+    KIND_BLOCK,
+    KIND_DEAD,
+    MODULE_SIZE,
+    OBJ_FREE,
+    SLOT_SIZE,
+    SLOTS_HEAD_SIZE,
+    SUPERBLOCK_SIZE,
+    SUPERBLOCK_VERSION,
+    ObjectArena,
+)
 from pymergetic.rxftk.core.kinds import Binding, Mobility, NodeKind, RefKind
-from pymergetic.rxftk.core.object import Image
-from pymergetic.rxftk.server.inspector import Inspector
 
 SCHEMA = "rxf-world-3"
 
@@ -297,20 +325,20 @@ VOID_TILE = 512  # a poison run longer than this becomes several void tiles
 # The layout of the world, all in world units. The arena is a strip of bytes: one district per
 # DISTRICT_SPAN bytes at BYTE_SCALE units per byte, laid out as city blocks (DISTRICT_COLS per
 # row, rows flowing along Z). Buildings sit on a deterministic tile raster inside their district
-# (offset order, row major). The grid tightens around content: a district whose bytes carry no
-# cell is laid out as a gutter (GUTTER_WIDTH x GUTTER_DEPTH) and an all-gutter row shrinks, so
-# the city blocks of used memory read as one connected city while the empty stretches of the
-# arena compress between them. Byte order and district membership are law; only the layout
-# scale flexes — nothing in the document invents facts the image does not carry.
+# (offset order, row major). One grid law, no exceptions ("every cell the same base size"):
+# every district plots on the SAME rule — its byte span at BYTE_SCALE, never a gutter because
+# its bytes happen to carry no cell — every floor tile is exactly GRID_STEP, and every building
+# stands on the same base of FP_RATIO tiles. An empty district is the same plate as a built one,
+# just unbuilt; the gaps between plates never depend on what the arena carries. Byte order and
+# district membership are law; only the layout scale flexes — nothing in the document invents
+# facts the image does not carry.
 DISTRICT_SPAN = 4096
 BYTE_SCALE = 4.5 / 1024.0
-DISTRICT_DEPTH = 26.0
+DISTRICT_DEPTH = 26.0  # every district's plate is this deep, built or not
 DISTRICT_GAP = 12.0  # the breath between the city blocks: blocks must read as separate plots
 DISTRICT_COLS = 4  # districts per row of the city-block layout
-GUTTER_WIDTH = 5.0  # an empty district: a gutter between the city blocks of used memory
-GUTTER_DEPTH = 9.0
-GRID_STEP = 3.9
-GRID_MARGIN = 2.4
+GRID_STEP = 2.2  # the ONE tile size: a standard plate (18 x 26) holds 7 x 10 = 70 buildings
+GRID_MARGIN = 1.1  # the raster's breath inside the plot: half a tile, every plate alike
 RING_MARGIN = 4.0  # the ring road keeps a wide breath around the plots' bounds
 RING_WIDTH = 5.6  # the arterial's road width (the ready-ring is one queue, one wide road)
 STREET_WIDTH = 3.2  # nominal avenue width; the actual width fits its gap
@@ -319,7 +347,7 @@ LANE_MIN = 0.8  # a gap narrower than this is a lot line, not a street
 CLEARANCE = 1.6  # road half-width: a building's keep-out grows this far beyond its footprint
 JUNCTION_SNAP = 0.25  # streets are wide: near-miss ends still meet on the routing graph
 RING_BEVEL = 2.0  # the ring's corners are cut this clean, and its detour corridors keep the room
-FP_RATIO = 0.5  # a building's footprint never exceeds this fraction of its tile step
+FP_RATIO = 0.5  # a building's footprint IS this fraction of its tile step: every cell, one base
 BLOCK_BIN = 2  # tiles per city-block bin edge (block > building > floors)
 
 # Cell anatomy (model.html, figure 1): the 64-byte header word for word, then the payload padded
@@ -338,6 +366,21 @@ HEADER_WORDS = (
     ("forward", 8),
     ("index", 4),
     ("reserved", 4),
+)
+
+# The v7 object record (docs/32 1.2, ground.h pymergetic_rxf_object): 24 header bytes
+# word for word, then the payload inline in 8-byte slots.
+OBJECT_BYTES = 24
+OBJECT_ALIGN = 8
+HEADER_WORDS_V7 = (
+    ("kind", 2),
+    ("gen", 2),
+    ("flags", 2),
+    ("name", 2),
+    ("parent", 4),
+    ("link", 4),
+    ("refs", 4),
+    ("payload", 4),
 )
 
 # The run-cell payload (docs/20, S1): three regions whose boundary is the law, then the FNV-1a
@@ -359,7 +402,9 @@ ON_ROAD = ("READY", "RUNNING")  # docs/23 §4.5: a tram is one run cell in a rin
 FNV_PRIME = 0x100000001B3
 FNV_BASIS = 0xCBF29CE484222325
 
-ANATOMY_ROLES = tuple(word for word, _ in HEADER_WORDS) + (
+ANATOMY_ROLES = tuple(word for word, _ in HEADER_WORDS) + tuple(
+    word for word, _ in HEADER_WORDS_V7
+) + (
     "payload",
     "concurrent",
     "handoff",
@@ -378,6 +423,29 @@ STREET_KINDS = ("avenue", "cross", "lane", "branch")
 
 class SchemaError(ValueError):
     """A scene document does not match the schema this module documents."""
+
+
+class SceneImage(Protocol):
+    """The image face the scene passes read: the world image (``Image``) or the v7 arena
+    (``ArenaScene``) — one scene, two storages."""
+
+    @property
+    def handle_count(self) -> int: ...
+    def to_bytes(self) -> bytes: ...
+    def get(self, handle: int, /) -> Any: ...
+    def type_name(self, handle: int, /) -> str | None: ...
+    def layout(self, type: int, /) -> Any: ...
+    def alias_uses(self) -> Any: ...
+    def live(self, handle: int, /) -> bool: ...
+
+
+class SceneSource(Protocol):
+    """What every layer reads: the arena header, the cell stream, and the image behind."""
+
+    @property
+    def image(self) -> SceneImage: ...
+    def header(self) -> dict[str, Any]: ...
+    def cells(self) -> list[dict[str, Any]]: ...
 
 
 def _word(words: type[enum.IntEnum], value: int) -> str:
@@ -422,16 +490,15 @@ def _district_cols(count: int) -> int:
     return max(DISTRICT_COLS, math.ceil(math.sqrt(count * span_z / span_x)))
 
 
-def _districts(header: Mapping[str, Any], occupied: Iterable[int]) -> list[dict[str, Any]]:
+def _districts(header: Mapping[str, Any]) -> list[dict[str, Any]]:
     """The bands of the arena (the same three the memory map labels), the cells band split into
     districts of at most DISTRICT_SPAN bytes. A cell belongs to the district its offset starts in.
     The districts are laid out as city blocks: a square plan of _district_cols columns, rows
-    flowing along Z, so the arena reads as one connected world instead of a strip. A district
-    whose bytes carry no cell from `occupied` is a gutter between the blocks (and an all-gutter
-    row shrinks): the grid tightens around content instead of stretching empty arena across the
-    map."""
+    flowing along Z, so the arena reads as one connected world instead of a strip. Every district
+    plots on the same rule — its byte span at BYTE_SCALE and DISTRICT_DEPTH deep — whether its
+    bytes carry cells or not: an empty district is the same plate as a built one ("every cell
+    the same base size"), and the gaps between plates never depend on what the arena carries."""
     body = int(header["body_size"])
-    offsets = sorted(occupied)
     chunks: list[tuple[str, str, int, int]] = [
         ("header", "header", 0, int(header["header_size"])),
         ("index", "index", int(header["index_off"]), int(header["cells_off"])),
@@ -444,24 +511,14 @@ def _districts(header: Mapping[str, Any], occupied: Iterable[int]) -> list[dict[
         at = end
         index += 1
 
-    def holds(start: int, end: int) -> bool:
-        at = bisect.bisect_left(offsets, start)
-        return at < len(offsets) and offsets[at] < end
-
     cols = _district_cols(len(chunks))
     out: list[dict[str, Any]] = []
     z = 0.0
     for row_start in range(0, len(chunks), cols):
         row = chunks[row_start : row_start + cols]
-        depths = [
-            DISTRICT_DEPTH if holds(start, end) else GUTTER_DEPTH for _, _, start, end in row
-        ]
         x = 0.0
-        for i, ((band, name, start, end), depth) in enumerate(
-            zip(row, depths, strict=True), start=row_start
-        ):
-            here = holds(start, end)
-            width = max(6.0, (end - start) * BYTE_SCALE) if here else GUTTER_WIDTH
+        for i, (band, name, start, end) in enumerate(row, start=row_start):
+            width = max(6.0, (end - start) * BYTE_SCALE)
             out.append(
                 {
                     "id": f"r{i}",
@@ -469,13 +526,18 @@ def _districts(header: Mapping[str, Any], occupied: Iterable[int]) -> list[dict[
                     "band": band,
                     "start": start,
                     "end": end,
-                    "plot": {"x": _round(x), "z": _round(z), "w": _round(width), "d": _round(depth)},
+                    "plot": {
+                        "x": _round(x),
+                        "z": _round(z),
+                        "w": _round(width),
+                        "d": _round(DISTRICT_DEPTH),
+                    },
                     "cell_count": 0,
                     "empty": True,
                 }
             )
             x += width + DISTRICT_GAP
-        z += max(depths) + DISTRICT_GAP
+        z += DISTRICT_DEPTH + DISTRICT_GAP
     return out
 
 
@@ -491,7 +553,7 @@ def _region_of(regions: Sequence[dict[str, Any]], offset: int) -> dict[str, Any]
 # ---- cells: buildings ------------------------------------------------------------------------------
 
 
-def _family(kind: int, handle: int | None, parent: int) -> str:
+def _family(kind: int, handle: int | None, parent: int, root: int = 0) -> str:
     if kind == KIND_DEAD:
         return "rubble"
     if kind == KIND_BLOCK:
@@ -499,7 +561,7 @@ def _family(kind: int, handle: int | None, parent: int) -> str:
     name = _word(NodeKind, kind)
     if name in ("Fn", "Code"):
         return "tower"
-    if handle == 0 or parent == 0 or name in ("Module", "Namespace"):
+    if handle == root or parent == root or name in ("Module", "Namespace"):
         return "monument"
     return "block"
 
@@ -512,19 +574,21 @@ def _mass(payload_size: int) -> float:
 
 
 def _bulk(family: str, payload_size: int) -> tuple[float, float]:
-    """Footprint and height of a building: run cells are tall control towers, data cells are
-    blocks that grow with their payload, rubble stays low. Height is the mass signal: the world
-    reads bulk at any zoom, the footprint stays inside one floor tile."""
+    """Footprint and height of a building: every cell stands on the SAME base — one FP_RATIO
+    tile of the placement grid ("every cell the same base size") — and the height is the mass
+    signal: run cells are tall control towers, data cells are blocks that grow with their
+    payload, rubble stays low. The world reads bulk at any zoom through the silhouette."""
     mass = _mass(payload_size)
+    base = _round(FP_RATIO * GRID_STEP)
     if family == "tower":
-        return _round(1.9 + 0.35 * mass), _round(8.0 + 5.0 * mass)
+        return base, _round(8.0 + 5.0 * mass)
     if family == "monument":
-        return _round(1.8 + 0.5 * mass), _round(4.0 + 3.0 * mass)
+        return base, _round(4.0 + 3.0 * mass)
     if family == "utility":
-        return 1.3, 1.6
+        return base, 1.6
     if family == "rubble":
-        return _round(1.5 + 0.5 * mass), _round(0.4 + 0.3 * mass)
-    return _round(1.3 + 0.9 * mass), _round(1.8 + 5.0 * mass)
+        return base, _round(0.4 + 0.3 * mass)
+    return base, _round(1.8 + 5.0 * mass)
 
 
 # ---- run words: the S1 state word and checksum of a real run-cell payload -------------------------
@@ -636,6 +700,67 @@ def _anatomy(
     return rows
 
 
+def _anatomy_record(
+    cell_size: int,
+    payload_size: int,
+    family: str,
+    poisoned: bool,
+) -> list[dict[str, Any]]:
+    """One floor per band of the v7 object record (docs/32 1.2): the 24 header bytes word
+    for word, the payload split by the regions of S1 when it is a run cell (or one band,
+    or one poison band), and the 8-byte slot padding. The bands are contiguous and sum to
+    the record's span."""
+    payload_band = OBJECT_ALIGN * math.ceil(payload_size / OBJECT_ALIGN)
+    payload_offset = OBJECT_BYTES
+
+    def bands() -> list[dict[str, Any]]:
+        out = [
+            {"role": word, "offset": offset, "size": size}
+            for (word, size), offset in _zip_offsets(HEADER_WORDS_V7, 0)
+        ]
+        at = payload_offset
+        if poisoned:
+            out.append({"role": "poison", "offset": at, "size": payload_size})
+        elif family == "tower" and payload_size >= 32:
+            out.extend(_split_regions(at, payload_size))
+        elif payload_size:
+            out.append({"role": "payload", "offset": at, "size": payload_size})
+        at += payload_size
+        if payload_band > payload_size:  # the 8-byte slots the payload sits in
+            out.append({"role": "pad", "offset": at, "size": payload_band - payload_size})
+        return out
+
+    rows = bands()
+    end = rows[-1]["offset"] + rows[-1]["size"]
+    if end < cell_size:
+        rows.append({"role": "pad", "offset": end, "size": cell_size - end})
+    elif end > cell_size:
+        overflow = end - cell_size
+        for band in reversed(rows):
+            take = min(int(band["size"]), overflow)
+            band["size"] = int(band["size"]) - take
+            overflow -= take
+            if overflow == 0:
+                break
+        rows = [band for band in rows if int(band["size"]) > 0]
+    return rows
+
+
+def _anatomy_for(
+    header: Mapping[str, Any],
+    cell_size: int,
+    payload_size: int,
+    ref_count: int,
+    family: str,
+    poisoned: bool,
+) -> list[dict[str, Any]]:
+    """The floors of one cell: the v6 64-byte cell words, or the v7 24-byte record words —
+    whichever arena the header names."""
+    if str(header.get("magic")) == "RXFA":
+        return _anatomy_record(cell_size, payload_size, family, poisoned)
+    return _anatomy(cell_size, payload_size, ref_count, family, poisoned)
+
+
 def _zip_offsets(
     rows: Sequence[tuple[str, int]], start: int
 ) -> list[tuple[tuple[str, int], int]]:
@@ -649,9 +774,13 @@ def _zip_offsets(
 
 def _tiles(count: int, width: float, depth: float) -> tuple[dict[str, Any], list[tuple[float, float, int, int]]]:
     """The placement raster of a district and the tile of each of `count` buildings on it
-    (offset order, row major, deterministic and centered). The raster comes from the plot itself
-    (tiles of at most GRID_STEP), so an empty district's floor tiles like every other; when the
-    buildings do not fit, the raster grows by whole rows/columns."""
+    (offset order, row major, deterministic and centered). One grid law for every district:
+    every floor tile is exactly GRID_STEP and the raster is centered in the plot — an empty
+    district's floor plates are the same base as any other's ("every cell the same base size"),
+    and the steps never flex per district. A cells district holds at most
+    DISTRICT_SPAN // 64 = 64 buildings and the standard plate affords 7 x 10 = 70 tiles; only
+    a band narrower than a full district can outgrow its raster — then it grows by whole
+    rows/columns, and the tile size still never changes."""
     cols = max(1, int((width - 2 * GRID_MARGIN) // GRID_STEP))
     rows = max(1, int((depth - 2 * GRID_MARGIN) // GRID_STEP))
     while cols * rows < count:
@@ -659,17 +788,15 @@ def _tiles(count: int, width: float, depth: float) -> tuple[dict[str, Any], list
             cols += 1
         else:
             rows += 1
-    step_x = min(GRID_STEP, max(1.1, (width - 2 * GRID_MARGIN) / cols))
-    step_z = min(GRID_STEP, max(1.1, (depth - 2 * GRID_MARGIN) / rows))
     raster = {
         "cols": cols,
         "rows": rows,
-        "step_x": _round(step_x),
-        "step_z": _round(step_z),
+        "step_x": _round(GRID_STEP),
+        "step_z": _round(GRID_STEP),
     }
     if count <= 0:
         return raster, []
-    span_x, span_z = step_x * cols, step_z * rows
+    span_x, span_z = GRID_STEP * cols, GRID_STEP * rows
     used_cols = min(cols, count)
     used_rows = math.ceil(count / used_cols)
     start_col = (cols - used_cols) // 2
@@ -679,8 +806,8 @@ def _tiles(count: int, width: float, depth: float) -> tuple[dict[str, Any], list
         col, row = start_col + i % used_cols, start_row + i // used_cols
         plots.append(
             (
-                _round((width - span_x) / 2 + (col + 0.5) * step_x),
-                _round((depth - span_z) / 2 + (row + 0.5) * step_z),
+                _round((width - span_x) / 2 + (col + 0.5) * GRID_STEP),
+                _round((depth - span_z) / 2 + (row + 0.5) * GRID_STEP),
                 col,
                 row,
             )
@@ -1158,8 +1285,8 @@ def _chamfer_closed(
         previous, point, following = pts[index - 1], pts[index], pts[(index + 1) % count]
         ux, uz = point[0] - previous[0], point[1] - previous[1]
         vx, vz = following[0] - point[0], following[1] - point[1]
-        u_length = math.hypot(ux, uz) or 1.0
-        v_length = math.hypot(vx, vz) or 1.0
+        u_length = math.sqrt(ux * ux + uz * uz) or 1.0
+        v_length = math.sqrt(vx * vx + vz * vz) or 1.0
         if (ux * vx + uz * vz) / (u_length * v_length) > math.cos(math.radians(12)):
             continue  # a straight run: the point is the line, not a bend
         r = min(radius, 0.45 * u_length, 0.45 * v_length)
@@ -1246,7 +1373,7 @@ def _poison_hosts(stream: Sequence[Mapping[str, Any]], runs: Sequence[tuple[int,
 # ---- edges: handle references ------------------------------------------------------------------------
 
 
-def _reference_slots(image: Image, type_handle: int) -> list[dict[str, Any]]:
+def _reference_slots(image: SceneImage, type_handle: int) -> list[dict[str, Any]]:
     """The declared reference slots of a type's payload layout (the same walk the inspector's
     `used_by` card makes): a slot holds one handle, 8 bytes."""
     if type_handle == HANDLE_NONE or image.type_name(type_handle) != "Type":
@@ -1254,13 +1381,15 @@ def _reference_slots(image: Image, type_handle: int) -> list[dict[str, Any]]:
     return [leaf for leaf in image.layout(type_handle)["leaves"] if leaf["reference"]]
 
 
-def _edges(image: Image, cells_by_handle: Mapping[int, Mapping[str, Any]]) -> list[dict[str, Any]]:
+def _edges(
+    image: SceneImage, cells_by_handle: Mapping[int, Mapping[str, Any]]
+) -> list[dict[str, Any]]:
     """Every handle reference of the image as cables: reference rows, the Role handle of each row,
     declared reference slots in payloads, and objects written through an Alias. A handle the image
     no longer resolves (dead slot or out of range) makes a stale edge — the red ghost cable."""
 
     def fresh(target: int) -> bool:
-        return target < image.handle_count and image.live(target)
+        return image.live(target)
 
     found: list[dict[str, Any]] = []
     for handle in sorted(cells_by_handle):
@@ -1354,12 +1483,65 @@ def _chamfer(points: Sequence[tuple[float, float]], radius: float) -> list[tuple
         previous, point, following = points[i - 1], points[i], points[i + 1]
         ux, uz = point[0] - previous[0], point[1] - previous[1]
         vx, vz = following[0] - point[0], following[1] - point[1]
-        u_length = math.hypot(ux, uz) or 1.0
-        v_length = math.hypot(vx, vz) or 1.0
+        u_length = math.sqrt(ux * ux + uz * uz) or 1.0
+        v_length = math.sqrt(vx * vx + vz * vz) or 1.0
         r = min(radius, u_length / 2, v_length / 2)
         out.append((point[0] - (ux / u_length) * r, point[1] - (uz / u_length) * r))
         out.append((point[0] + (vx / v_length) * r, point[1] + (vz / v_length) * r))
     out.append(points[-1])
+    return out
+
+
+PIN_MARGIN = 1.1  # the pad's breath: how far off the building wall the plug sits
+MICRO_LEG = 0.9  # below this a leg is router wobble, not a run: the tidy folds it away
+
+
+def _ortho(points: Sequence[tuple[float, float]]) -> list[tuple[float, float]]:
+    """A cable on the map runs the orthogonal street grid (a 45° corner bevel is cut after). Any
+    leg that drifts off-axis — a pin that missed the rail net, a run that slid — is bent onto the
+    grid, dominant axis first, never left as a slant across the blocks."""
+    out: list[tuple[float, float]] = [points[0]]
+    for i in range(1, len(points)):
+        a = out[-1]
+        b = points[i]
+        dx = b[0] - a[0]
+        dz = b[1] - a[1]
+        if abs(dx) > 1e-6 and abs(dz) > 1e-6:
+            out.append((b[0], a[1]) if abs(dx) >= abs(dz) else (a[0], b[1]))
+        out.append(b)
+    return out
+
+
+def _tidy(points: Sequence[tuple[float, float]]) -> list[tuple[float, float]]:
+    """The run the way a PCB router draws it: collinear legs merged and micro-jogs (the
+    router's footprint wobble) folded away, so the chamfer cuts real corners and the trace
+    reads as straight legs and 45° bends — never a scribble."""
+    out: list[tuple[float, float]] = []
+    for point in points:
+        if not out or abs(point[0] - out[-1][0]) + abs(point[1] - out[-1][1]) > 1e-9:
+            out.append((point[0], point[1]))
+    changed = True
+    while changed and len(out) > 2:
+        changed = False
+        merged = [out[0]]
+        for index in range(1, len(out) - 1):
+            previous, point, following = merged[-1], out[index], out[index + 1]
+            ux, uz = point[0] - previous[0], point[1] - previous[1]
+            vx, vz = following[0] - point[0], following[1] - point[1]
+            u_length = math.sqrt(ux * ux + uz * uz)
+            v_length = math.sqrt(vx * vx + vz * vz)
+            if u_length < 1e-9:
+                continue  # a duplicate point
+            cross = abs(ux * vz - uz * vx)
+            if cross <= 1e-9 * max(1.0, u_length * v_length) and ux * vx + uz * vz > 0:
+                continue  # collinear: the run passes straight through
+            if min(u_length, v_length) < MICRO_LEG:
+                continue  # a jog smaller than its own legs: fold it into the run
+            merged.append(point)
+        merged.append(out[-1])
+        if len(merged) != len(out):
+            changed = True
+        out = merged
     return out
 
 
@@ -1387,15 +1569,6 @@ def _rails(
         lo, hi = (z_lo, z_hi) if axis == "z" else (x_lo, x_hi)
         clipped.append((axis, at, max(low, lo), min(high, hi)))
     return [rail for rail in clipped if rail[2] < rail[3]]
-
-
-def _on_rail(
-    rail: tuple[str, float, float, float], x: float, z: float, tolerance: float = 1e-6
-) -> bool:
-    axis, at, low, high = rail
-    if axis == "x":
-        return abs(z - at) < tolerance and low - tolerance <= x <= high + tolerance
-    return abs(x - at) < tolerance and low - tolerance <= z <= high + tolerance
 
 
 def _project_rail(
@@ -1483,53 +1656,12 @@ def _near_rails(
     return out
 
 
-def _rail_junction_pairs(
-    rails: Sequence[tuple[str, float, float, float]]
-) -> list[tuple[int, int]]:
-    """Every rail pair that can share a junction, found through buckets instead of every pair
-    of the network: collinear rails within ``JUNCTION_SNAP`` of each other, and crossing / T
-    pairs whose meeting point lies on both spans. The pairs come back in (i, j) order, so the
-    junction nodes number exactly as the scan of every pair numbered them."""
-    snap = JUNCTION_SNAP
-    pairs: set[tuple[int, int]] = set()
-    same: dict[str, list[tuple[float, int]]] = {"x": [], "z": []}
-    cross: dict[str, list[tuple[int, float, float, float]]] = {"x": [], "z": []}
-    for i, (axis, at, low, high) in enumerate(rails):
-        same[axis].append((at, i))
-        cross[axis].append((i, at, low, high))
-    # collinear: only rails within snap of each other can meet end to end
-    step = max(2.0 * snap, 1e-9)
-    for axis in ("x", "z"):
-        entries = sorted(same[axis])
-        bins: dict[int, list[int]] = {}
-        for at, i in entries:
-            bins.setdefault(math.floor(at / step), []).append(i)
-        for at, i in entries:
-            home = math.floor(at / step)
-            for cell in (home - 1, home, home + 1):
-                for j in bins.get(cell, ()):
-                    if j > i and abs(rails[j][1] - at) <= snap:
-                        pairs.add((i, j))
-    # crossing and T: the meeting point is (a rail's at) on the other's span, both ways
-    width = max(8.0, 4.0 * snap)
-    index: dict[int, list[int]] = {}
-    for j, at, low, high in cross["z"]:
-        for cell in range(math.floor((low - snap) / width), math.floor((high + snap) / width) + 1):
-            index.setdefault(cell, []).append(j)
-    for i, at, low, high in cross["x"]:
-        for cell in range(math.floor((low - snap) / width), math.floor((high + snap) / width) + 1):
-            for j in index.get(cell, ()):
-                _, bat, blow, bhigh = rails[j]
-                if low - snap <= bat <= high + snap and blow - snap <= at <= bhigh + snap:
-                    pairs.add((i, j) if i < j else (j, i))
-    return sorted(pairs)
-
-
 def _routes(
     cells: Sequence[Mapping[str, Any]],
     edges: list[dict[str, Any]],
     streets: Sequence[Mapping[str, Any]],
     ring_path: Sequence[Mapping[str, float]],
+    report: Report | None = None,
 ) -> dict[str, list[tuple[float, float]]]:
     """Give every cable its route: out of the source's lot, the street network across the city,
     into the target's lot — along the two rails of the endpoints and the crossings between them
@@ -1539,68 +1671,52 @@ def _routes(
     by_id = {str(cell["id"]): cell for cell in cells}
     rails = _rails(streets, ring_path)
 
-    # the crossing table: which rails meet and where. A cable then routes rail to rail — along
-    # its own street, turning at crossings at most twice, into the target's street. The node
-    # graph this replaces answered the same question with a shortest-path search per cable;
-    # the crossings were what that search was really looking for.
-    meet: dict[tuple[int, int], tuple[float, float]] = {}
-    crossings_of: dict[int, set[int]] = {}
-    for i, j in _rail_junction_pairs(rails):
-        a, b = rails[i], rails[j]
-        crossings_of.setdefault(i, set()).add(j)
-        crossings_of.setdefault(j, set()).add(i)
-        if a[0] == b[0]:
-            # collinear streets meet end to end: a branch continues its lane out of the district
-            if abs(a[1] - b[1]) > JUNCTION_SNAP:
-                continue
-            for first, second in ((a, b), (b, a)):
-                for at in (first[2], first[3]):
-                    if second[2] - JUNCTION_SNAP <= at <= second[3] + JUNCTION_SNAP:
-                        corner = (at, first[1]) if first[0] == "x" else (first[1], at)
-                        meet.setdefault((i, j), corner)
-            continue
-        # crossing and T junctions both node: where a rail's end lies on another rail's span,
-        # the corner is shared or the graph fragments into islands and nothing routes
-        x, z = (b[1], a[1]) if a[0] == "x" else (a[1], b[1])
-        if _on_rail(a, x, z, JUNCTION_SNAP) and _on_rail(b, x, z, JUNCTION_SNAP):
-            meet.setdefault((i, j), (x, z))
-        for first, second in ((a, b), (b, a)):
-            for at in (first[2], first[3]):
-                corner = (at, first[1]) if first[0] == "x" else (first[1], at)
-                if _on_rail(second, corner[0], corner[1], JUNCTION_SNAP):
-                    meet.setdefault((i, j), corner)
+    # a cable's run is the Manhattan path on the street grid (``street_route`` below): each end
+    # snaps to its nearest rail and the turn is a crossing of two streets — so every leg of a
+    # route lies on a street centerline, never across a block. The crossing graph that used to
+    # drive a per-cable shortest-path search is gone; the grid is what that search looked for.
+    x_streets = sorted({rail[1] for rail in rails if rail[0] == "x"})
+    z_streets = sorted({rail[1] for rail in rails if rail[0] == "z"})
+
+    def nearest_street(streets: Sequence[float], toward: float) -> float | None:
+        """The street line closest to ``toward`` (ties: the lower line) — the rail the
+        last-resort run turns on, so its long leg is a real street and not a block cut."""
+        if not streets:
+            return None
+        return min(streets, key=lambda at: (abs(at - toward), at))
 
     grid = _rail_grid(rails)
     plugs: dict[str, tuple[float, float, int]] = {
-        str(cell["id"]): _project_rail(rails, float(cell["plot"]["x"]), float(cell["plot"]["z"]), grid)
+        str(cell["id"]): _project_rail(
+            rails, float(cell["plot"]["x"]), float(cell["plot"]["z"]), grid
+        )
         for cell in cells
     }
 
-    def hop_path(
-        s_rail: int, s: tuple[float, float], t_rail: int, t: tuple[float, float]
-    ) -> list[tuple[float, float]] | None:
-        """The street path between two plugs: the run on their own rails and the crossings
-        between, at most two turns. None: the rails do not meet in two turns and the caller
-        falls back to the direct run."""
-        if s_rail < 0 or t_rail < 0:
-            return None
-        if s_rail == t_rail:
-            return [s, t]
-        direct = meet.get((s_rail, t_rail)) or meet.get((t_rail, s_rail))
-        if direct is not None:
-            return [s, direct, t]
-        best: tuple[float, tuple[float, float], tuple[float, float]] | None = None
-        firsts, seconds = crossings_of.get(s_rail), crossings_of.get(t_rail)
-        shared = firsts & seconds if firsts and seconds else ()
-        for m in sorted(shared):
-            first = meet.get((s_rail, m)) or meet.get((m, s_rail))
-            second = meet.get((m, t_rail)) or meet.get((t_rail, m))
-            if first is None or second is None:
-                continue
-            length = math.dist(s, first) + math.dist(first, second) + math.dist(second, t)
-            if best is None or length < best[0] - 1e-12:
-                best = (length, first, second)
-        return None if best is None else [s, best[1], best[2], t]
+    def street_route(
+        source: tuple[float, float, int], target: tuple[float, float, int]
+    ) -> list[tuple[float, float]]:
+        """The corners of the Manhattan run on the street network between two plugs, each of
+        which already sits on its nearest rail (so the pad leg out of a lot is short and
+        perpendicular). Every leg lies on a street centerline: a turn at a crossing the two
+        rails share, or on a parallel street between them — never across a block."""
+        sx, sz, s_rail = source
+        tx, tz, t_rail = target
+        s_axis = rails[s_rail][0] if 0 <= s_rail < len(rails) else None
+        t_axis = rails[t_rail][0] if 0 <= t_rail < len(rails) else None
+        if s_axis == "x" and t_axis == "z":
+            return [(tx, sz)]  # the crossing of the horizontal street sz and the vertical street tx
+        if s_axis == "z" and t_axis == "x":
+            return [(sx, tz)]  # the crossing of the vertical street sx and the horizontal street tz
+        # x_streets are the z-coordinates of the horizontal (x-running) streets; z_streets the
+        # x-coordinates of the vertical (z-running) ones — a turn runs on the perpendicular kind.
+        if s_axis == "x" and t_axis == "x":  # both horizontal: turn down a vertical street
+            xm = nearest_street(z_streets, (sx + tx) / 2)
+            return [] if xm is None else [(xm, sz), (xm, tz)]
+        if s_axis == "z" and t_axis == "z":  # both vertical: turn along a horizontal street
+            zm = nearest_street(x_streets, (sz + tz) / 2)
+            return [] if zm is None else [(sx, zm), (tx, zm)]
+        return []
 
     def grave(source: Mapping[str, Any], handle: int) -> tuple[float, float]:
         mixed = (int(handle) * 2654435761) % 4294967296
@@ -1610,33 +1726,55 @@ def _routes(
             float(source["plot"]["z"]) + math.sin(angle) * GRAVE_REACH,
         )
 
-    routed: dict[tuple[str, str], list[tuple[float, float]] | None] = {}
+    def pin(cell: Mapping[str, Any], toward: tuple[float, float]) -> tuple[float, float]:
+        """Where the cable plugs into its building: the pad sits at the VOLUME's edge in the
+        direction the run leaves, never at the plot center — a trace never climbs a wall or
+        crosses its own building to get out of the lot."""
+        center_x = float(cell["plot"]["x"])
+        center_z = float(cell["plot"]["z"])
+        dx, dz = toward[0] - center_x, toward[1] - center_z
+        reach = math.sqrt(dx * dx + dz * dz)
+        if reach < 1e-9:
+            return (center_x, center_z)
+        radius = float(cell.get("footprint") or 0) / 2 + PIN_MARGIN
+        radius = min(radius, reach * 0.45)  # a tiny lot: the pad never jumps past its plug
+        return (center_x + dx / reach * radius, center_z + dz / reach * radius)
+
+    routed: dict[tuple[str, str], list[tuple[float, float]]] = {}
     straights: dict[str, list[tuple[float, float]]] = {}
-    for edge in edges:
+    for seen, edge in enumerate(edges, start=1):
+        if seen % 32 == 0 or seen == len(edges):
+            _say(report, "routing", seen, len(edges))
         source = by_id.get(str(edge["from"]))
         if source is None:
             edge["route"] = []
             straights[str(edge["id"])] = []
             continue
-        start = (float(source["plot"]["x"]), float(source["plot"]["z"]))
         target = by_id.get(str(edge["to"])) if edge["to"] else None
         if target is not None:
-            finish = (float(target["plot"]["x"]), float(target["plot"]["z"]))
             key = (str(source["id"]), str(target["id"]))
             if key not in routed:
-                s, t = plugs[key[0]], plugs[key[1]]
-                routed[key] = hop_path(s[2], (s[0], s[1]), t[2], (t[0], t[1]))
-            rail_path = routed[key]
-            path = [start] + (rail_path or []) + [finish]
+                routed[key] = street_route(plugs[key[0]], plugs[key[1]])
+            mid = routed[key]
+            sp = plugs[str(source["id"])]
+            tp = plugs[str(target["id"])]
+            start = pin(source, (sp[0], sp[1]))
+            finish = pin(target, (tp[0], tp[1]))
+            path = [start, (sp[0], sp[1])] + list(mid) + [(tp[0], tp[1]), finish]
         else:
-            path = [start, grave(source, int(edge["to_handle"]))]
-        if len(path) < 3:  # no rail network (a bare ground image): the direct Manhattan run
-            middle = round((start[0] + path[-1][0]) / 2 / GRID_STEP) * GRID_STEP
-            path = [start, (middle, start[1]), (middle, path[-1][1]), path[-1]]
+            grave_point = grave(source, int(edge["to_handle"]))
+            start = pin(source, grave_point)
+            path = [start, grave_point]
+        if len(path) < 3:  # no street lines (a bare ground image): the direct Manhattan run
+            x0, z0 = start
+            x1, z1 = path[-1]
+            middle = round((x0 + x1) / 2 / GRID_STEP) * GRID_STEP
+            path = [start, (middle, z0), (middle, z1), path[-1]]
         straight = [path[0]]
         for point in path[1:]:
             if abs(point[0] - straight[-1][0]) + abs(point[1] - straight[-1][1]) > 1e-9:
                 straight.append(point)
+        straight = _ortho(_tidy(straight))
         straights[str(edge["id"])] = straight
         edge["route"] = [
             {"x": _round(x), "z": _round(z)} for x, z in _chamfer(straight, 0.8)
@@ -1677,6 +1815,7 @@ def _bundles(
     straights: Mapping[str, list[tuple[float, float]]],
     streets: Sequence[Mapping[str, Any]],
     ring_path: Sequence[Mapping[str, float]],
+    report: Report | None = None,
 ) -> list[dict[str, Any]]:
     """The cable packages: where cables share a street stretch, that stretch carries them as ONE
     duct — thicker the more it carries, marked by what it carries — and every member cable only
@@ -1685,11 +1824,14 @@ def _bundles(
     on one street rail, split where the traffic splits, is the duct's run."""
     by_id = {str(cell["id"]): cell for cell in cells}
     by_edge = {str(edge["id"]): edge for edge in edges}
+    order = {str(edge["id"]): index for index, edge in enumerate(edges)}
     rails = _rails(streets, ring_path)
 
     # where every cable runs on which street: (edge id, low, high) per rail
     spans: dict[int, list[tuple[str, float, float]]] = {}
-    for edge in edges:
+    for seen, edge in enumerate(edges, start=1):
+        if seen % 32 == 0 or seen == len(edges):
+            _say(report, "packages", seen, len(edges))
         points = straights.get(str(edge["id"]), [])
         for first, second in pairwise(points):
             rail = _leg_rail(rails, first, second)
@@ -1706,7 +1848,10 @@ def _bundles(
     bundles: list[dict[str, Any]] = []
     # rail -> [(low, high, bundle id or None)]: which part of which street is a duct
     cover: dict[int, list[tuple[float, float, str | None]]] = {}
-    for rail in sorted(spans):
+    merged_rails = sorted(spans)
+    for seen, rail in enumerate(merged_rails, start=1):
+        if seen % 4 == 0 or seen == len(merged_rails):
+            _say(report, "merging", seen, len(merged_rails))
         axis, at = rails[rail][0], rails[rail][1]
         merged: list[list[float]] = []
         for _, low, high in sorted(spans[rail], key=lambda span: (span[1], span[2])):
@@ -1720,7 +1865,8 @@ def _bundles(
                     edge_id
                     for edge_id, span_low, span_high in spans[rail]
                     if min(high, span_high) - max(low, span_low) > 1e-6
-                }
+                },
+                key=lambda edge_id: order[edge_id],
             )
             if len(members) < BUNDLE_MIN:
                 cover.setdefault(rail, []).append((low, high, None))
@@ -1804,15 +1950,28 @@ def _bundles(
 # ---- the document ------------------------------------------------------------------------------------
 
 
-def export_world(inspector: Inspector) -> dict[str, Any]:
-    """The scene input of one image, deterministic: the same image always yields the same document."""
+# The loading face's seam (world/__init__.py serves it at /world/scene.json/progress): one call
+# per coarse step, (stage, done, total). The report is observational only — the document never
+# depends on it, so determinism stays the law.
+Report = Callable[[str, int, int], None]
+
+
+def _say(report: Report | None, stage: str, done: int, total: int) -> None:
+    if report is not None:
+        report(stage, done, total)
+
+
+def _base_pass(inspector: SceneSource, report: Report | None) -> dict[str, Any]:
+    """The cheap ground of every layer: the districts and their tile rasters, the stream's
+    buckets, the poison runs, and where every cell stands (the placement raster)."""
     image = inspector.image
     header = inspector.header()
     stream = inspector.cells()
     body = int(header["body_size"])
     raw = image.to_bytes()
 
-    regions = _districts(header, (int(cell["offset"]) for cell in stream))
+    _say(report, "districts", 0, 1)
+    regions = _districts(header)
     by_handle: dict[int, dict[str, Any]] = {
         int(cell["handle"]): cell for cell in stream if cell["handle"] is not None
     }
@@ -1825,6 +1984,7 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
         region["empty"] = False
         in_region.setdefault(str(region["id"]), []).append(cell)
 
+    _say(report, "poison", 0, 1)
     poison_runs = _poison_runs(raw, body)
     poisoned_at = _poison_hosts(stream, poison_runs)
 
@@ -1845,16 +2005,41 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
                 col,
                 row,
             )
+    return {
+        "image": image,
+        "header": header,
+        "body": body,
+        "stream": stream,
+        "regions": regions,
+        "by_handle": by_handle,
+        "poison_runs": poison_runs,
+        "poisoned_at": poisoned_at,
+        "placements": placements,
+    }
+
+
+def _buildings_pass(
+    base: Mapping[str, Any], report: Report | None
+) -> tuple[list[dict[str, Any]], dict[int, str], list[dict[str, Any]]]:
+    """The buildings (one per cell) and the poison pits. The pits mark their host cell poisoned,
+    so the two always travel together: a slice of buildings is the truth, pits and all."""
+    image = base["image"]
+    regions = base["regions"]
+    stream = base["stream"]
+    placements = base["placements"]
+    poisoned_at = base["poisoned_at"]
 
     cells: list[dict[str, Any]] = []
     cell_id: dict[int, str] = {}
-    for cell in stream:
+    for seen, cell in enumerate(stream, start=1):
+        if seen % 256 == 0 or seen == len(stream):
+            _say(report, "cells", seen, len(stream))
         offset, size = int(cell["offset"]), int(cell["size"])
         handle = cell["handle"]
         kind = int(cell["kind"])
         payload_size = int(cell["payload_size"])
         if handle is None:
-            family = _family(kind, None, -1)
+            family = _family(kind, None, -1, int(base["header"]["root"]))
             name = path = None
             state = None
             payload_bytes = b""
@@ -1862,7 +2047,7 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
         else:
             handle = int(handle)
             got = image.get(handle)
-            family = _family(kind, handle, int(got["parent"]))
+            family = _family(kind, handle, int(got["parent"]), int(base["header"]["root"]))
             name = got["name"] or None
             path = got["path"]
             state = _state(int(cell["flags"]))
@@ -1879,10 +2064,6 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
         x, z, col, row = placements[offset]
         footprint, height = _bulk(family, payload_size)
         region = _region_of(regions, offset)
-        raster = region["tiles"]
-        footprint = min(
-            footprint, _round(FP_RATIO * min(float(raster["step_x"]), float(raster["step_z"])))
-        )
         poisoned = offset in poisoned_at
         cells.append(
             {
@@ -1910,15 +2091,20 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
                 "forward": int(cell["forward"]),
                 "index": int(cell["index"]),
                 "ref_count": int(cell["ref_count"]),
-                "anatomy": _anatomy(
-                    size, payload_size, int(cell["ref_count"]), family, poisoned
+                "anatomy": _anatomy_for(
+                    base["header"],
+                    size,
+                    payload_size,
+                    int(cell["ref_count"]),
+                    family,
+                    poisoned,
                 ),
             }
         )
     cell_by_offset = {int(cell["offset"]): cell for cell in cells}
 
     voids: list[dict[str, Any]] = []
-    for start, length in poison_runs:
+    for start, length in base["poison_runs"]:
         host = cell_by_offset.get(start)
         if host is None:
             host = next(
@@ -1960,8 +2146,16 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
                     "footprint": _round(min(10.0, max(1.2, chunk / 96.0))),
                 }
             )
+    return cells, cell_id, voids
 
-    edges = _edges(image, by_handle)
+
+def _cables_pass(
+    base: Mapping[str, Any], cell_id: Mapping[int, str], report: Report | None
+) -> list[dict[str, Any]]:
+    """The cables as the image's refs really are — raw, unrouted (the routes are the
+    ``routing`` layer, computed when the page asks for them)."""
+    _say(report, "edges", 0, 1)
+    edges = _edges(base["image"], base["by_handle"])
     for edge in edges:
         source = cell_id.get(int(edge["from"]))
         edge["from_handle"] = edge.pop("from")
@@ -1970,7 +2164,14 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
         edge["to"] = (
             cell_id.get(int(edge["to_handle"])) if edge["fresh"] else None
         )
+    return edges
 
+
+def _city_pass(
+    base: Mapping[str, Any], cells: Sequence[Mapping[str, Any]], report: Report | None
+) -> dict[str, Any]:
+    """The frame of the city: the ring road, the street network, and what rides the ring."""
+    regions = base["regions"]
     towers = [cell for cell in cells if cell["family"] == "tower"]
     span_x = max(
         (float(region["plot"]["x"]) + float(region["plot"]["w"]) for region in regions),
@@ -1993,10 +2194,9 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
             + RING_MARGIN
         ),
     )
+    _say(report, "streets", 0, 1)
     ring_path = _ring_path(regions, cells, ring_rect)
     streets = _network(regions, cells, ring_rect)
-    straights = _routes(cells, edges, streets, ring_path)
-    bundles = _bundles(cells, edges, straights, streets, ring_path)
     # docs/23 §4.5: a tram is one run cell sitting in a ring slot (READY/RUNNING) and a PARKED run
     # is off the road. The units are the ring's occupied slots — the run state words the image
     # really carries — never one per tower and never a run the image does not place in a slot.
@@ -2021,48 +2221,10 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
         checksum_status = f"{len(verdicts) - bad} ok" + (f" · {bad} bad" if bad else "")
     else:
         checksum_status = None
-
-    counts = {
-        "cells": len(cells),
-        "live": len(by_handle),
-        "towers": len(towers),
-        "monuments": sum(1 for cell in cells if cell["family"] == "monument"),
-        "blocks": sum(1 for cell in cells if cell["family"] == "block"),
-        "utilities": sum(1 for cell in cells if cell["family"] == "utility"),
-        "rubble": sum(1 for cell in cells if cell["family"] == "rubble"),
-        "voids": len(voids),
-        "edges": len(edges),
-        "stale_edges": sum(1 for edge in edges if not edge["fresh"]),
-        "bundles": len(bundles),
-    }
     return {
-        "schema": SCHEMA,
-        "arena": {
-            "version": int(header["version"]),
-            "body_size": body,
-            "cells_off": int(header["cells_off"]),
-            "frontier": int(header["frontier"]),
-            "handle_count": int(header["handle_count"]),
-            "index_chunks": int(header["index_chunks"]),
-            "names_size": int(header["names_size"]),
-        },
-        "grid": {
-            "step": _round(GRID_STEP),
-            "margin": _round(GRID_MARGIN),
-            "district_span": DISTRICT_SPAN,
-            "district_depth": _round(DISTRICT_DEPTH),
-            "district_gap": _round(DISTRICT_GAP),
-            "district_cols": _district_cols(len(regions)),
-            "byte_scale": _round(BYTE_SCALE),
-            "street_width": _round(STREET_WIDTH),
-        },
-        "regions": regions,
-        "cells": cells,
-        "blocks": _blocks(cells, regions),
-        "voids": voids,
-        "edges": edges,
-        "bundles": bundles,
+        "towers": towers,
         "streets": streets,
+        "ring_path": ring_path,
         "ring": {
             "center": center,
             "radius": _round(0.5 * math.hypot(span_x, span_z) + RING_MARGIN),
@@ -2072,7 +2234,6 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
             "path": ring_path,
         },
         "trams": trams,
-        "carriers": [],
         "metrics": {
             "runs": len(towers),
             "carriers": None,
@@ -2082,11 +2243,1162 @@ def export_world(inspector: Inspector) -> dict[str, Any]:
             "refusals": None,
             "checksum_status": checksum_status,
         },
-        "counts": counts,
     }
 
 
-def scene_json(inspector: Inspector) -> str:
+# ---- the v7 scene reader (docs/32): the one-arena image as the scene source -------------------------
+
+# The words of the ground enumerations, in value order (core/kinds.pyi), for the kind word.
+_NODE_KINDS = tuple(kind.name for kind in NodeKind)
+
+# The Type and Field payloads (48 bytes each, tags "TYPE" / "FLD "), as the world writes them.
+TYPE_BYTES = 48
+TYPE_TAG = 0x54595045
+FIELD_TAG = 0x464C4420
+FIELD_FLAG_OPTIONAL = 0x2
+FIELD_FLAG_REF = 0x8
+FIELD_FLAG_CHILDREN = 0x10
+FIELD_FLAG_INVERSE = 0x20
+TYPE_FLAG_VARIABLE = 0x1
+TYPE_FLAG_BITSET = 0x8
+FORM_STRUCT = 7
+FORM_UNION = 8
+FORM_ENUM = 9
+
+NODE_ALIAS = 21
+NODE_MODULE = 19
+NODE_ENUMERATOR = 20
+
+
+def _scalar_kind(form: int) -> str:
+    return {FORM_ENUM: "enum", 3: "uint", 4: "sint", 2: "bool", 5: "float"}.get(
+        form, "hex"
+    )
+
+
+def _is_ground_name(name: str) -> bool:
+    return name in {
+        "uint32_t",
+        "uint64_t",
+        "Enumerator",
+        "Doc",
+        "Form",
+        "TypeFlags",
+        "FieldFlags",
+        "NodeKind",
+        "RefKind",
+        "Binding",
+        "OwnerKind",
+        "Mobility",
+        "DocKind",
+        "DocStatus",
+        "DocCodec",
+        "DocRole",
+    }
+
+
+class ArenaScene:
+    """The v7 one-arena image (docs/32) as a scene source: the reader's side of the format.
+
+    The same facts ``Inspector`` answers from the world image, read from the arena bytes
+    alone: the superblock, the slot table, the 24-byte records, the interned names
+    (``sys/syms``), the semantic rows (``sys/specs``, docs/32 5) and the relation tables
+    (``sys/relations/<path>``, docs/32 2). The record's ``kind`` is the storage role
+    (``OBJ_*``); the kind word, the state word and the type come from the spec row — the
+    scene surfaces the spec, not just the record. This is the golden face of the same
+    document ``rxf-reader.js`` computes from the same bytes (tests/test_reader_js.py)."""
+
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+        self._arena = ObjectArena.attach(data)  # the defining reader for the object model
+        if len(data) < SUPERBLOCK_SIZE:
+            raise SchemaError("scene: not a v7 arena (truncated superblock)")
+        magic = bytes(data[0:4])
+        if magic != b"RXFA":
+            raise SchemaError("scene: not a v7 arena (magic is not RXFA)")
+        self.version = struct.unpack_from("<I", data, 4)[0]
+        if self.version != SUPERBLOCK_VERSION:
+            raise SchemaError(f"scene: arena version {self.version} is not supported")
+        self._committed = struct.unpack_from("<Q", data, 8)[0]
+        self._limit = struct.unpack_from("<Q", data, 16)[0]
+        self._root = struct.unpack_from("<I", data, 24)[0]
+        self._entry = struct.unpack_from("<I", data, 28)[0]
+        self._read_slots()
+        self._walk()
+        self._specs()
+        self.handle_type = self._find(self._root, "Type")
+        self.handle_field = self._find(self._root, "Field")
+        self._types: dict[int, dict[str, Any] | None] = {}
+        self._layouts: dict[int, dict[str, Any]] = {}
+        self._children_cache: dict[int, list[int]] = {}
+        self._alias_scopes: dict[int, dict[str, Any]] = {}
+
+    # -- the anchors: the slot table and the record stream -------------------------------------------
+
+    def _read_slots(self) -> None:
+        """The slot table: the index object's payload, at the anchor a cold attach needs."""
+        head = INDEX_OFFSET + OBJECT_BYTES
+        count, capacity = struct.unpack_from("<II", self._data, head)
+        if count > capacity:
+            raise SchemaError("scene: the slot table publishes past its capacity")
+        self._slot_count = count
+        self._slot_capacity = capacity
+        self._slots: dict[int, tuple[int, int, int]] = {}  # offset -> (index, gen, kind)
+        self._entries: list[tuple[int, int, int]] = []  # index -> (kind, gen, slot)
+        for index in range(count):
+            at = head + SLOTS_HEAD_SIZE + index * SLOT_SIZE
+            kind, gen = struct.unpack_from("<HH", self._data, at)
+            (slot,) = struct.unpack_from("<Q", self._data, at + 8)
+            self._entries.append((kind, gen, slot))
+            if slot != 0:
+                self._slots[slot] = (index, gen, kind)
+
+    def _walk(self) -> None:
+        """The record stream: every span of the arena from the index object to the marker."""
+        self.stream: list[dict[str, Any]] = []
+        self._record_at: dict[int, dict[str, Any]] = {}
+        self._by_handle: dict[int, dict[str, Any]] = {}
+        at = INDEX_OFFSET
+        while at < self._committed:
+            kind, gen, flags, name, parent, link, refs, payload = self._arena.record(at)
+            size = OBJECT_BYTES + ((payload + 7) & ~7)
+            if size < OBJECT_BYTES or at + size > self._committed:
+                raise SchemaError(f"scene: malformed record at {at}")
+            identity = self._slots.get(at)
+            handle = None
+            if identity is not None:
+                index, slot_gen, slot_kind = identity
+                if slot_gen == gen and slot_kind == kind:
+                    handle = (slot_gen << 20) | index
+            record = {
+                "offset": at,
+                "size": size,
+                "kind": kind,
+                "gen": gen,
+                "flags": flags,
+                "name_off": name,
+                "parent": parent,
+                "link": link,
+                "ref_count": refs,
+                "payload_size": payload,
+                "handle": handle,
+                "block_kind": 0,
+            }
+            self.stream.append(record)
+            self._record_at[at] = record
+            if handle is not None:
+                self._by_handle[handle] = record
+            at += size
+        if at != self._committed:
+            raise SchemaError("scene: the record stream does not end at the marker")
+        # The index object and the names table are the two blocks of the v6 vocabulary.
+        self.stream[0]["block_kind"] = 1
+        syms = self._entries[1][2]
+        if syms in self._record_at:
+            self._record_at[syms]["block_kind"] = 2
+
+    def _specs(self) -> None:
+        """The semantic face (docs/32 5): one sys/specs row per object index."""
+        self._spec: dict[int, tuple[int, int, int, int]] = {}
+        for handle in self._by_handle:
+            self._spec[handle] = self._arena.spec(handle)
+
+    def _find(self, parent: int, name: str) -> int:
+        return int(self._arena.find(parent, name))
+
+    # -- the scene source surface (the shape Inspector/Image answer) ----------------------------------
+
+    @property
+    def image(self) -> ArenaScene:
+        return self
+
+    def to_bytes(self) -> bytes:
+        return self._data
+
+    @property
+    def handle_count(self) -> int:
+        return self._slot_count
+
+    def header(self) -> dict[str, Any]:
+        """The superblock decoded (docs/32 1.1) in the words the scene documents."""
+        index_span = self.stream[0]["size"]
+        cells_off = INDEX_OFFSET + index_span
+        return {
+            "magic": "RXFA",
+            "version": self.version,
+            "header_size": SUPERBLOCK_SIZE,
+            "flags": 0,
+            "body_size": self._committed,
+            "committed_size": self._committed + OBJECT_BYTES + 16,
+            "limit": self._limit,
+            "frontier": self._committed - cells_off,
+            "index_off": INDEX_OFFSET,
+            "cells_off": cells_off,
+            "names_off": self._entries[1][2],
+            "names_size": self._record_at[self._entries[1][2]]["payload_size"],
+            "index_chunks": 1,
+            "handle_count": self._slot_count,
+            "free_head": 0,
+            "entry": self._entry,
+            "root": self._root,
+            "cell_align": OBJECT_ALIGN,
+            "page_size": SUPERBLOCK_SIZE,
+        }
+
+    def cells(self) -> list[dict[str, Any]]:
+        """Every record of the stream in order: offset, size, decoded header, and the live
+        handle it holds (none for a free span). The kind, state and type words come from
+        the record's spec row (docs/32 5), not from the storage role."""
+        out: list[dict[str, Any]] = []
+        for record in self.stream:
+            handle = record["handle"]
+            if handle is None:
+                out.append(
+                    {
+                        "offset": record["offset"],
+                        "size": record["size"],
+                        "kind": KIND_DEAD if record["kind"] == OBJ_FREE else record["kind"],
+                        "block_kind": 0,
+                        "handle": None,
+                        "type": HANDLE32_NONE,
+                        "parent": HANDLE32_NONE,
+                        "payload_size": record["payload_size"],
+                        "ref_count": record["ref_count"],
+                        "flags": 0,
+                        "generation": 0,
+                        "name_off": 0,
+                        "forward": 0,
+                        "index": 0,
+                    }
+                )
+                continue
+            spec_type, spec_flags, spec_index, spec_generation = self._spec[handle]
+            if record["block_kind"]:
+                kind = KIND_BLOCK
+            else:
+                kind = spec_flags & FLAG_KIND_MASK
+            out.append(
+                {
+                    "offset": record["offset"],
+                    "size": record["size"],
+                    "kind": kind,
+                    "block_kind": record["block_kind"],
+                    "handle": handle,
+                    "type": spec_type,
+                    "parent": record["parent"],
+                    "payload_size": record["payload_size"],
+                    "ref_count": record["ref_count"],
+                    "flags": spec_flags,
+                    "generation": spec_generation,
+                    "name_off": record["name_off"],
+                    "forward": 0 if record["link"] == HANDLE32_NONE else record["link"],
+                    "index": spec_index,
+                }
+            )
+        return out
+
+    def live(self, handle: int) -> bool:
+        if handle == HANDLE32_NONE:
+            return False
+        index = handle & 0xFFFFF
+        gen = (handle >> 20) & 0xFFF
+        if index >= self._slot_count:
+            return False
+        kind, slot_gen, slot = self._entries[index]
+        if slot == 0 or slot_gen != gen:
+            return False
+        record = self._record_at.get(slot)
+        return record is not None and record["gen"] == gen and record["kind"] == kind
+
+    def name_of(self, handle: int) -> str:
+        record = self._by_handle.get(handle)
+        if record is None or record["name_off"] == 0:
+            return ""
+        return str(self._arena.symbol(record["name_off"]))
+
+    def path_of(self, handle: int) -> str:
+        return str(self._arena.path_of(handle))
+
+    def get(self, handle: int) -> dict[str, Any]:
+        record = self._by_handle.get(handle)
+        if record is None:
+            raise KeyError(f"no live object for handle {handle:#x}")
+        spec_type, spec_flags, spec_index, spec_generation = self._spec[handle]
+        return {
+            "handle": handle,
+            "type": spec_type,
+            "parent": record["parent"],
+            "name": self.name_of(handle),
+            "path": self.path_of(handle),
+            "kind": spec_flags & FLAG_KIND_MASK,
+            "state": (spec_flags >> FLAG_STATE_SHIFT) & FLAG_STATE_MASK,
+            "owner_kind": (spec_flags >> FLAG_OWNER_SHIFT) & 0xF,
+            "generation": spec_generation,
+            "index": spec_index,
+            "payload": self._payload_of(handle),
+            "refs": self._refs_of(handle),
+        }
+
+    def _payload_of(self, handle: int) -> bytes:
+        """The object's value bytes: the record's payload, past the chain head a module
+        owns first (docs/32 1.2). The granted room may overshoot the written data (the
+        allocator takes a span whole), so the value is everything behind the head."""
+        record = self._by_handle[handle]
+        at = record["offset"] + OBJECT_BYTES
+        head = MODULE_SIZE if record["kind"] == 1 else 0  # OBJ_MODULE owns the chain head
+        return bytes(self._data[at + head : at + record["payload_size"]])
+
+    def _refs_of(self, handle: int) -> list[tuple[int, int | None, int, int, int]]:
+        """The relation rows (docs/32 2) as the world spells them: (target, role, index,
+        kind, binding); a target or role the row does not carry is the all-ones handle.
+        The rows end where the granted room's zero tail begins: the allocator zeroes a
+        fresh payload, and a real row's target is never handle 0."""
+        out: list[tuple[int, int | None, int, int, int]] = []
+        for target, role, kind, binding, index in self._arena.refs_of(handle):
+            if target == 0 and role == 0 and kind == 0 and binding == 0 and index == 0:
+                break
+            out.append(
+                (
+                    int(target),
+                    None if int(role) == HANDLE_NONE else int(role),
+                    int(index),
+                    int(kind),
+                    int(binding),
+                )
+            )
+        return out
+
+    def type_name(self, handle: int) -> str | None:
+        record = self._by_handle.get(handle)
+        if record is None:
+            return None
+        if record["block_kind"]:
+            return {1: "Index", 2: "Names"}.get(record["block_kind"], "Block")
+        if record["kind"] == OBJ_FREE:
+            return "Dead"
+        _, spec_flags, _, _ = self._spec[handle]
+        return _word(NodeKind, spec_flags & FLAG_KIND_MASK)
+
+    # -- the tree -----------------------------------------------------------------------------------
+
+    def children(self, handle: int) -> list[int]:
+        cached = self._children_cache.get(handle)
+        if cached is not None:
+            return cached
+        names: list[tuple[str, int]] = []
+        for record in self.stream:
+            here = record["handle"]
+            if here is not None and record["parent"] == handle:
+                names.append((self.name_of(here), here))
+        names.sort(key=lambda entry: entry[0])
+        out = [entry[1] for entry in names]
+        self._children_cache[handle] = out
+        return out
+
+    def districts(self) -> list[dict[str, Any]]:
+        """The body's districts (rxf-reader.js ``regions``): the bands a viewport pages by —
+        the header, the index and one ``DISTRICT_SPAN`` run of the cell stream each. The ids
+        are the chunk rank (``r0``...), a record belongs to the district its offset starts
+        in, and the ground plots of the world (``_districts``) stand on the same law."""
+        return _districts(self.header())
+
+    def stream_parts(self, region: str | None = None) -> dict[str, list[tuple[int, int]]]:
+        """The binary part stream's index: the one canonical image split at its own record
+        seams into the parts the page pages it in with - ``head`` (the superblock, the slot
+        table, the markers), ``edges`` (the cable part: ``sys/relations``, docs/32 2),
+        ``sys`` (the frame the reader's other passes ride on) and ``world`` (the world's own
+        objects). Each part is the disjoint list of byte runs its records occupy; the parts
+        reassemble onto the head into the byte-identical image, which the page reads through
+        the same reader face (rxf-reader.js) and the Python twin reads too
+        (tests/test_reader_js.py pins the reassembly byte-for-byte).
+
+        With ``region`` the index answers one district's share of every part instead of the
+        whole layer: the runs the reader's per-layer reads (``RxfArena.readLayer``) decode for
+        that district — its range's records, the ancestors their paths walk and the shared
+        tables, at the same record seams. That is what a viewport fetches, never a second
+        format; the whole-layer index is what the bench measures the saving against."""
+        wanted = self._district_offsets(region) if region is not None else None
+        groups: dict[str, list[tuple[int, int]]] = {}
+        for record in self.stream:
+            if wanted is not None and record["offset"] not in wanted:
+                continue
+            lo = record["offset"]
+            hi = record["offset"] + record["size"]
+            handle = record["handle"]
+            part = "head" if handle is None else self._part_of(self.path_of(handle))
+            groups.setdefault(part, []).append((lo, hi))
+        first = self.stream[0]["offset"]
+        head = groups.setdefault("head", [])
+        head.append((0, first))  # the superblock and the slot table, before the record stream
+        if wanted is None:
+            last = self.stream[-1]["offset"] + self.stream[-1]["size"]
+            if last < len(self._data):
+                head.append((last, len(self._data)))  # the marker that trails the record stream
+        out: dict[str, list[tuple[int, int]]] = {}
+        for name, spans in groups.items():
+            spans.sort()
+            runs: list[tuple[int, int]] = []
+            for lo, hi in spans:
+                if runs and runs[-1][1] >= lo:
+                    runs[-1] = (runs[-1][0], max(runs[-1][1], hi))
+                else:
+                    runs.append((lo, hi))
+            out[name] = runs
+        return out
+
+    def _district_offsets(self, region: str) -> set[int]:
+        """The byte offsets one district's answer covers — the mirror of the reader's pulls
+        (``RxfArena.pullOf``): the shared tables every read consults (the slot table, the
+        interned names, the semantic rows, the root cell and the cable frame, with the ground
+        chains open walks) and the closure of the records the answer decodes — their ancestors,
+        the rows' types with their fields, the rows' targets and roles with their paths, the
+        field-leaved payload values, and the aliases their scopes hold. ``stream_parts``
+        publishes under ``region=`` exactly those offsets' runs: what a viewport pulls, never
+        the whole layer (the bench's before/after)."""
+        ranges = {row["id"]: (int(row["start"]), int(row["end"])) for row in self.districts()}
+        if region not in ranges:
+            raise KeyError(region)
+        start, end = ranges[region]
+        out: set[int] = set()
+
+        def take(record: dict[str, Any] | None) -> None:
+            if record is not None:
+                out.add(int(record["offset"]))
+
+        def chain(word: int | None) -> None:
+            at = word
+            while at is not None and at not in (HANDLE32_NONE, HANDLE_NONE, self._root):
+                here = self._by_handle.get(at)
+                if here is None:
+                    break
+                take(here)
+                at = here["parent"]
+
+        # the shared tables (rxf-reader.js ``pullOf``)
+        take(self.stream[0])
+        if len(self._entries) > 1:
+            take(self._record_at.get(self._entries[1][2]))
+        take(self._by_handle.get(self._root))
+        for child in self.children(self._root):
+            take(self._by_handle.get(child))
+        sys_handle = self._find(self._root, "sys")
+        take(self._by_handle.get(sys_handle))
+        for child in self.children(sys_handle):
+            take(self._by_handle.get(child))
+        relations = self._find(sys_handle, "relations")
+        take(self._by_handle.get(relations))
+        for table in self.children(relations):
+            take(self._by_handle.get(table))
+
+        # the records a read decodes and the closure it walks
+        for record in self.stream:
+            offset = int(record["offset"])
+            if not (start <= offset < end):
+                continue
+            take(record)
+            chain(record["parent"])
+            handle = record["handle"]
+            if handle is None:
+                continue
+            type_handle = self._spec[handle][0]
+            take(self._by_handle.get(type_handle))
+            for child in self.children(type_handle):
+                take(self._by_handle.get(child))
+            for target, role, *_ in self._refs_of(handle):
+                chain(target)
+                chain(role)
+            # the field-leaved payload values (the ``field`` rows) name handles too
+            layout = self.layout(type_handle) if type_handle in self._by_handle else None
+            if layout is not None and not layout["error"] and not layout["raw"]:
+                payload = self._payload_of(handle)
+                for leaf in layout["leaves"]:
+                    if leaf["reference"] and leaf["offset"] + 8 <= len(payload):
+                        chain(struct.unpack_from("<Q", payload, leaf["offset"])[0])
+            # the scope's aliases (the cable layer's alias rows name alias records)
+            scope = self.scope_of(handle)
+            if scope is not None:
+                for child in self.children(scope):
+                    if not self.is_alias(child):
+                        continue
+                    take(self._by_handle.get(child))
+                    alias_type = self._spec[child][0]
+                    take(self._by_handle.get(alias_type))
+                    for leaf_handle in self.children(alias_type):
+                        take(self._by_handle.get(leaf_handle))
+                    chain(self.alias_target(child))
+        return out
+
+    @staticmethod
+    def _part_of(path: str) -> str:
+        """The part one record belongs to. The tree's paths are dot-separated
+        (``sys.relations.honors.works.blake2s``); the world's own objects hang under the
+        Genesis namespace (``pymergetic.rxf...``)."""
+        segments = path.split(".")
+        if segments[0] == "sys":
+            return "edges" if segments[1:2] == ["relations"] else "sys"
+        return "world"
+
+    def is_alias(self, handle: int) -> bool:
+        return self._kind_word(handle) == NODE_ALIAS
+
+    def is_module(self, handle: int) -> bool:
+        return self._kind_word(handle) == NODE_MODULE
+
+    def _kind_word(self, handle: int) -> int:
+        record = self._by_handle.get(handle)
+        if record is None or record["block_kind"] or record["kind"] == OBJ_FREE:
+            return -1
+        _, spec_flags, _, _ = self._spec[handle]
+        return spec_flags & FLAG_KIND_MASK
+
+    def is_ground(self, handle: int) -> bool:
+        record = self._by_handle.get(handle)
+        if record is None or handle == self._root:
+            return False
+        if handle in (self.handle_type, self.handle_field):
+            return True
+        top = handle
+        while True:
+            here = self._by_handle.get(top)
+            if here is None:
+                return False
+            if here["parent"] == HANDLE32_NONE:
+                return False
+            if here["parent"] == self._root:
+                break
+            top = here["parent"]
+        return top in (self.handle_type, self.handle_field) or _is_ground_name(
+            self.name_of(top)
+        )
+
+    def scope_of(self, handle: int) -> int | None:
+        at = handle
+        while at != HANDLE32_NONE:
+            record = self._by_handle.get(at)
+            if record is None:
+                return None
+            if self.is_module(at):
+                return at
+            at = record["parent"]
+        return None
+
+    # -- the self-describing types (the world's 48-byte TYPE / FLD payloads) -------------------------
+
+    def type_info(self, type_handle: int) -> dict[str, Any] | None:
+        cached = self._types.get(type_handle)
+        if cached is not None or type_handle in self._types:
+            return cached
+        record = self._by_handle.get(type_handle)
+        payload = self._payload_of(type_handle) if record is not None else b""
+        if (
+            record is None
+            or self._spec[type_handle][0] != self.handle_type
+            or record["payload_size"] < TYPE_BYTES
+            or struct.unpack_from("<I", payload, 0)[0] != TYPE_TAG
+        ):
+            self._types[type_handle] = None
+            return None
+        fields: list[dict[str, Any]] = []
+        members: list[dict[str, Any]] = []
+        for child in self.children(type_handle):
+            f = self._by_handle.get(child)
+            if f is None or self._spec[child][0] != self.handle_field:
+                continue
+            if f["payload_size"] < TYPE_BYTES:
+                continue
+            fp = self._payload_of(child)
+            if struct.unpack_from("<I", fp, 0)[0] != FIELD_TAG:
+                continue
+            flags = struct.unpack_from("<I", fp, 4)[0]
+            info = {
+                "id": child,
+                "name": self.name_of(child),
+                "value_type": struct.unpack_from("<Q", fp, 16)[0],
+                "offset": struct.unpack_from("<Q", fp, 24)[0],
+                "count": struct.unpack_from("<Q", fp, 32)[0],
+                "flags": flags,
+                "via": struct.unpack_from("<Q", fp, 40)[0],
+                "member": (flags & (FIELD_FLAG_CHILDREN | FIELD_FLAG_INVERSE)) != 0,
+            }
+            (members if info["member"] else fields).append(info)
+        fields.sort(key=lambda f: (f["offset"], f["name"]))
+        members.sort(key=lambda f: f["name"])
+        info = {
+            "id": type_handle,
+            "name": self.name_of(type_handle),
+            "form": struct.unpack_from("<I", payload, 4)[0],
+            "size": struct.unpack_from("<Q", payload, 8)[0],
+            "inner": struct.unpack_from("<Q", payload, 16)[0],
+            "ret": struct.unpack_from("<Q", payload, 24)[0],
+            "align": struct.unpack_from("<I", payload, 32)[0],
+            "flags": struct.unpack_from("<I", payload, 36)[0],
+            "field_count": struct.unpack_from("<I", payload, 40)[0],
+            "node_kind": struct.unpack_from("<I", payload, 44)[0],
+            "fields": fields,
+            "members": members,
+        }
+        info["variable"] = (info["flags"] & TYPE_FLAG_VARIABLE) != 0
+        info["bitset"] = (info["flags"] & TYPE_FLAG_BITSET) != 0
+        self._types[type_handle] = info
+        return info
+
+    def layout(self, type_handle: int) -> dict[str, Any]:
+        cached = self._layouts.get(type_handle)
+        if cached is not None:
+            return cached
+        info = self.type_info(type_handle)
+        built: dict[str, Any] = {
+            "leaves": [],
+            "raw": False,
+            "fixed": False,
+            "prefix": 0,
+            "error": "",
+        }
+        if info is None:
+            built["error"] = "not a Type object"
+            self._layouts[type_handle] = built
+            return built
+        fixed_size = info["size"] if info["size"] != 0 and not info["variable"] else 0
+        if info["form"] == FORM_UNION or not info["fields"]:
+            built["raw"] = True
+            built["fixed"] = fixed_size != 0
+            built["prefix"] = fixed_size
+            self._layouts[type_handle] = built
+            return built
+        for field in info["fields"]:
+            if not self._add_leaves(field, "", 0, built, 0, True, type_handle):
+                built["leaves"] = []
+                self._layouts[type_handle] = built
+                return built
+        built["leaves"].sort(key=lambda leaf: leaf["offset"])
+        end = 0
+        for leaf in built["leaves"]:
+            if leaf["offset"] < end:
+                built["leaves"] = []
+                built["raw"] = True
+                built["fixed"] = fixed_size != 0
+                built["prefix"] = fixed_size
+                self._layouts[type_handle] = built
+                return built
+            end = leaf["offset"] + leaf["size"]
+        built["prefix"] = max(fixed_size, end)
+        if info["size"] != 0 and end > info["size"] and not info["variable"]:
+            built["leaves"] = []
+            built["error"] = "fields exceed the size of the type"
+            self._layouts[type_handle] = built
+            return built
+        built["fixed"] = not info["variable"]
+        self._layouts[type_handle] = built
+        return built
+
+    def _add_leaves(
+        self,
+        field: dict[str, Any],
+        prefix: str,
+        base: int,
+        built: dict[str, Any],
+        depth: int,
+        top_level: bool,
+        owner: int,
+    ) -> bool:
+        value = self.type_info(int(field["value_type"]))
+        out: list[dict[str, Any]] = built["leaves"]
+        if value is None:
+            built["error"] = f"field {prefix}{field['name']} has an unknown value type"
+            return False
+        if field["count"] == 0:
+            built["error"] = f"field {prefix}{field['name']} has a zero count"
+            return False
+        if (
+            field["offset"] > 0x7FFFFFFF
+            or field["count"] > 0x7FFFFFFF
+            or value["size"] > 0x7FFFFFFF
+        ):
+            built["error"] = f"field {prefix}{field['name']} is out of range"
+            return False
+        if len(out) >= 1 << 16:
+            built["error"] = f"field {prefix}{field['name']}: the type has too many values"
+            return False
+        derived = top_level and (
+            (
+                owner == self.handle_type
+                and field["name"] in ("field_count", "descriptor_tag")
+            )
+            or (
+                owner == self.handle_field
+                and field["name"] in ("descriptor_tag", "owner_type")
+            )
+        )
+        if field["flags"] & FIELD_FLAG_REF:
+            if value["form"] != 3 or value["size"] != 8 or field["count"] != 1:
+                built["error"] = (
+                    f"reference field {prefix}{field['name']} must be one uint64"
+                )
+                return False
+            out.append(
+                {
+                    "name": prefix + field["name"],
+                    "offset": base + field["offset"],
+                    "size": 8,
+                    "reference": True,
+                    "optional": (field["flags"] & FIELD_FLAG_OPTIONAL) != 0,
+                    "derived": derived,
+                    "enumeration": None,
+                    "def": 0,
+                }
+            )
+            return True
+        nested = value["form"] == FORM_STRUCT and bool(value["fields"])
+        if nested:
+            if depth >= 6:
+                built["error"] = f"field {prefix}{field['name']} nests too deeply"
+                return False
+            for i in range(field["count"]):
+                if len(out) >= 1 << 16:
+                    built["error"] = (
+                        f"field {prefix}{field['name']}: the type has too many values"
+                    )
+                    return False
+                name = prefix + field["name"] + (f".{i}" if field["count"] > 1 else "")
+                name += "."
+                for member in value["fields"]:
+                    if not self._add_leaves(
+                        member,
+                        name,
+                        base + field["offset"] + i * value["size"],
+                        built,
+                        depth + 1,
+                        False,
+                        value["id"],
+                    ):
+                        return False
+            return True
+        kind = _scalar_kind(value["form"])
+        if value["size"] == 0:
+            built["error"] = f"field {prefix}{field['name']} embeds a variable-size type"
+            return False
+
+        def flat() -> None:
+            out.append(
+                {
+                    "name": prefix + field["name"],
+                    "offset": base + field["offset"],
+                    "size": value["size"] * field["count"],
+                    "reference": False,
+                    "optional": False,
+                    "derived": derived,
+                    "enumeration": None,
+                    "def": 0,
+                }
+            )
+
+        if kind == "float" and value["size"] not in (4, 8):
+            flat()
+            return True
+        if (kind != "hex" and value["size"] not in (1, 2, 4, 8) and kind != "float") or (
+            kind == "bool" and value["size"] != 1
+        ):
+            flat()
+            return True
+        if field["count"] > 1 and value["size"] == 1 and kind in ("uint", "hex"):
+            out.append(
+                {
+                    "name": prefix + field["name"],
+                    "offset": base + field["offset"],
+                    "size": field["count"],
+                    "reference": False,
+                    "optional": False,
+                    "derived": derived,
+                    "enumeration": None,
+                    "def": 0,
+                }
+            )
+            return True
+        if kind == "hex":
+            flat()
+            return True
+        for i in range(field["count"]):
+            if len(out) >= 1 << 16:
+                built["error"] = (
+                    f"field {prefix}{field['name']}: the type has too many values"
+                )
+                return False
+            out.append(
+                {
+                    "name": prefix
+                    + field["name"]
+                    + (f".{i}" if field["count"] > 1 else ""),
+                    "offset": base + field["offset"] + i * value["size"],
+                    "size": value["size"],
+                    "reference": False,
+                    "optional": False,
+                    "derived": derived,
+                    "enumeration": value["id"] if kind == "enum" else None,
+                    "def": 1
+                    if top_level and owner == self.handle_field and field["name"] == "count"
+                    else 0,
+                }
+            )
+        return True
+
+    def enumeration_name(self, enum_type: int, value: int) -> str | None:
+        info = self.type_info(enum_type)
+        if info is None or info["form"] != FORM_ENUM:
+            return None
+        items: list[tuple[str, int]] = []
+        for child in self.children(enum_type):
+            record = self._by_handle.get(child)
+            if (
+                record is None
+                or self._kind_word(child) != NODE_ENUMERATOR
+                or record["payload_size"] < 8
+            ):
+                continue
+            items.append(
+                (self.name_of(child), struct.unpack_from("<Q", self._payload_of(child), 0)[0])
+            )
+        items.sort(key=lambda item: (item[1], item[0]))
+        head = self.path_of(enum_type) + "."
+        if not info["bitset"]:
+            for name, item in items:
+                if item == value:
+                    return head + name
+            return None
+        text = ""
+        rest = value
+        for name, item in items:
+            if item == 0 or (item & rest) != item:
+                continue
+            text += head if text == "" else "|"
+            text += name
+            rest &= ~item
+        return text if rest == 0 else None
+
+    # -- the aliases (core/meta/types.cpp) ----------------------------------------------------------
+
+    def alias_target(self, alias: int) -> int | None:
+        record = self._by_handle.get(alias)
+        type_handle = self._spec[alias][0] if record is not None else HANDLE32_NONE
+        if record is None or type_handle == HANDLE32_NONE:
+            return None
+        layout = self.layout(type_handle)
+        if layout["error"] or layout["raw"]:
+            return None
+        payload = self._payload_of(alias)
+        for leaf in layout["leaves"]:
+            if leaf["reference"] and leaf["name"] == "target" and leaf["offset"] + 8 <= len(payload):
+                target = struct.unpack_from("<Q", payload, leaf["offset"])[0]
+                if target != HANDLE_NONE and self._by_handle.get(target) is not None:
+                    return target
+        return None
+
+    def collect_aliases(self, module: int) -> dict[str, Any]:
+        names: list[tuple[str, str]] = []
+        handles: list[int] = []
+        for child in self.children(module):
+            if not self.is_alias(child):
+                continue
+            target = self.alias_target(child)
+            if target is None:
+                continue
+            names.append((self.name_of(child), self.path_of(target)))
+            handles.append(child)
+        return {"names": names, "handles": handles}
+
+    def written_paths(self, handle: int) -> list[str]:
+        out = list(self.decode_paths(handle))
+        for target, role, _, _, _ in self._refs_of(handle):
+            if target != HANDLE_NONE and self._by_handle.get(target) is not None:
+                out.append(self.path_of(target))
+            if role is not None and self._by_handle.get(role) is not None:
+                out.append(self.path_of(role))
+        return out
+
+    def decode_paths(self, handle: int) -> list[str]:
+        out: list[str] = []
+        record = self._by_handle.get(handle)
+        type_handle = self._spec[handle][0] if record is not None else HANDLE32_NONE
+        if record is None or type_handle == HANDLE32_NONE:
+            return out
+        layout = self.layout(type_handle)
+        if layout["error"] or layout["raw"]:
+            return out
+        payload = self._payload_of(handle)
+        value = len(payload)
+        fits = value == layout["prefix"] if layout["fixed"] else value >= layout["prefix"]
+        if not fits:
+            return out
+        at = 0
+        for leaf in layout["leaves"]:
+            if any(payload[i] != 0 for i in range(at, leaf["offset"])):
+                return out
+            at = leaf["offset"] + leaf["size"]
+        if any(payload[i] != 0 for i in range(at, layout["prefix"])):
+            return out
+        for leaf in layout["leaves"]:
+            if leaf["derived"]:
+                continue
+            if leaf["reference"]:
+                target = struct.unpack_from("<Q", payload, leaf["offset"])[0]
+                if target == HANDLE_NONE:
+                    continue
+                if self._by_handle.get(target) is None:
+                    return out
+                out.append(self.path_of(target))
+            elif leaf["enumeration"] is not None:
+                value = int.from_bytes(
+                    payload[leaf["offset"] : leaf["offset"] + leaf["size"]], "little"
+                )
+                if value == 0:
+                    continue
+                named = self.enumeration_name(leaf["enumeration"], value)
+                if named is None:
+                    return out
+                out.append(named)
+        return out
+
+    def alias_for(self, aliases: list[tuple[str, str]], path: str) -> int:
+        best = -1
+        for i, (_, target) in enumerate(aliases):
+            inside = path == target or (
+                len(path) > len(target)
+                and path[: len(target)] == target
+                and path[len(target)] == "."
+            )
+            if inside and (best < 0 or len(target) > len(aliases[best][1])):
+                best = i
+        if best < 0:
+            return -1
+        alias = aliases[best]
+        return (
+            best
+            if 1 + len(alias[0]) + len(path) - len(alias[1]) < len(path)
+            else -1
+        )
+
+    def alias_uses(self) -> list[tuple[int, int]]:
+        out: list[tuple[int, int]] = []
+        for index in range(1, self._slot_count):
+            handle = self._handle_of_index(index)
+            if handle is None or self.is_alias(handle) or self.is_ground(handle):
+                continue
+            record = self._by_handle[handle]
+            if self.type_info(self._spec[handle][0]) is None:
+                continue
+            scope = self.scope_of(handle)
+            if scope is None:
+                continue
+            aliases = self._alias_scopes.get(scope)
+            if aliases is None:
+                aliases = self.collect_aliases(scope)
+                self._alias_scopes[scope] = aliases
+            if not aliases["names"]:
+                continue
+            seen: set[int] = set()
+            for path in self.written_paths(handle):
+                i = self.alias_for(aliases["names"], path)
+                if i >= 0 and i not in seen:
+                    seen.add(i)
+                    out.append((aliases["handles"][i], handle))
+            del record
+        return out
+
+    def _handle_of_index(self, index: int) -> int | None:
+        _kind, gen, slot = self._entries[index]
+        if slot == 0:
+            return None
+        handle = (gen << 20) | index
+        return handle if self.live(handle) else None
+
+
+class Layers:
+    """The scene of one image, layer by layer: computed on demand, once each, reportable.
+
+    This is the interactive session between the page and the host (world/__init__.py): the
+    page asks for the layer it wants next — buildings, cables, ducts, streets — as paged
+    slices (``offset``/``limit``, or one district with ``region=``) and the host computes just
+    that layer, once, and keeps it (a reload or a second view pays nothing until the image
+    changes). ``export_world`` is the one-shot face of the same computation: compute every
+    layer, assemble the document — one implementation, one truth (the golden ``scene_json``
+    pins the assembled document)."""
+
+    def __init__(
+        self, inspector: SceneSource, report: Report | None = None, packing: bool = True
+    ) -> None:
+        self.inspector = inspector
+        self.report = report
+        self._packing = packing
+        self._base: dict[str, Any] | None = None
+        self._buildings: tuple[list[dict[str, Any]], dict[int, str], list[dict[str, Any]]] | None = None
+        self._cables: list[dict[str, Any]] | None = None
+        self._city: dict[str, Any] | None = None
+        self._straights: dict[str, list[tuple[float, float]]] | None = None
+        self._bundles: list[dict[str, Any]] | None = None
+
+    def base(self) -> dict[str, Any]:
+        if self._base is None:
+            self._base = _base_pass(self.inspector, self.report)
+        return self._base
+
+    def cells(self) -> list[dict[str, Any]]:
+        return self.buildings()[0]
+
+    def voids(self) -> list[dict[str, Any]]:
+        return self.buildings()[2]
+
+    def buildings(self):
+        if self._buildings is None:
+            self._buildings = _buildings_pass(self.base(), self.report)
+        return self._buildings
+
+    def blocks(self) -> list[dict[str, Any]]:
+        return _blocks(self.cells(), self.base()["regions"])
+
+    def edges(self) -> list[dict[str, Any]]:
+        """The cables: raw until ``routed()``, routed (with their ``route``) after."""
+        if self._cables is None:
+            self._cables = _cables_pass(self.base(), self.buildings()[1], self.report)
+        return self._cables
+
+    def city(self) -> dict[str, Any]:
+        if self._city is None:
+            self._city = _city_pass(self.base(), self.cells(), self.report)
+        return self._city
+
+    def streets(self) -> list[dict[str, Any]]:
+        return self.city()["streets"]
+
+    def frame(self) -> dict[str, Any]:
+        city = self.city()
+        return {
+            "ring": city["ring"],
+            "trams": city["trams"],
+            "carriers": [],
+            "metrics": city["metrics"],
+        }
+
+    def routed(self) -> list[dict[str, Any]]:
+        """The cables with their ``route`` over the streets — the drawn cable, fast (the
+        routing is a walk of the street crossings, seconds even for a real image)."""
+        self.edges()
+        self.city()
+        if self._straights is None:
+            self._straights = _routes(
+                self.cells(),
+                self.edges(),
+                self.streets(),
+                self.city()["ring_path"],
+                self.report,
+            )
+        return self.edges()
+
+    def bundles(self) -> list[dict[str, Any]]:
+        """The ducts: where the cables share a street stretch. The packing is the slow pass
+        of a big image (minutes), which is exactly why it is its own layer — the page loads
+        it last, or not at all, and the cables and buildings stand without it. With
+        ``packing`` off (the client half, what rxf-reader.js computes in the browser) the
+        pass never runs: no ducts, and every cable's stubs stay empty — the page draws the
+        cable's own ``route`` and nothing shares."""
+        if self._packing is False:
+            for edge in self.routed():
+                edge["stubs"] = []
+            return []
+        if self._bundles is None:
+            self.routed()
+            self._bundles = _bundles(
+                self.cells(),
+                self.edges(),
+                self._straights or {},
+                self.streets(),
+                self.city()["ring_path"],
+                self.report,
+            )
+        return self._bundles
+
+    def counts(self) -> dict[str, Any]:
+        cells = self.cells()
+        voids = self.voids()
+        edges = self.routed()
+        bundles = self.bundles()
+        return {
+            "cells": len(cells),
+            "live": len(self.base()["by_handle"]),
+            "towers": sum(1 for cell in cells if cell["family"] == "tower"),
+            "monuments": sum(1 for cell in cells if cell["family"] == "monument"),
+            "blocks": sum(1 for cell in cells if cell["family"] == "block"),
+            "utilities": sum(1 for cell in cells if cell["family"] == "utility"),
+            "rubble": sum(1 for cell in cells if cell["family"] == "rubble"),
+            "voids": len(voids),
+            "edges": len(edges),
+            "stale_edges": sum(1 for edge in edges if not edge["fresh"]),
+            "bundles": len(bundles),
+        }
+
+    def manifest(self) -> dict[str, Any]:
+        """The header of the document — schema, arena, grid, districts — cheap (the base pass
+        only) and the ground every later part hangs on. The session serves this first."""
+        base = self.base()
+        header = base["header"]
+        return {
+            "schema": SCHEMA,
+            "arena": {
+                "version": int(header["version"]),
+                "body_size": int(base["body"]),
+                "cells_off": int(header["cells_off"]),
+                "frontier": int(header["frontier"]),
+                "handle_count": int(header["handle_count"]),
+                "index_chunks": int(header["index_chunks"]),
+                "names_size": int(header["names_size"]),
+            },
+            "grid": {
+                "step": _round(GRID_STEP),
+                "margin": _round(GRID_MARGIN),
+                "district_span": DISTRICT_SPAN,
+                "district_depth": _round(DISTRICT_DEPTH),
+                "district_gap": _round(DISTRICT_GAP),
+                "district_cols": _district_cols(len(base["regions"])),
+                "byte_scale": _round(BYTE_SCALE),
+                "street_width": _round(STREET_WIDTH),
+            },
+            "regions": base["regions"],
+        }
+
+    def document(self) -> dict[str, Any]:
+        """Every layer, assembled: the scene input schema (its own docstring above)."""
+        cells = self.cells()
+        city = self.city()
+        document = {
+            **self.manifest(),
+            "cells": cells,
+            "blocks": self.blocks(),
+            "voids": self.voids(),
+            "edges": self.routed(),
+            "bundles": self.bundles(),
+            "streets": city["streets"],
+            "ring": city["ring"],
+            "trams": city["trams"],
+            "carriers": [],
+            "metrics": city["metrics"],
+            "counts": self.counts(),
+        }
+        _say(self.report, "finishing", 0, 1)
+        return document
+
+
+def export_world(
+    inspector: SceneSource, report: Report | None = None, packing: bool = True
+) -> dict[str, Any]:
+    """The scene input of one image, deterministic: the same image always yields the same document.
+
+    ``packing=False`` is the client half: what rxf-reader.js computes in the browser from
+    raw bytes — the same document without the slow duct packing (empty ``bundles``, empty
+    ``stubs``). test_reader_js pins the two languages to the same output on this face.
+    The source is the world's ``Inspector`` or the v7 one-arena image (``ArenaScene``,
+    docs/32): the same scene from whichever storage carries it."""
+    return Layers(inspector, report, packing).document()
+
+
+def scene_json(inspector: SceneSource) -> str:
     """The scene document as canonical text (sorted keys, indent 1, trailing newline): what the
     tests pin byte for byte and what /world/scene.json serves."""
     return json.dumps(export_world(inspector), indent=1, sort_keys=True) + "\n"

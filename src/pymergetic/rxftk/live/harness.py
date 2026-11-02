@@ -6,20 +6,29 @@ native leaf on it each time the client waits. It is the reference the native mac
 
 from __future__ import annotations
 
+import struct
+
 from pymergetic.rxftk.core import live
+from pymergetic.rxftk.core.arena import OBJECT_HEADER_SIZE, SUPERBLOCK_SIZE
 from pymergetic.rxftk.core.object import Image
 
+from . import arena_image
 from .client import Client
 
 MiB = 1 << 20
 
 
 def table_slots(image: bytes, headroom: int = 4) -> int:
-    """A lookup table for the handles an arena of this directory can hold, twice over."""
-    probe = Image.from_bytes(image)
-    chunks = max(probe.index_chunks, 1)
-    directory = (chunks + 7) // 8 * 8
-    want = 2 * directory * 4096 * headroom // 4
+    """A lookup table for the handles a v7 arena can hold, twice over.
+
+    The slot table is the first object of the arena at its fixed place (docs/32 1:
+    the anchor a cold attach needs) and its head carries the count and capacity.
+    """
+    count, capacity = struct.unpack_from(
+        "<II", image, SUPERBLOCK_SIZE + OBJECT_HEADER_SIZE
+    )
+    assert count <= capacity, "the slot table never publishes past its capacity"
+    want = 2 * capacity * headroom // 4
     slots = 1024
     while slots < want:
         slots *= 2
@@ -74,13 +83,17 @@ class HostImage:
     def pump(self) -> int:
         return self.area.pump(self._batch)
 
-    def image(self) -> Image:
-        """The arena as it is, loaded into a host image."""
-        return Image.from_bytes(self.area.arena_bytes())
+    def image(self, like: Image | None = None) -> Image:
+        """The arena as it is, loaded into a host image (the v7 reader, ``arena_image.load``;
+        `like` is the world it came from, for the length of its payloads)."""
+        return arena_image.load(self.area.arena_bytes(), like)
 
 
-def replay(image: bytes, delta: bytes) -> Image:
+def replay(image: bytes, delta: bytes, like: Image | None = None) -> Image:
     """The image after the physical delta, applied by the host build of the live layer.
+
+    `image` is a v7 arena (``arena_image.arena_of`` of a model); the answer is the model of the
+    arena the apply left, with the payload lengths of `like` (the model `image` was made from).
 
     What `apply` does inside a running image, with the same code: the delta is staged, its digest
     checked, replayed on the journal, and the result linked. A refusal is `Refused`.
@@ -88,4 +101,4 @@ def replay(image: bytes, delta: bytes) -> Image:
     size = (3 * len(image) + 4 * MiB + MiB - 1) // MiB * MiB
     host = HostImage(image, arena=size, emit=size)
     host.client.apply(delta)
-    return host.image()
+    return host.image(like)

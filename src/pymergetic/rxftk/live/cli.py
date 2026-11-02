@@ -23,15 +23,15 @@ from typing import Any, TextIO
 
 from pymergetic.rxftk import source
 from pymergetic.rxftk.console import world
-from pymergetic.rxftk.core.object import Image
-from pymergetic.rxftk.live import link, physical
+from pymergetic.rxftk.live import arena_image, link, physical
 from pymergetic.rxftk.live.client import Client, LiveError
 
 
 def _client(spec: str, timeout: float) -> Client:
-    """The channel of the image at SPEC: the world of the runner in this process when one runs
-    here (`console/world`, the seam `rxf console` attaches through), else the wire (`live.link`)."""
-    if world.registered(spec):
+    """The channel of the image at SPEC: the world of whoever runs it when one can be reached
+    (`console/world`, the seam `rxf console` attaches through — the machine registered in this
+    process, or the same image mapped from a `shm:` link), else the wire (`live.link`)."""
+    if world.reachable(spec):
         return world.attach(spec, timeout=float(timeout)).client
     return link.connect(spec, timeout=float(timeout))
 
@@ -70,7 +70,7 @@ def emit(
     """Dumps the running image to TO (`.rxfd` a delta, `.rxfb` image bytes, anything else a module tree)."""
     client = _client(spec, timeout)
     raw, dumped = client.emit()
-    image = Image.from_bytes(raw)
+    image = arena_image.load(raw)
     report = source.report(image)
     report["format"] = source.save(image, to, overwrite)
     report["target"] = to
@@ -91,10 +91,10 @@ def apply(
     """
     client = _client(spec, timeout)
     with _held(client):
-        raw, _ = client.emit()
-        base = Image.from_bytes(raw)
+        raw, digest = client.emit()
+        base = arena_image.load(raw)
         texts = [(name, Path(name).read_text(encoding="utf-8")) for name in deltas]
-        compiled = physical.from_xml(base, *texts)
+        compiled = physical.from_xml(base, *texts, base_digest=digest)
         answered = client.apply(compiled.data)
         report: dict[str, Any] = {
             "digest": answered,
@@ -105,7 +105,7 @@ def apply(
         }
         if to is not None:
             after, _ = client.emit()
-            report["format"] = source.save(Image.from_bytes(after), to)
+            report["format"] = source.save(arena_image.load(after), to)
             report["target"] = to
     return report
 
@@ -133,7 +133,45 @@ def ping(spec: str, text: str = "ping", timeout: float = 30.0) -> str:
     return _client(spec, timeout).ping(str(text).encode()).decode()
 
 
-HELP = """ping TEXT | hello | digest | resolve PATH | path HANDLE | get PATH | children PATH | halt | go | emit FILE | apply DELTA.rxfd... | help | quit"""
+HELP = """ping TEXT | hello | digest | resolve PATH | path HANDLE | get PATH | children PATH | honors [NAME] | halt | go | emit FILE | apply DELTA.rxfd... | help | quit"""
+
+
+HONORS_GROUPS = (("people", "person"), ("roles", "role"), ("works", "work"))
+
+
+def _honors(client: Client, args: list[str]) -> str:
+    """The founding core of the image (docs/36 4), as the console answers it.
+
+    ``honors`` lists the groups of the Genesis and what is in each. ``honors NAME``
+    is one entry with the relationships the world names for it: roles are objects,
+    so a relationship the world does not name is not one this can answer for.
+    """
+    root = client.resolve("honors")
+    if root is None:
+        raise KeyError("no object at 'honors'")
+    groups = {
+        client.path(handle).rsplit(".", 1)[-1]: handle for handle in client.children(root)
+    }
+    if not args:
+        out = []
+        for group, _ in HONORS_GROUPS:
+            members = sorted(
+                client.path(h).rsplit(".", 1)[-1] for h in client.children(groups[group])
+            )
+            out.append(f"{group} ({len(members)}): {' '.join(members)}")
+        return "\n".join(out)
+    wanted = args[0]
+    for group, singular in HONORS_GROUPS:
+        for handle in client.children(groups[group]):
+            if client.path(handle).rsplit(".", 1)[-1] != wanted:
+                continue
+            lines = [f"{singular} {wanted}"]
+            for target, role, _kind, _binding, index in client.refs(handle):
+                name = client.path(role).rsplit(".", 1)[-1]
+                other = client.path(target).rsplit(".", 1)[-1]
+                lines.append(f"  {name} {other} [{index}]")
+            return "\n".join(lines)
+    raise KeyError(f"no entry {wanted!r} in the founding core")
 
 
 def _handle(client: Client, word: str) -> int:
@@ -170,6 +208,8 @@ def _line(client: Client, line: str) -> str | None:
         return "\n".join(
             client.path(h) for h in client.children(_handle(client, args[0]))
         )
+    if command == "honors":
+        return _honors(client, args)
     if command == "halt":
         return "stopped" if client.break_(True) else "not stopped"
     if command == "go":
@@ -177,13 +217,13 @@ def _line(client: Client, line: str) -> str | None:
         return "going"
     if command == "emit":
         raw, dumped = client.emit()
-        source.save(Image.from_bytes(raw), args[0], True)
+        source.save(arena_image.load(raw), args[0], True)
         return f"{dumped} -> {args[0]}"
     if command == "apply":
         with _held(client):
-            raw, _ = client.emit()
+            raw, digest = client.emit()
             texts = [(name, Path(name).read_text(encoding="utf-8")) for name in args]
-            compiled = physical.from_xml(Image.from_bytes(raw), *texts)
+            compiled = physical.from_xml(arena_image.load(raw), *texts, base_digest=digest)
             return client.apply(compiled.data)
     raise ValueError(f"no command {command!r}; {HELP}")
 

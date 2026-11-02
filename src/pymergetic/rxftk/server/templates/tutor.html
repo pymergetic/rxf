@@ -250,7 +250,7 @@ you — the engine runs the schedules and compares the words. One exercise per t
 
 <div class="exercise" id="ex-refusal" role="tabpanel" tabindex="0">
   <h3>4 &middot; Name the refusal</h3>
-  <p>A run's call depth is at <span class="pin" data-pin="RXF_GRAPH_CALL_DEPTH" data-value="8">8</span>
+  <p>A run's call depth is at <span class="pin" data-pin="RXF_GRAPH_CALL_DEPTH" data-value="16">16</span>
   — the budget is spent — and the program makes one more call. What does the machine answer?</p>
   <label><input type="radio" name="ex-refusal" value="RXF_REFUSE_OUT_OF_RANGE"> <code>RXF_REFUSE_OUT_OF_RANGE</code></label>
   <label><input type="radio" name="ex-refusal" value="RXF_REFUSE_CALL_DEPTH"> <code>RXF_REFUSE_CALL_DEPTH</code></label>
@@ -292,23 +292,23 @@ of one facts block; the test fails if the page, the engine and the C ever disagr
 </div>
 
 <div class="fact" id="fact-header" role="tabpanel" tabindex="0">
-<h3>The cell header &mdash; the words the arena strip shows</h3>
+<h3>The object record &mdash; the words the arena strip shows</h3>
 <table>
   <tr><th>offset</th><th>word</th><th>size</th></tr>
-  <tr><td><span class="pin" data-pin="RXF_SMP_C_TYPE" data-value="0">0</span></td><td><code>type</code></td><td>8 B</td></tr>
-  <tr><td><span class="pin" data-pin="RXFB_C_PARENT" data-value="8">8</span></td><td><code>parent</code></td><td>8 B</td></tr>
-  <tr><td><span class="pin" data-pin="RXF_SMP_C_PAYLOAD_SIZE" data-value="16">16</span></td><td><code>payload_size</code></td><td>8 B</td></tr>
-  <tr><td><span class="pin" data-pin="RXF_SMP_C_GENERATION" data-value="24">24</span></td><td><code>generation</code></td><td>8 B</td></tr>
-  <tr><td><span class="pin" data-pin="RXFB_C_NAME" data-value="32">32</span></td><td><code>name</code></td><td>8 B</td></tr>
-  <tr><td><span class="pin" data-pin="RXF_SMP_C_FLAGS" data-value="40">40</span></td><td><code>flags</code></td><td>4 B</td></tr>
-  <tr><td><span class="pin" data-pin="RXFB_C_REFCOUNT" data-value="44">44</span></td><td><code>ref_count</code></td><td>4 B</td></tr>
-  <tr><td><span class="pin" data-pin="RXF_SMP_C_FORWARD" data-value="48">48</span></td><td><code>forward</code></td><td>8 B</td></tr>
-  <tr><td><span class="pin" data-pin="RXF_SMP_C_INDEX" data-value="56">56</span></td><td><code>index</code></td><td>4 B</td></tr>
-  <tr><td><span class="pin" data-pin="RXFB_C_RESERVED" data-value="60">60</span></td><td><code>reserved</code></td><td>4 B</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_TYPE" data-value="0">0</span></td><td><code>kind</code> &mdash; the storage role</td><td>2 B</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_GENERATION" data-value="2">2</span></td><td><code>gen</code></td><td>2 B</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_FLAGS" data-value="4">4</span></td><td><code>flags</code></td><td>2 B</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_NAME" data-value="6">6</span></td><td><code>name</code> &mdash; symbol id</td><td>2 B</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_PARENT" data-value="8">8</span></td><td><code>parent</code></td><td>4 B</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_LINK" data-value="12">12</span></td><td><code>link</code> &mdash; next sibling, and the <code>C_FORWARD</code> home</td><td>4 B</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_REFS" data-value="16">16</span></td><td><code>refs</code> &mdash; the reference count</td><td>4 B</td></tr>
+  <tr><td><span class="pin" data-pin="RXF_SMP_C_PAYLOAD_SIZE" data-value="20">20</span></td><td><code>payload</code></td><td>4 B</td></tr>
 </table>
-<p class="note">The header is <span class="pin" data-pin="RXF_SMP_CELL_BYTES" data-value="64">64</span>
-bytes; a handle is <code>index | generation &lt;&lt;</code>
-<span class="pin" data-pin="RXF_SMP_HANDLE_SHIFT" data-value="32">32</span>; the compactor's exclusive
+<p class="note">The record is <span class="pin" data-pin="RXF_SMP_CELL_BYTES" data-value="24">24</span>
+bytes of header and its payload in 8-byte slots; a handle is <code>index | generation &lt;&lt;</code>
+<span class="pin" data-pin="RXF_SMP_HANDLE_SHIFT" data-value="32">32</span>; a sliding compaction
+records where the record went in the vacated place's link word
+(<span class="pin" data-pin="RXF_SMP_C_FORWARD" data-value="12">C_FORWARD = 12</span>); the compactor's exclusive
 claim is <span class="pin" data-pin="RXF_SMP_CLAIM_MOVING" data-value="0x80000000">0x80000000</span>;
 the vacated tail is poisoned with
 <span class="pin" data-pin="RXF_SMP_POISON" data-value="0xA5">0xA5</span> and a dead cell is kind
@@ -347,7 +347,7 @@ the vacated tail is poisoned with
 <h3>The refusal codes</h3>
 <table>
   <tr><th>code</th><th>value</th><th>the machine refuses</th></tr>
-  <tr><td><code>RXF_REFUSE_CALL_DEPTH</code></td><td><span class="pin" data-pin="RXF_REFUSE_CALL_DEPTH" data-value="17">17</span></td><td>a call past the depth budget of <span class="pin" data-pin="RXF_GRAPH_CALL_DEPTH" data-value="8">8</span> frame regions</td></tr>
+  <tr><td><code>RXF_REFUSE_CALL_DEPTH</code></td><td><span class="pin" data-pin="RXF_REFUSE_CALL_DEPTH" data-value="17">17</span></td><td>a call past the depth budget of <span class="pin" data-pin="RXF_GRAPH_CALL_DEPTH" data-value="16">16</span> frame regions</td></tr>
   <tr><td><code>RXF_REFUSE_UNBOUND</code></td><td><span class="pin" data-pin="RXF_REFUSE_UNBOUND" data-value="13">13</span></td><td>a callee that names no bound program</td></tr>
   <tr><td><code>RXF_REFUSE_STALE_GENERATION</code></td><td><span class="pin" data-pin="RXF_REFUSE_STALE_GENERATION" data-value="12">12</span></td><td>a handle whose slot generation moved (the ABA refusal)</td></tr>
 </table>

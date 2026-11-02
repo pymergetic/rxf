@@ -26,6 +26,7 @@ from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from typing import Any
 
+from pymergetic.rxftk.live import machine
 from pymergetic.rxftk.live.client import Client
 from pymergetic.rxftk.live.front import Front
 from pymergetic.rxftk.live.link import LinkError
@@ -128,13 +129,52 @@ def registered(spec: str) -> bool:
         return spec in _BUILDERS
 
 
+def reachable(spec: str) -> bool:
+    """Whether `attach` finds the world of a running image at SPEC: one whose machine is
+    registered in this process, or one whose image is laid out behind the link (`shm:`).
+
+    A command that only speaks frames (`rxf live`) asks this before it opens a wire of its own:
+    the channel of the world is the same link, and it is the only one that can run.
+    """
+    with _REGISTRY:
+        if spec in _BUILDERS:
+            return True
+    return machine.head(spec) is not None
+
+
+def _driven(spec: str) -> World | None:
+    """The world of an image another process runs at SPEC, reached over the link itself.
+
+    A `shm:` link is a shared-memory segment its runner laid its image out in: the same one
+    image, mapped at its own addresses in THIS process (`live/machine.py`) and driven one
+    request at a time behind the lock of the link. There is no second runner and no second
+    registration — the world of one link, from the other side of it (docs/19, "who runs when").
+    """
+    driven = machine.attach(spec)
+    if driven is None:
+        return None
+    return World(
+        driven.client, driven.front, close=driven.close, transaction=driven.transaction
+    )
+
+
 def attach(spec: str, timeout: float = 30.0) -> World:
-    """The world of the running image at SPEC (`pty:...`, `tty:...`, `fd:...`, `shm:name`)."""
+    """The world of the running image at SPEC (`pty:...`, `tty:...`, `fd:...`, `shm:name`).
+
+    Whoever runs the image: the machine its host registered in this process when one runs here,
+    or the same image mapped from the link when its runner is another process (a `shm:` link).
+    A spec no image can be driven at is refused `ConsoleError`: nothing runs there, or the block
+    behind the link is frames only and carries no code to run.
+    """
     with _REGISTRY:
         build = _BUILDERS.get(spec)
-    if build is None:
-        raise ConsoleError(
-            f"{spec} gives no runner: whoever runs the image attaches its machine with "
-            f"pymergetic.rxftk.console.world.register (running a Function is not a frame yet)"
-        )
-    return build(spec, timeout)
+    if build is not None:
+        return build(spec, timeout)
+    driven = _driven(spec)
+    if driven is not None:
+        return driven
+    raise ConsoleError(
+        f"{spec} gives no runner: no runner registered its world in this process and the link "
+        "has no image to map (whoever runs the image attaches its machine with "
+        "pymergetic.rxftk.console.world.register; running a Function is not a frame yet)"
+    )
