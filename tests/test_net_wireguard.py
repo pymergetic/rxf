@@ -139,6 +139,20 @@ LEFT_HOME = Endpoint(b"\x0a\x00\x00\x01", 51820, None)  # right's configured pee
 FIXED_TIMESTAMP = tai64n(1_700_000_000, 7)  # one fixed TAI64N through the seam
 FIXED_NOW = 1_700_000_000
 
+_card_cache: crypto.Crypto | None = None
+
+
+def _card() -> crypto.Crypto:
+    """The one `cap.crypto` card per process — the wireguard module loads the same
+    card once (`wireguard._crypto`), and the ABI's module pair (`pm_crypto_init`/
+    `pm_crypto_deinit`) is one per process. Each extra `crypto.load()` is another
+    run of the card's build helper and another `pm_crypto_init` crossing the shared
+    build path; this file takes the card once and hands it to every test face."""
+    global _card_cache
+    if _card_cache is None:
+        _card_cache = crypto.load()
+    return _card_cache
+
 
 def _inner(source: bytes, destination: bytes, body: bytes = b"payload") -> bytes:
     """One inner IPv4 packet — the tunnel carries L3 (DeviceKind.WIREGUARD)."""
@@ -184,7 +198,7 @@ def _two_devices(
     """Two devices on one wire: left serves 51820 and lives at 10.0.0.1, right serves
     51821 and lives at 10.0.0.2; each is the other's peer with one allowed_ips prefix.
     Both carry `listen_port` and a peer `endpoint` — the roles are configuration."""
-    card = crypto.load()
+    card = _card()
     left_public = card.x25519_public(LEFT_PRIVATE).hex()
     right_public = card.x25519_public(RIGHT_PRIVATE).hex()
     psk_cells = (Secret("net/secret/wg/psk"), Secret("net/secret/wg/psk")) if psk else (None, None)
@@ -251,7 +265,7 @@ def test_the_corpus_handshake_is_byte_exact_at_every_stage() -> None:
     corpus's fixed statics, fixed ephemerals and psk. The derived handshake hash is
     the corpus's `handshake_hash`; the derived transport keys are pinned by the
     corpus's transport message sequence below."""
-    card = crypto.load()
+    card = _card()
     assert card.x25519_public(CORPUS_RESP_STATIC) == CORPUS_INIT_REMOTE_STATIC  # the corpus's remote static
     message_1, message_2, handshake_hash, _, _ = _corpus_walk(card)
     assert message_1 == CORPUS_MESSAGES[0][1]
@@ -264,7 +278,7 @@ def test_the_corpus_transport_message_sequence_round_trips_with_matching_keys_an
     the derived `(Tsend_i, Tsend_r)` at counters 0 and 1 (each side's own counter) and
     read back through the device's `transport_open` — the keys and counters match the
     corpus or the ciphertexts could not land."""
-    card = crypto.load()
+    card = _card()
     _, _, _, send_i, send_r = _corpus_walk(card)
     for (payload, ciphertext), key, counter in (
         (CORPUS_MESSAGES[2], send_i, 0),
@@ -319,7 +333,7 @@ def test_the_device_emits_the_corpus_ephemerals_verbatim() -> None:
     initiation's unencrypted ephemeral and the response's are byte-exact to the
     corpus's message-1 and message-2 bodies (those fields are outside the wrapper's
     prologue/payload width)."""
-    card = crypto.load()
+    card = _card()
     wire, left, right = _two_devices(
         left_ephemerals=(CORPUS_INIT_EPHEMERAL,),
         right_ephemerals=(CORPUS_RESP_EPHEMERAL,),
@@ -340,7 +354,7 @@ def test_the_initiation_and_response_are_the_official_drivers_wire_format() -> N
     struct.pack('<i', 28)` over `noise.write_message(payload=tai)`, then
     `blake2s(initiation_packet, digest_size=16, key=mac_key)` and `b'\x00' * 16`;
     the response asserts `our_index == 28` at `response_packet[4:12]`."""
-    card = crypto.load()
+    card = _card()
     wire, left, right = _two_devices(left_indexes=(28,), right_indexes=(77,))
     left.open()
     right.open()
@@ -401,7 +415,7 @@ def test_two_devices_talk_both_ways_and_enforce_allowed_ips() -> None:
     data, and the §9 rule — an inner source outside the sending peer's `allowed_ips` is
     refused `PermissionDenied`, an inner destination no peer covers is `NoRoute`, and
     the same words export as `Route` cells with `origin=WG` through `routes()`."""
-    card = crypto.load()
+    card = _card()
     wire, left, right = _two_devices()
     left.open()
     right.open()
@@ -441,7 +455,7 @@ def test_an_authenticated_packet_moves_the_peer_endpoint_and_replies_route_there
     source endpoint moves the peer's endpoint — pinned by the replies routing there
     (the fill's `deliver` wire face changes the apparent source without touching the
     device)."""
-    card = crypto.load()
+    card = _card()
     wire, left, right = _two_devices()
     left.open()
     right.open()
@@ -470,7 +484,7 @@ def test_a_replayed_transport_packet_is_refused_and_moves_no_counter() -> None:
     """(e) Replay (§5.5): a re-delivered transport packet is refused `UnexpectedReply`
     and moves nothing — the next fresh packet still lands, and the window itself is
     pinned below."""
-    card = crypto.load()
+    card = _card()
     wire, left, right = _two_devices()
     left.open()
     right.open()
@@ -521,7 +535,7 @@ def test_a_secret_cell_never_renders_or_exports_its_material() -> None:
     assert value.cell == Secret("net/secret/wg0")
     with pytest.raises(PermissionDenied):
         value.export()
-    card = crypto.load()
+    card = _card()
     _wire, left, _right = _two_devices()
     assert LEFT_PRIVATE.hex() not in repr(left)
     assert RIGHT_PRIVATE.hex() not in repr(left)
@@ -533,7 +547,7 @@ def test_one_device_is_server_and_client_at_once() -> None:
     left initiates as a client and later serves right's initiation on its listen port,
     both directions of data in both sessions, and the §11 `last_handshake` `Interval`
     closes when the next handshake opens."""
-    card = crypto.load()
+    card = _card()
     wire, left, right = _two_devices(
         left_ephemerals=(b"\x51" * 32, b"\x52" * 32),
         right_ephemerals=(b"\x61" * 32, b"\x62" * 32),
@@ -574,7 +588,7 @@ def test_one_device_is_server_and_client_at_once() -> None:
 def test_the_same_device_carries_a_preshared_key_peer() -> None:
     """§5.2's optional psk (psk2): a peer with a `preshared` cell handshakes through the
     same code path (the zero key is the absent psk) and the data lands."""
-    card = crypto.load()
+    card = _card()
     wire, left, right = _two_devices(psk=True)
     left.open()
     right.open()
@@ -592,7 +606,7 @@ def test_the_initiation_timestamp_is_monotonic_per_peer() -> None:
     """§5.1: the responder keeps the greatest TAI64N seen per peer and discards an
     initiation "containing timestamps less than or equal to it" — the second
     initiation with the same fixed timestamp refuses `UnexpectedReply`."""
-    card = crypto.load()
+    card = _card()
     wire, left, right = _two_devices(
         left_ephemerals=(b"\x51" * 32, b"\x52" * 32),
         left_indexes=(1, 2),
@@ -612,7 +626,7 @@ def test_a_cookie_reply_is_validated_then_refused_by_name() -> None:
     structurally validated (shape, then the receiver index) and then refused
     `NotSupported` — the Xaead (XChaCha20Poly1305) is not on the frozen `cap.crypto`
     card, and an uncheckable cookie must never become a MAC key."""
-    card = crypto.load()
+    card = _card()
     wire, left, right = _two_devices(left_indexes=(0xABCD,), right_indexes=(0xDCBA,))
     left.open()
     right.open()
@@ -637,15 +651,23 @@ def test_a_forged_handshake_is_refused_at_mac1() -> None:
     wire, left, right = _two_devices()
     left.open()
     right.open()
+    left_public = right.peers[0].public_key  # right's peer cell names left's static key
     wire.deliver(LEFT_HOME, RIGHT_LOCAL, struct.pack("<II", 1, 1) + bytes(140))  # zero mac1
     with pytest.raises(MalformedMessage):
         right.pump()
+    # the refusal applied nothing: no handshake interval opened, nothing half-made
+    assert right.handshakes(left_public) == ()
+    assert right.last_handshake(left_public) is None
     wire.deliver(LEFT_HOME, RIGHT_LOCAL, b"\x04\x00\x00\x00short")
     with pytest.raises(MalformedMessage):
         right.pump()
     wire.deliver(LEFT_HOME, RIGHT_LOCAL, b"\x09\x00\x00\x00nonsense-message")
     with pytest.raises(MalformedMessage):
         right.pump()
+    with pytest.raises(WouldBlock):
+        right.receive()  # no plaintext queued by any refusal
+    with pytest.raises(NotConnected):
+        right.send(_inner(RIGHT_TEN, LEFT_TEN))  # and no session half-made
 
 
 def test_the_lifecycle_gates_every_face_by_name() -> None:
@@ -653,7 +675,7 @@ def test_the_lifecycle_gates_every_face_by_name() -> None:
     `open`, the data faces refuse `NotConnected` until `open`, `open` on an open device
     refuses `NotSupported`, and after `close` every face refuses `StaleHandle` — a
     closed device is gone for good, one-way like the stream and line fills."""
-    card = crypto.load()
+    card = _card()
     _wire, left, _right = _two_devices()
     right_public = card.x25519_public(RIGHT_PRIVATE).hex()
     assert left.local is None and left.path == "net/dev/wg0"  # config before open

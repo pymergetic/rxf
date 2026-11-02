@@ -10,13 +10,11 @@ test can act while a run goes on without a second thread, and it is the same on 
 import hashlib
 import shutil
 import struct
-from pathlib import Path
 from typing import Any, cast
 
 import graph_header
 import pytest
 
-from pymergetic.rxftk.core import tree
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import frames, physical
 
@@ -33,8 +31,10 @@ from .graph_programs import (
     obj,
     slot,
 )
-from .snippets import STARTER
-from .support import resolved
+from .snippets import running_image
+from .support import digest_of, resolved
+
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
 
 N = graph_header.numbers()
 LEAF = graph_header.leaves()
@@ -58,7 +58,7 @@ EMULATED = ["x86_64", "aarch64"]
 
 @pytest.fixture(scope="module")
 def image() -> Image:
-    return tree.load(Path(STARTER))
+    return running_image()
 
 
 def program(identity: int, trigger: list[Item]) -> bytes:
@@ -226,7 +226,7 @@ def test_a_running_program_serves_a_request_at_a_safe_point(
         answers = world.answers()
         assert [a.op for a in answers] == [op | frames.ANSWER for op in order]
         assert answers[0].payload == b"stopped" and all(a.status == 0 for a in answers)
-        assert answers[-1].payload.hex() == base.digest()
+        assert answers[-1].payload.hex() == digest_of(base)
     finally:
         world.close()
 
@@ -247,8 +247,8 @@ def test_a_change_made_while_the_program_runs_is_seen_by_its_next_iterations(
         assert value == (AT + 1) * old + (ROUNDS - AT - 1) * (old - 5)
         answers = world.answers()
         assert all(a.status == 0 for a in answers) and len(answers) == len(order)
-        assert answers[-1].payload.hex() == result.digest()
-        assert world.channel.client.digest() == result.digest()
+        assert answers[-1].payload.hex() == digest_of(result)
+        assert world.channel.client.digest() == digest_of(result)
         # and the context of the image is the one the linker writes for it
         from .test_live_native import matches_linker
 
@@ -285,9 +285,12 @@ def test_a_break_with_the_continue_already_queued_gives_the_run_it_had(
 
 @pytest.mark.parametrize("machine", EMULATED)
 def test_a_stopped_run_waits_for_the_host_and_goes_on_when_told(
-    machine: str, image: Image
+    machine: str, image: Image, monkeypatch: pytest.MonkeyPatch
 ):
     import unicorn
+
+    # the test hooks the pump of the emulator: x86_64 runs in unicorn here
+    monkeypatch.setenv("RXF_EMULATOR", "unicorn")
 
     base = Image.from_bytes(image.to_bytes())
     old = the_value(base)
@@ -323,6 +326,6 @@ def test_a_stopped_run_waits_for_the_host_and_goes_on_when_told(
         assert world.word(BREAK_REQUEST) == 0 and world.word(BREAK_ACK) == 0
         answers = world.answers()
         assert answers[-1].op == frames.BREAK | frames.ANSWER
-        assert answers[-2].payload.hex() == result.digest()
+        assert answers[-2].payload.hex() == digest_of(result)
     finally:
         world.close()

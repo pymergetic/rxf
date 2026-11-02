@@ -18,6 +18,8 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
+import graph_header
+import programs
 import pytest
 import rxfc
 
@@ -28,6 +30,8 @@ from . import rxf_world as w
 from .graph_programs import OP, assemble, lit, move, slot
 from .snippets import STARTER
 from .test_rxfc import MACHINES, SAMPLES, program
+
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
 
 TINY = Path(__file__).parents[1] / "native" / "tiny" / "tiny.rxfs"
 IDS = {"x86_64": 1, "aarch64": 2, "wasm32": 3}
@@ -132,18 +136,24 @@ def stages(request, code, tiny):
         session.close()
 
 
-def test_the_starter_holds_the_compiler_that_the_source_makes(code, tiny):
+def test_the_starter_carries_the_pin_and_the_builder_fills_what_the_source_makes(
+    code, tiny
+):
     image = tree.load(STARTER)
     path = "pymergetic.rxf.foundation.tiny.compile"
     function = image.resolve(path)
     codes = [
-        dict(image.fields(h))
+        h
         for h in range(image.handle_count)
         if image.live(h)
         and image.type_name(h) == "Code"
         and image.get(h)["parent"] == function
     ]
-    assert [bytes.fromhex(c["data"]) for c in codes] == [tiny]
+    assert len(codes) == 1
+    pin = dict(image.fields(codes[0]))
+    assert "data" not in pin  # the starter stores source and recipe, not the code
+    assert int(pin["byte_count"]) == len(tiny)
+    assert bytes.fromhex(programs.fields_of(image, codes[0])["data"]) == tiny
 
 
 def test_the_compiler_of_the_image_and_the_one_that_is_a_program_write_the_same_code(
@@ -188,7 +198,17 @@ def test_what_it_cannot_compile_it_refuses_where_it_stopped(stages):
     unaligned = assemble(
         16, [], [[OP["LESS"], 8, *slot(1), *lit(5)], [OP["RETURN"], *slot(8, 1), 1]]
     )
-    for sample in (middle, unaligned):
+    # a HANDLE operand is resolved at each use by the interpreter (docs/23 4.9); neither compiler
+    # can bake it, and both leave the program to the interpreter at the same word
+    handle = assemble(
+        32,
+        [(0, 24)],
+        [
+            [OP["FIELD"], 24, 8, graph_header.numbers()["RXF_OPERAND_HANDLE"], 0, 8, 8, 8],
+            [OP["RETURN"], *slot(24, 8), 8],
+        ],
+    )
+    for sample in (middle, unaligned, handle):
         want = stages_compile(stages, sample)
         assert want.status == UNSUPPORTED
         assert by_code(session, compiler, sample) == want

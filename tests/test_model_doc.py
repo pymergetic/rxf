@@ -63,8 +63,11 @@ def source_constants() -> dict[str, int]:
         "RXF_SMP_C_PAYLOAD_SIZE",
         "RXF_SMP_C_GENERATION",
         "RXF_SMP_C_FLAGS",
+        "RXF_SMP_C_NAME",
+        "RXF_SMP_C_PARENT",
+        "RXF_SMP_C_LINK",
+        "RXF_SMP_C_REFS",
         "RXF_SMP_C_FORWARD",
-        "RXF_SMP_C_INDEX",
         "RXF_SMP_FLAG_PINNED",
         "RXF_SMP_CLAIM_MOVING",
     ):
@@ -120,9 +123,15 @@ def source_constants() -> dict[str, int]:
         )
     }
     for field, name in (
+        ("type", "RXFB_C_TYPE"),
         ("parent", "RXFB_C_PARENT"),
+        ("payload_size", "RXFB_C_PAYLOAD_SIZE"),
+        ("generation", "RXFB_C_GENERATION"),
         ("name", "RXFB_C_NAME"),
+        ("flags", "RXFB_C_FLAGS"),
         ("ref_count", "RXFB_C_REFCOUNT"),
+        ("forward", "RXFB_C_FORWARD"),
+        ("index", "RXFB_C_INDEX"),
         ("reserved", "RXFB_C_RESERVED"),
     ):
         assert field in pins, f"ground.h no longer pins pymergetic_rxf_cell.{field}"
@@ -157,11 +166,17 @@ REQUIRED_PINS = {
     "RXF_SMP_C_PAYLOAD_SIZE",
     "RXF_SMP_C_GENERATION",
     "RXF_SMP_C_FLAGS",
+    "RXF_SMP_C_LINK",
     "RXF_SMP_C_FORWARD",
-    "RXF_SMP_C_INDEX",
+    "RXFB_C_TYPE",
     "RXFB_C_PARENT",
+    "RXFB_C_PAYLOAD_SIZE",
+    "RXFB_C_GENERATION",
     "RXFB_C_NAME",
+    "RXFB_C_FLAGS",
     "RXFB_C_REFCOUNT",
+    "RXFB_C_FORWARD",
+    "RXFB_C_INDEX",
     "RXFB_C_RESERVED",
     "RXFB_REF_BYTES",
     "RXF_SMP_FLAG_PINNED",
@@ -225,28 +240,32 @@ def test_every_pin_chip_shows_its_value():
 
 
 def test_the_documented_offsets_agree_across_the_arena_headers():
-    """The proof's header words (smp_arena.h) and the image's (ground.h) are the same 64 bytes."""
+    """The proof's header words (smp_arena.h) and the image's (ground.h) are the same 24 bytes."""
     arena = read(HOST / "smp_arena.h")
     ground = read(GROUND)
     pins = {
         field: (int(offset), int(size))
         for field, offset, size in re.findall(
-            r"PYMERGETIC_RXF_PIN\(pymergetic_rxf_cell,\s*(\w+),\s*(\d+),\s*(\d+)\)", ground
+            r"PYMERGETIC_RXF_PIN\(pymergetic_rxf_object,\s*(\w+),\s*(\d+),\s*(\d+)\)", ground
         )
     }
     for name, field in (
-        ("RXF_SMP_C_TYPE", "type"),
-        ("RXF_SMP_C_PAYLOAD_SIZE", "payload_size"),
-        ("RXF_SMP_C_GENERATION", "generation"),
+        ("RXF_SMP_C_TYPE", "kind"),
+        ("RXF_SMP_C_PAYLOAD_SIZE", "payload"),
+        ("RXF_SMP_C_GENERATION", "gen"),
         ("RXF_SMP_C_FLAGS", "flags"),
-        ("RXF_SMP_C_FORWARD", "forward"),
-        ("RXF_SMP_C_INDEX", "index"),
+        ("RXF_SMP_C_NAME", "name"),
+        ("RXF_SMP_C_PARENT", "parent"),
+        ("RXF_SMP_C_LINK", "link"),
+        ("RXF_SMP_C_REFS", "refs"),
+        # the policy home of the compaction forwarding offset is the link word (docs/20, S8)
+        ("RXF_SMP_C_FORWARD", "link"),
     ):
         assert define(arena, name) == pins[field][0], f"{name} and ground.h {field} disagree"
-    header = re.search(r"sizeof\(pymergetic_rxf_cell\) == (\d+)", ground)
+    header = re.search(r"sizeof\(pymergetic_rxf_object\) == (\d+)", ground)
     assert header is not None
-    assert int(header.group(1)) == define(arena, "RXF_SMP_CELL_BYTES") == 64
-    assert max(offset + size for offset, size in pins.values()) == 64
+    assert int(header.group(1)) == define(arena, "RXF_SMP_CELL_BYTES") == 24
+    assert max(offset + size for offset, size in pins.values()) == 24
 
 
 # ---- anti-drift: the citations match the policy ----------------------------------------------------

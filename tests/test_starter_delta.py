@@ -12,10 +12,10 @@ from .support import resolved
 
 STARTER = Path(__file__).parents[1] / "starter"
 
-# Bump these two together with the files in starter/, never one alone.
-DIGEST = "25576c9057041edbe32549bd47c0a622ee922ecdf84298bbcb03390ff7e3959f"
-DELTA_DIGEST = "340c2e6ac8def1a692a2a1082c4551c16e86851595d17d45915bbe75ac9dd8ea"
-OBJECTS = 17863
+# Bump these three together with the files in starter/, never one alone.
+DIGEST = "d1793a60c3e2f6d37682bfa49b469edffc353585a0d053de860c286f4ca6edc0"
+DELTA_DIGEST = "a9b26d20a0dd86fe8293a5475a7417444a402b41b8b62d2ca73af866dbacdbce"
+OBJECTS = 9743
 
 
 def test_the_starter_replays_and_checks_clean(capsys):
@@ -62,7 +62,10 @@ def test_the_starter_names_roles_and_list_places_not_numbers():
                     image.path(role).startswith(prefix)
                     and image.type_name(role) == "Role"
                 )
-    assert roles > 5000 and indexed > 4000
+    # the register-map locations (1,104 in numeric/bitwise.rxfd alone) left with
+    # the register maps (docs/32 5.6: never stored again); the list places that
+    # remain are the signatures', the graphs' and the calls' own.
+    assert roles > 5000 and indexed > 1500
 
 
 def test_the_starter_is_laid_out_like_python_modules():
@@ -167,25 +170,26 @@ def test_the_starter_says_every_edge_once():
 
 def test_a_list_that_is_not_in_name_order_says_its_order_with_an_index():
     image = tree.load(STARTER)
-    signature = resolved(
-        image, "pymergetic.rxf.foundation.graph.run.aapcs64_linux_status_out"
+    graph = resolved(
+        image, "pymergetic.rxf.algorithms.binary_search.binary_search_graph"
     )
-    # `hidden_context` comes first in the ABI although `argument[1]` sorts before it
-    kids = image.children(signature)
+    # `status[0]` (the entry block) comes first although `block[0]` sorts before
+    # it: the list says its order with an index (docs/32 7), never with the name
+    kids = [k for k in image.children(graph) if image.type_name(k) == "SemanticBlock"]
     names = [image.get(k)["name"] for k in image.ordered(kids)]
-    assert names[0] == "hidden_context" and names[1] == "argument[1]"
-    assert any(image.get(k)["index"] > 0 for k in kids)
+    assert names[0] == "status[0]" and names[1] == "block[0]"
+    assert any(int(dict(image.fields(k)).get("index", 0)) > 0 for k in kids)
 
 
 def test_the_schema_says_which_children_are_which_list():
-    """`ABISignature.locations` is declared on the type; no instance names its own list."""
+    """`SemanticGraph.blocks` is declared on the type; no instance names its own list."""
     image = tree.load(STARTER)
-    signature = resolved(
-        image, "pymergetic.rxf.foundation.graph.run.aapcs64_linux_status_out"
+    graph = resolved(
+        image, "pymergetic.rxf.algorithms.binary_search.binary_search_graph"
     )
-    ((field, items),) = image.members(signature)
-    assert image.get(field)["name"] == "locations" and len(items) == 6
-    assert image.get(items[0])["name"] == "hidden_context"
+    ((field, items),) = image.members(graph)
+    assert image.get(field)["name"] == "blocks" and len(items) == 6
+    assert image.get(items[0])["name"] == "status[0]"
     declared = {
         (image.get(image.get(f)["parent"])["name"], image.get(f)["name"])
         for f in range(image.handle_count)

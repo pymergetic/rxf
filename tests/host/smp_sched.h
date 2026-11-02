@@ -178,6 +178,12 @@ void smp_world_init(smp_world *w, rxf_smp_arena *arena, uint32_t n_runs, smp_ste
                     void *step_ctx);
 void smp_world_deinit(smp_world *w);
 
+/* Resolve a run cell and claim it, waiting out the compactor's claim (it holds a cell for one
+ * copy): NULL only when the handle is stale. The caller releases the claim. Every carrier-side
+ * resolve of a run goes through this, so "the compactor is copying it" is never taken for "nobody
+ * there" (a lost wake or a lost deposit, docs/20, S4). */
+smp_run_payload *smp_run_resolve(smp_world *w, rxf_smp_handle h);
+
 /* The ready-ring protocol (docs/20, S3). */
 int smp_ring_push(smp_world *w, rxf_smp_handle run); /* 0 pushed, 1 refused full */
 int smp_ring_pop(smp_world *w, rxf_smp_handle *out); /* 0 popped, 1 empty */

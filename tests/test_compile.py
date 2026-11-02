@@ -8,21 +8,23 @@ same memory, on each machine, and holds them to the same status and the same val
 
 import shutil
 import struct
-from pathlib import Path
 
 import compose
 import graph_header
+import programs
 import pytest
 
-from pymergetic.rxftk.core import tree
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import physical
+from pymergetic.rxftk.live.front import model_of
 
 from . import live_world as lw
 from .graph_programs import OP, assemble, call, edge, lit, move, slot
-from .snippets import STARTER
+from .snippets import running_image
 from .support import resolved
 from .test_self_edit import FUNCTION, authored, number
+
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
 
 COMPILE = graph_header.leaves()["compile_program"]
 UNSUPPORTED = graph_header.numbers()["RXF_REFUSE_UNSUPPORTED"]
@@ -43,7 +45,7 @@ TABLES = 0x80000  # the tables of the compiler, this far after the program
 
 @pytest.fixture(scope="module")
 def image() -> Image:
-    return tree.load(Path(STARTER))
+    return running_image()
 
 
 @pytest.fixture(scope="module", params=MACHINES)
@@ -90,7 +92,9 @@ def compile_program(
 
 
 def bytecode(image: Image, path: str) -> bytes:
-    return bytes.fromhex(dict(image.fields(image.handle(f"{path}.bytecode")))["data"])
+    return bytes.fromhex(
+        programs.fields_of(image, image.handle(f"{path}.bytecode"))["data"]
+    )
 
 
 def identity(image: Image, path: str) -> int:
@@ -194,12 +198,14 @@ def test_a_function_made_of_existing_ones_is_compiled_in_the_running_image(
     """The new Function of the first self-edit (WP11), then compiled by the image itself, and edited again."""
     machine = fresh
     base = image.to_bytes()
-    expected = Image.from_bytes(base)
+    expected = model_of(base)
     text = authored(expected)
     expected.apply(text)
-    compiled = physical.from_xml(Image.from_bytes(base), ("double.rxfd", text))
+    compiled = physical.from_xml(model_of(base), ("double.rxfd", text))
     channel = lw.Channel(machine)
-    assert channel.client.apply(compiled.data) == expected.digest()
+    # The answer is the digest of the result in the window the image speaks: the hash of its
+    # v7 canonical bytes (docs/32 5.4), not the superseded `Image.digest()` (the RXFB-6 form).
+    assert channel.client.apply(compiled.data) == physical.digest_of_base(expected)
     path = FUNCTION
     program = bytecode(expected, path)
     status, code, _, _ = compile_program(machine, program)
@@ -210,7 +216,7 @@ def test_a_function_made_of_existing_ones_is_compiled_in_the_running_image(
     )
     # the data changes: the compiled code has the addresses of its moment, so the image compiles it
     # again after the change, and the code of the new moment does what the interpreter does
-    edited = Image.from_bytes(expected.to_bytes())
+    edited = model_of(expected.to_bytes())
     unit = resolved(edited, "pymergetic.rxf.application.unit_price")
     edited.set_payload(unit, struct.pack("<I", 135))
     channel.client.apply(physical.compile(expected, edited).data)

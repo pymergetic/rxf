@@ -2,16 +2,20 @@
 
 import hashlib
 import random
+import struct
 from pathlib import Path
 
+import link
+import programs
 import pytest
 
 from pymergetic.rxftk import source
 from pymergetic.rxftk.cli import main
 from pymergetic.rxftk.core.object import Image
-from pymergetic.rxftk.live import harness, physical
+from pymergetic.rxftk.live import Refused, harness, physical
 
 from .snippets import STARTER
+from .support import digest_of
 from .test_live import edited
 
 XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -23,6 +27,21 @@ XML = """<?xml version="1.0" encoding="UTF-8"?>
   <rxf:set path="pymergetic.rxf.application.discount" rxf:data="2d000000"/>
 </delta>
 """
+
+
+def checked(base: Image, compiled: physical.Compiled) -> bytes:
+    """The compiled delta with the base it checks for baked in: the v7 canonical
+    digest of `base` (docs/32 5.4 - the same oracle tests/support.py answers),
+    the one the engine compares its own dump against (core/live/live.cpp's
+    `apply`). `physical.compile` names that same digest by itself now
+    (`arena_image.digest_of`); this helper bakes it in from the oracle of the
+    test, independent of the code under test."""
+    data = bytearray(compiled.data)
+    data[16:20] = (struct.unpack_from("<I", data, 16)[0] | physical.CHECK_BASE).to_bytes(
+        4, "little"
+    )
+    data[24:56] = bytes.fromhex(digest_of(base))
+    return bytes(data)
 
 
 @pytest.fixture(scope="module")
@@ -42,10 +61,15 @@ def test_xml_to_physical_to_image_to_xml_is_the_same_text(base: Image):
     reference.apply(XML)
     compiled = physical.from_xml(base, ("change.rxfd", XML))
     assert (compiled.creates, compiled.sets, compiled.deletes) == (3, 1, 0)
-    result = harness.replay(base.to_bytes(), compiled.data)
-    assert result.digest() == reference.digest()
-    assert result.export() == reference.export()
-    assert result.delta_digest() == reference.delta_digest()
+    # the engine's two faces of the same answer (docs/32 5.4): the apply
+    # answers the digest of the result, the dump its canonical bytes - both
+    # held against the v7 oracle (`link.arena_of` of the reference model);
+    # the CLI reads the running image back through `arena_image.load`.
+    host = harness.HostImage(link.arena_of(base))
+    assert host.client.apply(checked(base, compiled)) == digest_of(reference)
+    dump, digest = host.client.emit()
+    assert dump == link.arena_of(reference)
+    assert digest == digest_of(reference)
 
 
 def test_the_physical_form_is_one_form(base: Image):
@@ -63,30 +87,60 @@ def test_the_physical_form_is_one_form(base: Image):
     }
 
 
-@pytest.mark.parametrize("seed", range(6))
+@pytest.mark.parametrize(
+    "seed",
+    [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+    ],
+)
 def test_random_edits_give_the_same_image_both_ways(base: Image, seed: int):
     rng = random.Random(100 + seed)
-    before = Image.from_bytes(base.to_bytes())
+    # the engine runs the filled model (tools/native/programs.py: the arena
+    # carries the code its recipes build), so the oracle and the delta are
+    # made of the same fill - the fixture's unfilled model is the CLI's text
+    # world (test_the_commands_convert_both_ways), not what runs.
+    before = programs.filled(Image.from_bytes(base.to_bytes()))
     for _ in range(2):
         after = edited(before, rng)
-        compiled = physical.compile(before, after)
         # the delta, with and without the check of the base it was made for
         loose = physical.compile(before, after, check_base=False)
-        for data in (compiled.data, loose.data):
-            result = harness.replay(before.to_bytes(), data)
-            assert result.digest() == after.digest()
-            assert result.compact().to_bytes() == after.compact().to_bytes()
+        compiled = physical.compile(before, after)
+        checked_data = checked(before, compiled)
+        assert checked_data == checked(before, loose)  # the same delta either way
+        for data in (checked_data, loose.data):
+            # each round runs on the base it was made for, and the compare
+            # stays on the seam the engine answers - the apply's digest and
+            # the dump's bytes - against the v7 oracle of the model
+            # (tests/support.py), which is what the loader proves the model
+            # of a dump against (tests/test_arena_image.py).
+            host = harness.HostImage(link.arena_of(before))
+            answer = host.client.apply(data)
+            expected = digest_of(after)
+            assert answer == expected
+            dump, digest = host.client.emit()
+            assert dump == link.arena_of(after)
+            assert digest == expected
         before = after
 
 
 def test_a_delta_for_another_base_is_refused(base: Image):
-    from pymergetic.rxftk.live import Refused
-
     other = Image.from_bytes(base.to_bytes())
     other.apply(XML)
-    data = physical.from_xml(other, ("again.rxfd", XML.replace("demo", "second"))).data
-    with pytest.raises(Refused):
-        harness.replay(base.to_bytes(), data)
+    compiled = physical.from_xml(
+        other, ("again.rxfd", XML.replace("demo", "second")), check_base=False
+    )
+    # the engine checks the base (docs/32 5.4): a delta that names another
+    # image's v7 canonical digest is refused, and the refusal is the base
+    # reason (live.h PYMERGETIC_RXF_REASON_BASE).
+    host = harness.HostImage(link.arena_of(base))
+    with pytest.raises(Refused) as caught:
+        host.client.apply(checked(other, compiled))
+    assert caught.value.reason == 2
 
 
 def run(capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[int, str]:

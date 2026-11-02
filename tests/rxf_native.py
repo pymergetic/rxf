@@ -93,6 +93,8 @@ LEAVES = (
     "runtime_format_u32",
     "runtime_search",
     "runtime_cleanup",
+    "runtime_allocate",
+    "runtime_release",
     "safe_point",
 )
 
@@ -189,6 +191,12 @@ def _load() -> ctypes.CDLL:
         ctypes.c_uint64,
     ]
     library.rxf_host_bind.restype = ctypes.c_uint32
+    library.rxf_host_configure.argtypes = [ctypes.c_uint64] * 5
+    library.rxf_host_configure.restype = None
+    library.rxf_host_slide.argtypes = [ctypes.c_uint64, ctypes.c_uint64]
+    library.rxf_host_slide.restype = None
+    library.rxf_host_slides.argtypes = []
+    library.rxf_host_slides.restype = ctypes.c_uint64
     return library
 
 
@@ -231,9 +239,17 @@ class Memory:
         self.close()
 
 
+def slides() -> int:
+    """How many times the cell a run was told to slide moved (``run``'s ``slide``)."""
+    return int(_lib.rxf_host_slides())
+
+
 def run(
     program: bytes, args: bytes, memory: Memory, limit: int | None = 50_000_000,
     objects: dict[int, bytes | bytearray] | None = None,
+    heap: tuple[int, int, int] | None = None,
+    pool: tuple[int, int] | None = None,
+    slide: int | None = None,
 ) -> tuple[int, int]:
     """(status, value) of a run of the program on arguments of whole words.
 
@@ -247,11 +263,20 @@ def run(
     for the next run of the same cell -- the boot calls of the qstr corpus store the
     addresses of their pools into a cell this way. One run at a time in a process, like
     the tests run them.
+
+    ``heap`` is ``(address, bytes, frontier)`` of the region in ``memory`` the payloads of
+    ``runtime_allocate`` are carved from (the address is a flat address, as a program is told
+    it), and ``pool`` is ``(first id, rows)`` of the free rows of the Allocator capability;
+    without a pool the capability is unbound and the leaf answers UNBOUND. ``slide`` names a
+    registered cell the pump moves between two places at every safe point -- before each
+    instruction (S8): a program that keeps a handle does not notice, one that keeps an address
+    reads the place the cell left (``slides()`` counts the moves).
     """
     assert len(program) % 8 == 0 and len(program) >= 40
     magic, _frame_bytes, _parameters, words, _pc = struct.unpack_from("<5Q", program)
     assert magic == MAGIC
-    assert len(args) == words * 8
+    # an argument may be absent: the words past argc are the None word (native/graph.h)
+    assert len(args) <= words * 8 and len(args) % 8 == 0
     code = (ctypes.c_uint64 * (len(program) // 8)).from_buffer_copy(program)
     given = (ctypes.c_uint8 * max(len(args), 1)).from_buffer_copy(args or b"\0")
 
@@ -266,6 +291,18 @@ def run(
     for (identity, payload), block in zip(ordered, held):
         assert _lib.rxf_host_bind(identity, ctypes.addressof(block), len(payload)) == 0
     out = ctypes.c_uint64()
+    heap_at, heap_bytes, frontier = heap or (0, 0, 0)
+    pool_first, pool_count = pool or (0, 0)
+    _lib.rxf_host_configure(
+        0 if heap is None else memory.at(heap_at), heap_bytes, frontier, pool_first, pool_count
+    )
+    alternate = None
+    if slide is not None:
+        size = len(dict(objects or {})[slide])
+        alternate = (ctypes.c_uint8 * max(size, 1))()
+        _lib.rxf_host_slide(slide, ctypes.addressof(alternate))
+    else:
+        _lib.rxf_host_slide(0, 0)
     status = _lib.rxf_host_run(
         code,
         len(program),

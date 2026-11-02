@@ -29,13 +29,17 @@ READ_FROM_OBJECTS = {
 # The pump of the live layer serves a channel; tests/test_live_native.py runs it.
 # The compiler writes machine code for a program; tests/test_compile.py runs it.
 # The run of a program is what compiled code calls (a call card, docs/20 S7);
-# tests/test_compile_cases.py runs it on every machine.
+# tests/test_compile_cases.py runs it on every machine. The one-step allocator is
+# called behind an Allocator capability no program is given (docs/23 4.9 step 4);
+# tests/test_runtime_allocate.py runs it.
 NOT_IN_PROGRAMS = {
     "live_pump",
     "uart_pump",
     "compile_program",
     "safe_point",
     "graph_run",
+    "runtime_allocate",
+    "runtime_release",
 }
 
 
@@ -73,7 +77,9 @@ def different(cases, want, have):
 
 
 def test_there_is_a_program_for_every_semantic_function(cases):
-    assert len(cases) == 58 * 3 + len(programs.synthetic())
+    # 59 graphs and call bodies, and since R1 the 42 typed wrappers composed over their leaf twins
+    # (Semantic 102 = these 101 + tiny.compile, whose body is bytecode: no program of its own)
+    assert len(cases) == (59 + 42) * 3 + len(programs.synthetic())
 
 
 def test_the_programs_succeed_and_refuse_both(reference):
@@ -236,6 +242,34 @@ def host_run(case: world.Case) -> tuple[int, int]:
         )
 
 
+def test_none_is_a_word_of_its_own_and_reads_as_none_not_int_zero(cases, reference):
+    """The value words of a run (native/graph.h, RXF_WORD_NONE): the None word is not int
+    0 -- `is None` reads 1 for it and 0 for every int word -- and it travels as a value
+    and as the `= None` default of an argument a caller does not pass."""
+    runs = {c.name: r for c, r in zip(cases, reference, strict=True)}
+    none = graph_header.numbers()["RXF_WORD_NONE"]
+    assert none != 0
+    for name in ("none is none",):
+        assert runs[name].status == 0
+        assert int.from_bytes(runs[name].out[:8], "little") == 1, name
+    for name in ("none is not int 0", "none is not 5"):
+        assert runs[name].status == 0
+        assert int.from_bytes(runs[name].out[:8], "little") == 0, name
+    # None as a value: the answer word is the None word
+    assert runs["none value"].status == 0
+    assert int.from_bytes(runs["none value"].out[:8], "little") == none
+    # = None defaults: an absent argument binds the None word -- and a caller that
+    # passes the word explicitly is indistinguishable from one that omits the argument
+    for name in ("none default", "none default passed"):
+        assert runs[name].status == 0
+        assert int.from_bytes(runs[name].out[:8], "little") == none, name
+
+
+def test_the_none_word_is_the_same_word_on_the_host_c_runner():
+    for case, status, out in programs.none_cases():
+        assert host_run(case) == (status, out), case.name
+
+
 def test_a_frame_well_over_1024_bytes_runs_as_it_declares():
     """The variable-length cells of the run cell (graph.h): a program declares its exact
     frame bytes and the frames of the active call chain are carved (base, size) from the
@@ -248,7 +282,7 @@ def test_a_frame_well_over_1024_bytes_runs_as_it_declares():
 def test_a_call_chain_past_the_cell_budget_is_refused_honestly():
     """Budget = cell bytes: the sum of the active call chain's frames must fit the run cell,
     and a chain past it answers RXF_REFUSE_CELL_BUDGET -- a status code, never silent, never
-    spilled and never split. The depth-8 bound stays intact beside it as a link bound of its
+    spilled and never split. The depth-16 bound stays intact beside it as a link bound of its
     own (RXF_REFUSE_CALL_DEPTH), not a byte wall."""
     for case, status, out in programs.budget_cases():
         assert host_run(case) == (status, out), case.name

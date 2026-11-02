@@ -22,12 +22,10 @@ is the machine's, not a table of this file."""
 from __future__ import annotations
 
 import hashlib
-import os
 import struct
 import subprocess
 from pathlib import Path
 
-import compose
 import graph_header
 import pytest
 import rxemit
@@ -36,7 +34,8 @@ import rxpy
 
 from pymergetic.rxftk.core import tree
 
-from . import rxf_native
+from . import rxpy_run
+from .mp_reference import micropythons, seat_of
 from .snippets import STARTER
 
 CORPUS = Path(__file__).parent / "rxpy_corpus"
@@ -57,32 +56,7 @@ KNOWN = {"double_it": "chain.double_it"}
 
 # ---- the differential reference: MicroPython, really run --------------------------------------
 
-def micropythons() -> list[str]:
-    """The MicroPython unix binaries of the workspace: both seats where both exist.
-
-    ``RXPY_MPY`` names one to pin against explicitly; without it the wasmmod seat is
-    tried first, then the upstream checkout.  Nothing here is a golden table: where no
-    binary exists the differential tests skip and say so, and only the shape and
-    refusal pins run."""
-    named = os.environ.get("RXPY_MPY")
-    if named:
-        return [named]
-    root = Path(__file__).parents[2]  # .../os-sdk/packages
-    found = []
-    for seat in ("micropython-wasmmod", "micropython"):
-        binary = root / seat / "ports" / "unix" / "build-standard" / "micropython"
-        if binary.exists():
-            found.append(str(binary))
-    return found
-
-
 MPYS = micropythons()
-
-
-def seat_of(binary: str) -> str:
-    """The seat a binary belongs to (its checkout's name), for the test's ids."""
-    parts = Path(binary).parts
-    return parts[parts.index("ports") - 1] if "ports" in parts else Path(binary).name
 
 
 def mp_lines(mpy: str, modules: tuple[str, ...], cases: list[tuple[str, tuple[int, ...]]]):
@@ -109,10 +83,6 @@ def mp_lines(mpy: str, modules: tuple[str, ...], cases: list[tuple[str, tuple[in
         else:
             out.append(tuple(int(word) for word in line.split()))
     return out
-
-
-def signed(word: int) -> int:
-    return word if word < (1 << 63) else word - (1 << 64)
 
 
 # ---- the cases ---------------------------------------------------------------------------------
@@ -187,6 +157,12 @@ IN_CASES: list[tuple[str, str, tuple[int, ...]]] = [
     *cases_of("chain", "triangle", [(n,) for n in range(8)]),
     # a face of another import (borrow.py, against chain.double_it)
     *cases_of("borrow", "borrow", [(x,) for x in GRID]),
+    # the word-coercion face (words.py): int of a word is the word, wherever it stands
+    *cases_of("words", "coerce", [(x,) for x in GRID]),
+    *cases_of("words", "coerce_ms", [(t,) for t in (0, 1, 2, 5, -1, -3, 7, -7, 100, -100)]),
+    *cases_of("words", "coerce_sum", PAIRS),
+    *cases_of("words", "coerce_twice", [(x,) for x in GRID]),
+    *cases_of("words", "coerce_statement", [(x,) for x in GRID]),
 ]
 
 # Outside the domain both sides are pinned exactly, one-sidedly: what the run really
@@ -212,12 +188,15 @@ OUT_CASES = [
     (("words", "shl", (1, 70)), (SHIFT_COUNT, None), 1 << 70),
     (("words", "shl", (1, -1)), (SHIFT_COUNT, None), "!ValueError"),
     (("words", "shr", (-8, 64)), (SHIFT_COUNT, None), -1),
-    # the call-card budget vs the reference's recursion
-    (("chain", "triangle", (8,)), (CALL_DEPTH, None), 36),
+    # the call-card budget vs the reference's recursion: the budget is 16 links
+    # (native/graph.h, expanded 2026-10-31), so triangle(8) answers now where it
+    # refused at 8 links -- the pin carries both eras' answers
+    (("chain", "triangle", (8,)), (OK, 36), 36),
     (("chain", "triangle", (20,)), (CALL_DEPTH, None), 210),
-    # fact(8) is inside the budget (fact stops calling at 2: 8 frames counting the
-    # entry); fact(9) is the first word past it
-    (("chain", "fact", (9,)), (CALL_DEPTH, None), 362880),
+    # fact stops calling at 2, so fact(n) is n frames: 16 fit and fact(17) is the
+    # first word past the links (fact(9), the first past the old budget, answers now)
+    (("chain", "fact", (9,)), (OK, 362880), 362880),
+    (("chain", "fact", (17,)), (CALL_DEPTH, None), 355687428096000),
 ]
 
 # a sequence of calls on one image: the module's cell walks the same state the
@@ -235,7 +214,7 @@ REFUSALS = [
     ("def f(x):\n    def g(y):\n        return y\n    return g(x)\n", "nested def"),
     ("def f(x):\n    return (lambda y: y)(x)\n", "lambda"),
     ("def f(x):\n    return [y for y in x]\n", "comprehension"),
-    ("class A:\n    pass\n", "class"),
+    ("class A(B):\n    pass\n", "base"),
     ("def f(x):\n    for i in x:\n        x = i\n    return x\n", "for loop"),
     ("import os\n", "import"),
     ("from os import path\n", "import"),
@@ -264,16 +243,19 @@ REFUSALS = [
     ("def f(x):\n    return x @ x\n", "the @ operator"),
     ("def f(x):\n    print(x)\n    return x\n", "print"),
     ("def f(x):\n    return len(x)\n", "a call of"),
+    ("def f(x):\n    return int()\n", "int takes one word"),
+    ("def f(x):\n    return int(x, 16)\n", "int takes one word"),
+    ("def f(x):\n    return int(x, base=16)\n", "int takes one word"),
     ("def f(x):\n    y = x = 1\n    return y\n", "chained assignment"),
-    ("def f(x):\n    return\n", "bare return"),
+    ("def f(x):\n    if x:\n        return 1\n    return\n", "a word on one path and None"),
     ("def f(x):\n    if x:\n        return 1, 2\n    return 3\n", "on one path"),
     ("def f(x):\n    return (x,)\n", "one-tuple"),
     ("def f(x):\n    return ()\n", "empty return"),
     ("def f(x):\n    a = [1]\n    return (x, *a)\n", "starred return"),
     ("def f(x):\n    while x:\n        x -= 1\n    else:\n        return 1\n    return 0\n", "else on a while"),
     ("@staticmethod\ndef f(x):\n    return x\n", "decorator"),
-    ("def f(x=1):\n    return x\n", "default"),
-    ("def f(*args):\n    return 1\n", "default, *args"),
+    ("def f(x=[]):\n    return x\n", "not an integer constant"),
+    ("def f(*args):\n    return 1\n", "*args"),
     ("def f(x: int):\n    return x\n", "annotation"),
     ("def f(x):\n    return x\ndef f(x):\n    return x + 1\n", "defined twice"),
     ("def f(x):\n    y = x\n    if x:\n        y = x + 1\n    return z\n", "a name the subset cannot bind"),
@@ -281,12 +263,12 @@ REFUSALS = [
     ("def f(x):\n    if x:\n        y = 1\n    return y\n", "bound on one path of a join"),
     ("def f(x):\n    while x:\n        y = 1\n        x -= 1\n    return y\n", "cannot see it bound on every path"),
     ("def f(x):\n    global NOPE\n    NOPE = x\n    return NOPE\n", "names no module-level binding"),
-    ("def f(x):\n    y = x + 1\n", "falls off the end"),
+    ("def f(x):\n    if x:\n        return 1\n", "falls off the end"),
     ("def f(x):\n    break\n    return x\n", "outside a loop"),
     ("def f(x):\n    continue\n    return x\n", "outside a loop"),
     ("def g(a, b):\n    return a + b\ndef f(x):\n    return g(x)\n", "takes"),
     ("def g(a, b):\n    return a + b\ndef f(x):\n    return g(x, 1, 2)\n", "takes"),
-    ("def g(a, b):\n    return a + b\ndef f(x):\n    return g(x, b=1)\n", "keyword argument"),
+    ("def g(a, b):\n    return a + b\ndef f(x):\n    return g(x, c=1)\n", "keyword argument"),
     ("COUNT = 1\ndef f(x):\n    return COUNT(x)\n", "is a cell"),
     ("def f(x):\n    return 'hi'\n", "string as a value"),
     ("def f(x):\n    return 0x1_0000_0000_0000_0000\n", "does not fit"),
@@ -313,59 +295,8 @@ def program():
     mapping = rxpy.import_py_file(image, CORPUS / "borrow.py", module="borrow", known=KNOWN)
     assert mapping == {"borrow": "borrow.borrow"}
     assert image.check() == []  # the deltas link: the graph vocabulary is the emitter's
-    programs = compose.programs(image)
-
-    composer = compose.Composer(image)
-    cells: dict[int, bytearray] = {}
-    objects: dict[int, bytes | bytearray] = {}
-    for handle in range(image.handle_count):
-        if not image.live(handle):
-            continue
-        values = composer.fields(handle)
-        if compose.word(values.get("kind")) != "Object" or "object_id" not in values:
-            continue
-        path = image.path(handle)
-        if not path.startswith(tuple(f"{name}." for name in (*MODULES, "borrow"))):
-            continue
-        identity = int(values["object_id"])
-        data = bytearray(bytes.fromhex(values.get("data", "")))
-        cells[identity] = data
-        objects[identity] = data
-    for handle in range(image.handle_count):
-        if not image.live(handle) or image.type_name(handle) != "SemanticOperation":
-            continue
-        callee = composer.fields(handle).get("callee")
-        target = image.resolve(callee) if callee else None
-        if target is not None and image.path(target) in programs:
-            objects[compose.object_id(image, target)] = programs[image.path(target)]
-
-    memory = rxf_native.Memory(1 << 16)
-
-    def call(module: str, entry: str, words: tuple[int, ...]):
-        """One call: the answer word (and the out words of a tuple return)."""
-        arity = rxpy.parse((CORPUS / f"{module}.py").read_text(), module).signatures[entry].outs
-        given = [word & U64 for word in words]
-        outs = []
-        for index in range(arity):
-            identity = rximport.object_id_of(f"{module}.{entry}.out_{index}")
-            cell = cells[identity]
-            cell[:] = bytes(len(cell))  # a clean out cell per case
-            outs.append(cell)
-            given += [identity, 24]  # the handle run-entry ARGS takes (identity, offset)
-        status, value = rxf_native.run(
-            programs[f"{module}.{entry}"],
-            struct.pack(f"<{len(given)}Q", *given),
-            memory,
-            objects=objects,
-        )
-        answered = [signed(int.from_bytes(cell[24:32], "little", signed=True)) for cell in outs]
-        return status, signed(value), answered
-
-    def cell_of(module: str, name: str) -> bytearray:
-        return cells[rximport.object_id_of(f"{module}.{name}")]
-
-    yield type("Run", (), {"call": staticmethod(call), "cell_of": staticmethod(cell_of)})()
-    memory.close()
+    with rxpy_run.running(image, (*MODULES, "borrow")) as run:
+        yield run
 
 
 @pytest.fixture(scope="module", params=MPYS or [None], ids=lambda p: seat_of(p) if p else "no-mpy")
@@ -622,7 +553,9 @@ DELTA_DIGESTS = {
     "loops.py": "59a43506ca958b30f91dd22b78e2446b07f1bd08b581c0c89012de66240ec304",
     "pair.py": "c87bc7d78b02ca880803f9fe82fb9ae6aa19d358ee6a5ec3ae1ebb07fabfc30d",
     # flipped to the status branch (was 3325828d099b12951bbf9b210d2b222440b6b33500628a4ea59a76836aa01503)
-    "words.py": "f9b592b31cb7dad5134e6734fbefeb26e741f47d4ddcbfafba84df6dfec8c3d1",
+    # flipped again for the word-coercion face: the coerce* defs of the int builtin (was
+    # f9b592b31cb7dad5134e6734fbefeb26e741f47d4ddcbfafba84df6dfec8c3d1)
+    "words.py": "bacbd55da11d64f43602bada6f94444c5e24d70caba547a8e23709a1a2995563",
 }
 
 

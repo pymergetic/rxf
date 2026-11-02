@@ -8,7 +8,7 @@ same status, output and memory: that is what ``tests/test_graph.py`` asks.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 import graph_header
 
@@ -30,6 +30,7 @@ OUTPUTS = frozenset(
         "runtime_begin_private",
         "runtime_resolve",
         "runtime_allocate_prepare",
+        "runtime_allocate",
         "runtime_read",
         "runtime_search",
         "checked_add_uint32_t",
@@ -77,8 +78,12 @@ class Reference:
         frame: int,
         addresses: Mapping[int, int],
         letters: Mapping[str, str],
+        safe_point: Callable[[], None] | None = None,
     ) -> None:
         numbers = graph_header.numbers()
+        # the host of the safe point: called before every instruction, where the real
+        # interpreter serves a pump (S7). A test slides a registered cell in it (S8).
+        self.safe_point = safe_point
         self.n = numbers
         self.emulator = emulator
         self.context = context
@@ -88,6 +93,7 @@ class Reference:
         self.names = {value: key for key, value in graph_header.leaves().items()}
         self.refuse_range = 6
         self.refuse_unbound = 13
+        self.refuse_stale = 12
         self.refuse_type = 14
         self.refuse_depth = numbers["RXF_REFUSE_CALL_DEPTH"]
         self.refuse_budget = numbers["RXF_REFUSE_CELL_BUDGET"]
@@ -109,8 +115,8 @@ class Reference:
     def word_at(self, address: int) -> int:
         return little(self.emulator.read(address, WORD))
 
-    def entry(self, identity: int) -> tuple[int, int] | None:
-        """The payload and size of the object entry with this id; the table is sorted by id."""
+    def row(self, identity: int) -> int | None:
+        """The address of the entry row with this id; the table is sorted by id."""
         count, objects = (
             self.word_at(self.context + 32),
             self.word_at(self.context + 40),
@@ -123,9 +129,35 @@ class Reference:
             else:
                 high = middle
         if low < count and self.word_at(objects + low * 80) == identity:
-            at = objects + low * 80
-            return self.word_at(at + 24), self.word_at(at + 32)
+            return objects + low * 80
         return None
+
+    def entry(self, identity: int) -> tuple[int, int] | None:
+        """The payload and size of the object entry with this id."""
+        at = self.row(identity)
+        if at is None:
+            return None
+        return self.word_at(at + 24), self.word_at(at + 32)
+
+    def resolve(self, a: int, need: int) -> int:
+        """Where the bytes of a HANDLE operand are: the handle is read from the frame at
+        ``a`` and resolved NOW, in the instruction that uses it (graph.h): the id is not found
+        13, a row of another generation 12, a row that is not LIVE 13, an offset or ``need``
+        bytes past the size 6, a handle that does not lie in the frame 6."""
+        self.need(self.in_frame(a, 24))
+        identity, generation, offset = (
+            little(self.emulator.read(self.frame + a + 8 * i, 8)) for i in range(3)
+        )
+        row = self.row(identity)
+        if row is None:
+            raise Done(self.refuse_unbound)
+        if self.word_at(row + 8) != generation:
+            raise Done(self.refuse_stale)
+        if self.word_at(row + 48) != self.n["RXF_OBJECT_LIVE"]:
+            raise Done(self.refuse_unbound)
+        size = self.word_at(row + 32)
+        self.need(offset <= size and need <= size - offset)
+        return self.word_at(row + 24) + offset
 
     # ---- the program ----------------------------------------------------------------------------
 
@@ -156,6 +188,8 @@ class Reference:
                 raise Done(self.refuse_unbound)
             self.need(size <= found[1])
             return self.emulator.read(found[0], size)
+        if kind == self.n["RXF_OPERAND_HANDLE"]:
+            return self.emulator.read(self.resolve(a, size), size)
         raise Done(self.refuse_range)
 
     def operand(self, at: int) -> tuple[int, int, int]:
@@ -170,6 +204,8 @@ class Reference:
             if found is None:
                 raise Done(self.refuse_unbound)
             return found[0]
+        if kind == self.n["RXF_OPERAND_HANDLE"]:
+            return self.resolve(a, 0)  # the address it resolves to, for this instruction only
         if kind == self.n["RXF_OPERAND_LITERAL"]:
             self.need(b <= 8)
             return a
@@ -242,6 +278,8 @@ class Reference:
             where = at + 6 + index * 3
             if parameters[index] == "H":
                 kind, a, b = self.operand(where)
+                # a handle is taken by value: a HANDLE operand here is a dereference
+                self.need(kind != self.n["RXF_OPERAND_HANDLE"])
                 arguments.append(Blob(self.read(kind, a, b, 24)))
             else:
                 arguments.append(Integer(self.pointer(where)))
@@ -322,6 +360,8 @@ class Reference:
             where = at + 9 + index * 3
             operand_kind, a, b = self.operand(where)
             present = min(b, width)
+            # a 24-byte parameter is a handle taken by value: no dereference in its place
+            self.need(not (operand_kind == n["RXF_OPERAND_HANDLE"] and width == 24))
             data = self.read(operand_kind, a, b, present)
             self.emulator.write(dst + slot, data)  # the rest of the slot was zeroed
         if out_slot != n["RXF_GRAPH_NONE"]:
@@ -382,7 +422,7 @@ class Reference:
         parameters, words, pc = w[2], w[3], w[4]
         self.need(
             self.frame_bytes % 8 == 0
-            and words == argc
+            and argc <= words
             and parameters <= len(w)
             and self.have(5, parameters * 2)
         )
@@ -395,9 +435,24 @@ class Reference:
         for index in range(parameters):
             slot, width = w[5 + 2 * index], w[6 + 2 * index]
             self.need(self.in_frame(slot, width) and width <= words * 8 - used)
-            self.emulator.write(self.frame + slot, args[used : used + width])
+            # the words the arguments do not reach are the None word (native/graph.h,
+            # RXF_WORD_NONE): argc may be below the words the program declares and the
+            # tail of a parameter is its `= None` default. The None word is a frame
+            # word: a width that is not whole words is refused where it would be cut.
+            given = min(width, max(0, argc * 8 - used))
+            if given < width:
+                self.need(width % 8 == 0)
+                self.emulator.write(self.frame + slot, args[used : used + given])
+                self.emulator.write(
+                    self.frame + slot + given,
+                    n["RXF_WORD_NONE"].to_bytes(8, "little") * ((width - given) // 8),
+                )
+            else:
+                self.emulator.write(self.frame + slot, args[used : used + width])
             used += (width + 7) & ~7
         while True:
+            if self.safe_point is not None:
+                self.safe_point()
             pc = self.step(pc, out)
 
     def step(self, pc: int, out: bytearray) -> int:

@@ -16,6 +16,7 @@ import subprocess
 from dataclasses import dataclass
 
 import link
+import programs
 
 from pymergetic.rxftk.core.object import Image
 
@@ -50,7 +51,7 @@ def runs(image: Image, linked: link.Linked, picks: list[str]) -> list[Run]:
     found = []
     for path in picks:
         program = bytes.fromhex(
-            dict(image.fields(image.handle(f"{path}.bytecode")))["data"]
+            programs.fields_of(image, image.handle(f"{path}.bytecode"))["data"]
         )
         for variant in range(3):
             target = linked.ids[objects[variant % len(objects)]]
@@ -107,7 +108,7 @@ def referenced(linked: link.Linked, image: Image, run: Run) -> Result:
         emulator, linked.context, linked.frame, linked.slots, world.letters()
     )
     program = bytes.fromhex(
-        dict(image.fields(image.handle(f"{run.function}.bytecode")))["data"]
+        programs.fields_of(image, image.handle(f"{run.function}.bytecode"))["data"]
     )
     status, out = interpreter.run(program, run.args, len(run.args) // 8)
     emulator.write(linked.out, out)
@@ -117,6 +118,18 @@ def referenced(linked: link.Linked, image: Image, run: Run) -> Result:
         emulator.read(linked.out, world.OUT_BYTES),
         emulator.read(linked.base, len(linked.data)),
     )
+
+
+def report_line(image: Image, linked: link.Linked, pick: str) -> bytes:
+    """The line a seat of the image reports for the entry ``pick``.
+
+    What the interpreter of the same entry answers, spelled the way
+    ``native/wrap/wrap.h`` reports it: every boot and every run of an artifact
+    must say exactly this, byte for byte.
+    """
+    answered = referenced(linked, image, runs(image, linked, [pick])[0])
+    out = int.from_bytes(answered.out[:8], "little")
+    return f"rxf result {answered.status:08x} {out:016x}\n".encode()
 
 
 def in_node(code: world.Code, linked: link.Linked, batch: list[Run]) -> list[Result]:

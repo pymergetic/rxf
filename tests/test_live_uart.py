@@ -9,20 +9,23 @@ device is two FIFOs in linear memory (native/graph.h) and the host between two s
 import shutil
 import struct
 from collections import deque
-from pathlib import Path
 
 import graph_header
 import pytest
 
-from pymergetic.rxftk.core import tree
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import frames, physical
 from pymergetic.rxftk.live.client import Client
+from pymergetic.rxftk.live.front import model_of
 from pymergetic.rxftk.live.harness import HostImage
 
 from . import live_world as lw
-from .snippets import STARTER
-from .support import resolved
+from .snippets import running_image
+from .support import canonical_of, digest_of, resolved
+
+# Every test runs code on a machine the harness boots per test; the emulated seats
+# cost minutes each. Nightly material like test_compile.
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
 
 UART = graph_header.leaves()["uart_pump"]
 COM1 = 0x3F8
@@ -174,11 +177,13 @@ class UartLink:
 
 @pytest.fixture(scope="module")
 def image() -> Image:
-    return tree.load(Path(STARTER))
+    return running_image()
 
 
 @pytest.fixture(params=list(DEVICES))
-def serial(request: pytest.FixtureRequest, image: Image):
+def serial(request: pytest.FixtureRequest, image: Image, monkeypatch: pytest.MonkeyPatch):
+    # a device is a hook on a port or a memory range of the emulator: x86_64 runs in unicorn here
+    monkeypatch.setenv("RXF_EMULATOR", "unicorn")
     name, word_, base, shift, _ = DEVICES[request.param]
     spec = lw.link.LiveSpec(uart=base, uart_device=word_)
     machine = lw.machine_of(name, image, spec)
@@ -200,22 +205,22 @@ def word(machine: lw.Machine, offset: int) -> int:
 
 def test_the_client_talks_to_the_image_over_the_uart(serial, image: Image):
     _, _, _, _, client = serial
-    raw = image.to_bytes()
+    raw = lw.link.arena_of(image)
     host = HostImage(raw)
     assert client.ping(b"over a wire") == b"over a wire"
     assert client.hello().handles == host.client.hello().handles
-    assert client.digest() == image.digest()
+    assert client.digest() == digest_of(image)
     assert client.resolve("pymergetic.rxf.application.main") == host.client.resolve(
         "pymergetic.rxf.application.main"
     )
     # a change goes in over the same wire and gives what the host gives
-    result = Image.from_bytes(raw)
+    result = model_of(raw)
     parent = result.resolve("pymergetic.rxf.application")
     fresh = result.add(parent, "fresh", 8, 0xFFFFFFFFFFFFFFFF, b"over the uart")
     result.add(fresh, "inner", 8, 0xFFFFFFFFFFFFFFFF, b"")
-    compiled = physical.compile(Image.from_bytes(raw), result)
-    assert client.apply(compiled.data) == result.digest()
-    assert client.emit()[0] == result.compact().to_bytes()
+    compiled = physical.compile(model_of(raw), result)
+    assert client.apply(compiled.data) == digest_of(result)
+    assert client.emit()[0] == canonical_of(result)
     assert client.resolve("pymergetic.rxf.application.fresh.inner") is not None
 
 
@@ -369,19 +374,19 @@ def fifo(image: Image):
 
 def test_the_client_talks_to_a_wasm32_image_over_the_fifos(fifo, image: Image):
     _, _, client = fifo
-    raw = image.to_bytes()
+    raw = lw.link.arena_of(image)
     host = HostImage(raw)
     assert client.ping(b"over a wire") == b"over a wire"
-    assert client.digest() == image.digest()
+    assert client.digest() == digest_of(image)
     assert client.resolve("pymergetic.rxf.application.main") == host.client.resolve(
         "pymergetic.rxf.application.main"
     )
-    result = Image.from_bytes(raw)
+    result = model_of(raw)
     parent = resolved(result, "pymergetic.rxf.application")
     fresh = result.add(parent, "fresh", 8, 0xFFFFFFFFFFFFFFFF, b"over the fifos")
     result.add(fresh, "inner", 8, 0xFFFFFFFFFFFFFFFF, b"")
-    compiled = physical.compile(Image.from_bytes(raw), result)
-    assert client.apply(compiled.data) == result.digest()
+    compiled = physical.compile(model_of(raw), result)
+    assert client.apply(compiled.data) == digest_of(result)
     assert client.resolve("pymergetic.rxf.application.fresh.inner") is not None
 
 

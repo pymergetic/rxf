@@ -16,8 +16,8 @@ import pytest
 from .emulator import Emulator, Integer, Real
 from .snippets import (
     ARITHMETIC,
-    CHECKED_SATURATING,
     C_TYPES,
+    CHECKED_SATURATING,
     INTEGERS,
     OUTPUT_FILL,
     SIZES,
@@ -29,6 +29,8 @@ from .snippets import (
     snippets,
     values,
 )
+
+pytestmark = pytest.mark.nightly
 
 BUFFER = 0x20000
 PAGE = 0x1000

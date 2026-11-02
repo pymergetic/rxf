@@ -38,10 +38,16 @@ from pymergetic.rxftk.core import tree
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import physical
 from pymergetic.rxftk.live.client import REASONS, Refused
-from pymergetic.rxftk.live.front import identity
+from pymergetic.rxftk.live.front import identity, model_of
 from pymergetic.rxftk.server import editor
 from pymergetic.rxftk.server.app import PokeBody, SourceBody, create_app
 from pymergetic.rxftk.server.live.runner import Runner
+
+from .support import value_word
+
+# Pokes, edits and installs over a live app session and its routes: the live class
+# of test_live_concurrency and test_serve_real.
+pytestmark = pytest.mark.live
 
 ROOT = Path(__file__).parents[1]
 STARTER = ROOT / "starter"
@@ -89,8 +95,7 @@ def _reads_back(runner: Runner) -> int:
     """The word a payload poke wrote, read back through the channel of the running image."""
     handle = runner.client.resolve(POKE_PATH)
     assert handle is not None
-    (written,) = struct.unpack("<Q", runner.client.payload(handle)[:8])
-    return written
+    return value_word(runner.client.payload(handle))
 
 
 # ---- (a) after any poke, the next compile and install are staged against the new base ---------
@@ -133,7 +138,7 @@ def test_an_install_after_a_poke_installs_and_the_code_runs_in_the_image(image: 
         assert body["digest"] == runner.client.digest()
 
         raw, _ = runner.client.emit()
-        running_image = Image.from_bytes(raw)
+        running_image = model_of(raw)
         wanted = identity(
             running_image, running_image.handle(f"{MODULE}.triple.bytecode")
         )
@@ -156,7 +161,7 @@ def test_a_chain_of_pokes_and_edits_stays_coherent(image: Image):
         assert client.post("/api/editor/compile", json=source).json()["ok"] is True
 
         raw, _ = runner.client.emit()
-        running_image = Image.from_bytes(raw)
+        running_image = model_of(raw)
         wanted = identity(
             running_image, running_image.handle(f"{MODULE}.triple.bytecode")
         )
@@ -174,7 +179,7 @@ def test_a_poke_staged_against_a_base_another_mutation_left_is_still_refused(ima
     against its real base. Tracking the mirror is not a disabled check."""
     with running(image) as runner:
         client = TestClient(create_app(image, session=runner.session))
-        left_base = Image.from_bytes(runner.client.emit()[0])
+        left_base = model_of(runner.client.emit()[0])
 
         # another mutation lands and leaves the snapshot above behind
         poked = client.post("/api/editor/poke", json=_poke(POKE_VALUE))
@@ -212,8 +217,8 @@ def test_a_compile_staged_against_a_mirror_another_mutation_left_is_still_refuse
     through the poke seam; what it was never told about is refused, exactly as before."""
     with running(image) as runner:
         client = TestClient(create_app(image, session=runner.session))
-        before = Image.from_bytes(runner.client.emit()[0])
-        after = Image.from_bytes(before.to_bytes())
+        before = model_of(runner.client.emit()[0])
+        after = model_of(before.to_bytes())
         handle = after.handle(POKE_PATH)
         patched = editor.poke_word_payload(
             bytes(after.get(handle)["payload"]), 0, POKE_VALUE

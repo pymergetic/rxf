@@ -18,8 +18,18 @@ from typing import Protocol
 import link
 
 from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.arena import (
+    FREE_LINKS,
+    HANDLE32_GEN_BITS,
+    HANDLE32_INDEX_BITS,
+    OBJECT_HEADER_SIZE,
+    SLOT_SIZE,
+    SLOTS_HEAD_SIZE,
+    SUPERBLOCK_SIZE,
+)
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live.client import Client
+from pymergetic.rxftk.live.front import model_of
 
 from . import graph_world as world
 from .emulator import Blob, Emulator, Integer
@@ -358,14 +368,19 @@ class Channel:
         return self.machine.pump()
 
     def arena(self) -> bytes:
-        """The bytes of the arena, header to end of the cell stream."""
+        """The committed image of the arena (docs/32 1): the superblock, every object up
+        to the superblock's committed, and the tail marker's ring links."""
         assert self.machine.linked.live is not None
         address, _ = self.machine.linked.live.regions["arena"]
-        (body,) = struct.unpack("<Q", self.machine.read(address + 16, 8))
-        return self.machine.read(address, body)
+        (committed,) = struct.unpack("<Q", self.machine.read(address + 8, 8))
+        return self.machine.read(address, committed + OBJECT_HEADER_SIZE + FREE_LINKS)
 
     def loaded(self) -> Image:
-        return Image.from_bytes(self.arena())
+        """The world of the running image, as the image itself answers it: its dump, the
+        canonical form (docs/32 5.4). The arena as it lies in memory is storage - free spans,
+        the order objects were made in, and the derived relation rows of an object an apply made
+        only once the image rebuilds - so a model of it is not the image's world."""
+        return model_of(self.client.emit()[0])
 
 
 def _wrapped(
@@ -379,6 +394,24 @@ def _wrapped(
         take = min(count - done, capacity - at)
         out.append((at, (done, done + take)))
         done += take
+    return out
+
+
+def arena_handles(arena: bytes) -> list[int]:
+    """Every live handle of the arena as its slot entry packs it (docs/32 1.2):
+    (gen << 20) | index. A walk over all objects packs handles this way - a bare
+    index is not a handle."""
+    out = []
+    for index in range(struct.unpack_from("<I", arena, SUPERBLOCK_SIZE + OBJECT_HEADER_SIZE)[0]):
+        _kind, gen, _reserved, slot = struct.unpack_from(
+            "<HHIQ",
+            arena,
+            SUPERBLOCK_SIZE + OBJECT_HEADER_SIZE + SLOTS_HEAD_SIZE + SLOT_SIZE * index,
+        )
+        if slot:
+            out.append(
+                ((gen & ((1 << HANDLE32_GEN_BITS) - 1)) << HANDLE32_INDEX_BITS) | index
+            )
     return out
 
 

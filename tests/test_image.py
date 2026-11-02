@@ -2,7 +2,9 @@
 
 import shutil
 
+import arena_export
 import link
+import programs
 import pytest
 
 from pymergetic.rxftk.core import tree
@@ -55,7 +57,10 @@ def reference(image, runs):
 
 def test_the_linked_image_has_the_arena_in_it_byte_for_byte(image):
     on = linked(image, "x86_64")
-    arena = image.to_bytes()
+    # The arena the linker places is the v7 one-arena image (docs/32 1) that the
+    # world->arena writer makes of the filled world: the code of the big programs
+    # is derived data (Wave 4b step 2) and only filled in when a binary is linked.
+    arena = arena_export.export_world(programs.filled(image)).to_bytes()
     start = on.data.index(arena[:192])
     assert on.data[start : start + len(arena)] == arena
 

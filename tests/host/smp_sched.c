@@ -138,10 +138,23 @@ void smp_world_deinit(smp_world *w) {
 
 /* ---- the wake (docs/20, S4) ---- */
 
+/* Resolve a run cell, waiting out the compactor's claim (it holds a cell for one copy): NULL only
+ * when the handle is stale. A wake must never take "the compactor is copying it" for "nobody
+ * there" (a lost wake, docs/20 S4), so the wake and the dispatcher both resolve through this. */
+smp_run_payload *smp_run_resolve(smp_world *w, rxf_smp_handle h) {
+    for (;;) {
+        void *p = rxf_smp_arena_resolve(w->arena, h);
+        if (p)
+            return (smp_run_payload *)p;
+        if (rxf_smp_arena_is_stale(w->arena, h))
+            return NULL;
+    }
+}
+
 int smp_wake(smp_world *w, rxf_smp_handle target, uint32_t waker) {
-    smp_run_payload *run = (smp_run_payload *)rxf_smp_arena_resolve(w->arena, target);
+    smp_run_payload *run = smp_run_resolve(w, target);
     if (!run)
-        return 1;
+        return 1; /* stale: the run is gone, nothing to wake */
     /* The token first: a wake that lands while the target still runs is not lost, the target
      * consumes it at its next park and does not sleep (S4). The waker is recorded either way. */
     atomic_store_explicit(&run->token, 1, memory_order_release);
@@ -163,7 +176,7 @@ int smp_wake(smp_world *w, rxf_smp_handle target, uint32_t waker) {
         if (atomic_load_explicit(&w->stop, memory_order_relaxed)) {
             /* The wake is taken back (READY to PARKED, the legal retract of S1): the run stays
              * parked, and the ring never saw it. */
-            run = (smp_run_payload *)rxf_smp_arena_resolve(w->arena, target);
+            run = smp_run_resolve(w, target);
             if (run) {
                 want = RXF_SMP_STATE_READY;
                 atomic_compare_exchange_strong_explicit(&run->state, &want, RXF_SMP_STATE_PARKED,
@@ -225,16 +238,6 @@ int smp_park(smp_world *w, smp_run_payload *run, uint32_t carrier) {
 
 /* ---- the dispatcher ---- */
 
-static smp_run_payload *resolve_spin(smp_world *w, rxf_smp_handle h) {
-    for (;;) {
-        void *p = rxf_smp_arena_resolve(w->arena, h);
-        if (p)
-            return (smp_run_payload *)p;
-        if (rxf_smp_arena_is_stale(w->arena, h))
-            return NULL;
-    }
-}
-
 int smp_dispatch_one(smp_world *w, uint32_t carrier) {
     for (;;) {
         if (atomic_load_explicit(&w->stop, memory_order_relaxed))
@@ -246,7 +249,7 @@ int smp_dispatch_one(smp_world *w, uint32_t carrier) {
         }
         atomic_fetch_add_explicit(&w->pops, 1, memory_order_relaxed);
         atomic_fetch_add_explicit(&w->carrier_pops[carrier], 1, memory_order_relaxed);
-        smp_run_payload *run = resolve_spin(w, h);
+        smp_run_payload *run = smp_run_resolve(w, h);
         if (!run) {
             atomic_fetch_add_explicit(&w->handle_stale_refused, 1, memory_order_relaxed);
             continue;

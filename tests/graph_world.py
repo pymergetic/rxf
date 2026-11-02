@@ -13,18 +13,21 @@ import hashlib
 import json
 import struct
 import subprocess
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 import compose
 import graph_header
+import programs
+import seed_build
 
 from pymergetic.rxftk.core.object import Image
 
 from . import scenario
 from .emulator import Blob, Emulator, Integer
 from .graph_reference import Reference
-from .wasm import module_of
+from .wasm import module_of, wasm_type
 
 HARNESS = Path(__file__).with_name("wasm_steps.js")
 RUN = "pymergetic.rxf.foundation.graph.run"
@@ -47,8 +50,10 @@ MAP_HEADER = BASE + 0x5C00
 MAP_BUCKETS = BASE + 0x5C40
 AREA = BASE + 0x5E00  # an idle live area (272 bytes) and the table of one capability
 CAPABILITIES = BASE + 0x5F40
+ALLOCATOR = BASE + 0x5FC0  # the allocator cell (RXF_ALLOCATOR_CELL_BYTES) behind the table
 HEAP = BASE + 0x6000
 HEAP_SIZE = 0x2000
+POOL_FIRST = 0x20000  # the first id of the pool rows an allocator case reserves free
 FUNCTIONS = BASE + SIZE  # behind the compared memory
 HANDLE_COPY = (
     BASE + SIZE + 0x600
@@ -57,8 +62,9 @@ FRAME = BASE + SIZE + 0x800  # the run cell of the reference interpreter
 # the flat memory ends with the run cell of the reference interpreter: the frames of
 # the active call chain are carved (base, size) from its payload (the cell
 # rxf_graph_run keeps on its stack), so a nested call card writes its frame where it
-# is mapped
-MAPPED = SIZE + 0x800 + 0x2000
+# is mapped. The cell is what native/graph.h declares (RXF_GRAPH_CELL_BYTES), so the
+# mapping follows the header and not a number of its own.
+MAPPED = SIZE + 0x800 + graph_header.numbers()["RXF_GRAPH_CELL_BYTES"]
 PROGRAM_ID = 900001
 # Behind everything above: what the compiler (docs/19, WP12) is given and writes.
 REQUEST_AT = BASE + MAPPED
@@ -70,6 +76,7 @@ REACH = 0x100 + CODE_BYTES + TABLE_BYTES  # the memory the compiler needs beyond
 PROGRAM_BYTES = 0x1000
 LIVE = scenario.LIVE
 JOURNAL_CAPACITY = 4
+ALLOCATOR_ID = graph_header.numbers()["RXF_CAPABILITY_ALLOCATOR"]
 
 Letters = dict[str, str]
 NUMERIC = {
@@ -101,6 +108,9 @@ NUMERIC = {
     "safe_point": "pp",  # compiled code calls it at an edge that goes back (tests/test_safe_points.py)
     "compile_program": "pp",  # tests/test_compile.py does
     "graph_run": "pHqqp",  # a call card's own; the callee runs in a run of its own
+    # the one-step allocation (docs/23 4.9): it needs an allocator capability, which the stdlib
+    # script of tests/scenario.py has none of; tests/test_runtime_allocate.py runs it
+    "runtime_allocate": "pqqqqqpp",
 }
 
 
@@ -112,10 +122,6 @@ def letters() -> Letters:
     found.update(NUMERIC)
     assert set(found) == set(graph_header.leaves())
     return found
-
-
-def wasm_type(letter: str) -> str:
-    return "i64" if letter == "q" else "i32"
 
 
 def call_types() -> list[list[str]]:
@@ -145,8 +151,10 @@ def code_of(image: Image) -> Code:
             name = image.path(child).rsplit(".", 1)[-1]
             for machine, wanted in MACHINES.items():
                 if name == wanted:
+                    body = image.resolve(dict(composer.fields(child)).get("body", ""))
+                    assert body is not None and image.type_name(body) == "CodeBlob"
                     found[machine] = bytes.fromhex(
-                        composer.fields(child).get("data", "")
+                        programs.fields_of(image, body).get("data", "")
                     )
         assert set(found) == set(MACHINES), (image.path(function), set(found))
         return found
@@ -156,6 +164,20 @@ def code_of(image: Image) -> Code:
         for machine, data in bytes_of(target).items():
             leaves[machine][index] = data
     return Code({m: d for m, d in bytes_of(run).items()}, leaves)
+
+
+def seed_code(keys: Iterable[str]) -> Code:
+    """The interpreter and the named leaves as the Seed builds them NOW (native/graph.rxfs,
+    native/runtime/runtime.rxfs, ...), not the bytes a starter carries: what a change to the
+    seed sources does, before any starter regeneration. The leaves are named by their keys."""
+    leaves = graph_header.leaves()
+    return Code(
+        {m: bytes.fromhex(seed_build.code(m, "graph_run")) for m in MACHINES},
+        {
+            m: {leaves[key]: bytes.fromhex(seed_build.code(m, key)) for key in keys}
+            for m in MACHINES
+        },
+    )
 
 
 def bindings(image: Image) -> dict[int, bytes]:
@@ -193,6 +215,17 @@ Handle = tuple[int, int, int]
 
 
 @dataclass(frozen=True)
+class Row:
+    """An object the case binds with the state it has: a row a program names by a handle."""
+
+    identity: int
+    payload: bytes
+    generation: int = 1
+    state: int = LIVE
+    capacity: int | None = None  # the row's capacity; the size of the payload when None
+
+
+@dataclass(frozen=True)
 class Case:
     name: str
     program: bytes
@@ -201,6 +234,10 @@ class Case:
     handle: Handle = (PROGRAM_ID, 1, 0)  # how the run finds its program
     absent: frozenset[int] = frozenset()  # leaves missing from the function table
     channel: bool = False  # the context has a Channel (an idle area): compiled loops get safe points
+    rows: tuple[Row, ...] = ()  # more objects, each with the generation and state it has
+    pool: int | None = None  # the Allocator capability is bound with this many free rows (None: unbound)
+    frontier: int = 0  # the bump frontier of the heap the run starts with
+    heap: bytes = b""  # what the heap holds at the start (from its first byte on)
 
 
 def cases(image: Image) -> list[Case]:
@@ -254,11 +291,30 @@ def memory(case: Case, slots: list[tuple[int, int]]) -> bytes:
         put(where, payload)
         entries.append(entry(identity, where, len(payload)))
         where += (len(payload) + 7) // 8 * 8
+    for row in case.rows:
+        put(where, row.payload)
+        size = len(row.payload)
+        entries.append(
+            scenario.entry(
+                row.identity, row.generation, 1, where, size,
+                size if row.capacity is None else row.capacity, row.state,
+            )
+        )  # fmt: skip
+        where += ((size if row.capacity is None else row.capacity) + 7) // 8 * 8
     assert where <= PROGRAM
+    if case.pool is not None:
+        entries += [scenario.entry(POOL_FIRST + i) for i in range(case.pool)]
     entries.sort(
         key=lambda row: struct.unpack_from("<Q", row)[0]
     )  # the table is sorted by id
     put(OBJECTS, b"".join(entries))
+    # the capability table: the allocator first when the case binds one, then the channel
+    capabilities = b""
+    if case.pool is not None:
+        capabilities += struct.pack("<3Q", ALLOCATOR_ID, 1, ALLOCATOR)
+        put(ALLOCATOR, struct.pack("<4Q", POOL_FIRST, case.pool, POOL_FIRST, 0))
+    if case.channel:
+        capabilities += struct.pack("<3Q", 1, 1, AREA)  # RXF_CAPABILITY_CHANNEL
     put(
         CONTEXT,
         struct.pack(
@@ -266,13 +322,14 @@ def memory(case: Case, slots: list[tuple[int, int]]) -> bytes:
             2, 144,  # version, size
             len(slots), FUNCTIONS,
             len(entries), OBJECTS,
-            int(case.channel), CAPABILITIES,  # capabilities
-            HEAP, HEAP_SIZE, HEAP_SIZE, 0,  # base, committed, limit, frontier
+            len(capabilities) // 24, CAPABILITIES,  # capabilities
+            HEAP, HEAP_SIZE, HEAP_SIZE, case.frontier,  # base, committed, limit, frontier
             0, JOURNAL_CAPACITY, JOURNAL,
             0, 0, 0,  # cleanup
         ),
     )  # fmt: skip
-    put(CAPABILITIES, struct.pack("<3Q", 1, 1, AREA))  # RXF_CAPABILITY_CHANNEL
+    put(CAPABILITIES, capabilities)
+    put(HEAP, case.heap)
     put(TEXT, scenario.TEXT.ljust(64, b"."))
     put(TEXT + 64, bytes(range(1, 65)))
     put(PROGRAM, case.program)
@@ -406,7 +463,11 @@ def compiled(machine: str, code: Code, case: Case) -> Compiled:
     )
 
 
-def referenced(code: Code, case: Case) -> tuple[Outcome, list[tuple[str, int]]]:
+def referenced(
+    code: Code,
+    case: Case,
+    safe_point: Callable[[Emulator], Callable[[], None]] | None = None,
+) -> tuple[Outcome, list[tuple[str, int]]]:
     """The same program run by the Python interpreter, calling the x86_64 leaves.
 
     The outcome, and the leaves it called with the status each one returned.
@@ -419,7 +480,14 @@ def referenced(code: Code, case: Case) -> tuple[Outcome, list[tuple[str, int]]]:
     }
     present = {i: a for i, a in addresses.items() if i not in case.absent}
     emulator.write(BASE, memory(case, sorted(present.items())))
-    interpreter = Reference(emulator, CONTEXT, FRAME, present, letters())
+    interpreter = Reference(
+        emulator,
+        CONTEXT,
+        FRAME,
+        present,
+        letters(),
+        None if safe_point is None else safe_point(emulator),
+    )
     status, out = interpreter.run(case.program, case.args, len(case.args) // 8)
     emulator.write(OUT, out)
     snapshot = outcome(status, emulator.read(OUT, OUT_BYTES), emulator.read(BASE, SIZE))

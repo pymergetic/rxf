@@ -1,0 +1,254 @@
+{
+  "core": {
+    "compiles": {
+      "class": [
+        0,
+        5
+      ],
+      "def": [
+        2,
+        7
+      ],
+      "method": [
+        3,
+        12
+      ]
+    },
+    "defs": [
+      [
+        "sleep_ms",
+        "a default that folds to no word (None or a call)"
+      ],
+      [
+        "sleep",
+        "compiles"
+      ],
+      [
+        "_promote_to_task",
+        "a conditional expression"
+      ],
+      [
+        "create_task",
+        "raise (the exception seam)"
+      ],
+      [
+        "run_until_complete",
+        "other: run_until_complete answers a word on one path and None on an"
+      ],
+      [
+        "run",
+        "compiles"
+      ],
+      [
+        "get_event_loop",
+        "a name the subset cannot bind (a class or a global of no cell)"
+      ],
+      [
+        "current_task",
+        "raise (the exception seam)"
+      ],
+      [
+        "new_event_loop",
+        "global of a name that is not an integer cell"
+      ]
+    ],
+    "dropped": 4,
+    "imports": {
+      "first_refusal": "line 4: from time import ...: the image has no module time (the image is the module tree: import it first)",
+      "statements": 2
+    },
+    "reasons": {
+      "a call of a name the strand does not compile (a builtin or a face)": 1,
+      "a callee that is not a name or an attribute": 1,
+      "a class attribute or a nested class": 1,
+      "a conditional expression": 1,
+      "a default that folds to no word (None or a call)": 1,
+      "a module-level binding that is not an integer constant": 1,
+      "a name the subset cannot bind (a class or a global of no cell)": 1,
+      "a special method (only __init__ is of the subset)": 1,
+      "an attribute store on an object held in a name": 1,
+      "an expression or a control statement at module level": 1,
+      "an object held in a name or a parameter (no cell the graph can resolve)": 3,
+      "assert (the panic seam)": 2,
+      "async def (the coroutine frame of 4.5)": 1,
+      "del": 1,
+      "for (the subset loops with while)": 2,
+      "global of a name that is not an integer cell": 3,
+      "inheritance": 2,
+      "other: run_until_complete answers a word on one path and None on an": 1,
+      "raise (the exception seam)": 2,
+      "try/except (the nlr seam of S11)": 1
+    }
+  },
+  "event": {
+    "compiles": {
+      "class": [
+        0,
+        1
+      ],
+      "def": [
+        0,
+        0
+      ],
+      "method": [
+        0,
+        4
+      ]
+    },
+    "defs": [],
+    "dropped": 1,
+    "imports": {
+      "first_refusal": "line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first)",
+      "statements": 1
+    },
+    "reasons": {
+      "an attribute store on an object held in a name": 1,
+      "an object held in a name or a parameter (no cell the graph can resolve)": 3,
+      "try/except (the nlr seam of S11)": 1,
+      "yield (the coroutine frame of 4.5)": 1
+    }
+  },
+  "funcs": {
+    "compiles": {
+      "class": [
+        0,
+        1
+      ],
+      "def": [
+        1,
+        1
+      ],
+      "method": [
+        1,
+        0
+      ]
+    },
+    "defs": [
+      [
+        "wait_for_ms",
+        "compiles"
+      ],
+      [
+        "gather",
+        "*args, **kwargs or a keyword-only parameter"
+      ]
+    ],
+    "dropped": 2,
+    "imports": {
+      "first_refusal": "line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first)",
+      "statements": 1
+    },
+    "reasons": {
+      "*args, **kwargs or a keyword-only parameter": 1,
+      "a decorator": 1,
+      "async def (the coroutine frame of 4.5)": 2
+    }
+  },
+  "lock": {
+    "compiles": {
+      "class": [
+        0,
+        1
+      ],
+      "def": [
+        0,
+        0
+      ],
+      "method": [
+        0,
+        3
+      ]
+    },
+    "defs": [],
+    "dropped": 0,
+    "imports": {
+      "first_refusal": "line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first)",
+      "statements": 1
+    },
+    "reasons": {
+      "an object held in a name or a parameter (no cell the graph can resolve)": 1,
+      "async def (the coroutine frame of 4.5)": 1,
+      "raise (the exception seam)": 1,
+      "try/except (the nlr seam of S11)": 1
+    }
+  },
+  "stream": {
+    "compiles": {
+      "class": [
+        0,
+        2
+      ],
+      "def": [
+        0,
+        1
+      ],
+      "method": [
+        1,
+        8
+      ]
+    },
+    "defs": [
+      [
+        "open_connection",
+        "other: an import inside a def (imports are module-level statements:"
+      ]
+    ],
+    "dropped": 7,
+    "imports": {
+      "first_refusal": "line 4: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first)",
+      "statements": 1
+    },
+    "reasons": {
+      "a module-level binding that is not NAME = constant": 3,
+      "a module-level binding that is not an integer constant": 2,
+      "a subscript (a sequence cell)": 1,
+      "an attribute store on an object held in a name": 1,
+      "an object held in a name or a parameter (no cell the graph can resolve)": 1,
+      "async def (the coroutine frame of 4.5)": 4,
+      "other: an import inside a def (imports are module-level statements:": 1,
+      "yield (the coroutine frame of 4.5)": 5
+    }
+  },
+  "task": {
+    "compiles": {
+      "class": [
+        0,
+        2
+      ],
+      "def": [
+        0,
+        3
+      ],
+      "method": [
+        0,
+        6
+      ]
+    },
+    "defs": [
+      [
+        "ph_meld",
+        "an object held in a name or a parameter (no cell the graph can resolve)"
+      ],
+      [
+        "ph_pairing",
+        "an object held in a name or a parameter (no cell the graph can resolve)"
+      ],
+      [
+        "ph_delete",
+        "is / is not / in / not in (identity and membership)"
+      ]
+    ],
+    "dropped": 0,
+    "imports": {
+      "first_refusal": "line 7: from asyncio import ...: the image has no module asyncio (the image is the module tree: import it first)",
+      "statements": 1
+    },
+    "reasons": {
+      "a special method (only __init__ is of the subset)": 1,
+      "an object held in a name or a parameter (no cell the graph can resolve)": 5,
+      "assert (the panic seam)": 3,
+      "is / is not / in / not in (identity and membership)": 1,
+      "raise (the exception seam)": 1
+    }
+  }
+}

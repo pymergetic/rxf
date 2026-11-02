@@ -16,6 +16,10 @@ import rxfc
 
 from .test_front import FRONT, run_front
 
+# Every case compiles a whole corpus file twice - through the front end under the
+# simulator and through rxfc - and compares the bytes. A minute and up each.
+pytestmark = pytest.mark.slow
+
 ROOT = Path(__file__).parents[1]
 CORPUS = [
     ROOT / "tests" / "rxfc" / "arith.rxfs",

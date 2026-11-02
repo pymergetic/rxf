@@ -10,6 +10,7 @@ import threading
 import tty
 from pathlib import Path
 
+import link as link_
 import pytest
 
 from pymergetic.rxftk import source
@@ -22,6 +23,7 @@ from pymergetic.rxftk.live.harness import HostImage, fit, table_slots
 
 from . import live_serve
 from .snippets import STARTER
+from .support import canonical_of, digest_of
 
 MiB = 1 << 20
 SIZES = {
@@ -51,7 +53,11 @@ DELTA = """<?xml version="1.0" encoding="UTF-8"?>
 
 @pytest.fixture(scope="module")
 def image() -> Image:
-    return tree.load(Path(STARTER))
+    # The world the engine runs: the filled model (tools/native/programs.py),
+    # whose v7 arena (link.arena_of) is the form the seats serve.
+    import programs
+
+    return programs.filled(tree.load(Path(STARTER)))
 
 
 @pytest.fixture
@@ -61,7 +67,7 @@ def context():
 
 @pytest.fixture
 def shm(image: Image, context):
-    raw = image.to_bytes()
+    raw = link_.arena_of(image)
     sizes = sized(raw)
     size = live.Area.required_size(
         sizes["arena"],
@@ -107,7 +113,7 @@ def test_two_processes_share_one_image_over_the_rings(shm, image: Image):
     wire = link.SharedMemory(name)
     client = Client(wire)
     assert client.ping(b"across processes") == b"across processes"
-    assert client.digest() == image.digest()
+    assert client.digest() == digest_of(image)
     host = HostImage(raw)
     assert client.hello().handles == host.client.hello().handles
     wire.close()
@@ -116,20 +122,20 @@ def test_two_processes_share_one_image_over_the_rings(shm, image: Image):
 def test_a_change_made_from_the_other_process_is_in_the_shared_image(
     shm, image: Image, tmp_path
 ):
-    name, raw = shm
+    name, _raw = shm
     delta = tmp_path / "wire.rxfd"
     delta.write_text(DELTA, encoding="utf-8")
     wire = link.SharedMemory(name)
     client = Client(wire)
-    expected = Image.from_bytes(raw)
+    expected = Image.from_bytes(image.to_bytes())
     expected.apply(DELTA)
-    compiled = physical.from_xml(Image.from_bytes(raw), ("wire.rxfd", DELTA))
-    assert client.apply(compiled.data) == expected.digest()
+    compiled = physical.from_xml(image, ("wire.rxfd", DELTA), check_base=False)
+    assert client.apply(compiled.data) == digest_of(expected)
     # a second client of the same segment sees the change too
     other = link.SharedMemory(name)
-    assert Client(other).digest() == expected.digest() != image.digest()
+    assert Client(other).digest() == digest_of(expected) != digest_of(image)
     other.close()
-    assert client.emit()[0] == expected.compact().to_bytes()
+    assert client.emit()[0] == canonical_of(expected)
     wire.close()
 
 
@@ -141,7 +147,7 @@ def serial(image: Image):
         slave
     )  # before anything is written: no echo of the answers back to the server
     stop, ready = threading.Event(), threading.Event()
-    raw = image.to_bytes()
+    raw = link_.arena_of(image)
     sizes = sized(raw)
     server = threading.Thread(
         target=live_serve.serve_descriptor,
@@ -161,7 +167,7 @@ def test_a_client_talks_to_the_image_over_a_pty(serial, image: Image):
     wire = link.open_link(f"pty:{path}")
     client = Client(wire, timeout=60)
     assert client.ping(b"over a line") == b"over a line"
-    assert client.digest() == image.digest()
+    assert client.digest() == digest_of(image)
     wire.close()
 
 
@@ -171,20 +177,23 @@ def test_the_rxf_live_commands_work_on_a_pty(serial, image: Image, tmp_path, cap
     delta = tmp_path / "wire.rxfd"
     delta.write_text(DELTA, encoding="utf-8")
     assert main(["live", "digest", spec, "--timeout=60"]) == 0
-    assert capsys.readouterr().out.strip().strip("'") == image.digest()
+    assert capsys.readouterr().out.strip().strip("'") == digest_of(image)
     assert main(["live", "apply", spec, str(delta), "--timeout=60"]) == 0
     applied = capsys.readouterr().out
     expected = Image.from_bytes(image.to_bytes())
     expected.apply(DELTA)
-    assert expected.digest() in applied
+    assert digest_of(expected) in applied
     # the dump of the running image, to the three forms
     for name in ("run.rxfd", "run.rxfb", "run"):
         target = tmp_path / name
         assert main(["live", "emit", spec, str(target), "--timeout=60"]) == 0
         capsys.readouterr()
-        assert source.load(target).digest() == expected.digest()
+        # the dump is the model of the arena (the v7 reader): the arena keeps the room of a
+        # payload, not its length (docs/32 1.2), so the compare is the one the image makes -
+        # the digest of the canonical arena, which both models write alike
+        assert digest_of(source.load(target)) == digest_of(expected)
     # a running image is a source like any other
-    assert source.load(f"live:{spec}").digest() == expected.digest()
+    assert digest_of(source.load(f"live:{spec}")) == digest_of(expected)
     # the console reads a script
     script = tmp_path / "script.txt"
     script.write_text(
@@ -192,7 +201,7 @@ def test_the_rxf_live_commands_work_on_a_pty(serial, image: Image, tmp_path, cap
     )
     assert main(["live", "console", spec, f"--script={script}", "--timeout=60"]) == 0
     out = capsys.readouterr().out.splitlines()
-    assert out[0] == "hi there" and out[1] == expected.digest()
+    assert out[0] == "hi there" and out[1] == digest_of(expected)
     assert out[2].isdigit() and out[3].startswith("error: ")
     assert json.loads("\n".join(out[4:])) == {"commands": 4}  # `quit` ended it
 
@@ -203,7 +212,7 @@ def test_the_rxf_live_commands_work_on_shared_memory(
     name, _ = shm
     spec = f"shm:{name}"
     assert main(["live", "info", spec]) == 0
-    assert image.digest() in capsys.readouterr().out
+    assert digest_of(image) in capsys.readouterr().out
     assert main(["live", "ping", spec, "wire"]) == 0
     assert "wire" in capsys.readouterr().out
     assert main(["live", "halt", spec]) == 0

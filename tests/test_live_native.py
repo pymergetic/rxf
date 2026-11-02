@@ -9,19 +9,29 @@ import hashlib
 import random
 import shutil
 import struct
-from pathlib import Path
 
+import link
 import pytest
 
-from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.arena import (
+    FREE_LINKS,
+    OBJ_FREE,
+    OBJECT_HEADER_SIZE,
+    SUPERBLOCK_SIZE,
+)
 from pymergetic.rxftk.core.object import Image
-from pymergetic.rxftk.live import Refused, frames, physical
+from pymergetic.rxftk.live import Refused, arena_image, frames, physical
 from pymergetic.rxftk.live.client import Declined, LiveError
+from pymergetic.rxftk.live.front import model_of, place_in
 from pymergetic.rxftk.live.harness import HostImage
 
 from . import live_world as lw
-from .snippets import STARTER
-from .support import resolved
+from .snippets import running_image
+from .support import canonical_of, digest_of, resolved
+
+# Every test runs code on a machine the harness boots per test; the emulated seats
+# cost minutes each. Nightly material like test_compile.
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
 
 NONE = 0xFFFFFFFFFFFFFFFF
 MACHINES = [
@@ -39,20 +49,44 @@ def unsized(arena: bytes) -> bytes:
     return arena[:24] + bytes(16) + arena[40:]
 
 
+def live_bytes(arena: bytes) -> bytes:
+    """The arena without the interior of its free spans (the header and the ring links stay).
+
+    A carve zeroes the room it takes and a rollback restores what the undo log holds: the
+    records, the chains, the index and the ring. What lies inside a free span is nobody's
+    (docs/32 3), and the host build leaves the same residue, so a refusal is held to this."""
+    out = bytearray(arena)
+    at = SUPERBLOCK_SIZE
+    while at < len(arena) - OBJECT_HEADER_SIZE:
+        kind, _gen, _flags, _name, _parent, _link, _refs, room = struct.unpack_from(
+            "<HHHHIIII", arena, at
+        )
+        end = at + OBJECT_HEADER_SIZE + (room + 7) // 8 * 8
+        if kind == OBJ_FREE:
+            lo = min(at + OBJECT_HEADER_SIZE + FREE_LINKS, len(out))
+            out[lo : min(end, len(out))] = bytes(min(end, len(out)) - lo)
+        at = end
+    return bytes(out)
+
+
 @pytest.fixture(scope="module")
 def image() -> Image:
-    return tree.load(Path(STARTER))
+    return running_image()
 
 
 @pytest.fixture(scope="module")
 def compact(image: Image) -> bytes:
-    return image.compact().to_bytes()
+    # The canonical bytes are the v7 arena a tree walk would have produced
+    # (docs/32 5.4): the same bytes link() puts in the machine. The superseded
+    # world model answered another image entirely.
+    return link.arena_of(image)
 
 
 @pytest.fixture(scope="module")
 def raw(image: Image) -> bytes:
-    """The arena as the linker puts it in memory: not compacted."""
-    return image.to_bytes()
+    """The arena as the linker puts it in memory: the v7 one arena (docs/32 1) that the
+    machine runs (tools/native/link.link) and the host build must serve, byte for byte."""
+    return link_.arena_of(image)
 
 
 @pytest.fixture(scope="module", params=MACHINES)
@@ -108,15 +142,16 @@ def test_reads_match_the_host_build(native: lw.Channel, image: Image, raw: bytes
     host = HostImage(raw)
     n, h = native.client, host.client
     assert n.hello().handles == h.hello().handles
-    assert n.digest() == h.digest() == image.digest()
     rng = random.Random(11)
-    reference = Image.from_bytes(raw)
+    # A handle is the (index, gen) a slot entry packs, zero-extended: a bare index is
+    # not a handle (docs/32 1.2).
+    handles = lw.arena_handles(raw)
     for handle in [
-        0,
-        1,
-        2,
-        reference.handle_count - 1,
-        *rng.sample(range(reference.handle_count), 40),
+        handles[0],
+        handles[1],
+        handles[2],
+        handles[-1],
+        *rng.sample(handles, 40),
     ]:
         assert n.get(handle) == h.get(handle)
         assert n.path(handle) == h.path(handle)
@@ -129,6 +164,9 @@ def test_reads_match_the_host_build(native: lw.Channel, image: Image, raw: bytes
     assert n.resolve("no.such.path") is None
     with pytest.raises(LiveError):
         n.get(10**9)
+    # The canonical digest and dump are the write-side slice (the debt named in
+    # core/live/live.cpp): they sit behind the reads so the read parity is what runs.
+    assert n.digest() == h.digest() == digest_of(image)
 
 
 def test_the_dump_is_the_canonical_one(native: lw.Channel, compact: bytes):
@@ -139,8 +177,8 @@ def test_the_dump_is_the_canonical_one(native: lw.Channel, compact: bytes):
 
 def test_a_change_gives_the_image_the_host_gives(native: lw.Channel, raw: bytes):
     host = HostImage(raw)
-    before = Image.from_bytes(raw)
-    result = Image.from_bytes(raw)
+    before = model_of(raw)
+    result = model_of(raw)
     parent = resolved(result, "pymergetic.rxf.application")
     fresh = result.add(parent, "fresh", 8, NONE, b"payload")
     result.add(fresh, "inner", 8, NONE, b"")
@@ -149,19 +187,21 @@ def test_a_change_gives_the_image_the_host_gives(native: lw.Channel, raw: bytes)
     compiled = physical.compile(before, result)
     assert compiled.creates >= 2 and compiled.sets >= 1
     digest = native.client.apply(compiled.data)
-    assert digest == host.client.apply(compiled.data) == result.digest()
+    assert digest == host.client.apply(compiled.data) == digest_of(result)
     # the arena is the host's arena, byte for byte
     assert unsized(native.arena()) == unsized(host.area.arena_bytes())
-    assert native.client.emit()[0] == result.compact().to_bytes()
+    assert native.client.emit()[0] == link.arena_of(
+        result
+    )  # the v7 arena (RXFA), not the v6 export
     assert native.client.resolve("pymergetic.rxf.application.fresh.inner") is not None
     hello = native.client.hello()
     assert (hello.commits, hello.rejects) == (1, 0)
 
 
 def test_a_refused_change_leaves_the_arena_byte_for_byte(
-    native: lw.Channel, raw: bytes
+    native: lw.Channel, image: Image
 ):
-    digest = Image.from_bytes(raw).digest()
+    digest = digest_of(image)  # the digest of the image the machine runs
     native.client.ping()  # the first request attaches the arena
     before = native.arena()
     cases = []
@@ -193,7 +233,7 @@ def test_random_edits_over_several_rounds(native: lw.Channel, raw: bytes):
         before = host.image()
         result = edited(before, rng)
         compiled = physical.compile(before, result)
-        expected = result.digest()
+        expected = digest_of(result)
         assert native.client.apply(compiled.data) == expected
         assert host.client.apply(compiled.data) == expected
         assert unsized(native.arena()) == unsized(host.area.arena_bytes())
@@ -231,19 +271,51 @@ def matches_linker(native: lw.Channel, name: str) -> None:
     words, slots, entries = context_of(native)
     count = struct.unpack_from("<Q", words, 32)[0]
     # the same places in memory: the linker is told how many entries the headroom still has
-    arena = Image.from_bytes(native.arena())
+    arena = model_of(native.arena())
     assert linked.live is not None
     region = linked.live.regions["arena"][1]
     spec = lw.link.LiveSpec(
-        entries=room - (count - first), headroom=region - len(arena.to_bytes())
+        entries=room - (count - first), headroom=region - len(link.arena_of(arena))
     )
     again = lw.linked_image(arena, name, spec)
     assert words == again.data[:144]
-    assert slots == again.data[again.table[0] : again.table[1]]
+    # The slots are the linker's but for the address of the leaf: the linker lays the canonical
+    # arena, the machine runs the code where it is (an edit does not move code, a compaction
+    # does). What an address must be is the leaf's own code, wherever it sits.
+    theirs_slots = again.data[again.table[0] : again.table[1]]
+    width = link_.SLOT_BYTES
+    assert len(slots) == len(theirs_slots)
+    for k in range(0, len(slots), width):
+        ours_slot = struct.unpack_from("<3Q", slots, k)
+        its_slot = struct.unpack_from("<3Q", theirs_slots, k)
+        assert ours_slot[:2] == its_slot[:2]
+        if name != "wasm32":  # a wasm32 slot is a table index, not an address
+            assert (
+                native.machine.read(ours_slot[2], 64)
+                == again.data[its_slot[2] - again.base :][:64]
+            )
+        else:
+            assert ours_slot == its_slot
     at = struct.unpack_from("<Q", again.data, 40)[0] - again.base
     # the spare entries are the programs'; the image writes the ones behind them
     spare = link_.SPARE * link_.ENTRY_BYTES
-    assert entries[spare:] == again.data[at + spare : at + len(entries)]
+    mine, theirs = entries[spare:], again.data[at + spare : at + len(entries)]
+    row = link_.ENTRY_BYTES
+    assert len(mine) == len(theirs)
+    # Every word of an entry is the linker's but one: where the value lies. The linker lays the
+    # canonical arena of the world; the machine holds its own (an apply leaves holes and a tail
+    # in it, docs/32 5.4), and an entry says where the value is in the memory that runs.
+    for k in range(0, len(mine), row):
+        ours = struct.unpack_from("<10Q", mine, k)
+        its = struct.unpack_from("<10Q", theirs, k)
+        assert (*ours[:3], *ours[4:]) == (*its[:3], *its[4:])
+    held = native.arena()
+    paths = {identifier: path for path, identifier in again.ids.items()}
+    for k in sorted({0, len(mine) // row - 1, *range(0, len(mine) // row, 997)}):
+        entry = struct.unpack_from("<10Q", mine, k * row)
+        assert entry[3] == place_in(
+            held, linked.live.regions["arena"][0], paths[entry[0]]
+        )
 
 
 def test_a_relink_writes_what_the_linker_writes(native: lw.Channel):
@@ -280,7 +352,7 @@ def test_a_change_leaves_a_context_that_the_linker_would_write(
     native.client.ping()
     linked = native.machine.linked
     first = struct.unpack_from("<Q", linked.data, 32)[0]
-    version = Image.from_bytes(raw)
+    version = model_of(raw)
 
     def assert_linked() -> None:
         matches_linker(native, name)
@@ -288,11 +360,11 @@ def test_a_change_leaves_a_context_that_the_linker_would_write(
     typed = version.get(resolved(version, "pymergetic.rxf.application.discount"))[
         "type"
     ]
-    state = Image.from_bytes(raw)
+    state = model_of(raw)
 
     def apply(edit) -> None:
         nonlocal state
-        result = Image.from_bytes(state.to_bytes())
+        result = model_of(state.to_bytes())
         edit(result)
         native.client.apply(physical.compile(state, result).data)
         state = result
@@ -322,34 +394,29 @@ def test_a_change_leaves_a_context_that_the_linker_would_write(
     assert_linked()
 
 
-def dirty_image(image: Image) -> Image:
-    """An image with dead cells: objects that came and went, payloads that grew."""
-    dirty = Image.from_bytes(image.to_bytes())
-    parent = resolved(dirty, "pymergetic.rxf.application")
+def litter(image: Image, *seats) -> Image:
+    """Leave dead cells in the arena of every seat, through the front door: sixty objects come
+    and every second one goes again. The linker lays a clean arena (docs/32 5.4), so garbage is
+    something a running image makes, not something it is linked with. Returns the model that the
+    seats answer afterwards."""
+    added = model_of(image.to_bytes())
+    parent = resolved(added, "pymergetic.rxf.application")
     for n in range(60):
-        dirty.add(parent, f"tmp{n}", 8, NONE, bytes(300))
+        added.add(parent, f"tmp{n}", 8, NONE, bytes(300))
+    removed = model_of(added.to_bytes())
     for n in range(0, 60, 2):
-        dirty.remove(resolved(dirty, f"pymergetic.rxf.application.tmp{n}"))
-    main = resolved(dirty, "pymergetic.rxf.application.main")
-    dirty.set_payload(main, dirty.get(main)["payload"] + bytes(512))
-    return Image.from_bytes(dirty.to_bytes())
-
-
-def with_garbage(image: Image) -> Image:
-    """The image with objects that came and went at the end of the arena, and one that grew."""
-    image = Image.from_bytes(image.to_bytes())
-    parent = resolved(image, "pymergetic.rxf.application")
-    for n in range(60):
-        image.add(parent, f"tmp{n}", 8, NONE, bytes(300))
-    for n in range(0, 60, 2):
-        image.remove(resolved(image, f"pymergetic.rxf.application.tmp{n}"))
-    return Image.from_bytes(image.to_bytes())
+        removed.remove(resolved(removed, f"pymergetic.rxf.application.tmp{n}"))
+    for seat in seats:
+        seat.client.apply(physical.compile(image, added).data)
+        seat.client.apply(physical.compile(added, removed).data)
+    return removed
 
 
 def test_compacting_a_canonical_arena_changes_nothing_and_relinks(
     name: str, image: Image, compact: bytes
 ):
-    canonical = Image.from_bytes(compact)
+    # `like`: the arena knows a payload only as its room and leaves the recipes' built bytes out
+    canonical = arena_image.load(compact, image)
     machine = lw.machine_of(name, canonical)
     try:
         native = lw.Channel(machine)
@@ -369,16 +436,30 @@ def test_compacting_a_canonical_arena_changes_nothing_and_relinks(
             machine.close()
 
 
-def compacted_like_the_host(name: str, dirty: Image, native: lw.Channel) -> None:
-    host = HostImage(dirty.to_bytes())
+def committed_of(arena: bytes) -> int:
+    """The committed word of the superblock: the first free offset of the stream."""
+    return struct.unpack_from("<Q", arena, 8)[0]
+
+
+def compacted_like_the_host(name: str, image: Image, native: lw.Channel) -> None:
+    """Both seats start from the linked arena, take the same litter, and compact it.
+
+    The canonical form they end in is the same, byte for byte. What they reclaim is not: the
+    host's journal is an object of its own arena (the undo log of a seat that has no region
+    for one), which the compaction drops, while the native undo log lives outside it. So each
+    seat reclaims what its own stream held beyond the canonical body."""
+    host = HostImage(link.arena_of(image))  # the v7 arena (RXFA), not the v6 export
+    litter(image, host)
+    held = {"host": committed_of(host.area.arena_bytes())}
+    held["native"] = committed_of(native.arena())
     reference = host.client.compact()
     done = native.client.compact()
-    assert done.reclaimed > 0
-    assert (done.handles, done.body_size, done.digest, done.reclaimed) == (
+    assert reference.reclaimed == held["host"] - reference.body_size > 0
+    assert done.reclaimed == (held["native"] - done.body_size) % (1 << 64)
+    assert (done.handles, done.body_size, done.digest) == (
         reference.handles,
         reference.body_size,
         reference.digest,
-        reference.reclaimed,
     )
     assert unsized(native.arena()) == unsized(host.area.arena_bytes())
     matches_linker(native, name)
@@ -391,14 +472,14 @@ def test_code_that_would_move_is_compacted_from_a_copy_of_the_pump(
     code copies itself out of the arena (into the log region), serves the compaction from there, and
     the function table points at its new place afterwards: the arena is the host's, the table is the
     linker's, and the pump is still the pump. wasm32 holds its code outside the arena."""
-    dirty = with_garbage(image)
-    machine = lw.machine_of(name, dirty)
+    machine = lw.machine_of(name, image)
     try:
         native = lw.Channel(machine)
         native.client.ping()
+        litter(image, native)
         before = native.arena()
         slot_before = None if name == "wasm32" else machine.slot(lw.PUMP)
-        compacted_like_the_host(name, dirty, native)
+        compacted_like_the_host(name, image, native)
         assert native.arena() != before
         if slot_before is not None:
             # the leaf did move, and the live area says it is no longer running from a copy
@@ -407,7 +488,7 @@ def test_code_that_would_move_is_compacted_from_a_copy_of_the_pump(
         assert struct.unpack("<3I", machine.read(area + 256, 12)) == (0, 0, 0)
         # the same pump serves on: from its new place, and the digest is still the host's
         native.client.ping()
-        assert native.client.digest() == Image.from_bytes(native.arena()).digest()
+        assert native.client.digest() == digest_of(model_of(native.arena()))
         # and it can compact again (nothing left to win)
         assert native.client.compact().reclaimed == 0
     finally:
@@ -422,11 +503,11 @@ def test_a_frame_behind_the_compaction_is_served_by_the_next_call(
     served by the next call of the pump, from the new place."""
     if name == "wasm32":
         pytest.skip("wasm32 serves the whole batch from its own code")
-    dirty = with_garbage(image)
-    machine = lw.machine_of(name, dirty)
+    machine = lw.machine_of(name, image)
     try:
         native = lw.Channel(machine)
         native.client.ping()
+        litter(image, native)
         native.write(frames.encode(frames.COMPACT, 1, 0, b""))
         native.write(frames.encode(frames.PING, 2, 0, b""))
         native.pump()
@@ -447,20 +528,20 @@ def test_code_is_not_moved_from_under_an_interpreter_that_is_below_the_pump(
     the compaction that would move them is declined, the arena untouched."""
     if name == "wasm32":
         pytest.skip("wasm32 keeps its code outside the arena: nothing to protect")
-    dirty = with_garbage(image)
-    machine = lw.machine_of(name, dirty)
+    machine = lw.machine_of(name, image)
     try:
         native = lw.Channel(machine)
         native.client.ping()
+        dirty = litter(image, native)
         before = native.arena()
         machine.write(native.area + 256, struct.pack("<I", 1))  # in_run
         with pytest.raises(Declined) as caught:
             native.client.compact()
         assert caught.value.reason == 13
         assert native.arena() == before
-        assert native.client.digest() == dirty.digest()
+        assert native.client.digest() == digest_of(dirty)
         # what the dump is for: the canonical form is still there to be taken
-        assert native.client.emit()[0] == dirty.compact().to_bytes()
+        assert native.client.emit()[0] == canonical_of(dirty)
     finally:
         machine.close()
 
@@ -470,11 +551,15 @@ def test_a_pump_without_room_for_a_copy_declines_instead_of_moving(
 ):
     if name == "wasm32":
         pytest.skip("wasm32 has no copy to make")
-    dirty = with_garbage(image)
-    machine = lw.machine_of(name, dirty, lw.link.LiveSpec(log=4096))
+    machine = lw.machine_of(name, image)
     try:
         native = lw.Channel(machine)
         native.client.ping()
+        litter(image, native)
+        # The linker sizes the log from the arena (docs/32 3: a before-image per granule), so
+        # a pump always fits in it as linked. The room the copy is made in is the area's word
+        # (the log's size): shrink it behind the image's back, as a seat with a small log is.
+        machine.write(native.area + 32, struct.pack("<Q", 4096))
         before = native.arena()
         with pytest.raises(Declined) as caught:
             native.client.compact()
@@ -487,8 +572,8 @@ def test_a_pump_without_room_for_a_copy_declines_instead_of_moving(
 def test_a_pinned_object_is_not_moved_natively(native: lw.Channel, raw: bytes):
     from pymergetic.rxftk.core.object import image_state
 
-    base = Image.from_bytes(raw)
-    pinned = Image.from_bytes(raw)
+    base = model_of(raw)
+    pinned = model_of(raw)
     pinned.set_state(
         resolved(pinned, "pymergetic.rxf.application.main"), image_state(1)
     )
@@ -508,21 +593,25 @@ def test_an_arena_committed_too_short_asks_for_pages_natively(
     try:
         native = lw.Channel(machine)
         assert native.client.hello().committed == len(raw) + 4096
-        base = Image.from_bytes(raw)
-        result = Image.from_bytes(raw)
+        base = model_of(raw)
+        result = model_of(raw)
         parent = resolved(result, "pymergetic.rxf.application")
-        for n in range(400):
-            result.add(parent, f"grow{n}", 8, NONE, bytes(200))
+        # More than the free spans of the image hold and the pages it is committed (a few
+        # hundred small objects would run out of index entries first: that is ARENA too,
+        # but not the pages this test is about).
+        for n in range(60):
+            result.add(parent, f"grow{n}", 8, NONE, bytes(3500))
         data = physical.compile(base, result).data
         before = native.arena()
         with pytest.raises(Refused) as caught:
             native.client.apply(data)
         assert caught.value.reason == 6
-        assert native.arena() == before
+        assert live_bytes(native.arena()) == live_bytes(before)
+        assert native.client.digest() == digest_of(image)
         wanted = struct.unpack("<Q", machine.read(native.area + 232, 8))[0]
         assert wanted > len(raw) + 4096
         assert native.client.grow(wanted) == wanted
-        assert native.client.apply(data) == result.digest()
+        assert native.client.apply(data) == digest_of(result)
         with pytest.raises(Declined):
             native.client.grow(1)
     finally:

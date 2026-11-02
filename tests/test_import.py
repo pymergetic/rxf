@@ -48,6 +48,7 @@ import rximport
 import rxpy
 
 from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.object import Image
 
 from . import graph_world, rxf_native, seed_object
 from .emulator import Blob, Emulator, Integer
@@ -100,6 +101,20 @@ NARROW = (
     1 << 63, U64 - 1,
 )  # fmt: skip
 NARROW_PAIRS = [(a, b) for a in NARROW[::2] for b in NARROW[::2]]
+# the edges of the signed narrow widths the stride above skips: the extremes and their
+# neighbours, sign-extended and not, for the min/max/abs and byte-swap intrinsics
+MINMAX_WORDS = (
+    *NARROW, 0xFF80, 0xFFFFFF80, 0xFFFF8000, 0xFFFF7FFF, 0x80000001, 0x7F7F, 0x8081,
+    0x12345678, 0xFEDCBA9876543210,
+)  # fmt: skip
+MINMAX_PAIRS = [(a, b) for a in MINMAX_WORDS for b in MINMAX_WORDS]
+BSWAP_VALUES = [(a,) for a in MINMAX_WORDS]
+BSWAP_NAMES = ("bswap16", "bswap32", "bswap64", "htons_idiom", "htonl_idiom", "swap_twice32")
+MINMAX_NAMES = (
+    "umin8", "umin16", "umax16", "smin8", "smax8", "smin16", "smax16",
+    "umin32", "umax32", "smin32", "smax32_floor", "umin16_limit",
+)  # fmt: skip
+BSWAP_PAIRS = [(a, b) for a in MINMAX_WORDS[::2] for b in MINMAX_WORDS[::3]]
 NARROW_VALUES = [(a,) for a in NARROW]
 # the shift counts inside each width (at or past it is undefined in C, outside the contract)
 COUNTS_8 = (0, 1, 3, 7)
@@ -239,6 +254,16 @@ CASES: dict[str, tuple[str, list[tuple[int, ...]]]] = {
     # the funnel shifts: llvm.fshl.i8 and llvm.fshr.i8
     "rotl8": ("narrow.c", [(a, n) for a in NARROW[::2] for n in COUNTS_8]),
     "rotr8": ("narrow.c", [(a, n) for a in NARROW[::2] for n in COUNTS_8]),
+    # the intrinsics the lwIP lane found refused (docs/35): llvm.bswap.i16/i32/i64 (every
+    # header field of the echo path) and llvm.umin/umax/smin/smax/abs at the narrow widths
+    **{name: ("bswap.c", BSWAP_VALUES) for name in BSWAP_NAMES},
+    "swap_sum": ("bswap.c", BSWAP_PAIRS),
+    "swap_less": ("bswap.c", BSWAP_PAIRS),
+    **{name: ("minmax.c", MINMAX_PAIRS) for name in MINMAX_NAMES},
+    **{name: ("minmax.c", [(a,) for a in MINMAX_WORDS]) for name in ("abs8", "abs16")},
+    # abs() of INT_MIN is the poison form in C: the inputs stay off the one word it breaks
+    "abs32": ("minmax.c", [(a,) for a in MINMAX_WORDS if a & 0xFFFFFFFF != 0x80000000]),
+    "abs64": ("minmax.c", [(a,) for a in MINMAX_WORDS if a != 1 << 63]),
     # Rust (rustc --emit=llvm-ir -C opt-level=0 -C panic=abort): the integers of the flat
     # profile as #[no_mangle] pub extern "C" functions, plain SSA of the arguments
     "r_add8": ("rust_int.rs", NARROW_PAIRS),
@@ -300,7 +325,8 @@ CASES: dict[str, tuple[str, list[tuple[int, ...]]]] = {
     # the first wall casualty of the fixed 1024-byte frame, flipped (REFUSED's history):
     # six inlined bodies of ~30 values each make a 1264-byte frame, refused by
     # RXF_GRAPH_FRAME's wall before and lowered now that frames are variable-length
-    # (base, size) links of the run cell (RXF_GRAPH_CELL_BYTES, 8192). Every inline
+    # (base, size) links of the run cell (RXF_GRAPH_CELL_BYTES of native/graph.h). Every
+    # inline
     # stays an inline (each is under INLINE_WORDS): what flips is the whole frame
     # running where the wall said no -- run here against the natively compiled wide.c
     "wide": ("wide.c", [(x,) for x in VALUES[::2]]),
@@ -400,8 +426,9 @@ VALUES_FOR_MEMORY = (0, 1, 0x42, 0xFF, 0x0123456789ABCDEF, U64 - 1, 1 << 63)
 # memory at opt-level 0.
 #
 # The frame wall's casualties, REFUSED -> lowered with variable frames (the frames of the
-# run cell are variable-length (base, size) links now, RXF_GRAPH_CELL_BYTES = 8192 where
-# RXF_GRAPH_FRAME's wall was 1024). These three entries left this table; each one now
+# run cell are variable-length (base, size) links now, the budget is the run cell
+# (RXF_GRAPH_CELL_BYTES) where RXF_GRAPH_FRAME's wall was 1024). These three entries left
+# this table; each one now
 # lowers and runs (history kept here and in docs/20, never blurred):
 #   ("wide.c", "wide"): "frame"
 #       -> lowered (CASES["wide"]): a 1264-byte frame of six inlined bodies, run
@@ -990,6 +1017,317 @@ def test_outside_the_subset_is_refused(file: str, name: str):
     text = rximport.compile_source(CORPUS / file)
     with pytest.raises(rximport.Unsupported, match=REFUSED[(file, name)]):
         rximport.graphs_of(text, only={name})
+
+
+INTRINSICS_OF = {
+    "bswap.c": ("bswap.i16", "bswap.i32", "bswap.i64"),
+    "memmove.c": ("memmove.p0.p0.i64",),
+    "minmax.c": (
+        "umin.i8", "umin.i16", "umin.i32", "umax.i16", "umax.i32",
+        "smin.i8", "smin.i16", "smin.i32", "smax.i8", "smax.i16", "smax.i32",
+        "abs.i8", "abs.i16", "abs.i32", "abs.i64",
+    ),
+}  # fmt: skip
+
+
+@pytest.mark.parametrize("file", sorted(INTRINSICS_OF))
+def test_the_intrinsic_corpus_really_carries_its_intrinsics(file: str):
+    """The corpus of the byte-swap and min/max/abs lowerings is only a corpus while clang
+    still writes the intrinsics it was made for: each one is named in the compiled IR."""
+    text = rximport.compile_source(CORPUS / file)
+    for intrinsic in INTRINSICS_OF[file]:
+        assert f"@llvm.{intrinsic}(" in text, f"{file}: clang no longer writes llvm.{intrinsic}"
+
+
+def link_native(source: Path, directory: Path) -> ctypes.CDLL:
+    """One corpus file natively compiled into a shared library of the directory."""
+    shared = directory / f"{source.stem}.so"
+    link(source, shared)
+    return ctypes.CDLL(str(shared))
+
+
+@pytest.mark.parametrize("name", ["card_ptr_store", "card_ptr_offset"])
+def test_a_pointer_answered_by_a_call_card_is_an_address(tmp_path: Path, name: str):
+    """A pointer an out-of-line call card answers (cardptr.c's ``pick``, past the inline budget,
+    reached as a genuine RXF_GRAPH_CALL) is the flat address it carries: the caller stores
+    through it, subtracts the base it came from and compares it, and the bytes and the answer
+    equal the natively compiled calls. The card's answer arrives in a wide carrier; used as it
+    stood, a leaf was handed the carrier's own address in the frame (the defect this pins: it
+    surfaced where lwIP's pbuf_alloc answers a pbuf out of line, and read zeros through it)."""
+    image = tree.load(STARTER)
+    source = CORPUS / "cardptr.c"
+    rximport.import_source_file(
+        image, source, module="cardptr", only={"pick", "card_ptr_store", "card_ptr_offset"}
+    )
+    assert image.check() == []
+    programs = compose.programs(image)
+    named = [
+        op
+        for graph in rximport.graphs_of(
+            rximport.compile_source(source), "cardptr", {name}
+        ).values()
+        for block in graph.blocks
+        for op in block.ops
+        if op.opcode == "CallCallback" and (op.callee or "").endswith("pick")
+    ]
+    assert named, "no call card names pick (the inline path would hide the defect)"
+    handle = image.resolve("cardptr.pick")
+    assert handle is not None
+    objects: dict[int, bytes | bytearray] = {
+        compose.object_id(image, handle): programs["cardptr.pick"]
+    }
+    function = getattr(link_native(source, tmp_path), name)
+    function.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
+    function.restype = ctypes.c_uint64
+    offsets = set()
+    for first in FILLS:
+        for seed in (*VALUES_FOR_MEMORY, 3, 7, 12345, 0xABCDEF):
+            held = ctypes.create_string_buffer(first, 8)
+            expected = function(held, seed)
+            with rxf_native.Memory(1 << 16) as memory:
+                memory.write(0x200, first)
+                status, answer = rxf_native.run(
+                    programs[f"cardptr.{name}"],
+                    struct.pack("<2Q", memory.at(0x200), seed),
+                    memory,
+                    objects=objects,
+                )
+                wrote = bytes(memory.read(0x200, 8))
+            assert (status, answer) == (OK, expected), (
+                f"{name}({seed:#x}): the graph answered ({status}, {answer:#x}), natively "
+                f"it is ({OK}, {expected:#x})"
+            )
+            assert wrote == ctypes.string_at(held, 8), (name, seed, wrote.hex())
+            offsets.add(expected & 0xFF)
+    assert len(offsets) >= 4, f"the seeds reach only the offsets {sorted(offsets)}"
+
+
+def card_world_objects(
+    image: Image, programs: dict[str, bytes], module: str, callees: set[str]
+) -> dict[int, bytes | bytearray]:
+    """What a host run of ``module``'s bodies needs bound by object id: the cells of the module
+    (its statics and the out/local cells the importer made, as live bytes) and the programs the
+    call cards name (``callees``, by the id of their Function)."""
+    composer = compose.Composer(image)
+    objects: dict[int, bytes | bytearray] = {}
+    for handle in range(image.handle_count):
+        if not image.live(handle):
+            continue
+        values = composer.fields(handle)
+        is_cell = compose.word(values.get("kind")) == "Object" and "object_id" in values
+        if is_cell and image.path(handle).startswith(f"{module}."):
+            objects[int(values["object_id"])] = bytearray(bytes.fromhex(values.get("data", "")))
+    for callee in callees:
+        found = image.resolve(f"{module}.{callee}")
+        assert found is not None, callee
+        objects[compose.object_id(image, found)] = programs[f"{module}.{callee}"]
+    return objects
+
+
+LOCALPTR_CASES = (
+    "local_rw", "local_read", "local_write", "local_twice", "local_pair", "local_out",
+)  # fmt: skip
+LOCALPTR_CALLEES = {"rw_u64", "read_u32", "write_u64", "pick_two", "fill_out", "heavy"}
+LOCALPTR_INPUTS = [(a, k) for a in (0, 1, 0x1234, 0xFFFFFFFF, 1 << 40, U64 - 1) for k in (0, 3, 0xABCD, 1 << 63)]
+
+
+@pytest.mark.parametrize("name", LOCALPTR_CASES)
+def test_a_pointer_to_a_callers_local_reaches_a_call_card_as_a_cell(tmp_path: Path, name: str):
+    """The address of the caller's own local handed to an out-of-line call (localptr.c: a callee
+    that reads it, writes it, or both; the two sides of a call keep their frames apart) is a
+    cell the caller owns: the callee reads what the caller put there and the caller reads back
+    what the callee wrote, over one call and over two in a row, the same answers as the same C
+    compiled natively. A pointer to a slot of the caller's frame is no address the callee can
+    name (lwIP's icmp_dest_unreach sent its ICMP reply to 0.0.0.0 that way, silently)."""
+    image = tree.load(STARTER)
+    source = CORPUS / "localptr.c"
+    callees = LOCALPTR_CALLEES
+    rximport.import_source_file(image, source, module="localptr", only={name} | callees)
+    assert image.check() == []
+    programs = compose.programs(image)
+    objects = card_world_objects(image, programs, "localptr", callees)
+    function = getattr(link_native(source, tmp_path), name)
+    function.argtypes = [ctypes.c_uint64, ctypes.c_uint64]
+    function.restype = ctypes.c_uint64
+    for case in LOCALPTR_INPUTS:
+        expected = function(*case)
+        with rxf_native.Memory(1 << 16) as memory:
+            status, answer = rxf_native.run(
+                programs[f"localptr.{name}"], struct.pack("<2Q", *case), memory, objects=objects
+            )
+        assert (status, answer) == (OK, expected), (
+            f"{name}{case}: the graph answered ({status}, {answer:#x}), natively it is "
+            f"({OK}, {expected:#x})"
+        )
+
+
+def test_an_out_parameter_card_writes_where_the_caller_reads(tmp_path: Path):
+    """The out-parameter card of docs/23 4.1 (lwIP's netif_add and pbuf_dechain are its shape): a
+    body that writes through a pointer its caller gave AND calls a program of its own
+    (localptr.c ``fill_out``, past the inline budget on ``heavy``). It lowers as a program that
+    writes at the flat address it is given, and the write lands in flat memory the caller
+    passed -- the bytes of the buffer and the answer equal the natively compiled calls (the
+    caller's own local is the ``local_out`` case above)."""
+    image = tree.load(STARTER)
+    source = CORPUS / "localptr.c"
+    rximport.import_source_file(
+        image, source, module="localptr", only={"flat_out", "fill_out", "heavy"}
+    )
+    assert image.check() == []
+    programs = compose.programs(image)
+    objects = card_world_objects(image, programs, "localptr", {"fill_out", "heavy"})
+    function = link_native(source, tmp_path).flat_out
+    function.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
+    function.restype = ctypes.c_uint64
+    for first in FILLS:
+        for k in (0, 1, 0xABCDEF, U64 - 1):
+            held = ctypes.create_string_buffer(first, 8)
+            expected = function(held, k)
+            with rxf_native.Memory(1 << 16) as memory:
+                memory.write(0x200, first)
+                status, answer = rxf_native.run(
+                    programs["localptr.flat_out"],
+                    struct.pack("<2Q", memory.at(0x200), k),
+                    memory, objects=objects,
+                )  # fmt: skip
+                wrote = bytes(memory.read(0x200, 8))
+            assert (status, answer) == (OK, expected), (k, status, hex(answer), hex(expected))
+            assert wrote == ctypes.string_at(held, 8), (k, wrote.hex())
+
+
+MEMMOVE_CASES = ("move_up", "move_down", "move_pair")
+
+
+def test_an_overlap_safe_move_walks_the_far_end_first(tmp_path: Path):
+    """``llvm.memmove`` (docs/23 4.8): the ``memory_copy`` leaf copies forward only, so a
+    move whose ranges may overlap lowers as one byte per step of a direction-aware loop
+    (memmove.c: a shift up and a shift down inside one buffer, and a plain move between
+    its halves). The answer and every byte of the buffer equal the natively compiled
+    calls -- a plain forward walk reads the bytes it has already written wherever the
+    shift is under the length (the defect this pins)."""
+    image = tree.load(STARTER)
+    source = CORPUS / "memmove.c"
+    rximport.import_source_file(image, source, module="memmove", only=set(MEMMOVE_CASES))
+    assert image.check() == []
+    programs = compose.programs(image)
+    native = link_native(source, tmp_path)
+    for name in MEMMOVE_CASES:
+        function = getattr(native, name)
+        function.argtypes = [ctypes.c_void_p, ctypes.c_uint64, ctypes.c_uint64]
+        function.restype = ctypes.c_uint64
+        for fill in (bytes(16), b"\xff" * 16, FILLS[2] * 2, FILLS[3] * 2):
+            for n in (0, 2, 5, 7):
+                for shift in range(8):
+                    held = ctypes.create_string_buffer(fill, 16)
+                    expected = function(held, n, shift)
+                    with rxf_native.Memory(1 << 16) as memory:
+                        memory.write(0x200, fill)
+                        status, answer = rxf_native.run(
+                            programs[f"memmove.{name}"],
+                            struct.pack("<3Q", memory.at(0x200), n, shift),
+                            memory,
+                        )
+                        wrote = bytes(memory.read(0x200, 16))
+                    assert (status, answer) == (OK, expected), (
+                        name, fill.hex(), n, shift, status, hex(answer), hex(expected)
+                    )
+                    assert wrote == ctypes.string_at(held, 16), (
+                        name, n, shift, wrote.hex(), ctypes.string_at(held, 16).hex()
+                    )
+
+
+def test_the_cell_of_a_local_survives_a_run_that_comes_back_into_its_caller(tmp_path: Path):
+    """The cell that carries a caller's local across a call card is one place per call site: a
+    callee that re-enters its own caller through a function word (localptr.c ``around`` ->
+    ``rec_body`` -> ``around``) finds the cell in use by the outer activation, and the
+    outer one must read its own local again when the inner one is back. The call saves the cell's
+    bytes before it fills it and puts them back after, so the answers over three levels of
+    recursion equal the same C compiled natively; the pointer the outer callee holds never
+    sees the inner activation's local."""
+    image = tree.load(STARTER)
+    source = CORPUS / "localptr.c"
+    callees = {"around", "rec_body"}
+    rximport.import_source_file(
+        image, source, module="localptr", only={"rec_boot", "rec_top"} | callees
+    )
+    assert image.check() == []
+    programs = compose.programs(image)
+    objects = card_world_objects(image, programs, "localptr", callees)
+    native = link_native(source, tmp_path)
+    native.rec_boot()
+    native.rec_top.argtypes = [ctypes.c_uint64, ctypes.c_uint64]
+    native.rec_top.restype = ctypes.c_uint64
+    with rxf_native.Memory(1 << 16) as memory:
+        status, _ = rxf_native.run(programs["localptr.rec_boot"], b"", memory, objects=objects)
+        assert status == OK, f"rec_boot refused ({status})"
+        for depth in (0, 1, 2):  # three levels: the shipped interpreter has 8 call links
+            for k in (0, 5, 0xFFFF):
+                expected = native.rec_top(depth, k)
+                status, answer = rxf_native.run(
+                    programs["localptr.rec_top"], struct.pack("<2Q", depth, k), memory,
+                    objects=objects,
+                )  # fmt: skip
+                assert (status, answer) == (OK, expected), (
+                    f"rec_top({depth}, {k}): the graph answered ({status}, {answer:#x}), "
+                    f"natively it is ({OK}, {expected:#x})"
+                )
+
+
+@pytest.mark.parametrize("name", ["align8_flags", "align16_flags", "span_flags"])
+def test_integer_arithmetic_over_a_cell_address_is_computed_at_run(tmp_path: Path, name: str):
+    """A constant expression with integer arithmetic over ``ptrtoint`` of a static (the
+    ``LWIP_MEM_ALIGN(ram_heap)`` of lwIP's mem_init and lwip_init: ``and (sub (add (ptrtoint
+    @heap, N), 1), -16)``, the inner sums folded into the operand) lowers to one wrapping leaf
+    call per operator over the cell's address. The two sides place the static at addresses of
+    their own, so the answers are the properties any address has (aligned, at most one unit
+    past the base, inside the array), and the check that the imported side computed them from
+    the address of the cell it really ran on is that every one of them holds."""
+    image = tree.load(STARTER)
+    source = CORPUS / "constexpr.c"
+    only = {"align8_flags", "align16_flags", "span_flags"}
+    rximport.import_source_file(image, source, module="constexpr", only=only)
+    assert image.check() == []
+    programs = compose.programs(image)
+    composer = compose.Composer(image)
+    objects: dict[int, bytes | bytearray] = {}
+    for handle in range(image.handle_count):
+        if not image.live(handle):
+            continue
+        values = composer.fields(handle)
+        is_cell = compose.word(values.get("kind")) == "Object" and "object_id" in values
+        if is_cell and image.path(handle).startswith("constexpr."):
+            objects[int(values["object_id"])] = bytearray(bytes.fromhex(values.get("data", "")))
+    assert objects, "the cell of the static is no object of the image"
+    function = getattr(link_native(source, tmp_path), name)
+    function.argtypes = [ctypes.c_uint64]
+    function.restype = ctypes.c_uint64
+    for k in (0, 1, 2, 3):
+        expected = function(k)
+        with rxf_native.Memory(1 << 16) as memory:
+            status, answer = rxf_native.run(
+                programs[f"constexpr.{name}"], struct.pack("<Q", k), memory, objects=objects
+            )
+        assert (status, answer) == (OK, expected), (
+            f"{name}({k}): the graph answered ({status}, {answer:#x}), natively it is "
+            f"({OK}, {expected:#x})"
+        )
+        held = {"align8_flags": 3, "align16_flags": 7, "span_flags": 3}[name]
+        assert expected & held == held, f"{name}({k}): a property fails natively ({expected:#x})"
+
+
+def test_a_constant_expression_the_arithmetic_does_not_carry_is_refused_by_name():
+    """The lowering of a constant expression's arithmetic names its operators (add, sub, mul,
+    shl, lshr); one it does not carry is refused with the expression, never evaluated by
+    guess -- here an ``xor`` of an address, an operator with no leaf of the graph: the use
+    stays an instruction outside the subset and the message carries the expression."""
+    text = rximport.compile_source(CORPUS / "constexpr.c")
+    mutated = text.replace(
+        "and i64 add (i64 ptrtoint (ptr @heap to i64), i64 55), -16",
+        "and i64 xor (i64 ptrtoint (ptr @heap to i64), i64 55), -16",
+    )
+    assert mutated != text, "the IR no longer has the expression this test rewrites"
+    with pytest.raises(rximport.Unsupported, match=r"outside the subset.*xor \(i64 ptrtoint"):
+        rximport.graphs_of(mutated, only={"align16_flags"})
 
 
 @pytest.mark.parametrize("file", sorted(GLOBAL_CASES))
@@ -2304,7 +2642,7 @@ def test_the_interning_path_lowers_with_variable_frames(tmp_path: Path):
     compiled corpus beside it. REFUSED -> lowered with variable frames: clang -O1 keeps
     the interning's qstr_add path inside qstr_from_strn itself (186 instructions -> 195
     frame values, 1608 bytes) -- a frame the wall (RXF_GRAPH_FRAME, 1024) refused and one
-    run cell holds (RXF_GRAPH_CELL_BYTES, 8192; the frames of the call chain are
+    run cell holds (RXF_GRAPH_CELL_BYTES of native/graph.h; the frames of the call chain are
     variable-length (base, size) links of it, native/graph.c). qstr_from_strn runs its
     own frame as a program of its own; qstr_from_str's call of it is past the inline
     budget and goes as the genuine call card of graph.h (RXF_GRAPH_CALL) -- asserted
@@ -2559,11 +2897,36 @@ def test_the_narrow_integer_helpers_live_in_one_module():
 # seams are additive: a delta that names none of the new wiring is byte-identical to the
 # pre-seam corpus, text and digest -- status_value is None throughout this corpus (no C
 # lowering adopts the seam), so every one of these moved not one byte.
+#
+# One flip is recorded here, with its reason: obj.c's digest moved when a pointer answered by a
+# call card began to be copied out of its wide carrier before use (the defect pinned by
+# test_a_pointer_answered_by_a_call_card_is_an_address). The seven bodies of obj.c whose text
+# changed (bool_unary_op, uni_unary_op, mp_obj_get_type_str, mp_obj_is_true,
+# mp_obj_len_maybe, mp_obj_get_int_maybe, mp_unary_op) each gained one move op after a
+# pointer-answering card, and every differential over them passed before and after.
+#
+# A second recorded flip: obj.c moved again when a pointer to a caller's local began to reach a
+# call card as a cell (test_a_pointer_to_a_callers_local_reaches_a_call_card_as_a_cell): the two
+# bodies that call ``qstr_data(q, &str_len)`` (uni_unary_op, mp_unary_op) carry the cell's
+# copies now; the differentials over them passed before and after.
+#
+# A third recorded flip, additive this time: localptr.c gained four bodies (heavy, fill_out,
+# local_out, flat_out) when the out-parameter card of docs/23 4.1 landed
+# (test_an_out_parameter_card_writes_where_the_caller_reads). The text of every body before
+# them is unchanged -- the delta only carries the four new ones at the end -- and the
+# differentials over the whole file passed before and after.
+#
+# memmove.c is no flip at all: a new file of the corpus, the overlap-safe move the importer
+# lowers as a direction-aware loop (test_an_overlap_safe_move_walks_the_far_end_first), and
+# its digest joins the table above.
 CORPUS_DIGESTS = {
     "arith.c": "8309bcf5d386335b649f51d98a3c09314f4de02c0f82594abf0b946ea7dffbd8",
     "branch.c": "b157aa7f6a2f963afd8e962ebd075817f287aaf6413ca7025e35b1579108645a",
+    "bswap.c": "fe8011ce45cec65652949154cd7671bdae07545fd53e4b95b3d1c45459acce2e",
+    "cardptr.c": "e31338c8731d5f0792e45995f8e6f3d8256e89047d1d24d0c341a96f59ed8aee",
     "calls.c": "c45c19d08a2ec2fcf50beb6294b6177d48b776b74ca77eb52810381c5801febd",
     "compare.c": "6142c49cd601cb1940a74501e298e95c08c6333e61908f303cadc95aa6b3503a",
+    "constexpr.c": "0b539ec5734dc0e3f68bee3548f13db4eba4fb917684913c39be72023f94a30c",
     "cpp_refs.cpp": "3dcc14d89bc29f684cc31e6407aed20cd1c11685095519477dda4f8a363b5b52",
     "cpp_refuse.cpp": "716454167825700dfd0a1abbed013f4e7ba8c44f1b305c8ecaa4ab108e4dcd95",
     "dispatch.c": "fec34e50d287e3dcc2606f1808a49fa6f0b071c9d4360bc418f84d2a6cc2624f",
@@ -2578,11 +2941,14 @@ CORPUS_DIGESTS = {
     "leaf.c": "7a282d38cf64fca4712d0808fd1e41c8aca22a6d21e24ce3d97a3403f7be0ee8",
     "loop.c": "f6b09ec86d153b96744fecab83911d6ae36091accf23ea366206ea9c0007c665",
     "memory.c": "f196586afdfb28d99b03eb2fba5d0638fd458b9dc3aa55c4328cdcd13d607012",
+    "memmove.c": "3a50a2086ebc1e857d700819b6418101b72dc3e163d2d725c34c9450534c7a7a",
+    "minmax.c": "ac50cf6f5e9a78994f525eb947264e09c8f3f8e5824424489edf4bac8b0e9501",
+    "localptr.c": "13ba3ee05eeb687b80c2edaea2abb545b17b8934261214fa0f30980a58512fcd",
     "narrow.c": "81bff9ac923e84740aeff7f468a4b6e8df9dda18d9327331d44db61f4f9fd9d7",
     "nlr_call.c": "4eb8820f1adb136a9cb1759a570643e1671ebb84dafd1e442d5ff5c2a5a41c0f",
     "nlr_stubs.c": "d06802b396276d81f9e67fd9f2e8d3b85a28866670b1d93328a79dcc257383ff",
     "noreturn.c": "9a04318044fcf5c5e2e89d755ca6979ae6cdfb4faeeca8e955a91998adea96a0",
-    "obj.c": "a54adf427a9a8ed38e0c90a2db6778166d484cac21ccdb6df729a878669911cf",
+    "obj.c": "0f7f7c041f7ef7d101d99c07dcffe78b17d6a45db5b1f2d41b17d4204e9e994d",
     "obj_stubs.c": "bc3177a3512e618596b9b8dc80001431a4bedfe0279115ff42af771a8cd15387",
     "outparam.c": "7402f13fe984964a000899a48ef55ee5b728bc65ba0ec1e532821953888590ef",
     "overflow.c": "0e25338b4aa9b2573d7dcfc3231b6cb43a794b9ebdf8f154fee708ac8fd65f95",
@@ -2639,7 +3005,7 @@ def test_the_corpus_deltas_keep_their_exact_text():
             continue
         digest = hashlib.sha256(corpus_delta(source).encode()).hexdigest()
         assert digest == CORPUS_DIGESTS[source.name], f"{source.name}: the delta text moved"
-    assert len(CORPUS_DIGESTS) == 48  # the whole corpus, no file silently dropped
+    assert len(CORPUS_DIGESTS) == 54  # the whole corpus, no file silently dropped
 
 
 def test_a_c_import_is_not_marked_was_once_python():

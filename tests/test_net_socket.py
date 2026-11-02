@@ -49,6 +49,7 @@ from pymergetic.rxftk.net.transport.stream import Stream, wrap
 
 from .test_net_fill import DummyWrappedStream, dummy_tls, sample_tls
 
+pytestmark = pytest.mark.live
 
 def _pair() -> tuple[HostStreams, HostListener, HostStream, HostStream]:
     """One connected loopback pair: (streams, listener, client, accepted server end).

@@ -649,9 +649,9 @@ static void *mutator_main(void *p) {
                 continue;
             }
             uint8_t *old = ww->arena.base + ww->arena.mv_src[i];
-            uint64_t fwd = 0;
-            memcpy(&fwd, old + RXF_SMP_C_FORWARD, 8);
-            if (fwd == ww->arena.mv_dst[i])
+            uint32_t fwd = 0;
+            memcpy(&fwd, old + RXF_SMP_C_FORWARD, 4); /* the pinned home is one link word */
+            if (fwd == (uint32_t)ww->arena.mv_dst[i])
                 forward_ok++;
             else
                 forward_bad++; /* a record the geometry left in place and the value is wrong */

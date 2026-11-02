@@ -27,6 +27,8 @@ from .snippets import STARTER
 from .test_rxfc import MACHINES
 from .test_tiny import IDS, TINY
 
+pytestmark = [pytest.mark.nightly, pytest.mark.slow]
+
 COMPILE = graph_header.leaves()["compile_program"]
 CODE_LIMIT = 0x4000  # what is read of the code of a program that is compiled
 

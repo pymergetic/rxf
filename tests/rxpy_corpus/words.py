@@ -58,3 +58,26 @@ def calc(a, b):
     """a mix of the operators over names: nothing folds at compile time here"""
     mixed = a * 3 + b // 2 - a % 5
     return (mixed ^ b) + (a & 15) - (b >> 1)
+
+
+def coerce(x):
+    """the word-coercion face: ``int`` of a word is the word (the reference agrees on ints)"""
+    return int(x)
+
+
+def coerce_ms(t):
+    """the uasyncio shape (``sleep``'s arithmetic): seconds to milliseconds, coerced"""
+    return int(t * 1000)
+
+
+def coerce_sum(a, b):
+    return int(a) + int(b)
+
+
+def coerce_twice(x):
+    return int(int(x))  # noqa: RUF046 - the nested coercion is the pin: the face lowers twice
+
+
+def coerce_statement(x):
+    int(x)  # the coercion as a statement: the word is made and dropped, as the reference does
+    return x

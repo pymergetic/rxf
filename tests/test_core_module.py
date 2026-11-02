@@ -14,6 +14,15 @@ from pymergetic.rxftk.core.arena import (
     CELL_ALIGN,
     CELL_SIZE,
     FIELD_SIZE,
+    FLAG_KIND_MASK,
+    FLAG_KIND_SHIFT,
+    FLAG_OWNER_MASK,
+    FLAG_OWNER_SHIFT,
+    FLAG_STATE_MASK,
+    FLAG_STATE_SHIFT,
+    HANDLE32_GEN_BITS,
+    HANDLE32_INDEX_BITS,
+    HANDLE32_NONE,
     HANDLE_FIELD,
     HANDLE_NONE,
     HANDLE_ROOT,
@@ -22,7 +31,24 @@ from pymergetic.rxftk.core.arena import (
     KIND_BLOCK,
     KIND_DEAD,
     NAME_BLOCK_PAYLOAD,
+    OBJ_BLOB,
+    OBJ_FRAME,
+    OBJ_FREE,
+    OBJ_FUNC,
+    OBJ_HASH,
+    OBJ_MODULE,
+    OBJ_SPEC,
+    OBJ_SYM,
+    OBJECT_ALIGN,
+    OBJECT_HEADER_SIZE,
+    OFLAG_DIRTY,
+    OFLAG_JOURNALED,
+    OFLAG_RO,
+    OFLAG_ROOT,
     REF_SIZE,
+    SPEC_SIZE,
+    SUPERBLOCK_SIZE,
+    SUPERBLOCK_VERSION,
     TYPE_SIZE,
 )
 
@@ -77,3 +103,21 @@ def test_core_reports_ground_layout():
     assert (KIND_DEAD, KIND_BLOCK) == (254, 255)
     assert (BLOCK_INDEX, BLOCK_NAMES) == (1, 2)
     assert NAME_BLOCK_PAYLOAD == 4096
+
+
+def test_core_reports_one_arena_layout():
+    """The one-arena object model (docs/32): superblock, object record, (index, gen) handles."""
+    assert SUPERBLOCK_SIZE == 4096
+    assert SUPERBLOCK_VERSION == 1
+    assert OBJECT_HEADER_SIZE == 24
+    assert OBJECT_ALIGN == 8
+    assert HANDLE32_NONE == 2**32 - 1
+    assert HANDLE32_INDEX_BITS + HANDLE32_GEN_BITS == 32
+    assert (OBJ_MODULE, OBJ_FUNC, OBJ_HASH, OBJ_SPEC) == (1, 2, 3, 4)
+    assert (OBJ_SYM, OBJ_BLOB, OBJ_FRAME) == (5, 6, 7)
+    assert OBJ_FREE == 0xFFFF
+    assert (OFLAG_RO, OFLAG_ROOT, OFLAG_DIRTY, OFLAG_JOURNALED) == (1, 2, 4, 8)
+    # the semantic face (docs/32 5): a 24-byte row, and the flags word it keeps whole
+    assert SPEC_SIZE == 24
+    assert (FLAG_KIND_SHIFT, FLAG_STATE_SHIFT, FLAG_OWNER_SHIFT) == (0, 8, 14)
+    assert (FLAG_KIND_MASK, FLAG_STATE_MASK, FLAG_OWNER_MASK) == (0xFF, 0x3F, 0xF)

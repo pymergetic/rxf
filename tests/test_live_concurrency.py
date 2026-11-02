@@ -41,9 +41,13 @@ from pymergetic.rxftk.console import world
 from pymergetic.rxftk.core import tree
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import cli, physical
-from pymergetic.rxftk.live.front import identity
+from pymergetic.rxftk.live.front import identity, model_of
 from pymergetic.rxftk.server.app import PokeBody, SourceBody, create_app
 from pymergetic.rxftk.server.live.runner import Runner
+
+from .support import value_word
+
+pytestmark = pytest.mark.live
 
 ROOT = Path(__file__).parents[1]
 STARTER = ROOT / "starter"
@@ -172,7 +176,7 @@ def test_a_feed_poll_never_fails_or_corrupts_a_compile_install(image: Image):
         _assert_feed_healthy(polls)
 
         raw, _ = runner.client.emit()
-        running_image = Image.from_bytes(raw)
+        running_image = model_of(raw)
         wanted = identity(running_image, running_image.handle(f"{MODULE}.triple.bytecode"))
         assert runner.machine.run(wanted, struct.pack("<Q", 7)) == (0, 21)
 
@@ -200,7 +204,7 @@ def test_a_feed_poll_never_fails_or_corrupts_a_poke(image: Image):
 
         handle = runner.client.resolve(POKE_PATH)
         assert handle is not None
-        (written,) = struct.unpack("<Q", runner.client.payload(handle)[:8])
+        written = value_word(runner.client.payload(handle))
         assert written == POKE_VALUE
         assert body["digest"] == runner.client.digest()
 
@@ -245,7 +249,7 @@ def test_two_concurrent_mutations_serialize_as_two_intact_commits(image: Image):
         assert hello.commits > before.commits
 
         raw, _ = runner.client.emit()
-        running_image = Image.from_bytes(raw)
+        running_image = model_of(raw)
         for name, want in (("twice", 14), ("quad", 28)):
             wanted = identity(running_image, running_image.handle(f"{MODULE}.{name}.bytecode"))
             assert runner.machine.run(wanted, struct.pack("<Q", 7)) == (0, want)
@@ -370,3 +374,26 @@ def test_a_live_apply_holds_the_transaction_around_its_whole_composite(
             assert not prober.is_alive()
     finally:
         runner.close()
+
+
+def test_closing_the_machine_waits_for_the_operation_in_flight(image: Image) -> None:
+    """The mapping of a linked image goes only through the gate of its link.
+
+    A request thread that is running the image's own leaf in the block must finish before the
+    block is unmapped: unmapping under a running leaf is a segmentation fault, not an error (it
+    took down a worker of the suite when a runner closed while a feed poll was still in `pump`).
+    A call that arrives after the close finds the machine closed and refuses in words.
+    """
+    with running(image) as runner:
+        machine = runner.machine
+        closer = threading.Thread(target=machine.close)
+        with machine.transaction():
+            closer.start()
+            closer.join(timeout=0.5)
+            assert closer.is_alive(), "the block was unmapped under an operation in flight"
+        closer.join(timeout=30)
+        assert not closer.is_alive()
+        with pytest.raises(RuntimeError, match="closed"):
+            machine.pump()
+        with pytest.raises(RuntimeError, match="closed"):
+            machine.read(machine.head.block, 8)

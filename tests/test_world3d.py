@@ -32,15 +32,16 @@ from pymergetic.rxftk.world import (
     SchemaError,
     attach_world,
     export_world,
+    scene_arena,
     scene_json,
     validate_scene,
 )
-from pymergetic.rxftk.world.demo import demo_inspector
+from pymergetic.rxftk.world.demo import demo_inspector, demo_v7_image
 from pymergetic.rxftk.world.export import POISON_BYTE, POISON_RUN
 
 # The golden is a content digest, not a checked-in dump: the demo export is regenerated in the
 # test and hashed, so a routing or layout change trips this one line to confirm it was intended.
-# scene.bin is the raw .rxfb the static seat reads — kept fresh beside it.
+# scene.bin is the canonical v7 arena the static seat reads — kept fresh beside it.
 DEMO_DIGEST = "e66268e12ed6b1d81143f8557fc6643b337971948b5124f514e1eb2b87b94b47"
 SCENE_BIN = STATIC_DIR / "scene" / "scene.bin"
 SCRIPTS = (STATIC_DIR / "scene" / "rxf-world.js", STATIC_DIR / "scene" / "rxf-world-hud.js")
@@ -77,10 +78,11 @@ def test_the_demo_export_matches_the_pinned_digest():
 
 
 def test_the_checked_in_scene_bin_is_current():
-    """The static seat (``static/scene/index.html``) reads the checked-in ``scene.bin``. Refresh
-    it with ``python -m pymergetic.rxftk.world.demo > static/scene/scene.bin`` when the world
+    """The static seat (``static/scene/index.html``) reads the checked-in ``scene.bin``: the
+    canonical v7 arena of the demo's v7 face (docs/32 5.4). Refresh it with
+    ``python -m pymergetic.rxftk.world.demo > static/scene/scene.bin`` when the world
     changes, so the standalone seat never renders a stale world."""
-    assert SCENE_BIN.read_bytes() == demo_inspector().image.to_bytes()
+    assert SCENE_BIN.read_bytes() == scene_arena(demo_v7_image())
 
 
 # ---- the schema -----------------------------------------------------------------------------------
@@ -555,22 +557,22 @@ def test_the_session_slices_reassemble_the_document():
     client = _client()
     whole = export_world(demo_inspector())
     pulled: dict[str, list] = {name: [] for name in ("cells", "voids", "blocks", "streets", "edges", "bundles")}
-    for name in pulled:
+    for name, items in pulled.items():
         at = 0
         while True:
             part = client.get(
                 f"/world/scene.json?part={name}&offset={at}&limit=40"
             ).json()
             assert part["total"] == len(whole[name])
-            pulled[name].extend(part["items"])
+            items.extend(part["items"])
             at += part["count"]
             if at >= part["total"]:
                 break
     stubs = client.get("/world/scene.json?part=stubs").json()["value"]
     for edge in pulled["edges"]:
         edge["stubs"] = stubs.get(edge["id"])
-    for name in pulled:
-        assert pulled[name] == whole[name], f"the {name} slices do not reassemble"
+    for name, items in pulled.items():
+        assert items == whole[name], f"the {name} slices do not reassemble"
     frame = client.get("/world/scene.json?part=frame").json()["value"]
     assert frame["ring"] == whole["ring"] and frame["metrics"] == whole["metrics"]
     counts = client.get("/world/scene.json?part=counts").json()["value"]
