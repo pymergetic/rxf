@@ -16,7 +16,6 @@ import socket
 import struct
 import subprocess
 import sys
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -66,8 +65,13 @@ Argument = Integer | Real | Blob
 
 # One call must come back: a guest that never returns to the sentinel fails its
 # test with the program counter it was left at, instead of eating a test lane
-# until somebody kills the run. The slices keep unicorn's timeout small enough
-# to notice the budget without another thread.
+# until somebody kills the run. The budget is unicorn's own timeout on ONE emu_start. The call
+# is never run in timed slices that are restarted at the program counter: on aarch64 an
+# asynchronous stop (the timer thread's uc_emu_stop) can land on a load and leave the registers
+# the instructions before it wrote behind the program counter (for example x0 of the address of
+# `ldr x0, [x0]`), and the restart then faults with UC_ERR_READ_UNMAPPED on an address the guest
+# never computed. x86_64 does not show it. A call that overruns the budget fails anyway, so
+# the state an asynchronous stop leaves does not matter.
 #
 # The budget sits above the heaviest job that completes: a dump of the running
 # image measures ~370s here (unicorn, one pump call), and a full-image apply is
@@ -75,7 +79,6 @@ Argument = Integer | Real | Blob
 # ~1275s measured. A budget below that healthy cost fails healthy tests as
 # runaways; a guest that really loops still fails its test well inside a lane.
 CALL_TIMEOUT = 2400.0
-SLICE_TIMEOUT = 5.0
 
 
 class RunawayCall(RuntimeError):
@@ -352,24 +355,19 @@ class Emulator:
         return self.call_aapcs64(address, arguments)
 
     def run(self, address: int) -> None:
-        """Run to the sentinel at ``self.back``, in slices, refusing a guest that never returns."""
+        """Run to the sentinel at ``self.back``, refusing a guest that never returns."""
         program_counter = (
             x86.UC_X86_REG_RIP if self.machine == "x86_64" else arm64.UC_ARM64_REG_PC
         )
-        deadline = time.monotonic() + self.call_timeout
-        current = address
-        while True:
-            left = deadline - time.monotonic()
-            slice_us = max(1, int(min(SLICE_TIMEOUT, left) * 1_000_000))
-            self.uc.emu_start(current, self.back, timeout=slice_us)
-            current = self.uc.reg_read(program_counter)
-            if current == self.back:
-                return
-            if time.monotonic() >= deadline:
-                raise RunawayCall(
-                    f"the {self.machine} guest did not return within {self.call_timeout:.0f}s; "
-                    f"pc=0x{current:x}"
-                )
+        self.uc.emu_start(
+            address, self.back, timeout=max(1, int(self.call_timeout * 1_000_000))
+        )
+        current = self.uc.reg_read(program_counter)
+        if current != self.back:
+            raise RunawayCall(
+                f"the {self.machine} guest did not return within {self.call_timeout:.0f}s; "
+                f"pc=0x{current:x}"
+            )
 
     def call_sysv(self, address: int, arguments: list[Argument]) -> int:
         registers = iter(X86_INTEGERS)
