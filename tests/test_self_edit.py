@@ -17,12 +17,12 @@ import graph_sync
 import pytest
 
 from pymergetic.rxftk.core.object import Image
-from pymergetic.rxftk.live import physical
+from pymergetic.rxftk.live import arena_image, physical
 from pymergetic.rxftk.live.front import model_of
 
 from . import live_world as lw
 from .snippets import running_image
-from .support import digest_of
+from .support import canonical_of, digest_of
 
 pytestmark = [pytest.mark.nightly, pytest.mark.slow]
 
@@ -109,9 +109,9 @@ def test_the_image_takes_a_function_of_existing_ones_and_the_successor_runs_it(
 
     # the successor is the dump: what the host computes, and a machine started from it runs it
     successor, digest = channel.client.emit()
-    assert successor == expected.compact().to_bytes()
+    assert successor == canonical_of(expected)
     assert digest == digest_of(expected)
-    fresh = lw.machine_of(name, model_of(successor))
+    fresh = lw.machine_of(name, arena_image.load(successor, expected))
     try:
         assert number(fresh.run(new)) == 2 * TOTAL
     finally:
