@@ -1,0 +1,131 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "RX",
+  "scopeName": "source.rx",
+  "patterns": [
+    { "include": "#docstring" },
+    { "include": "#comment" },
+    { "include": "#string" },
+    { "include": "#number" },
+    { "include": "#function-definition" },
+    { "include": "#type-definition" },
+    { "include": "#module-statement" },
+    { "include": "#import-statement" },
+    { "include": "#keyword" },
+    { "include": "#constant" },
+    { "include": "#type" },
+    { "include": "#call" },
+    { "include": "#member" },
+    { "include": "#operator" }
+  ],
+  "repository": {
+    "docstring": {
+      "name": "string.quoted.docstring.rx",
+      "begin": "\"\"\"",
+      "end": "\"\"\""
+    },
+    "comment": {
+      "name": "comment.line.number-sign.rx",
+      "match": "#.*$"
+    },
+    "string": {
+      "name": "string.quoted.double.rx",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [{ "name": "constant.character.escape.rx", "match": "\\\\." }]
+    },
+    "number": {
+      "name": "constant.numeric.rx",
+      "match": "\\b(?:0x[0-9a-fA-F_]+|0b[01_]+|[0-9][0-9_]*)\\b"
+    },
+    "function-definition": {
+      "match": "\\b(def)\\b(?:\\s+([A-Za-z_][\\w.]*(?:<[^>()]*>)?(?:\\[[^\\]]*\\])?))?\\s+([A-Za-z_]\\w*)\\s*(?=\\()",
+      "captures": {
+        "1": { "name": "storage.type.function.rx" },
+        "2": { "patterns": [{ "include": "#type" }] },
+        "3": { "name": "entity.name.function.rx" }
+      }
+    },
+    "type-definition": {
+      "match": "\\b(class|enum)\\s+([A-Za-z_]\\w*)",
+      "captures": {
+        "1": { "name": "storage.type.class.rx" },
+        "2": { "name": "entity.name.type.class.rx" }
+      }
+    },
+    "module-statement": {
+      "match": "\\b(module)\\s+([A-Za-z_][\\w.]*)",
+      "captures": {
+        "1": { "name": "keyword.control.module.rx" },
+        "2": { "name": "entity.name.namespace.rx" }
+      }
+    },
+    "import-statement": {
+      "match": "\\b(import|from)\\s+([A-Za-z_][\\w.]*)(?:\\s+(import)\\b)?",
+      "captures": {
+        "1": { "name": "keyword.control.import.rx" },
+        "2": { "name": "entity.name.namespace.rx" },
+        "3": { "name": "keyword.control.import.rx" }
+      }
+    },
+    "keyword": {
+      "patterns": [
+        {
+          "name": "keyword.control.flow.rx",
+          "match": "\\b(if|elif|else|for|in|while|match|case|return|break|continue|pass|try)\\b"
+        },
+        {
+          "name": "keyword.control.refusal.rx",
+          "match": "\\b(refuse|refuses)\\b"
+        },
+        {
+          "name": "keyword.operator.word.rx",
+          "match": "\\b(and|or|not|is|as)\\b"
+        },
+        {
+          "name": "storage.modifier.rx",
+          "match": "\\b(const|unsafe)\\b"
+        }
+      ]
+    },
+    "constant": {
+      "patterns": [
+        { "name": "constant.language.rx", "match": "\\b(none|true|false)\\b" },
+        { "name": "variable.language.self.rx", "match": "\\bself\\b" },
+        { "name": "constant.other.rx", "match": "\\b[A-Z][A-Z0-9_]+\\b" },
+        { "name": "constant.other.enum-member.rx", "match": "(?<=\\.)[A-Z][A-Za-z0-9]*\\b" },
+        {
+          "match": "^\\s+([A-Z][A-Za-z0-9]*)(?=\\s*=)",
+          "captures": { "1": { "name": "constant.other.enum-member.rx" } }
+        }
+      ]
+    },
+    "type": {
+      "patterns": [
+        {
+          "name": "storage.type.primitive.rx",
+          "match": "\\b(?:u8|u16|u32|u64|i8|i16|i32|i64|usize)\\b"
+        },
+        {
+          "name": "entity.name.type.rx",
+          "match": "\\b[A-Z][A-Za-z0-9]*\\b"
+        }
+      ]
+    },
+    "call": {
+      "match": "\\b([a-z_]\\w*)\\s*(?=\\()",
+      "captures": { "1": { "name": "entity.name.function.call.rx" } }
+    },
+    "member": {
+      "match": "(?<=\\.)[a-z_]\\w*",
+      "name": "variable.other.property.rx"
+    },
+    "operator": {
+      "patterns": [
+        { "name": "keyword.operator.arrow.rx", "match": "->" },
+        { "name": "keyword.operator.rx", "match": "<<|>>|[-+*/%&|^~<>=!]=?" },
+        { "name": "punctuation.separator.rx", "match": "[:,.]" }
+      ]
+    }
+  }
+}

@@ -4,103 +4,84 @@ Status: **draft for the owner to cut**. Companion of
 [37](37-THE-GRAPH-AND-ITS-ONE-LANGUAGE.md). Nothing here is implemented. Items marked
 **DECIDE** need the owner; each has a recommendation.
 
-The language is the text form of the object graph (37, decision 2): one vocabulary, written once.
-This note fixes that vocabulary, the text form, and the intrinsic set the first interpreter has to
-implement.
+The sample is [`docs/samples/echo.rx`](samples/echo.rx). The draft highlighting is
+`editors/rx-draft` (written by hand while the grammar is open; it becomes generated from the
+language's own table when the grammar is fixed).
 
-## 1. What the graph already has
+## 1. Principles
 
-The starter carries a graph vocabulary (`SemanticGraph`, `SemanticBlock`, `SemanticOperation`,
-`SemanticValue`, `kinds.Terminator`, `kinds.Effects`). Measured on 2026-11-02:
+1. **Everything is an object.** The file is a module object, a class is a type object, a field is a
+   field object, a function is a function object, a constant is a typed object, an enum member is an
+   object. Only two things are not objects: the *local values* inside a function body (they are values
+   of its graph) and the raw machine words an intrinsic touches.
+2. **The text is a face of the objects.** What is stored is the objects. The text is printed from them
+   in one canonical form and parsed back into the same objects. A text is never stored as written.
+3. **It looks and behaves like Python**: layout by indentation, `def`, `class`, `import`, `for ... in`,
+   `if/elif/else`, `#` comments, docstrings, modules as files, names as dotted paths.
+4. **It is typed like C++**: static types, the type before the name (`u32 sum = 0`), `const`, fixed-width
+   integers, struct layout as in C, generics by instantiation (`Option<Packet>`).
+5. **Errors are refusals, not exceptions.** A function declares what it refuses; `try` propagates a
+   refusal; there is no unwinding.
+6. **Names are paths and are resolved when read.** `net.slip.send` is the function object at that path;
+   the reader stores the reference to it, not the string.
+7. **No raw pointers.** A value of a class type is a handle to an object. Raw addresses exist only
+   inside `unsafe` and only the intrinsics take them.
 
-- `Terminator`: `Branch`, `Goto`, `Loop`, `Refuse`, `Return`, `SwitchTag`. **Kept.**
-- `Effects`: `Allocate`, `Host`, `Read`, `Time`, `Write`. **Kept.**
-- `ValueKind`: `Bound`, `Literal`, `Object`. **Kept.**
-- `Opcode`: about 35 operations at the level of the standard library (`Allocate`, `AppendBytes`,
-  `Compare`, `Hash`, `FormatInteger`, `Utf8Validate`, `IterAdvance`, ...). **Not kept as the base
-  set**: they are programs, not CPU operations. They are rewritten as composed functions over the
-  intrinsics of section 4.
-- Typed refusals (`Overflow`, `DivisionByZero`, `OutOfRange`, `ShiftCount`, ...). **Kept** as the
-  one error model (see 3.3).
+## 2. What becomes what in the object world
 
-## 2. Values and types
-
-- Integers of fixed width: `u8 u16 u32 u64` and the signed `i8 i16 i32 i64`. Arithmetic wraps,
-  unless a refusing form is asked for.
-- `handle`: a reference to an object. The only reference a program can hold.
-- `addr`: a raw machine address. It exists only inside an `unsafe` block and only the intrinsics
-  take it.
-- Aggregates are `struct` types with C layout (offset, size and alignment are fields of the Type
-  object), fixed-size arrays, and `enum` (a named set of integer values).
-- **DECIDE 1: floating point.** Recommendation: not in draft 0; the numeric floor is integers.
-- **DECIDE 2: `bool`.** Recommendation: no separate type; a comparison yields `u8` 0 or 1.
-
-## 3. Text form
-
-### 3.1 Shape
-
-- Statements and expressions in the C family; **blocks by braces**, one statement per line, so the
-  canonical printer is trivial and diff-friendly.
-- **Names are paths**: `a.b.c` is the node `c` under `b` under `a`. A module is a node; `import` does
-  not exist, a name either resolves in the tree or is refused.
-- A type with functions under it is written as one block (`type T { fields...; fn name(...) {...} }`);
-  that is the same tree shape the image has.
-- **DECIDE 3: top-level execution.** In the HolyC manner a top-level statement runs when read, so the
-  language is its own shell. Recommendation: yes, in the REPL only; in a module file a top-level
-  statement is a refusal.
-- Canonical form: one way to print every graph, layout included. A text that does not equal the
-  canonical print of its own graph is accepted but never stored as written.
-
-### 3.2 Statements
-
-`let`, assignment, `if`/`else`, `while`, `switch` on an integer or an enum, `break`, `continue`,
-`return`, `refuse <code>`, call. These map one to one onto blocks and the terminators of section 1
-(`Branch`, `Goto`, `Loop`, `SwitchTag`, `Return`, `Refuse`).
-
-### 3.3 Errors
-
-A function returns a status and a value (the status-out ABI of 29 and 18). `refuse <code>` ends the
-function with that status. There are no exceptions. A caller writes `try f(x)` to propagate a refusal
-or handles the status in a `switch`.
-
-### 3.4 Effects
-
-A function declares its effects (`allocate`, `host`, `read`, `write`, `time`); the declaration is
-checked against the body. A pure function has none.
-
-## 4. The intrinsics
-
-The set the interpreter implements first, and a backend implements later. They mirror the table in
-[29](29-THE-SEED-COMPILER.md) and add the handful that touch objects.
-
-| Group | Operations |
+| In the text | In the object world |
 |---|---|
-| Arithmetic | `add sub neg mul` (wrapping), `divu remu divs rems` (refusing on zero) |
-| Bits | `and or xor not`, `shl shr sar` (a count of 64 or more yields 0, or sign for `sar`) |
-| Compare | `eq ne ltu leu gtu geu lts les gts ges` |
-| Width | `zext sext trunc` |
-| Memory (unsafe) | `load8 load16 load32 load64`, `store8 store16 store32 store64`, `copy`, `fill` |
-| Objects | `resolve` (path to handle), `get`/`set` a field of a handle, `allocate`, `release`, `pin`, `unpin` |
-| Calls | `call` a function handle, `tailcall` |
-| Platform | `out` (one byte to the character output), `fence`, `clock` |
+| a file, and its `module net.echo` line | a **Module** node at the path `net.echo`; the line is optional (the path is the file's place in the tree) and a mismatch is refused |
+| the docstring | a **Doc** object attached to the module (and the same for a class or a function) |
+| `import net.slip` | an **Import** object under the module that refers to the node `net.slip` |
+| `from core import u8, Option` | one **Import** per name, each referring to the node it names |
+| `import x as y` | an **Alias** object under the module |
+| `const u16 MTU = 1500` | a named object `net.echo.MTU` of the type `u16`, value in its payload, flagged immutable |
+| `enum Verdict:` | a **Type** object `net.echo.Verdict` of form Enum; each member is an **Enumerator** object with its value |
+| `class Packet:` | a **Type** object `net.echo.Packet` of form Struct |
+| a field line `u32 src` | a **Field** object under the type, with its type, and the offset and size by C layout |
+| `u8[MTU]` | an array **Type** (element type and count); the same pair is the same object |
+| `Option<Packet>` | an instantiated **Type**: a reference to `core.Option` and one to `Packet`; the same arguments are the same object |
+| `def u16 checksum(const Packet self)` | a **Function** object `net.echo.Packet.checksum` under the type; `self` is its first **Parameter** |
+| `def Verdict decide(...)` at module level | a **Function** object `net.echo.decide` under the module |
+| the signature | the **Signature**: parameters, result type, and the refusal set |
+| `refuses TooLong` | the refusal set of the signature; `TooLong` is a named object under the module (**DECIDE 3**) |
+| the body of a function | its **graph**: blocks, operations, terminators |
+| a local `u32 sum = 0` | a **value** of the graph, not an object |
+| `Packet(1, 2, 0)` | an `allocate` of an object of type `Packet`, then the field stores; the result is a **handle** |
+| `try decide(p)` | a call whose refusal edge leaves the function with the same refusal |
+| a statement at the REPL | executed now and not stored; a *definition* at the REPL becomes the objects above |
 
-That is 50 or so operations by name and about 20 by meaning, since the sized variants are one
-operation with a width.
+Two consequences worth stating:
 
-**DECIDE 4: signed arithmetic.** Recommendation: keep `divs rems lts les gts ges sar` and the
-sign-extending conversions as intrinsics (they are not expressible without branches), everything
-else signed is composed.
+- An object that a program makes at run time (`Packet(1, 2, 0)`) and an object that a definition makes
+  (`class Packet`) are the same kind of thing and live in the same arena.
+- Renaming a module or a type does not break references, since they are handles; only the printed
+  text changes.
 
-## 5. What the first interpreter and reader must do
+## 3. The sample, read against the table
 
-- **Reader** (Python over the C library): text to objects in the arena, and the canonical print back.
-- **Interpreter** (C, in the library): executes the graph objects directly, one case per intrinsic.
-- The test of the pair is the round trip (text, objects, text, byte-equal) and a small program that
-  runs (a loop, a recursion, an object field read and written).
+`docs/samples/echo.rx` has one module, one enum, one class with a field block and two methods, two
+free functions and a REPL line. In the object world that is: 1 Module, 4 Import objects for the names
+it takes from `core` plus one for `net.slip`, 1 constant, 1 enum Type with 2 Enumerators, 1 struct Type
+with 4 Fields and 2 Functions, 2 more Functions, and one instantiation `Option<Packet>`.
 
-## 6. Open
+## 4. DECIDE
 
-- The grammar in full (a page of EBNF once decisions 1 to 4 are made).
-- The module system's visibility rules (all names public in draft 0).
-- Integer literal forms and string literals (strings are `u8` arrays in draft 0).
-- Concurrency (the run-cell machine of [20](20-EXECUTION-POLICY.md)) is not part of draft 0.
+1. **Type-first everywhere** (`def u16 checksum(const Packet self)`, `u32 sum = 0`) or the Python
+   annotation form (`def checksum(self: Packet) -> u16`, `sum: u32 = 0`). The sample uses type-first
+   because it reads as C++ typing; the annotation form reads as Python. Recommendation: type-first.
+2. **Generic syntax.** `Option<Packet>` as in C++, or `Option[Packet]` as in Python's typing.
+   Recommendation: angle brackets, since the type comes first and `[]` already means an array.
+3. **How a refusal is declared.** By use (`refuse TooLong` creates the name `net.echo.TooLong`) or by an
+   explicit line (`refusal TooLong`). Recommendation: explicit, so a typo is not a new refusal.
+4. **Naming convention carries meaning in the highlighting only.** Types are CamelCase, constants are
+   UPPER_CASE, everything else is lower_case. The compiler does not depend on it; the draft grammar
+   uses it because it cannot resolve names.
+
+## 5. After the principles
+
+Only when 1 to 4 are settled does the next layer follow: the grammar in full, the intrinsics, the reader
+and the interpreter of [37](37-THE-GRAPH-AND-ITS-ONE-LANGUAGE.md). The intrinsic set of the earlier
+draft (arithmetic, bits, compare, width, memory in `unsafe`, object access, calls, platform) is kept as
+the list the interpreter implements, but it is not part of the language's surface.

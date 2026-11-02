@@ -1,0 +1,27 @@
+{
+  "name": "rx-draft",
+  "displayName": "RX draft highlighting (.rx)",
+  "description": "Draft TextMate grammar for the one language of docs/37 and docs/38. Written by hand while the grammar is open; it becomes generated from the language's own table once the grammar is fixed.",
+  "version": "0.0.1",
+  "publisher": "pymergetic",
+  "license": "LicenseRef-PolyForm-Noncommercial-1.0.0",
+  "engines": { "vscode": "^1.60.0" },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "rx",
+        "aliases": ["RX", "rx"],
+        "extensions": [".rx"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "rx",
+        "scopeName": "source.rx",
+        "path": "./syntaxes/rx.tmLanguage.json"
+      }
+    ]
+  }
+}

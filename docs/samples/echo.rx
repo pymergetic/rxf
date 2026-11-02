@@ -1,0 +1,46 @@
+"""Echo: bounce a packet back to where it came from."""
+
+module net.echo
+
+import net.slip
+from core import u8, u16, u32, Option
+
+const u16 MTU = 1500
+
+enum Verdict:
+    Echo = 1
+    Drop = 2
+
+class Packet:
+    u32 src
+    u32 dst
+    u16 length
+    u8[MTU] payload
+
+    def u16 checksum(const Packet self):
+        u32 sum = 0
+        for u16 i in range(self.length):
+            sum += self.payload[i]
+        return ~sum
+
+    def swap(Packet self):
+        u32 tmp = self.src
+        self.src = self.dst
+        self.dst = tmp
+
+def Verdict decide(const Packet p) refuses TooLong:
+    if p.length > MTU:
+        refuse TooLong
+    elif p.dst == 0:
+        return Verdict.Drop
+    return Verdict.Echo
+
+def Option<Packet> echo(Packet p) refuses TooLong:
+    Verdict v = try decide(p)
+    if v == Verdict.Drop:
+        return none
+    p.swap()
+    return p
+
+# Names are paths in the tree. At the REPL a top-level statement runs now:
+net.slip.send(echo(Packet(1, 2, 0)))
