@@ -13,10 +13,16 @@ import struct
 import link
 import pytest
 
+from pymergetic.rxftk.core.arena import (
+    FREE_LINKS,
+    OBJ_FREE,
+    OBJECT_HEADER_SIZE,
+    SUPERBLOCK_SIZE,
+)
 from pymergetic.rxftk.core.object import Image
-from pymergetic.rxftk.live import Refused, frames, physical
+from pymergetic.rxftk.live import Refused, arena_image, frames, physical
 from pymergetic.rxftk.live.client import Declined, LiveError
-from pymergetic.rxftk.live.front import model_of
+from pymergetic.rxftk.live.front import model_of, place_in
 from pymergetic.rxftk.live.harness import HostImage
 
 from . import live_world as lw
@@ -41,6 +47,26 @@ MACHINES = [
 def unsized(arena: bytes) -> bytes:
     """The arena without the header words that say how much room its region has (24..40)."""
     return arena[:24] + bytes(16) + arena[40:]
+
+
+def live_bytes(arena: bytes) -> bytes:
+    """The arena without the interior of its free spans (the header and the ring links stay).
+
+    A carve zeroes the room it takes and a rollback restores what the undo log holds: the
+    records, the chains, the index and the ring. What lies inside a free span is nobody's
+    (docs/32 3), and the host build leaves the same residue, so a refusal is held to this."""
+    out = bytearray(arena)
+    at = SUPERBLOCK_SIZE
+    while at < len(arena) - OBJECT_HEADER_SIZE:
+        kind, _gen, _flags, _name, _parent, _link, _refs, room = struct.unpack_from(
+            "<HHHHIIII", arena, at
+        )
+        end = at + OBJECT_HEADER_SIZE + (room + 7) // 8 * 8
+        if kind == OBJ_FREE:
+            lo = min(at + OBJECT_HEADER_SIZE + FREE_LINKS, len(out))
+            out[lo : min(end, len(out))] = bytes(min(end, len(out)) - lo)
+        at = end
+    return bytes(out)
 
 
 @pytest.fixture(scope="module")
@@ -164,7 +190,7 @@ def test_a_change_gives_the_image_the_host_gives(native: lw.Channel, raw: bytes)
     assert digest == host.client.apply(compiled.data) == digest_of(result)
     # the arena is the host's arena, byte for byte
     assert unsized(native.arena()) == unsized(host.area.arena_bytes())
-    assert native.client.emit()[0] == result.compact().to_bytes()
+    assert native.client.emit()[0] == link.arena_of(result)  # the v7 arena (RXFA), not the v6 export
     assert native.client.resolve("pymergetic.rxf.application.fresh.inner") is not None
     hello = native.client.hello()
     assert (hello.commits, hello.rejects) == (1, 0)
@@ -247,7 +273,7 @@ def matches_linker(native: lw.Channel, name: str) -> None:
     assert linked.live is not None
     region = linked.live.regions["arena"][1]
     spec = lw.link.LiveSpec(
-        entries=room - (count - first), headroom=region - len(arena.to_bytes())
+        entries=room - (count - first), headroom=region - len(link.arena_of(arena))
     )
     again = lw.linked_image(arena, name, spec)
     assert words == again.data[:144]
@@ -255,7 +281,21 @@ def matches_linker(native: lw.Channel, name: str) -> None:
     at = struct.unpack_from("<Q", again.data, 40)[0] - again.base
     # the spare entries are the programs'; the image writes the ones behind them
     spare = link_.SPARE * link_.ENTRY_BYTES
-    assert entries[spare:] == again.data[at + spare : at + len(entries)]
+    mine, theirs = entries[spare:], again.data[at + spare : at + len(entries)]
+    row = link_.ENTRY_BYTES
+    assert len(mine) == len(theirs)
+    # Every word of an entry is the linker's but one: where the value lies. The linker lays the
+    # canonical arena of the world; the machine holds its own (an apply leaves holes and a tail
+    # in it, docs/32 5.4), and an entry says where the value is in the memory that runs.
+    for k in range(0, len(mine), row):
+        ours = struct.unpack_from("<10Q", mine, k)
+        its = struct.unpack_from("<10Q", theirs, k)
+        assert (*ours[:3], *ours[4:]) == (*its[:3], *its[4:])
+    held = native.arena()
+    paths = {identifier: path for path, identifier in again.ids.items()}
+    for k in sorted({0, len(mine) // row - 1, *range(0, len(mine) // row, 997)}):
+        entry = struct.unpack_from("<10Q", mine, k * row)
+        assert entry[3] == place_in(held, linked.live.regions["arena"][0], paths[entry[0]])
 
 
 def test_a_relink_writes_what_the_linker_writes(native: lw.Channel):
@@ -361,7 +401,8 @@ def with_garbage(image: Image) -> Image:
 def test_compacting_a_canonical_arena_changes_nothing_and_relinks(
     name: str, image: Image, compact: bytes
 ):
-    canonical = model_of(compact)
+    # `like`: the arena knows a payload only as its room and leaves the recipes' built bytes out
+    canonical = arena_image.load(compact, image)
     machine = lw.machine_of(name, canonical)
     try:
         native = lw.Channel(machine)
@@ -382,7 +423,7 @@ def test_compacting_a_canonical_arena_changes_nothing_and_relinks(
 
 
 def compacted_like_the_host(name: str, dirty: Image, native: lw.Channel) -> None:
-    host = HostImage(dirty.to_bytes())
+    host = HostImage(link.arena_of(dirty))  # the v7 arena (RXFA), not the v6 export
     reference = host.client.compact()
     done = native.client.compact()
     assert done.reclaimed > 0
@@ -523,14 +564,18 @@ def test_an_arena_committed_too_short_asks_for_pages_natively(
         base = model_of(raw)
         result = model_of(raw)
         parent = resolved(result, "pymergetic.rxf.application")
-        for n in range(400):
-            result.add(parent, f"grow{n}", 8, NONE, bytes(200))
+        # More than the free spans of the image hold and the pages it is committed (a few
+        # hundred small objects would run out of index entries first: that is ARENA too,
+        # but not the pages this test is about).
+        for n in range(60):
+            result.add(parent, f"grow{n}", 8, NONE, bytes(3500))
         data = physical.compile(base, result).data
         before = native.arena()
         with pytest.raises(Refused) as caught:
             native.client.apply(data)
         assert caught.value.reason == 6
-        assert native.arena() == before
+        assert live_bytes(native.arena()) == live_bytes(before)
+        assert native.client.digest() == digest_of(image)
         wanted = struct.unpack("<Q", machine.read(native.area + 232, 8))[0]
         assert wanted > len(raw) + 4096
         assert native.client.grow(wanted) == wanted

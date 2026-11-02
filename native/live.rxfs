@@ -945,7 +945,7 @@ sub s_allocate(Zbytes_allocate, Zabs_alloc) {
                     if (al_next == al_best) {
                         al_nh = al_rest;
                     }
-                    callsub s_before_write(al_rest - ab, 40);
+                    callsub s_before_write(al_rest, 40);
                     al_r = bw_r;
                     if (bw_r == 0) {
                         callsub s_zero(ab + al_rest, 40);
@@ -996,7 +996,11 @@ sub s_allocate(Zbytes_allocate, Zabs_alloc) {
                     if (al_gen == 0) {
                         al_gen = 1;
                     }
-                    callsub s_before_write(al_best - ab, 24);
+                    # The header and the ring links behind it (a free span is 40 bytes
+                    # at least): the zeroing below takes the links too, and a granule
+                    # that logged only the header leaves them zeroed after a rollback
+                    # whenever the span's links cross a 64-byte granule.
+                    callsub s_before_write(al_best, 40);
                     al_r = bw_r;
                     if (bw_r == 0) {
                         callsub s_zero(ab + al_best, 24);
@@ -1350,6 +1354,57 @@ sub s_intern(Ztext, Zn) {
     }
 }
 
+# chain_append(parent, child): the child goes at the end of the parent's chain
+# (ObjectArena::append_child; docs/32 1.2). That chain is what find and children walk,
+# and a child that is not on it does not exist to them. Modules only - a leaf has no
+# chain head. s_create and the relation table of s_rel_table_make both end here
+# (a macro: a module holds only so many subs).
+macro m_chain_append(Zpar_ca, Zkid_ca) {
+    if (Zpar_ca != 4294967295) {
+        callsub s_rec(Zpar_ca);
+        cl_mod = ce_r;
+        if (cl_mod != 0) {
+            if (load16(cl_mod) == 1) {
+                cl_head = cl_mod + 24;
+                cl_walk = load32(cl_head);
+                if (cl_walk == 4294967295) {
+                    callsub s_before_write(cl_head - ab, 8);
+                    if (bw_r == 0) {
+                        store32(cl_head, Zkid_ca);
+                        store32(cl_head + 4, load32(cl_head + 4) + 1);
+                    }
+                } else {
+                    cl_stop = 0;
+                    while (cl_stop == 0) {
+                        callsub s_rec(cl_walk);
+                        cl_next = ce_r;
+                        if (cl_next == 0) {
+                            cl_stop = 1;
+                        } else {
+                            if (load32(cl_next + 12) == 4294967295) {
+                                callsub s_before_write(cl_next + 12 - ab, 8);
+                                if (bw_r == 0) {
+                                    # the count word is the head's: a rollback has to
+                                    # find it where it was (ObjectArena::append_child
+                                    # journals both)
+                                    callsub s_before_write(cl_head - ab, 8);
+                                }
+                                if (bw_r == 0) {
+                                    store32(cl_next + 12, Zkid_ca);
+                                    store32(cl_head + 4, load32(cl_head + 4) + 1);
+                                }
+                                cl_stop = 1;
+                            } else {
+                                cl_walk = load32(cl_next + 12);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 # rel_table_make(handle, rows) -> rm_r (status), rm_h (the table): the relation
 # table of an object, created when a delta names refs an object did not have. The
 # table is named by the object's path (docs/32 5.2), which is why the path writer
@@ -1392,7 +1447,7 @@ sub s_rel_table_make(Zh_rm, Zrows_rm) {
                         if (al_r == 0) {
                             rm_at = al_at;
                             rm_gen = 1;
-                            callsub s_before_write(rm_at - ab, 24);
+                            callsub s_before_write(rm_at, 24);
                             rm_r = bw_r;
                             if (bw_r == 0) {
                                 callsub s_zero(ab + rm_at, 24);
@@ -1403,6 +1458,9 @@ sub s_rel_table_make(Zh_rm, Zrows_rm) {
                                 store16(ab + rm_at + 6, it_id);
                                 store32(ab + rm_at + 8, arel);
                                 store32(ab + rm_at + 12, 4294967295);
+                                # a created object carries its reference count
+                                # (ObjectArena::create: refs = 1)
+                                store32(ab + rm_at + 16, 1);
                                 store32(ab + rm_at + 20, 24 * Zrows_rm);
                                 m_entry(rm_ix);
                                 callsub s_before_write(sp_r - ab, 16);
@@ -1417,6 +1475,11 @@ sub s_rel_table_make(Zh_rm, Zrows_rm) {
                                     if (bw_r == 0) {
                                         store32(ab + 4120, rm_ix + 1);
                                         rm_h = ((rm_gen & 4095) << 20) | (rm_ix & 1048575);
+                                        # the table is a child of sys/relations like any
+                                        # other created object (ObjectArena::create ->
+                                        # append_child): on the chain, and counted
+                                        m_chain_append(arel, rm_h);
+                                        rm_r = bw_r;
                                         # Keyed by the object whose refs the
                                         # table carries (m_build_rels' key):
                                         # the table's own index is rm_ix, the
@@ -1499,7 +1562,7 @@ sub s_syms_grow() {
         # -- only the record header (kind/gen, s_create's fresh-span policy) is
         # logged; the strings and offsets below it are new memory, restored by
         # the release, not by a granule.
-        callsub s_before_write(sg_at - ab, 24);
+        callsub s_before_write(sg_at, 24);
         sg_r = bw_r;
         if (bw_r == 0) {
             callsub s_zero(ab + sg_at, sg_room + 24);
@@ -1534,7 +1597,7 @@ sub s_syms_grow() {
             # the handle that named the table names it still); a span whose header
             # the zeroing left reads kind 0 is a broken one -- every later lookup
             # of a name dies on the kind the slot says against the record's own.
-            callsub s_before_write(sg_at - ab, 24);
+            callsub s_before_write(sg_at, 24);
             if (bw_r == 0) {
                 store16(ab + sg_at, 5);
                 store16(ab + sg_at + 2, load16(sg_old + 2));
@@ -1606,7 +1669,7 @@ sub s_create() {
                     # span answers its previous occupant's gen + 1, and the handles
                     # the record and the index entry share stay stale-proof.
                     cr_gen = al_gen;
-                    callsub s_before_write(al_at - ab, 24);
+                    callsub s_before_write(al_at, 24);
                     cr_r = bw_r;
                     if (bw_r == 0) {
                         callsub s_zero(ab + al_at, 24);
@@ -1651,7 +1714,7 @@ sub s_create() {
                                 # (HANDLE32_NONE), not a zeroed payload: 0 is the
                                 # handle of the object at index 0 and would put the
                                 # first child behind that.
-                                callsub s_before_write(al_at + 24 - ab, 8);
+                                callsub s_before_write(al_at + 24, 8);
                                 if (bw_r == 0) {
                                     store32(ab + al_at + 24, 4294967295);
                                     store32(ab + al_at + 28, 0);
@@ -1660,44 +1723,8 @@ sub s_create() {
                             # The child goes at the end of its parent's chain
                             # (docs/32 1.2): that chain is what find and children
                             # walk, and a child that is not on it does not exist to
-                            # them. Modules only - a leaf has no chain head.
-                            if (cs_parent != 4294967295) {
-                                callsub s_rec(cs_parent);
-                                cl_mod = ce_r;
-                                if (cl_mod != 0) {
-                                    if (load16(cl_mod) == 1) {
-                                        cl_head = cl_mod + 24;
-                                        cl_walk = load32(cl_head);
-                                        if (cl_walk == 4294967295) {
-                                            callsub s_before_write(cl_head - ab, 8);
-                                            if (bw_r == 0) {
-                                                store32(cl_head, cr_h);
-                                                store32(cl_head + 4, load32(cl_head + 4) + 1);
-                                            }
-                                        } else {
-                                            cl_stop = 0;
-                                            while (cl_stop == 0) {
-                                                callsub s_rec(cl_walk);
-                                                cl_next = ce_r;
-                                                if (cl_next == 0) {
-                                                    cl_stop = 1;
-                                                } else {
-                                                    if (load32(cl_next + 12) == 4294967295) {
-                                                        callsub s_before_write(cl_next + 12 - ab, 8);
-                                                        if (bw_r == 0) {
-                                                            store32(cl_next + 12, cr_h);
-                                                            store32(cl_head + 4, load32(cl_head + 4) + 1);
-                                                        }
-                                                        cl_stop = 1;
-                                                    } else {
-                                                        cl_walk = load32(cl_next + 12);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            # them.
+                            m_chain_append(cs_parent, cr_h);
                             # A semantic row can only be written where sys/specs is;
                             # the bootstrap makes objects before that table exists
                             # (docs/32 5.4) and fills their rows afterwards.
@@ -1783,7 +1810,7 @@ macro m_into_module(Zh) {
                     # s_create's fresh-span policy covers) is logged; the value
                     # below it is new memory, restored by the release, not by a
                     # granule (the s_syms_grow fresh-span policy).
-                    callsub s_before_write(im_at - ab, 32);
+                    callsub s_before_write(im_at, 32);
                     im_r = bw_r;
                 }
                 if (im_r == 0) {
@@ -1877,6 +1904,12 @@ macro m_destroy(Zh) {
                                         }
                                     }
                                     if (de_r == 0) {
+                                        # the count word is logged with the head
+                                        # (release_handle's j_set of module->count)
+                                        callsub s_before_write(de_pr + 24 - ab, 8);
+                                        de_r = bw_r;
+                                    }
+                                    if (de_r == 0) {
                                         if (load32(de_pr + 28) > 0) {
                                             store32(de_pr + 28, load32(de_pr + 28) - 1);
                                         }
@@ -1900,8 +1933,10 @@ macro m_destroy(Zh) {
             callsub s_before_write(sp_r - ab, 16);
             de_r = bw_r;
             if (bw_r == 0) {
+                # The entry is free again with its generation kept
+                # (ObjectArena::release_handle clears kind and slot only): the
+                # next tenant is handed the span's own generation by s_create.
                 store16(sp_r, 0);
-                store16(sp_r + 2, 0);
                 store64(sp_r + 8, 0);
                 # The derived relation word dies with the index entry
                 # (docs/32 5.2): the index is handed out again with a new
@@ -1949,7 +1984,7 @@ sub s_resize(Zh_resize, Zp_resize, Zr_resize) {
             rz_r = al_r;
             if (al_r == 0) {
                 rz_new = al_at;
-                callsub s_before_write(rz_new - ab, 24);
+                callsub s_before_write(rz_new, 24);
                 rz_r = bw_r;
                 if (bw_r == 0) {
                     callsub s_cpy(ab + rz_new, ab + rz_off, 24);
@@ -2230,7 +2265,7 @@ sub s_init(Zbase, Zcomm, Zlim, Zcap, Zname, Znlen) {
                 }
             }
             if (in_r == 0) {
-                callsub s_before_write(al_at - ab, 24);
+                callsub s_before_write(al_at, 24);
                 in_r = bw_r;
                 if (bw_r == 0) {
                     store16(ab + al_at, 1);
@@ -2254,7 +2289,7 @@ sub s_init(Zbase, Zcomm, Zlim, Zcap, Zname, Znlen) {
                 in_r = al_r;
                 if (al_r == 0) {
                     in_syms_at = al_at;
-                    callsub s_before_write(in_syms_at - ab, 24);
+                    callsub s_before_write(in_syms_at, 24);
                     in_r = bw_r;
                     if (bw_r == 0) {
                         store16(ab + in_syms_at, 5);
@@ -2755,6 +2790,7 @@ sub s_table_ins(Zh_table_ins) {
     var tin_n;
     var tin_par;
     var tin_g;
+    var tin_nm;
     callsub s_cell(Zh_table_ins);
     tin_c = ce_r;
     tin_r = 0;
@@ -2763,6 +2799,11 @@ sub s_table_ins(Zh_table_ins) {
         callsub s_name(Zh_table_ins);
         callsub s_len(nm_r);
         tin_n = len_r;
+        # The name's address is kept: s_find_child compares names through s_name
+        # and leaves nm_r at the last sibling it met, so the hash below would be
+        # taken over that sibling's bytes and the entry filed where this name is
+        # never looked for.
+        tin_nm = nm_r;
         # The parent is read out of the view now: a view is good until the next
         # call that fills it (docs/32 5.3) and s_find_child fills view A.
         tin_par = load64(tin_c + 8);
@@ -2774,14 +2815,14 @@ sub s_table_ins(Zh_table_ins) {
             tin_r = 0;
         }
         if (tin_r == 1) {
-            callsub s_find_child(tin_par, nm_r, tin_n);
+            callsub s_find_child(tin_par, tin_nm, tin_n);
             if (fc_r != 0xFFFFFFFFFFFFFFFF) {
                 tin_r = 0;
             }
         }
         if (tin_r == 1) {
             tin_mask = slts - 1;
-            callsub s_name_hash(tin_par, nm_r, tin_n);
+            callsub s_name_hash(tin_par, tin_nm, tin_n);
             tin_i = nh_r & tin_mask;
             tin_g = 0;
             while (load32(taddr + 4 * tin_i) != 0 & tin_g < 2097152) {
@@ -3967,6 +4008,65 @@ macro m_emplace() {
     }
 }
 
+# orphan_table(rec) -> or_r (1 when the record is a stale relation table): a table of
+# sys/relations is named by the dotted path of the object whose refs it carries
+# (docs/32 2); when an apply deleted that object and left the table, the canonical
+# form does not carry it (ObjectArena::rebuild's resolve_dotted: "a stale orphan").
+# A genesis table (a name that opens "honors.") is the genesis's own, never an orphan.
+macro m_orphan_table(Zrec_or) {
+    var or_nm;
+    var or_n;
+    var or_h;
+    var or_start;
+    var or_i;
+    var or_ok;
+    var or_dot;
+    or_r = 0;
+    if (load32(Zrec_or + 8) == arel) {
+        callsub s_sym_addr(load16(Zrec_or + 6));
+        or_nm = sa_r;
+        if (or_nm != 0) {
+            if (load8(or_nm) != 104 | load8(or_nm + 1) != 111 | load8(or_nm + 2) != 110 |
+                load8(or_nm + 3) != 111 | load8(or_nm + 4) != 114 | load8(or_nm + 5) != 115 |
+                load8(or_nm + 6) != 46) {
+                callsub s_len(or_nm);
+                or_n = len_r;
+                # resolve_dotted: each segment is a child of the one before, found by
+                # name on the chain (child_named); an empty segment is skipped
+                or_h = load32(ab + 24);
+                or_start = 0;
+                or_i = 0;
+                or_ok = 1;
+                while (or_i <= or_n & or_ok == 1) {
+                    or_dot = 0;
+                    if (or_i == or_n) {
+                        or_dot = 1;
+                    } else {
+                        if (load8(or_nm + or_i) == 46) {
+                            or_dot = 1;
+                        }
+                    }
+                    if (or_dot == 1) {
+                        if (or_i > or_start) {
+                            callsub s_named_child(or_h, or_nm + or_start, or_i - or_start);
+                            if (cn_at == 4294967295) {
+                                or_ok = 0;
+                            } else {
+                                or_h = cn_at;
+                            }
+                        }
+                        or_start = or_i + 1;
+                    }
+                    or_i = or_i + 1;
+                }
+                if (or_ok == 0) {
+                    or_r = 1;
+                }
+            }
+        }
+    }
+}
+
 # emit() -> em_r (1/0), em_rsn, em_len (live.cpp dump + ObjectArena::rebuild, docs/32 5.4):
 # the canonical bytes of the session's arena, rebuilt into the emit region -- the
 # writer's whole sequence, replayed: the bootstrap first (the interning order --
@@ -4008,6 +4108,7 @@ macro m_emit() {
     var em_dest;
     var em_skip;
     var em_live;
+    var em_orph;
     var em_vr;
     var em_entry;
     var em_eout;
@@ -4092,7 +4193,18 @@ macro m_emit() {
         while (em_i < em_n) {
             m_entry(em_i);
             if (load64(sp_r + 8) != 0) {
-                em_live = em_live + 1;
+                # a stale relation table is not carried (rebuild's survey
+                # counts the tables that resolve)
+                em_orph = 0;
+                m_pack_i(em_i);
+                callsub s_rec(hx_r);
+                if (ce_r != 0) {
+                    m_orphan_table(ce_r);
+                    em_orph = or_r;
+                }
+                if (em_orph == 0) {
+                    em_live = em_live + 1;
+                }
             }
             em_i = em_i + 1;
         }
@@ -4268,7 +4380,15 @@ macro m_emit() {
                         }
                     }
                     if (em_table == 0) {
-                        m_emplace();
+                        # a stale orphan (its object is gone) is not placed
+                        em_orph = 0;
+                        if (em_sr != 0) {
+                            m_orphan_table(em_sr);
+                            em_orph = or_r;
+                        }
+                        if (em_orph == 0) {
+                            m_emplace();
+                        }
                     }
                 }
             }
@@ -6868,7 +6988,7 @@ fn live_pump(context, area) {
     var pu_limit, pu_stop_after, pu_clear_reloc, pu_phase, pu_again;
     var crc_r, crc_i, crc_k, cmp_r, len_r;
     var cr_h, cr_r, cs2_r, ck_r, cn_r, cc_r;
-    var cl_mod, cl_head, cl_walk, cl_next, cl_stop, cs_refc;
+    var cl_mod, cl_head, cl_walk, cl_next, cl_stop, cs_refc, or_r;
     var em_name, em_nlen, em_nrw, em_src, em_hnd, sg_r, acursor, em_slots, em_claim, em_cmt, cc_ix, cc_n, cc_rec, cc_k, cc_w, em_syms, em_id, src_syms;
     var em_osyms, em_oaspec, em_ocursor;
     var cs_type, cs_parent, cs_generation, cs_flags, cs_index, cs_name, cs_name_len, cs_payload, cs_refs, cs_kind;
