@@ -77,7 +77,9 @@ def different(cases, want, have):
 
 
 def test_there_is_a_program_for_every_semantic_function(cases):
-    assert len(cases) == 59 * 3 + len(programs.synthetic())
+    # 59 graphs and call bodies, and since R1 the 42 typed wrappers composed over their leaf twins
+    # (Semantic 102 = these 101 + tiny.compile, whose body is bytecode: no program of its own)
+    assert len(cases) == (59 + 42) * 3 + len(programs.synthetic())
 
 
 def test_the_programs_succeed_and_refuse_both(reference):
