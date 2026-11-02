@@ -21,7 +21,7 @@ from pymergetic.rxftk.live.harness import HostImage
 
 from . import live_world as lw
 from .snippets import running_image
-from .support import digest_of, resolved
+from .support import canonical_of, digest_of, resolved
 
 # Every test runs code on a machine the harness boots per test; the emulated seats
 # cost minutes each. Nightly material like test_compile.
@@ -203,7 +203,7 @@ def word(machine: lw.Machine, offset: int) -> int:
 
 def test_the_client_talks_to_the_image_over_the_uart(serial, image: Image):
     _, _, _, _, client = serial
-    raw = image.to_bytes()
+    raw = lw.link.arena_of(image)
     host = HostImage(raw)
     assert client.ping(b"over a wire") == b"over a wire"
     assert client.hello().handles == host.client.hello().handles
@@ -218,7 +218,7 @@ def test_the_client_talks_to_the_image_over_the_uart(serial, image: Image):
     result.add(fresh, "inner", 8, 0xFFFFFFFFFFFFFFFF, b"")
     compiled = physical.compile(model_of(raw), result)
     assert client.apply(compiled.data) == digest_of(result)
-    assert client.emit()[0] == result.compact().to_bytes()
+    assert client.emit()[0] == canonical_of(result)
     assert client.resolve("pymergetic.rxf.application.fresh.inner") is not None
 
 
@@ -372,7 +372,7 @@ def fifo(image: Image):
 
 def test_the_client_talks_to_a_wasm32_image_over_the_fifos(fifo, image: Image):
     _, _, client = fifo
-    raw = image.to_bytes()
+    raw = lw.link.arena_of(image)
     host = HostImage(raw)
     assert client.ping(b"over a wire") == b"over a wire"
     assert client.digest() == digest_of(image)
