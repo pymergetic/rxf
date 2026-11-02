@@ -5318,6 +5318,7 @@ macro m_apply_replay() {
     var ar_rec;
     var ar_head;
     var ar_want;
+    var ar_pad;
     var ar_nm;
     var ar_nl;
     var ar_kd;
@@ -5514,12 +5515,16 @@ macro m_apply_replay() {
                         ar_ok = 0;
                     }
                     if (ar_ok == 1) {
-                        # A record that outgrows its room is freed and re-grown
-                        # (docs/32 1.2; live.cpp apply): the index is handed out
-                        # again and the generation bumps. A value that fits the
-                        # room stays where it is - the room is the record's own
-                        # (rounded, a module's head included), never the exact
-                        # length of the delta's value.
+                        # A record whose room is not its value's room is freed and
+                        # re-grown (docs/32 1.2; live.cpp apply), in both
+                        # directions: one that outgrows its room needs the room,
+                        # and one whose value shrank must not keep the bigger one
+                        # - the room is the object's size in the canonical form
+                        # (docs/32 5.4), so a stale room would make the image's
+                        # state not the delta's state. The index is handed out
+                        # again and the generation bumps. The room is the
+                        # record's own (rounded, a module's head included), never
+                        # the exact length of the delta's value.
                         callsub s_rec(ar_h);
                         ar_rec = ce_r;
                         ar_head = 0;
@@ -5527,7 +5532,7 @@ macro m_apply_replay() {
                             ar_head = 8;
                         }
                         ar_want = ar_head + ((load32(ar_d + ar_opos + 32) + 7) & ~7);
-                        if (ar_want > load32(ar_rec + 20)) {
+                        if (ar_want != load32(ar_rec + 20)) {
                             ar_parent = load32(ar_rec + 8);
                             ar_kd = load16(ar_rec);
                             callsub s_sym_addr(load16(ar_rec + 6));
@@ -5637,6 +5642,17 @@ macro m_apply_replay() {
                             ar_ok = 0;
                         } else {
                             callsub s_cpy(pw_r + ar_head, ar_body, load32(ar_d + ar_opos + 32));
+                            # The room behind the value is zeros, not the tail of the
+                            # value that sat there before (docs/32 1.2; live.cpp
+                            # apply): a value whose room changed was re-grown above
+                            # and born zeroed, so what is cleared here is the room's
+                            # own tail - the padding of the value's last 8-byte slot,
+                            # at most 7 bytes.
+                            ar_pad = ((load32(ar_d + ar_opos + 32) + 7) & ~7)
+                                     - load32(ar_d + ar_opos + 32);
+                            if (ar_pad != 0) {
+                                callsub s_zero(pw_r + ar_head + load32(ar_d + ar_opos + 32), ar_pad);
+                            }
                         }
                     }
                 }

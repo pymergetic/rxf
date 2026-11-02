@@ -9,31 +9,31 @@
     <Alias name="sources" target="pymergetic.rxf.sources" />
     <Alias name="stdlib" target="pymergetic.rxf.roles.stdlib" />
     <Alias name="targets" target="pymergetic.rxf.targets" />
-    <Function name="pump" implementation="@kinds.FunctionImplementation.Native" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@live.pump.signature" semantic_digest="8637c5a83798322ab0aa9a247738f5dee66b5e0d3349ebb92232401e2d8c233f">
-      <Code name="aarch64_linux" owner_function="@live.pump" runtime_target="@targets.aarch64_linux_aapcs64" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="153660" semantic_digest="8637c5a83798322ab0aa9a247738f5dee66b5e0d3349ebb92232401e2d8c233f" source="@sources.live.text" body="@live.pump.body_aarch64">
+    <Function name="pump" implementation="@kinds.FunctionImplementation.Native" layer="@kinds.FunctionLayer.Platform" semantic_version="1" signature="@live.pump.signature" semantic_digest="4274b78644d037e91c04d80364d5e45fa3fb407dd34eab014de6c66b06456467">
+      <Code name="aarch64_linux" owner_function="@live.pump" runtime_target="@targets.aarch64_linux_aapcs64" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="153912" semantic_digest="4274b78644d037e91c04d80364d5e45fa3fb407dd34eab014de6c66b06456467" source="@sources.live.text" body="@live.pump.body_aarch64">
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <Code name="aarch64_uefi" owner_function="@live.pump" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="153660" semantic_digest="8637c5a83798322ab0aa9a247738f5dee66b5e0d3349ebb92232401e2d8c233f" source="@sources.live.text" body="@live.pump.body_aarch64">
+      <Code name="aarch64_uefi" owner_function="@live.pump" runtime_target="@targets.aarch64_uefi_aapcs64" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="153912" semantic_digest="4274b78644d037e91c04d80364d5e45fa3fb407dd34eab014de6c66b06456467" source="@sources.live.text" body="@live.pump.body_aarch64">
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_aarch64" />
       </Code>
-      <CodeBlob name="body_aarch64" byte_count="153660" content_digest="8758a8e62d8c9970af803fbdac807f931e56ac9f88c08642e44588c09aa0f260" />
-      <CodeBlob name="body_wasm32" byte_count="1475426" content_digest="e5666ff9ba659bb068f733d9ce8b0f63754121e1104405a5fcc8513f6857547c" />
-      <CodeBlob name="body_x86_64" byte_count="183474" content_digest="80f98efb1e5ed3518600e2663b73f6773143b4c0dcd937bcf85d041ece1babc1" />
+      <CodeBlob name="body_aarch64" byte_count="153912" content_digest="65e50f35f42c30dff9cfe5c5290176e3fd187c01e02fa82ea514f967597ca1a4" />
+      <CodeBlob name="body_wasm32" byte_count="1475578" content_digest="525be9ee1830bc840b8218cd4eb10ad011e07b03b2cd8f2640f67c3bf9ef14fd" />
+      <CodeBlob name="body_x86_64" byte_count="183751" content_digest="3088c29257cb0f98f13639caf626d0ea172b4a8970f3e0c9163160baf2deeff4" />
       <Signature name="signature" return_type="void" parameter_count="2" result_count="1" refusal_set="@foundation.StdlibRefusals">
         <Parameter name="argument[0]" value_type="@model.Ref" />
         <Parameter name="argument[1]" value_type="@foundation.NativeTransaction" index="1" />
         <Result name="value" value_type="void" />
       </Signature>
-      <Code name="wasm32" owner_function="@live.pump" runtime_target="@targets.wasm32_wasm_c" signature="@live.pump.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="1475426" semantic_digest="8637c5a83798322ab0aa9a247738f5dee66b5e0d3349ebb92232401e2d8c233f" source="@sources.live.text" body="@live.pump.body_wasm32">
+      <Code name="wasm32" owner_function="@live.pump" runtime_target="@targets.wasm32_wasm_c" signature="@live.pump.signature" format="@kinds.CodeFormat.Wasm" semantic_version="1" byte_count="1475578" semantic_digest="4274b78644d037e91c04d80364d5e45fa3fb407dd34eab014de6c66b06456467" source="@sources.live.text" body="@live.pump.body_wasm32">
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_wasm32" />
       </Code>
-      <Code name="x86_64_bios" owner_function="@live.pump" runtime_target="@targets.x86_64_bios_sysv" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="183474" semantic_digest="8637c5a83798322ab0aa9a247738f5dee66b5e0d3349ebb92232401e2d8c233f" source="@sources.live.text" body="@live.pump.body_x86_64">
+      <Code name="x86_64_bios" owner_function="@live.pump" runtime_target="@targets.x86_64_bios_sysv" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="183751" semantic_digest="4274b78644d037e91c04d80364d5e45fa3fb407dd34eab014de6c66b06456467" source="@sources.live.text" body="@live.pump.body_x86_64">
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
-      <Code name="x86_64_linux" owner_function="@live.pump" runtime_target="@targets.x86_64_linux_sysv" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="183474" semantic_digest="8637c5a83798322ab0aa9a247738f5dee66b5e0d3349ebb92232401e2d8c233f" source="@sources.live.text" body="@live.pump.body_x86_64">
+      <Code name="x86_64_linux" owner_function="@live.pump" runtime_target="@targets.x86_64_linux_sysv" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="183751" semantic_digest="4274b78644d037e91c04d80364d5e45fa3fb407dd34eab014de6c66b06456467" source="@sources.live.text" body="@live.pump.body_x86_64">
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
-      <Code name="x86_64_uefi" owner_function="@live.pump" runtime_target="@targets.x86_64_uefi_sysv" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="183474" semantic_digest="8637c5a83798322ab0aa9a247738f5dee66b5e0d3349ebb92232401e2d8c233f" source="@sources.live.text" body="@live.pump.body_x86_64">
+      <Code name="x86_64_uefi" owner_function="@live.pump" runtime_target="@targets.x86_64_uefi_sysv" signature="@live.pump.signature" format="@kinds.CodeFormat.Machine" semantic_version="1" byte_count="183751" semantic_digest="4274b78644d037e91c04d80364d5e45fa3fb407dd34eab014de6c66b06456467" source="@sources.live.text" body="@live.pump.body_x86_64">
         <rxf:ref role="@call.Provenance" kind="RefKind.Data" target="@targets.seed_x86_64" />
       </Code>
     </Function>
