@@ -9,7 +9,7 @@
 # body, hash.rxfs the id of a durable object, and this file the entry and the dispatch.
 #
 # What runs today is the reader of tree.rxfs and the writer of emit.rxfs: the entry resolves the
-# target cell of the arena and writes its descriptor (its type, parent, name, payload size and its
+# target object of the arena and writes its descriptor (its type, parent, name, payload size and its
 # references) through the writer, which is the ground the Plan reads a graph from. The Plan and the
 # Expression that turn that ground into program words are the work that follows; the corpus test
 # holds the words to what compose.py writes.
@@ -20,14 +20,14 @@ program compose(context, request) {
     var work, sp;
     var g0, g1, g2, R, R0, R1, R2;
     var st, ow, w, at;
-    var t0, t1, t2;                        # cell_of
-    var e0, e1;                            # name_eq
-    var k0, k1, k2, k3, k4, k5, k6;        # child_named
+    var t0, t1, t2;                        # rec_of
+    var e0, e1;                            # name_eq, str_hash, path_of
+    var k0, k1, k2, k3, k4;                # child_named
     var k7, k8, k9, k10, k11, k12, k13;    # child_named: the map at W_MAP
-    var m0, m1, m2, m3;                    # kids_build
+    var m0, m1, m2, m3;                    # path_of
+    var r0, r1, r2, r3, r4, r5, r6, r7;    # rels_build, rels_of, table_rows
     var n0, n1, n2, n3, n4, n5;            # the entry
-    var v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10;   # read_value
-    var h0, h1, h2, h3, h4, h5, h6, h7, h8, h9;        # hash.rxfs
+    var h0, h1, h2, h3, h4, h5, h6, h7, h8, h9;        # hash.rxfs, read_value
     var h10, h11, h12, h13, h14, h15, h16, h17, h18, h19;
     var q0, q1, q2, q3, q4, q5, q6, q7, q8, q9;        # plan.rxfs
     var q10, q11, q12, q13, q14, q15, q16, q17, q18, q19;
@@ -44,16 +44,38 @@ program compose(context, request) {
     store64(work + W_OUT_SIZE, 0);
     store64(work + W_TARGET, load64(request + R_TARGET));
     store64(work + W_TARGET_KIND, load64(request + R_TARGET_KIND));
-    store64(work + W_INDEX_OFF, arena_q(H_INDEX_OFF));
-    store64(work + W_CHUNKS, arena_q(H_CHUNKS));
-    store64(work + W_HANDLES, arena_q(H_HANDLES));
-    store64(work + W_CELLS_OFF, arena_q(H_CELLS_OFF));
-    store64(work + W_ROOT, arena_q(H_ROOT));
+    if arena_d(0) != SB_MAGIC {
+        refuse BAD_SOURCE;                   # not a v7 arena
+    }
+    store64(work + W_HANDLES, arena_d(IX_COUNT));
+    store64(work + W_ROOT, arena_d(SB_ROOT));
 
     # the epoch of the request: the rows of the map (W_MAP) are this request's now, and the rows of
-    # the request before answer nothing (words.rxfs). The chains of the children build at the
-    # request's first gather (plan.rxfs) -- a request that gathers nothing never pays for them.
+    # the request before answer nothing (words.rxfs). The index of the relation tables builds at
+    # the request's first question about references -- a request that asks none never pays for it.
     store64(work + W_MAP_EPOCH, load64(work + W_MAP_EPOCH) + 1);
+
+    # the tables the reader resolves through, found once: sys/syms is the entry 1 of the object
+    # index, sys/specs and sys/relations are children of sys (found by name)
+    t1 = IX_ENTRIES + (IX_SYMS << IX_ENTRY);
+    store64(work + W_SYMS, arena_q(t1 + 8) + OBJ_HEADER);
+    store64(work + W_SPECS, 0);
+    store64(work + W_X, 0x737973);               # sys
+    store64(work + W_X + 8, 0x7363657073);       # specs
+    store64(work + W_X + 16, 0x6e6f6974616c6572);   # relation[0..7]
+    store64(work + W_X + 24, 0x73);              # relation[8]: relations
+    g0 = load64(work + W_ROOT); g1 = work + W_X; g2 = 3;       call child_named;
+    n0 = R;
+    g0 = n0; g1 = work + W_X + 8; g2 = 5;                      call child_named;
+    g0 = R;                                                    call cell_of;
+    if R != HANDLE_NONE {
+        store64(work + W_SPECS, R + CELL_BYTES);
+    }
+    g0 = n0; g1 = work + W_X + 16; g2 = 9;                     call child_named;
+    store64(work + W_RELS, R);
+    if (load64(work + W_SYMS) == OBJ_HEADER) | (load64(work + W_SPECS) == 0) | (n0 == HANDLE_NONE) {
+        refuse BAD_SOURCE;                   # an arena without its tables has no names to read
+    }
 
     st = 0;
     ow = 0;
@@ -114,21 +136,27 @@ program compose(context, request) {
 
         # the target cell of the arena, and its descriptor through the writer
         g0 = load64(work + W_TARGET);
-        call cell_of;
+        call rec_of;
         if R == HANDLE_NONE {
             st = BAD_SOURCE;
             at = load64(work + W_TARGET);
         }
         if st == 0 {
+            # what the record and its row of sys/specs say: the type, the parent, the name (a
+            # symbol id), the payload room, the flags word, then the references
             n0 = R;
-            w = arena_q(n0 + C_TYPE);            call putq;
-            w = arena_q(n0 + C_PARENT);          call putq;
-            w = arena_q(n0 + C_NAME);            call putq;
-            w = arena_q(n0 + C_PAYLOAD_SIZE);    call putq;
-            w = arena_q(n0 + C_FLAGS);           call putq;   # flags (u32) | ref_count (u32) << 32
-            n1 = arena_q(n0 + C_REF_COUNT) & 0xFFFFFFFF;
+            g0 = load64(work + W_TARGET);        call type_of;
+            n4 = R;
+            w = n4;                              call putq;
+            g0 = load64(work + W_TARGET);        call parent_of;
+            w = R;                               call putq;
+            w = arena_h(n0 + OBJ_NAME);          call putq;
+            w = arena_d(n0 + OBJ_PAYLOAD);       call putq;
+            g0 = load64(work + W_TARGET);        call rels_of;
+            n2 = R;
+            n1 = R0;
+            w = arena_d(spec_at(load64(work + W_TARGET)) + SP_FLAGS) | (n1 << 32);   call putq;
             w = n1;                              call putq;
-            n2 = n0 + CELL_BYTES + align16(arena_q(n0 + C_PAYLOAD_SIZE));
             n3 = 0;
             while n3 < n1 {
                 w = arena_q(n2 + refs_of(n3) + R_TARGET_FIELD);   call putq;
@@ -137,7 +165,6 @@ program compose(context, request) {
             }
             # the fields the Plan reads from the type of the target: entry_block (a reference) and
             # block_count (a number), decoded through the Field that names each
-            n4 = arena_q(n0 + C_TYPE);
             g0 = n4; g1 = work + W_X; g2 = 11;      call child_named;
             n5 = R;
             g0 = load64(work + W_TARGET); g1 = n5;  call read_value;

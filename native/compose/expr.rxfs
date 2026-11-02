@@ -91,12 +91,10 @@ proc expr_lentry {
     store64(work + W_XA1, g0);
     R = 0;
     g0 = load64(work + W_XA1);
-    call cell_of;
-    if R == HANDLE_NONE {
-        ret;
-    }
-    g0 = R;
     call name_of;
+    if R == 0 {
+        ret;                                                   # no name, no number
+    }
     store64(work + W_XA1 + 8, load64(work + W_ARENA) + R);     # the name bytes
     store64(work + W_XA1, 0);                                  # the scan
     while (load8(load64(work + W_XA1 + 8) + load64(work + W_XA1)) & 0xFF) != 0 {
@@ -157,12 +155,6 @@ proc expr_writes {
         ret;
     }
     if R == 0 {
-        R = 1;
-        ret;
-    }
-    g0 = R;
-    call cell_of;
-    if R == HANDLE_NONE {
         R = 1;
         ret;
     }
@@ -800,9 +792,7 @@ proc expr_encode {
     call fld;
     store64(work + W_XA8 + 16, R);                # the body call
     g0 = R;
-    call cell_of;
-    g0 = arena_q(R + C_TYPE);                     # the type of the body
-    call cell_of;
+    call type_of;                                 # the type of the body
     g0 = R;
     call name_of;
     g0 = R;  g1 = work + W_NAM + NX_ECALLT;  g2 = 4;

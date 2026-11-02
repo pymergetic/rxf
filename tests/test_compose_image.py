@@ -30,7 +30,9 @@ import pytest
 import rxfc
 
 from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.arena import ObjectArena
 from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.live import arena_image
 from pymergetic.rxftk.live.front import model_of
 
 from . import live_world as lw
@@ -58,11 +60,24 @@ REQUEST_AT_SHIFT = 0x100  # the request lives in the work region behind the look
 WORK_AT_SHIFT = 0x100000
 
 
+def placed_in(arena: bytes, model: Image) -> dict[int, int]:
+    """Where each object of the model lies in the arena the machine keeps: model handle ->
+    arena handle (docs/32 1.2: a handle is image-local, the path is the identity across images).
+
+    The arena is read as it lies in the machine, so the handles are the ones the composer in the
+    image is asked about and answers in."""
+    book = ObjectArena.attach(arena)
+    by_path = {book.path_of(h): h for h in lw.arena_handles(arena)}
+    return {
+        h: by_path[model.path(h)]
+        for h in range(model.handle_count)
+        if model.live(h) and model.path(h) in by_path
+    }
+
+
 def cell_of_arena(arena: bytes, placed: dict[int, int], handle: int) -> dict:
     """The world cell of a handle as the arena holds it (docs/32 5.3): the record
     and its row of sys/specs, with the rows of its relation table."""
-    from pymergetic.rxftk.core.arena import ObjectArena
-
     book = ObjectArena.attach(arena)
     arena_handle = placed[handle]
     _kind, _gen, _flags, name, parent, _link, _refs, payload_size = book.load(arena_handle)
@@ -136,7 +151,8 @@ def image() -> Image:
 
 @pytest.fixture(scope="module")
 def base(image: Image) -> bytes:
-    return image.to_bytes()
+    """The image as the v7 arena its world is (docs/32 5.4), the form the machine boots from."""
+    return arena_image.arena_of(image)
 
 
 @pytest.fixture(params=MACHINES)
@@ -180,9 +196,9 @@ def test_the_image_composes_its_graphs_as_the_host_composer_does(running, base: 
     out_at = value_at(channel, SELFEDIT_OUT)
 
     arena = channel.arena()
-    live_image = model_of(arena)
+    live_image = channel.loaded()
     targets = graph_handles(live_image)
-    placed = link.arena_map(live_image)
+    placed = placed_in(arena, live_image)
     reference = {target: cell_of_arena(arena, placed, target) for target in targets}
     c = compose.Composer(live_image)
 
@@ -193,7 +209,7 @@ def test_the_image_composes_its_graphs_as_the_host_composer_does(running, base: 
                 "<12Q",
                 arena_at,
                 len(arena),  # R_ARENA, R_ARENA_SIZE
-                target,
+                placed[target],
                 0,  # R_TARGET, R_TARGET_KIND: a SemanticGraph
                 out_at,
                 OUT_ROOM,  # R_OUT, R_OUT_CAPACITY
@@ -228,7 +244,7 @@ def test_the_image_composes_its_graphs_as_the_host_composer_does(running, base: 
 
         decoded = words_out[6 + 2 * exp["ref_count"] :]
         fields = c.fields(target)
-        assert decoded[0] == c.target(fields["entry_block"]), (name, target)
+        assert decoded[0] == placed[c.target(fields["entry_block"])], (name, target)
         assert decoded[1] == int(fields["block_count"]), (name, target)
 
 
@@ -274,7 +290,8 @@ def test_the_image_object_id_is_the_sha256_of_the_path(running, base: bytes):
     out_at = value_at(channel, SELFEDIT_OUT)
 
     arena = channel.arena()
-    live_image = model_of(arena)
+    live_image = channel.loaded()
+    placed = placed_in(arena, live_image)
     for handle in bound_targets(live_image):
         machine.write(
             request_at,
@@ -282,7 +299,7 @@ def test_the_image_object_id_is_the_sha256_of_the_path(running, base: bytes):
                 "<12Q",
                 arena_at,
                 len(arena),  # R_ARENA, R_ARENA_SIZE
-                handle,
+                placed[handle],
                 2,  # R_TARGET, R_TARGET_KIND: the id of this handle
                 out_at,
                 OUT_ROOM,  # R_OUT, R_OUT_CAPACITY
@@ -334,7 +351,8 @@ def test_the_image_writes_the_program_of_clamp_word_for_word(running, base: byte
     out_at = value_at(channel, SELFEDIT_OUT)
 
     arena = channel.arena()
-    live_image = model_of(arena)
+    live_image = channel.loaded()
+    placed = placed_in(arena, live_image)
     c = compose.Composer(live_image)
     for path in IMAGE_CARRIERS:
         target = resolve_graph(live_image, path)
@@ -345,7 +363,7 @@ def test_the_image_writes_the_program_of_clamp_word_for_word(running, base: byte
                 "<12Q",
                 arena_at,
                 len(arena),  # R_ARENA, R_ARENA_SIZE
-                target,
+                placed[target],
                 4,  # R_TARGET, R_TARGET_KIND: the program of a SemanticGraph
                 out_at,
                 OUT_ROOM,  # R_OUT, R_OUT_CAPACITY
@@ -403,7 +421,8 @@ def test_the_image_writes_the_expression_of_a_function_word_for_word(running, ba
     out_at = value_at(channel, SELFEDIT_OUT)
 
     arena = channel.arena()
-    live_image = model_of(arena)
+    live_image = channel.loaded()
+    placed = placed_in(arena, live_image)
     c = compose.Composer(live_image)
     for path in EXPRESSION_CARRIERS:
         target = resolve_function(live_image, path)
@@ -414,7 +433,7 @@ def test_the_image_writes_the_expression_of_a_function_word_for_word(running, ba
                 "<12Q",
                 arena_at,
                 len(arena),  # R_ARENA, R_ARENA_SIZE
-                target,
+                placed[target],
                 1,  # R_TARGET, R_TARGET_KIND: the program of a Function (an Expression)
                 out_at,
                 OUT_ROOM,  # R_OUT, R_OUT_CAPACITY

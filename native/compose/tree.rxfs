@@ -1,50 +1,113 @@
 # The tree: reading the arena of the live image as the typed object tree the composer works on.
 #
-# The arena is RXFB v6 (the structs of src/pymergetic/rxftk/core/ground.h): a 192-byte header, a
-# directory of index chunks (4096 slots each, one cell offset per slot), and a stream of cells.
-# A cell is a 64-byte header (type, parent, payload size, name, flags, ref count), then its payload
-# aligned to 16, then its references (24 bytes each). A handle is a slot number; the index maps it
-# to the offset of its cell, or marks it free.
+# The arena is the v7 one (docs/32; the structs of src/pymergetic/rxftk/core/ground.h): a 4 KiB
+# superblock, then objects. An object is a 24-byte record (kind, generation, flags, name, parent,
+# next sibling, reference count, payload room) with its payload inline behind it. A handle is
+# (generation << 20) | index; the object index maps the index to the arena offset of the record and
+# a handle whose generation is not the entry's names nothing. What else an object says lives in
+# tables that are objects of the arena themselves: its name is a symbol id of sys/syms, its type and
+# flags are the row of sys/specs for its index, and its references are the rows of the table
+# sys/relations/<path> (the table is named after the path of the object).
 #
-# What is here is the reader the composer stands on: a handle to its cell, the name of a cell, and
+# What is here is the reader the composer stands on: a handle to its record and to its value, the
+# type, parent and name of an object, the children of a module, the references of an object and
 # the child of an object with a given name. Arguments come in the shared words g0..g2; the answers
 # are R (and R0..R2 where more). Every proc keeps its own scratch in the words the program
 # declares (compose.rxfs), so one proc may call another without its own state being disturbed.
 
-# ---- a handle to its cell ----------------------------------------------------------------------
-# g0: handle. R: the arena offset of the cell, or HANDLE_NONE when the slot is free or out of range.
-proc cell_of {
+# ---- a handle to its record ---------------------------------------------------------------------
+# g0: handle. R: the arena offset of the record, or HANDLE_NONE when the slot is free, the
+# generation is not the entry's, or the handle is out of range (a payload's none is all ones: it
+# is no handle either).
+proc rec_of {
     R = HANDLE_NONE;
-    if g0 < load64(work + W_HANDLES) {
-        t0 = g0 >> 12;                            # the index chunk
-        if t0 < load64(work + W_CHUNKS) {
-            t1 = g0 & (INDEX_CHUNK - 1);          # the slot in the chunk
-            t2 = arena_q(load64(work + W_INDEX_OFF) + (t0 << 3));   # the index block cell
-            t2 = arena_q(t2 + CELL_BYTES + (t1 << 3));              # the entry: a cell offset
-            if (t2 & 1) == 0 {
-                R = t2;
+    if g0 < 0x100000000 {
+        t0 = g0 & H_INDEX_MASK;                   # the index
+        if t0 < load64(work + W_HANDLES) {
+            t1 = IX_ENTRIES + (t0 << IX_ENTRY);   # its entry in the object index
+            t2 = arena_q(t1 + 8);                 # the record, 0 once the object is released
+            if t2 != 0 {
+                if ((arena_q(t1) >> 16) & H_GEN_MASK) == ((g0 >> H_GEN_SHIFT) & H_GEN_MASK) {
+                    R = t2;
+                }
             }
         }
     }
     ret;
 }
 
-# ---- the name of a cell ------------------------------------------------------------------------
-# g0: the arena offset of a cell. R: the arena offset of its NUL-terminated name, 0 when unnamed.
-# A cell that is not there (cell_of's HANDLE_NONE) carries no name; without this guard its name
-# offset would be read from a wrapped address and the compare would walk off the arena.
+# g0: an index of the object index. R: the handle that index carries now, or HANDLE_NONE when it is
+# released. A walk over all objects goes by index and names each by this handle.
+proc handle_at {
+    R = HANDLE_NONE;
+    if g0 < load64(work + W_HANDLES) {
+        t1 = IX_ENTRIES + (g0 << IX_ENTRY);
+        if arena_q(t1 + 8) != 0 {
+            R = (((arena_q(t1) >> 16) & H_GEN_MASK) << H_GEN_SHIFT) | g0;
+        }
+    }
+    ret;
+}
+
+# g0: handle. R: the cell of the value -- the address that has the first byte of the object's value
+# at R + CELL_BYTES (a module's value lies behind its chain head) -- or HANDLE_NONE.
+proc cell_of {
+    call rec_of;
+    if R != HANDLE_NONE {
+        if arena_h(R + OBJ_KIND) == OBJ_MODULE {
+            R = R + MODULE_HEAD;
+        }
+    }
+    ret;
+}
+
+# ---- what an object says about itself ----------------------------------------------------------
+# g0: handle. R: its type (the handle32 of its row in sys/specs), HANDLE_NONE when it is untyped or
+# no object.
+proc type_of {
+    call rec_of;
+    if R != HANDLE_NONE {
+        R = arena_d(spec_at(g0) + SP_TYPE);
+        if R == HANDLE32_NONE {
+            R = HANDLE_NONE;
+        }
+    }
+    ret;
+}
+
+# g0: handle. R: the handle of its parent, HANDLE_NONE for the root and for no object.
+proc parent_of {
+    call rec_of;
+    if R != HANDLE_NONE {
+        R = arena_d(R + OBJ_PARENT);
+        if R == HANDLE32_NONE {
+            R = HANDLE_NONE;
+        }
+    }
+    ret;
+}
+
+# g0: handle. R: the arena offset of its NUL-terminated name in sys/syms, 0 when it is anonymous or
+# no object (a name at offset 0 is no name: name_eq never matches it).
 proc name_of {
-    R = 0;
-    if g0 == HANDLE_NONE {
+    call rec_of;
+    if R == HANDLE_NONE {
+        R = 0;
         ret;
     }
-    R = arena_q(g0 + C_NAME);
+    t0 = arena_h(R + OBJ_NAME);                   # the symbol id
+    R = 0;
+    if t0 != 0 {
+        if t0 < arena_d(load64(work + W_SYMS)) {
+            R = load64(work + W_SYMS) + arena_d(load64(work + W_SYMS) + SY_OFFSETS + (t0 << 2));
+        }
+    }
     ret;
 }
 
 # g0: the arena offset of a name. g1: the address of the bytes to compare. g2: how many.
 # R: 1 when the name is exactly those bytes (same length, then a NUL), else 0. A name at offset 0
-# is no name (name_of's answer for a cell that carries none) and never matches.
+# is no name (name_of's answer for an object that carries none) and never matches.
 proc name_eq {
     R = 0;
     if g0 == 0 {
@@ -64,12 +127,42 @@ proc name_eq {
     ret;
 }
 
+# ---- the children of a module -------------------------------------------------------------------
+# A module's payload opens with the head of its children chain and each child's record names the
+# next sibling: the chain is the children in the order they were made, which is the order the
+# composer's children carry.
+# g0: handle. R: the handle of its first child, HANDLE32_NONE when it has none (or is no module).
+proc first_child {
+    call rec_of;
+    if R != HANDLE_NONE {
+        if arena_h(R + OBJ_KIND) == OBJ_MODULE {
+            R = arena_d(R + OBJ_HEADER);
+            ret;
+        }
+    }
+    R = HANDLE32_NONE;
+    ret;
+}
+
+# g0: handle. R: the handle of the next child of the same parent, HANDLE32_NONE at the end of the
+# chain.
+proc next_sibling {
+    call rec_of;
+    if R != HANDLE_NONE {
+        R = arena_d(R + OBJ_LINK);
+        ret;
+    }
+    R = HANDLE32_NONE;
+    ret;
+}
+
 # ---- the child of an object with a given name ---------------------------------------------------
 # g0: the handle of the parent. g1: the address of the name bytes. g2: how many.
 # R: the handle of the child whose name is those bytes, or HANDLE_NONE. The map at W_MAP answers
 # the names this request has answered already (words.rxfs): the hash of (parent, name) probes its
-# rows, a row of an older request answers nothing, and what the probe misses scans the index and
-# fills the row the probe ended on. So a name is walked once per request, not once per question.
+# rows, a row of an older request answers nothing, and what the probe misses walks the children of
+# the parent and fills the row the probe ended on. So a name is walked once per request, not once
+# per question.
 proc child_named {
     R = HANDLE_NONE;
     k0 = g0;                                  # the parent
@@ -109,35 +202,32 @@ proc child_named {
         }
     }
 
-    # what the probe missed: the scan of the index
+    # what the probe missed: the children of the parent, in chain order (at most as many as there
+    # are objects, so a damaged chain that runs round ends)
     k13 = HANDLE_NONE;
-    k3 = 0;
+    g0 = k0;
+    call first_child;
+    k3 = R;
     k4 = load64(work + W_HANDLES);
-    while k3 < k4 {
+    while (k3 != HANDLE32_NONE) & (k4 > 0) {
         g0 = k3;
-        call cell_of;                         # R = the cell of k3
-        if R != HANDLE_NONE {
-            k5 = R;
-            k6 = arena_q(k5 + C_TYPE) & KIND_MASK;
-            if k6 != KIND_BLOCK {
-                if k6 != KIND_DEAD {
-                    if arena_q(k5 + C_PARENT) == k0 {
-                        g0 = arena_q(k5 + C_NAME);
-                        g1 = k1;
-                        g2 = k2;
-                        call name_eq;
-                        if R == 1 {
-                            k13 = k3;
-                            k3 = k4;
-                        }
-                    }
-                }
-            }
+        call name_of;
+        g0 = R;
+        g1 = k1;
+        g2 = k2;
+        call name_eq;
+        if R == 1 {
+            k13 = k3;
+            k3 = HANDLE32_NONE;
+        } else {
+            g0 = k3;
+            call next_sibling;
+            k3 = R;
+            k4 = k4 - 1;
         }
-        k3 = k3 + 1;
     }
 
-    # the answer -- the child, or the none of a name no handle names -- is what the row holds. A map
+    # the answer -- the child, or the none of a name no child has -- is what the row holds. A map
     # whose rows are all live keeps the hash's own row (a name that is asked again finds it there)
     if k11 == HANDLE_NONE {
         k11 = work + W_MAP + ((k7 & (NMAP - 1)) * MAP_ROW);
@@ -150,46 +240,226 @@ proc child_named {
     ret;
 }
 
-# ---- the children of every parent ---------------------------------------------------------------
-# W_KHEAD[p] is the first child of the parent p, W_KNEXT[h] the next child of the same parent
-# (words.rxfs) -- the chains a gather walks instead of the arena. The children go in downward, so a
-# chain comes out in handle order. Built once a request at its first gather; what is too tall for
-# the arrays builds nothing and the gathers scan as before.
-proc kids_build {
-    m1 = load64(work + W_HANDLES);            # how many handles
-    if m1 > KID_MAX {
-        ret;
-    }
-    if (W_KHEAD + (m1 << 3)) > W_PLAN {
-        ret;
-    }
-    store64(work + W_KIDS_EPOCH, load64(work + W_MAP_EPOCH));
-    store64(work + W_KIDS_H, m1);
+# ---- the references of an object ----------------------------------------------------------------
+# The references of an object are the rows of the table sys/relations/<path of the object>. A
+# table is found by its name, which is that path: rels_build hashes the names of all tables once a
+# request and rels_of hashes the path of the object it is asked about.
 
-    # the chains start empty
-    m0 = 0;
-    while m0 < m1 {
-        store32(work + W_KHEAD + (m0 << 2), NONE32);
-        m0 = m0 + 1;
+# g0: the address of the bytes. g1: how many. R: the hash of the last RELH_TAIL of those bytes and
+# of how many there are. The names of the tables share their first segments, so the tail tells
+# them apart; a hash that two names share is told apart by the compare (name_eq) of the lookup.
+proc str_hash {
+    e0 = 5381 + g1;
+    e1 = 0;
+    if g1 > RELH_TAIL {
+        e1 = g1 - RELH_TAIL;
     }
+    while e1 < g1 {
+        e0 = xor64_(((e0 << 5) + e0), (load8(g0 + e1) & 0xFF));
+        e1 = e1 + 1;
+    }
+    R = e0;
+    ret;
+}
 
-    # the children, downward: the chain of a parent then walks in handle order
-    m0 = m1;
-    while m0 > 0 {
-        m0 = m0 - 1;
+# g0: handle. The path of the object -- its names below the root, joined with '.', an anonymous
+# object contributing none -- goes to W_PATH, NUL-terminated. R: its length, 0 when it has none (the
+# root, an object outside the tree, a path that does not fit).
+proc path_of {
+    # the segments, leaf first (name address, length)
+    m0 = g0;                                  # the object the walk stands on
+    m1 = 0;                                   # how many segments
+    e1 = 0;                                   # how many steps (a damaged tree that runs round ends)
+    while m0 != load64(work + W_ROOT) {
+        e1 = e1 + 1;
+        if e1 > NPSEG {
+            R = 0;
+            ret;
+        }
         g0 = m0;
-        call cell_of;
-        m2 = R;
-        if m2 != HANDLE_NONE {
-            if (arena_q(m2 + C_TYPE) & KIND_MASK) != KIND_DEAD {
-                m3 = arena_q(m2 + C_PARENT);
-                if m3 < KID_MAX {
-                    store32(work + W_KNEXT + (m0 << 2), load32(work + W_KHEAD + (m3 << 2)));
-                    store32(work + W_KHEAD + (m3 << 2), m0);
+        call name_of;
+        if R != 0 {
+            if m1 == NPSEG {
+                R = 0;
+                ret;
+            }
+            m2 = load64(work + W_ARENA) + R;  # the bytes of the name
+            m3 = 0;
+            while (load8(m2 + m3) & 0xFF) != 0 {
+                m3 = m3 + 1;
+            }
+            store64(work + W_PSEG + (m1 << 4), m2);
+            store64(work + W_PSEG + (m1 << 4) + 8, m3);
+            m1 = m1 + 1;
+        }
+        g0 = m0;
+        call parent_of;
+        m0 = R;
+        if m0 == HANDLE_NONE {
+            R = 0;
+            ret;
+        }
+    }
+
+    # the path, top segment first
+    e0 = 0;                                   # its length so far
+    while m1 > 0 {
+        m1 = m1 - 1;
+        m2 = load64(work + W_PSEG + (m1 << 4));
+        m3 = load64(work + W_PSEG + (m1 << 4) + 8);
+        if (e0 + m3 + 2) > PATH_MAX {
+            R = 0;
+            ret;
+        }
+        e1 = 0;
+        while e1 < m3 {
+            store8(work + W_PATH + e0 + e1, load8(m2 + e1) & 0xFF);
+            e1 = e1 + 1;
+        }
+        e0 = e0 + m3;
+        if m1 > 0 {
+            store8(work + W_PATH + e0, 0x2E);
+            e0 = e0 + 1;
+        }
+    }
+    store8(work + W_PATH + e0, 0);
+    R = e0;
+    ret;
+}
+
+# The rows of the index of the relation tables for this request: every child of sys/relations is
+# entered under the hash of its name (a table that would not fit the rows is not entered, and its
+# object has no references to the composer).
+proc rels_build {
+    store64(work + W_RELH_EPOCH, load64(work + W_MAP_EPOCH));
+    r0 = 0;
+    while r0 < (NRELH << 1) {
+        store64(work + W_RELH + (r0 << 3), 0);
+        r0 = r0 + 1;
+    }
+    r5 = 0;                                   # how many tables are entered
+    r6 = load64(work + W_HANDLES);            # the most the chain can have
+    g0 = load64(work + W_RELS);
+    call first_child;
+    r1 = R;
+    while (r1 != HANDLE32_NONE) & (r6 > 0) {
+        r6 = r6 - 1;
+        g0 = r1;
+        call rec_of;
+        r3 = arena_h(R + OBJ_NAME);           # the symbol id of the name of the table, a path
+        if (R != HANDLE_NONE) & (r3 != 0) & (r5 < RELH_FILL) & (r3 < arena_d(load64(work + W_SYMS))) {
+            r2 = load64(work + W_SYMS) + arena_d(load64(work + W_SYMS) + SY_OFFSETS + (r3 << 2));
+            # its length: the strings of sys/syms lie one behind the other, so it is the distance to
+            # the next one less the NUL -- unless the bytes say otherwise, then it is measured
+            r4 = 0;
+            if (r3 + 1) < arena_d(load64(work + W_SYMS)) {
+                r4 = load64(work + W_SYMS) + arena_d(load64(work + W_SYMS) + SY_OFFSETS + ((r3 + 1) << 2));
+                r4 = r4 - r2 - 1;
+                if r4 >= PATH_MAX {
+                    r4 = 0;
+                }
+                if r4 != 0 {
+                    if (arena_b(r2 + r4) != 0) | (arena_b(r2 + r4 - 1) == 0) {
+                        r4 = 0;
+                    }
+                }
+            }
+            if r4 == 0 {
+                while arena_b(r2 + r4) != 0 {
+                    r4 = r4 + 1;
+                }
+            }
+            g0 = load64(work + W_ARENA) + r2;
+            g1 = r4;
+            call str_hash;
+            r0 = R & (NRELH - 1);
+            while load64(work + W_RELH + (r0 << 4) + 8) != 0 {
+                r0 = (r0 + 1) & (NRELH - 1);
+            }
+            store64(work + W_RELH + (r0 << 4), R);
+            store64(work + W_RELH + (r0 << 4) + 8, r1 | (1 << 32));
+            r5 = r5 + 1;
+        }
+        g0 = r1;
+        call next_sibling;
+        r1 = R;
+    }
+    ret;
+}
+
+# g0: handle. R: the arena offset of the first reference row of the object, R0: how many rows it has
+# (0 and 0 when it has no table). A row is (target, role, kind/binding, index) of 24 bytes, the
+# rows end where the room does or at the first row of zeros (the padding of a slot).
+proc rels_of {
+    store64(work + W_RELH_EPOCH + 8, g0);
+    if load64(work + W_RELH_EPOCH) != load64(work + W_MAP_EPOCH) {
+        call rels_build;
+    }
+    g0 = load64(work + W_RELH_EPOCH + 8);
+    call path_of;
+    r1 = R;                                   # the length of the path
+    R0 = 0;
+    R = 0;
+    if r1 == 0 {
+        ret;
+    }
+    g0 = work + W_PATH;
+    g1 = r1;
+    call str_hash;
+    r2 = R;
+    r3 = r2 & (NRELH - 1);
+    r4 = HANDLE_NONE;                         # the table
+    while load64(work + W_RELH + (r3 << 4) + 8) != 0 {
+        if load64(work + W_RELH + (r3 << 4)) == r2 {
+            g0 = load64(work + W_RELH + (r3 << 4) + 8) & 0xFFFFFFFF;
+            call name_of;
+            g0 = R;
+            g1 = work + W_PATH;
+            g2 = r1;
+            call name_eq;
+            if R == 1 {
+                r4 = load64(work + W_RELH + (r3 << 4) + 8) & 0xFFFFFFFF;
+                break;
+            }
+        }
+        r3 = (r3 + 1) & (NRELH - 1);
+    }
+    R0 = 0;
+    R = 0;
+    if r4 == HANDLE_NONE {
+        ret;
+    }
+    g0 = r4;
+    call table_rows;
+    ret;
+}
+
+# g0: the handle of a relation table. R: the arena offset of its first row, R0: how many rows it
+# has (0 and 0 when it is no object). The rows end where the room does or at the first row of zeros
+# (the padding of a slot).
+proc table_rows {
+    R0 = 0;
+    call rec_of;
+    if R == HANDLE_NONE {
+        R = 0;
+        ret;
+    }
+    r5 = R + OBJ_HEADER;                      # the rows (a table is no module)
+    r6 = arena_d(R + OBJ_PAYLOAD);            # the room that is left
+    r7 = 0;                                   # the rows there are
+    while r6 >= REF_BYTES {
+        if arena_q(r5 + refs_of(r7) + R_TARGET_FIELD) == 0 {
+            if arena_q(r5 + refs_of(r7) + R_ROLE) == 0 {
+                if (arena_q(r5 + refs_of(r7) + R_KIND_INDEX) >> 32) == 0 {
+                    break;
                 }
             }
         }
+        r7 = r7 + 1;
+        r6 = r6 - REF_BYTES;
     }
+    R = r5;
+    R0 = r7;
     ret;
 }
 
@@ -197,33 +467,34 @@ proc kids_build {
 # g0: the handle of the object. g1: the handle of the Field that names the value.
 # R: the value -- the target handle when the field is a reference, else the number it holds. The
 # Field carries the byte offset in the payload and, for a reference, the flag that says so; a
-# scalar takes the size of its value type.
+# scalar takes the size of its value type. (Its scratch is the words of the hash: the two never
+# run inside one another.)
 proc read_value {
-    v0 = g0;                              # the object
-    v1 = g1;                              # the Field
-    g0 = v0;
+    h0 = g0;                              # the object
+    h1 = g1;                              # the Field
+    g0 = h0;
     call cell_of;
-    v2 = R;                               # the object cell
-    g0 = v1;
+    h2 = R;                               # the object cell
+    g0 = h1;
     call cell_of;
-    v3 = R;                               # the Field cell
-    v4 = arena_q(v3 + CELL_BYTES + F_OFFSET);   # the byte offset in the owner payload
-    v5 = arena_q(v3 + CELL_BYTES + F_FLAGS) & 0xFFFFFFFF;
-    if (v5 & FIELD_REF) != 0 {
-        R = arena_q(v2 + CELL_BYTES + v4);   # a reference: the target handle
+    h3 = R;                               # the Field cell
+    h4 = arena_q(h3 + CELL_BYTES + F_OFFSET);   # the byte offset in the owner payload
+    h5 = arena_q(h3 + CELL_BYTES + F_FLAGS) & 0xFFFFFFFF;
+    if (h5 & FIELD_REF) != 0 {
+        R = arena_q(h2 + CELL_BYTES + h4);   # a reference: the target handle
         ret;
     }
-    v6 = arena_q(v3 + CELL_BYTES + F_VALUE_TYPE);   # the type of the value
-    g0 = v6;
+    h6 = arena_q(h3 + CELL_BYTES + F_VALUE_TYPE);   # the type of the value
+    g0 = h6;
     call cell_of;
-    v7 = R;
-    v8 = arena_q(v7 + CELL_BYTES + T_SIZE);   # its size
-    v9 = arena_q(v2 + CELL_BYTES + v4);   # the raw bytes, read whole and masked
-    if v8 < 8 {
-        v10 = (1 << (v8 << 3)) - 1;
-        R = v9 & v10;
+    h7 = R;
+    h8 = arena_q(h7 + CELL_BYTES + T_SIZE);   # its size
+    h9 = arena_q(h2 + CELL_BYTES + h4);   # the raw bytes, read whole and masked
+    if h8 < 8 {
+        h10 = (1 << (h8 << 3)) - 1;
+        R = h9 & h10;
     } else {
-        R = v9;
+        R = h9;
     }
     ret;
 }

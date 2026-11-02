@@ -73,71 +73,29 @@ proc hash_k_init {
 
 # ---- the message: the path of a handle, padded to one block ------------------------------------
 # g0: the handle. The message lands at W_HMSG (8 words, each 8 message bytes with the earliest
-# byte in the high half). R: the length L of the path. The path is built top-to-leaf by gathering
-# the segments walking up (leaf first) and then emitting them back the other way, a '.' between.
+# byte in the high half). R: the length L of the path. The path is the one tree.rxfs path_of builds:
+# the names from the root down, a '.' between; a path that does not fit one block is refused.
 proc path_build {
+    # the path of the object (tree.rxfs path_of) lands at W_PATH; g0 still holds the handle
+    call path_of;
+    h7 = R;                        # the length of the path
+    if h7 > 55 {
+        refuse BAD_SOURCE;         # one block holds 55 bytes of message and the padding behind it
+    }
     # clear the message, so the padding of bytes past the path is already zero
     h0 = 0;
     while h0 < 8 {
         store64(work + W_HMSG + (h0 << 3), 0);
         h0 = h0 + 1;
     }
-    # gather the segments (name_off, name_len) walking up, leaf first
-    h0 = g0;                       # the handle we walk from
-    h1 = 0;                        # how many segments
-    h2 = 1;                        # still walking
-    while h2 == 1 {
-        if h0 == HANDLE_NONE {
-            h2 = 0;
-        }
-        if h2 == 1 {
-            if h0 == load64(work + W_ROOT) {
-                h2 = 0;            # the root's own name is not in the path
-            }
-        }
-        if h2 == 1 {
-            g0 = h0;
-            call cell_of;          # R: the cell of h0
-            if R == HANDLE_NONE {
-                h2 = 0;
-            }
-        }
-        if h2 == 1 {
-            h3 = R;                                     # the cell
-            h4 = arena_q(h3 + C_NAME);                  # the name offset in the arena
-            h5 = load64(work + W_ARENA) + h4;           # the name bytes
-            h6 = 0;                                     # the name length
-            while (load8(h5 + h6) & 0xFF) != 0 {
-                h6 = h6 + 1;
-            }
-            store64(work + W_HSEG + (h1 << 4), h4);     # name_off
-            store64(work + W_HSEG + (h1 << 4) + 8, h6); # name_len
-            h1 = h1 + 1;
-            h0 = arena_q(h3 + C_PARENT);                # walk up
-        }
-    }
-    # emit the path top-to-leaf: segment h1-1 first, a '.' before each lower one
-    h7 = 0;                        # the byte position in the message
-    h8 = h1;                       # the segment to emit next, from the top down
-    while h8 > 0 {
-        h8 = h8 - 1;
-        h4 = load64(work + W_HSEG + (h8 << 4));         # the name offset
-        h6 = load64(work + W_HSEG + (h8 << 4) + 8);     # the name length
-        h9 = 0;                    # the byte of the name
-        while h9 < h6 {
-            h10 = load8(load64(work + W_ARENA) + h4 + h9) & 0xFF;
-            h11 = load64(work + W_HMSG + ((h7 >> 3) << 3));
-            h12 = 56 - ((h7 & 7) << 3);
-            store64(work + W_HMSG + ((h7 >> 3) << 3), h11 | (h10 << h12));
-            h7 = h7 + 1;
-            h9 = h9 + 1;
-        }
-        if h8 > 0 {
-            h11 = load64(work + W_HMSG + ((h7 >> 3) << 3));
-            h12 = 56 - ((h7 & 7) << 3);
-            store64(work + W_HMSG + ((h7 >> 3) << 3), h11 | (0x2E << h12));
-            h7 = h7 + 1;
-        }
+    # the path, one byte at a time into its place in the words (the earliest byte in the high half)
+    h8 = 0;
+    while h8 < h7 {
+        h10 = load8(work + W_PATH + h8) & 0xFF;
+        h11 = load64(work + W_HMSG + ((h8 >> 3) << 3));
+        h12 = 56 - ((h8 & 7) << 3);
+        store64(work + W_HMSG + ((h8 >> 3) << 3), h11 | (h10 << h12));
+        h8 = h8 + 1;
     }
     # pad: 0x80 right after the path, then the length in bits, big-endian, in the last word
     h11 = load64(work + W_HMSG + ((h7 >> 3) << 3));

@@ -18,12 +18,15 @@ import functools
 import hashlib
 import struct
 from pathlib import Path
+from typing import NamedTuple
 
+import arena_export
 import compose
 import pytest
 import rxfc
 
 from pymergetic.rxftk.core import tree
+from pymergetic.rxftk.core.arena import ObjectArena
 
 from . import rxf_native
 from .snippets import STARTER
@@ -42,47 +45,36 @@ WORK_CAPACITY = 0x90000
 LIMIT = 800_000_000
 
 
-def arena_cells(arena: bytes) -> list[int]:
-    """The cell offset of every handle of a v6 arena (``RXFB`` 6), or -1 for a free slot.
+class Arena(NamedTuple):
+    """The v7 arena of a model (docs/32): its bytes, and where each object of the model lies in it
+    (model handle -> arena handle, the handle the composer is asked about and answers in)."""
 
-    The v6 read, and the only one left in this tree: this corpus runs the in-image
-    composer on the world's own arena and holds its descriptor to this walk. The
-    linked image carries the v7 arena now (docs/32); when the composer cuts over
-    (docs/31, wave 7) this walk dies with the format it reads.
-    """
-    cell_bytes, chunk_handles = 64, 4096
-    index_off, _ = struct.unpack_from("<QQ", arena, 48)
-    chunks, handles = struct.unpack_from("<QQ", arena, 80)
-    directory = struct.unpack_from(f"<{chunks}Q", arena, index_off)
-    found: list[int] = []
-    for handle in range(handles):
-        chunk, slot = divmod(handle, chunk_handles)
-        (entry,) = struct.unpack_from(
-            "<Q", arena, directory[chunk] + cell_bytes + 8 * slot
-        )
-        found.append(-1 if entry & 1 else entry)
-    return found
+    data: bytes
+    handles: dict[int, int]
 
 
-def cell_of_arena(arena: bytes, handle: int) -> dict:
-    """The raw cell of a handle: what the in-image reader walks the arena to."""
-    cells = arena_cells(arena)
-    off = cells[handle]
-    type_h, parent, payload_size, _gen, name_off, flags, ref_count, _fwd, _idx, _rsv = (
-        struct.unpack_from("<QQQQQIIQII", arena, off)
-    )
-    refs_off = off + 64 + ((payload_size + 15) & ~15)
-    refs = [
-        struct.unpack_from("<QQ", arena, refs_off + 24 * i) for i in range(ref_count)
-    ]
+def arena_of(model) -> Arena:
+    """The canonical arena the linker places for a model (``arena_export.place_world``)."""
+    made, placed = arena_export.place_world(model)
+    return Arena(made.to_bytes(), dict(placed))
+
+
+def cell_of_arena(arena: Arena, handle: int) -> dict:
+    """The world cell of a handle as the arena holds it (docs/32 5.3): its record, its row of
+    sys/specs and the rows of its relation table -- what the in-image reader walks the arena to."""
+    book = ObjectArena.attach(arena.data)
+    placed = arena.handles[handle]
+    _kind, _gen, _flags, name, parent, _link, _refs, payload_size = book.load(placed)
+    type_h, flags, _index, _generation = book.spec(placed)
+    rows = book.refs_of(placed)
     return {
         "type": type_h,
         "parent": parent,
-        "name_off": name_off,
+        "name_off": name,
         "payload_size": payload_size,
-        "flags_word": flags | (ref_count << 32),
-        "ref_count": ref_count,
-        "refs": refs,
+        "flags_word": flags | (len(rows) << 32),
+        "ref_count": len(rows),
+        "refs": [(target, role) for target, role, _kind2, _binding, _index2 in rows],
     }
 
 
@@ -115,17 +107,21 @@ def starter():
 
 
 @pytest.fixture(scope="module")
-def arena(starter) -> bytes:
-    return starter.to_bytes()
+def arena(starter) -> Arena:
+    return arena_of(starter)
 
 
 def run_compose(
-    program: bytes, arena: bytes, target: int, kind: int = 0
+    program: bytes, arena: Arena, target: int, kind: int = 0
 ) -> tuple[int, list[int]]:
-    """Run the in-image composer on a handle of the arena: (status, the words it wrote)."""
+    """Run the in-image composer on an object of the model, named by its arena handle:
+    (status, the words it wrote)."""
     memory = rxf_native.Memory(OUT_AT + OUT_CAPACITY)
-    memory.write(ARENA_AT, arena)
-    memory.write(REQUEST_AT, make_request(memory.at, len(arena), target, kind))
+    memory.write(ARENA_AT, arena.data)
+    memory.write(
+        REQUEST_AT,
+        make_request(memory.at, len(arena.data), arena.handles[target], kind),
+    )
     status, _ = rxf_native.run(
         program, struct.pack("<2Q", 0, memory.at(REQUEST_AT)), memory, limit=LIMIT
     )
@@ -179,7 +175,7 @@ def test_the_in_image_reader_reads_the_ground_the_host_composer_reads(program, s
         decoded = words[6 + 2 * expected["ref_count"] :]
         c = compose.Composer(starter)
         fields = c.fields(target)
-        assert decoded[0] == c.target(fields["entry_block"]), starter.path(target)
+        assert decoded[0] == arena.handles[c.target(fields["entry_block"])], starter.path(target)
         assert decoded[1] == int(fields["block_count"]), starter.path(target)
 
 
@@ -194,7 +190,7 @@ def test_the_in_image_reader_agrees_with_the_host_composer_on_the_entry_blocks(
         assert status == 0
         ref_count = cell_of_arena(arena, target)["ref_count"]
         decoded = words[6 + 2 * ref_count :]
-        assert decoded[0] == c.target(c.fields(target)["entry_block"])
+        assert decoded[0] == arena.handles[c.target(c.fields(target)["entry_block"])]
 
 
 def test_the_object_id_is_the_sha256_of_the_path(program, starter, arena):
@@ -243,13 +239,13 @@ def test_the_in_image_plan_places_the_values_and_orders_the_blocks(program, star
         handle, slot, width = words[2 + 3 * i : 5 + 3 * i]
         placed[handle] = (slot, width)
     for handle, value in plan.values.items():
-        assert handle in placed, starter.path(handle)
-        assert placed[handle] == (value.slot, value.width), starter.path(handle)
+        assert arena.handles[handle] in placed, starter.path(handle)
+        assert placed[arena.handles[handle]] == (value.slot, value.width), starter.path(handle)
 
     # the blocks in order
     nblocks = words[2 + 3 * nvalues]
     order = words[3 + 3 * nvalues : 3 + 3 * nvalues + nblocks]
-    assert order == list(plan.blocks)
+    assert order == [arena.handles[block] for block in plan.blocks]
 
 
 @pytest.mark.slow
@@ -297,7 +293,7 @@ def test_the_in_image_plan_writes_the_marked_inputs_word_for_word(
     after = compose.programs(patched)
     changed = {name for name in after if after[name] != before[name]}
     assert bool(changed) == (variant != "handle"), (variant, sorted(changed))
-    arena = patched.to_bytes()
+    arena = arena_of(patched)
     c = compose.Composer(patched)
     graphs = [
         h
