@@ -6,7 +6,7 @@
 # constant word the glue passed, and the seat's Uart capability emits:
 #
 #     RXFOK
-#     rxf result 00000000 0000004b4f584652
+#     rxf result 00000000 0000004b4f465852
 #
 # which the host asserts byte for byte.  The coarse exit agrees: the x86_64
 # seats answer on the magic port (QEMU isa-debug-exit: exit code 33), the
@@ -53,13 +53,16 @@ seat() {
     fi
 }
 
-echo "== x86_64 BIOS (disk boot: sector -> stage2 -> long mode -> image) =="
+echo "== x86_64 BIOS (disk boot: sector -> stage2 -> long mode -> the linked v7 image) =="
 if command -v qemu-system-x86_64 >/dev/null 2>&1; then
     # 33 = (MAGIC_OK 0x10 << 1) | 1: the guest's magic-port answer.
     # kvm first, tcg second (the guest is our own kernel either way).
+    # -m: the packed image (the starter's v7 arena, world_v7.h) sits at
+    # 0x4000000 and runs to tens of megabytes -- the machine is sized past it.
     seat "x86_64-bios" "$LOG.x86" 33 \
         qemu-system-x86_64 -machine pc \
         -accel kvm -accel tcg \
+        -m 256M \
         -drive format=raw,file=build/disk.img \
         -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
         -serial stdio -display none
@@ -85,7 +88,7 @@ fi
 echo "== wasm32 (node host: map -> handle copy -> run -> FIFO drain) =="
 if command -v node >/dev/null 2>&1; then
     seat "wasm32-node" "$LOG.wasm" 0 \
-        node wasm_shim.js build/rxf_boot.wasm build/image_wasm32.bin
+        node wasm_shim.js build/rxf_boot.wasm build/image_wasm32.bin build/rxf_leaves.wasm
 else
     echo "wasm32-node: SKIP (node not installed)"
 fi
@@ -93,9 +96,14 @@ fi
 echo "== x86_64 UEFI (OVMF, PE stub, EFI file protocol) =="
 if command -v qemu-system-x86_64 >/dev/null 2>&1 && [ -f /usr/share/OVMF/OVMF_CODE_4M.fd ]; then
     # kvm first, tcg second (the guest is our own kernel either way).
+    # -m: the firmware keeps rooms of its own (its own allocations sit around
+    # and below 16 MiB, its volumes at the top), so the machine is sized past
+    # the map's block at 0x4000000 -- 512M, the size tests/test_boot_qemu.py
+    # proved for that room.
     seat "x86_64-uefi" "$LOG.uefi" 33 \
         qemu-system-x86_64 -machine q35 \
         -accel kvm -accel tcg \
+        -m 512M \
         -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
         -drive format=raw,file=fat:rw:build/uefi_root \
         -device isa-debug-exit,iobase=0xf4,iosize=0x04 \

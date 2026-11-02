@@ -13,14 +13,50 @@
 # status, no store through out): the run's value is written through the `out` parameter
 # itself by OP_RETURN, exactly as the C writes it.
 #
+# The operand kinds are four: SLOT 0, LITERAL 1, OBJECT 2 and HANDLE 3 (docs/23 4.9). A HANDLE is
+# the frame offset of a 24-byte handle (id, generation, offset) that m_locate resolves at each use,
+# in the instruction that uses it -- never cached, never written to a slot (S7, S8).
+#
 # The state mirrors rxf_graph (graph.c:37): code/count/frame/frame_bytes/depth as
-# words, the run cell `cell[8192]` and the frames of the chain `frames[704]` (8 frame
+# words, the run cell `cell[32768]` and the frames of the chain `frames[1408]` (16 frame
 # links of 11 words, rxf_call_frame of graph.c:21) as regions. The frames are the run's
 # own state -- no raw pointer outlives a step (S7).
 #
 # The helpers and the main loop carry the C line they mirror; where the C has a quirk
 # (the order of two checks, a width's cap at 8 bytes), the quirk is kept: the C is the
 # spec, and tests/graph_reference.py is the oracle.
+
+# ---- the machine budget (native/graph.h, docs/23 4.9 step 8) --------------------------------------
+# The run cell is RXF_GRAPH_CELL_BYTES bytes and the call chain RXF_GRAPH_CALL_DEPTH links
+# deep, one link being 11 words (88 bytes, rxf_call_frame of graph.c:21), so the links are
+# m_call_depth() * m_link_bytes() = 1408 bytes. The header is the number the C side compiles
+# with; these macros are the same budget inside the language, and tests/graph_programs.py
+# pins the two together by the refusals it provokes. A `var` size takes one token (no
+# arithmetic), so the frames region names its folded size.
+macro m_cell_bytes() = 32768;
+macro m_call_depth() = 16;
+macro m_link_bytes() = 88;
+macro m_frames_bytes() = 1408;
+
+# ---- the value words (native/graph.h: RXF_WORD_NONE) ---------------------------------------------
+# The None word: bit 62 set and no other -- the word an absent argument binds and `is`
+# compares against. An int word has its bits 63 and 62 the same (the sign-extended 63-bit
+# range), so no int word is it.
+macro m_word_none() = 4611686018427387904;
+
+# none_fill(): the words of a parameter whose argument is absent are the None word. A
+# width that is not a whole number of words refuses 6 (the None word is never cut).
+macro m_none_fill(pd, pw) {
+  ok = 0;
+  if (((pw) & 7) == 0) {
+    ok = 1;
+    none_i = 0;
+    while (none_i < (pw)) {
+      store64((pd) + none_i, m_word_none());
+      none_i = none_i + 8;
+    }
+  }
+}
 
 # ---- words of the program: g->code ----------------------------------------------------------------
 
@@ -142,15 +178,54 @@ macro m_locate(pow, pneed) {
       loc_where = code + 8 * (loc_ow + 1);
     }
   }
+  loc_search = 0;
   if (loc_kind == 2) {
-    m_entry(load64(code + 8 * (loc_ow + 1)));
-    if (ent == 0) {
-      loc_status = 13;
+    loc_id = load64(code + 8 * (loc_ow + 1));
+    loc_search = 1;
+  }
+  if (loc_kind == 3) {
+    # HANDLE (docs/23 4.9): the handle lies in the frame and is resolved NOW, by the
+    # instruction that uses it -- the same halving search as OBJECT, never cached.
+    loc_a = load64(code + 8 * (loc_ow + 1));
+    m_in_frame(loc_a, 24);
+    if (ok != 0) {
+      loc_id = load64(frame + loc_a);
+      loc_hoff = load64(frame + loc_a + 16);
+      loc_search = 1;
     }
-    if (ent != 0) {
-      if (loc_need <= load64(ent + 32)) {
-        loc_status = 0;
-        loc_where = load64(ent + 24);
+  }
+  if (loc_search != 0) {
+    m_entry(loc_id);
+    if (loc_kind == 2) {
+      if (ent == 0) {
+        loc_status = 13;
+      }
+      if (ent != 0) {
+        if (loc_need <= load64(ent + 32)) {
+          loc_status = 0;
+          loc_where = load64(ent + 24);
+        }
+      }
+    }
+    if (loc_kind == 3) {
+      loc_status = 13;
+      if (ent != 0) {
+        # the generation is checked (12, never rebound to a reused row), the row must be LIVE
+        # (13: a PENDING row is not readable here), the offset and `need` bytes must lie in its
+        # size (6)
+        loc_status = 12;
+        if (load64(ent + 8) == load64(frame + loc_a + 8)) {
+          loc_status = 13;
+          if (load64(ent + 48) == 1) {
+            loc_status = 6;
+            if (loc_hoff <= load64(ent + 32)) {
+              if (loc_need <= load64(ent + 32) - loc_hoff) {
+                loc_status = 0;
+                loc_where = load64(ent + 24) + loc_hoff;
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -163,11 +238,6 @@ macro m_load(pow) {
   ld_value = 0;
   ld_kind = load64(code + 8 * ld_ow);
   ld_b = load64(code + 8 * (ld_ow + 2));
-  if (ld_kind == 2) {
-    m_locate(ld_ow, 0);
-    ld_status = loc_status;
-    ld_value = loc_where;
-  }
   if (ld_kind == 1) {
     ld_value = load64(code + 8 * (ld_ow + 1));
     ld_status = 6;
@@ -175,18 +245,29 @@ macro m_load(pow) {
       ld_status = 0;
     }
   }
-  if (ld_kind != 2) {
-    if (ld_kind != 1) {
-      ld_need = 8;
-      if (ld_b < 8) {
-        ld_need = ld_b;
+  if (ld_kind != 1) {
+    # an object, or a handle resolved at this use, is the address its payload is at (the
+    # `need` is nothing: the leaf or the reader that gets the address bounds what it touches);
+    # a slot is read for as many bytes as it denotes, at most 8
+    ld_need = 0;
+    if (ld_kind != 2) {
+      if (ld_kind != 3) {
+        ld_need = 8;
+        if (ld_b < 8) {
+          ld_need = ld_b;
+        }
       }
-      m_locate(ld_ow, ld_need);
-      ld_status = loc_status;
-      ld_value = 0;
-      if (loc_status == 0) {
-        m_read_bytes(loc_where, ld_b);
-        ld_value = rb_value;
+    }
+    m_locate(ld_ow, ld_need);
+    ld_status = loc_status;
+    ld_value = 0;
+    if (loc_status == 0) {
+      ld_value = loc_where;
+      if (ld_kind != 2) {
+        if (ld_kind != 3) {
+          m_read_bytes(loc_where, ld_b);
+          ld_value = rb_value;
+        }
       }
     }
   }
@@ -445,8 +526,8 @@ macro m_rebind() {
     rd_d = rd_d + 1;
   }
   if (rd_status == 0) {
-    code = load64(frames + depth * 88 + 24);
-    count = load64(frames + depth * 88 + 32);
+    code = load64(frames + depth * m_link_bytes() + 24);
+    count = load64(frames + depth * m_link_bytes() + 32);
   }
 }
 
@@ -464,7 +545,7 @@ macro m_answer(presult, phas, pbytes, pw) {
   an_width = (pw);
   an_status = 0;
   an_next = 0;
-  an_top = frames + depth * 88;
+  an_top = frames + depth * m_link_bytes();
   an_caller = frames + (depth - 1) * 88;
   an_frame = cell + load64(an_caller + 40);
   an_out_slot = load64(an_top + 64);
@@ -543,7 +624,7 @@ macro m_call_program(pat) {
     cp_status = 6;
   }
   if (cp_status == 0) {
-    if (depth + 1 >= 8) {
+    if (depth + 1 >= m_call_depth()) {
       cp_status = 17;
     }
   }
@@ -600,12 +681,12 @@ macro m_call_program(pat) {
       }
     }
     if (cp_status == 0) {
-      cp_base = load64(frames + depth * 88 + 40) + load64(frames + depth * 88 + 48);
-      if (cp_base > 8192) {
+      cp_base = load64(frames + depth * m_link_bytes() + 40) + load64(frames + depth * m_link_bytes() + 48);
+      if (cp_base > m_cell_bytes()) {
         cp_status = 18;
       }
       if (cp_status == 0) {
-        if (cp_fb > 8192 - cp_base) {
+        if (cp_fb > m_cell_bytes() - cp_base) {
           cp_status = 18;
         }
       }
@@ -634,6 +715,15 @@ macro m_call_program(pat) {
           if (cp_b < cp_width) {
             cp_present = cp_b;
           }
+          # a 24-byte parameter is a handle taken by value: no HANDLE operand in its place
+          if (cp_width == 24) {
+            if (load64(code + 8 * cp_ow) == 3) {
+              cp_status = 6;
+              cp_stop = 1;
+            }
+          }
+        }
+        if (cp_stop == 0) {
           m_locate(cp_ow, cp_present);
           cp_status = loc_status;
           if (loc_status != 0) {
@@ -663,8 +753,8 @@ macro m_call_program(pat) {
       store64(cp_frame + 72, cp_out_width);
       store64(cp_frame + 80, load64(code + 8 * (cp_at + 5)));
       depth = depth + 1;
-      code = load64(frames + depth * 88 + 24);
-      count = load64(frames + depth * 88 + 32);
+      code = load64(frames + depth * m_link_bytes() + 24);
+      count = load64(frames + depth * m_link_bytes() + 32);
       frame = cp_dst;
       frame_bytes = cp_fb;
       cp_next = cp_entry_pc;
@@ -699,6 +789,7 @@ macro m_shape_of(pid) {
   if (so_id == 7) { shape = 4; }
   if (so_id == 8) { shape = 4; }
   if (so_id == 9) { shape = 5; }
+  if (so_id == 50) { shape = 5; }
   if (so_id == 10) { shape = 6; }
   if (so_id == 11) { shape = 6; }
   if (so_id == 21) { shape = 6; }
@@ -708,6 +799,7 @@ macro m_shape_of(pid) {
   if (so_id == 12) { shape = 7; }
   if (so_id == 13) { shape = 7; }
   if (so_id == 14) { shape = 8; }
+  if (so_id == 51) { shape = 8; }
   if (so_id == 15) { shape = 8; }
   if (so_id == 18) { shape = 9; }
   if (so_id == 17) { shape = 10; }
@@ -814,6 +906,12 @@ macro m_call_leaf(pat) {
           if (loc_status != 0) {
             cl_stop = 1;
           }
+          # a handle is taken by value: a HANDLE operand here is a dereference where a value
+          # is meant (graph.h)
+          if (load64(code + 8 * cl_ow) == 3) {
+            cl_status = 6;
+            cl_stop = 1;
+          }
           if (cl_stop == 0) {
             if (cl_i == 0) {
               h0_id = load64(loc_where);
@@ -913,13 +1011,13 @@ macro m_call_leaf(pat) {
 
 fn graph_run(c, h_id, h_gen, h_off, args, argc, out) {
   var code, count, frame, frame_bytes, depth;
-  var cell[8192], staged[256], frames[704], sv[16];
+  var cell[m_cell_bytes()], staged[256], frames[m_frames_bytes()], sv[16];
   var ok, ent, ent_lo, ent_hi, ent_mi, ent_id;
   var rb_addr, rb_width, rb_value, rb_i;
   var wb_addr, wb_width, wb_value, wb_i;
   var cb_dst, cb_src, cb_n, cb_i;
   var zb_dst, zb_n, zb_i;
-  var loc_ow, loc_need, loc_status, loc_where, loc_kind, loc_a;
+  var loc_ow, loc_need, loc_status, loc_where, loc_kind, loc_a, loc_hoff, loc_id, loc_search;
   var ld_ow, ld_status, ld_value, ld_kind, ld_b, ld_need;
   var ptr_kind, ptr_b, ptr_status, ptr_value;
   var st_slot, st_width, st_off, st_status, st_from;
@@ -935,7 +1033,7 @@ fn graph_run(c, h_id, h_gen, h_off, args, argc, out) {
   var so_id, shape, lay_n, lay_handles, lay_has_out;
   var v0, v1, v2, v3, v4, v5, h0_id, h0_gen, h0_off, h2_id, h2_gen, h2_off;
   var op, status, next, value, left, params, argwords, pc, used, ret_width, ret_at_depth;
-  var bind_i, bind_stop, bind_slot, bind_width;
+  var bind_i, bind_stop, bind_slot, bind_width, bind_have, none_i;
   var map_i, map_stop, map_found;
   var sw_i, sw_value, sw_chosen, sw_at;
   var branch_zero, branch_taken;
@@ -992,7 +1090,7 @@ fn graph_run(c, h_id, h_gen, h_off, args, argc, out) {
   pc = load64(code + 32);
   status = 6;
   if ((frame_bytes & 7) == 0) {
-    if (argwords == argc) {
+    if (argc <= argwords) {
       if (params <= count) {
         m_have(5, params * 2);
         if (ok != 0) {
@@ -1002,10 +1100,15 @@ fn graph_run(c, h_id, h_gen, h_off, args, argc, out) {
     }
   }
   if (status != 0) { refuse status; }
-  if (frame_bytes > 8192) { refuse 18; }
+  if (frame_bytes > m_cell_bytes()) { refuse 18; }
   m_zero_bytes(cell, frame_bytes);
 
-  # the entry's parameters bound from the arguments (graph.c:596).
+  # the entry's parameters bound from the arguments (graph.c:596). The words the arguments
+  # do not reach are the None word (native/graph.h, RXF_WORD_NONE): argc may be below the
+  # argument words the program declares, and the words of a parameter past argc are its
+  # `= None` default -- the same word a caller passes explicitly. A parameter whose width
+  # is not a whole number of words refuses 6 where its argument is absent: the None word
+  # is a frame word and is never cut.
   used = 0;
   bind_i = 0;
   bind_stop = 0;
@@ -1027,7 +1130,31 @@ fn graph_run(c, h_id, h_gen, h_off, args, argc, out) {
       }
     }
     if (bind_stop == 0) {
-      m_copy_bytes(cell + bind_slot, args + used, bind_width);
+      bind_have = 0;
+      if (argc * 8 > used) {
+        bind_have = argc * 8 - used;
+        if (bind_have > bind_width) {
+          bind_have = bind_width;
+        }
+      }
+      if (bind_have < bind_width) {
+        if ((bind_width & 7) != 0) {
+          status = 6;
+          bind_stop = 1;
+        }
+      }
+    }
+    if (bind_stop == 0) {
+      if (bind_have != 0) {
+        m_copy_bytes(cell + bind_slot, args + used, bind_have);
+      }
+      if (bind_have < bind_width) {
+        m_none_fill(cell + bind_slot + bind_have, bind_width - bind_have);
+        if (ok == 0) {
+          status = 6;
+          bind_stop = 1;
+        }
+      }
       used = used + ((bind_width + 7) & ~7);
     }
     bind_i = bind_i + 1;

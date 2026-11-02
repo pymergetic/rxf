@@ -1733,6 +1733,8 @@ static int nsubs;
 static int in_sub;
 static int sub_index(const char *name);
 static void sub_mark_used(size_t from, size_t to);
+#define SEED_MAX_DECLS 65536
+
 static void sub_scan_decls(size_t from, size_t to, seed_decl *decls, int *ndecls);
 static void sub_emit_used(size_t from, size_t to);
 
@@ -1840,7 +1842,10 @@ static struct { char name[40]; size_t offset, wstart, wsize; } ftab[64];
 static int nfns;
 
 /* parse `fn NAME(params) { ... }` and emit the whole function at the current position. */
+static void sub_register_all(void);
+
 static void fn_def(void) {
+    sub_register_all(); /* a sub may be defined later in the file than its callers */
     if (nfns >= (int)(sizeof ftab / sizeof ftab[0])) {
         fprintf(stderr, "too many fns in one module\n");
         exit(2);
@@ -1864,7 +1869,9 @@ static void fn_def(void) {
      * allocate the whole frame, and statement parsing re-adds them to the same slots. The
      * scalars take the first slots and the regions the space after them (so a region never
      * pushes a scalar's slot past what the wasm32 locals cover). */
-    seed_decl decls[8192];
+    /* A function's declarations, after macro expansion. The table is static and not
+     * on the stack: the pump's bootstrap inlines enough words to want the room. */
+    static seed_decl decls[SEED_MAX_DECLS];
     int ndecls = 0;
     size_t body_end = cur;
     for (int i = cur, depth = 0; toks[i].kind != TK_EOF; i++) {
@@ -1876,7 +1883,7 @@ static void fn_def(void) {
             for (i++; toks[i].kind != TK_EOF; i++) {
                 if (toks[i].kind == TK_OP && toks[i].text[0] == ';') break;
                 if (toks[i].kind == TK_NAME) {
-                    if (ndecls >= 8192) { fprintf(stderr, "too many declarations\n"); exit(2); }
+                    if (ndecls >= SEED_MAX_DECLS) { fprintf(stderr, "too many declarations\n"); exit(2); }
                     const char *name = toks[i].text;
                     int bytes = 8, region = 0;   /* `name[9152]` is a region of that many frame bytes */
                     if (toks[i + 1].kind == TK_OP && toks[i + 1].text[0] == '[' &&
@@ -1901,7 +1908,7 @@ static void fn_def(void) {
     for (int s = 0; s < nsubs; s++)
         if (stab[s].used || stab[s].spliced) {
             for (int k = 0; k < stab[s].nparams; k++) {
-                if (ndecls >= 8192) { fprintf(stderr, "too many declarations\n"); exit(2); }
+                if (ndecls >= SEED_MAX_DECLS) { fprintf(stderr, "too many declarations\n"); exit(2); }
                 decls[ndecls].name = stab[s].params[k];
                 decls[ndecls].bytes = 8;
                 ndecls++;
@@ -1966,6 +1973,47 @@ static int sub_index(const char *name) {
     return -1;
 }
 
+/* Every sub's signature is registered before any body is compiled, so one sub may
+ * call another that the file defines later. Without this the walk resolves a
+ * `callsub` against whatever it has seen so far, and the order of the file would
+ * be part of the language. */
+static void sub_register_all(void) {
+    for (int i = 0; i + 2 < ntoks; i++) {
+        if (toks[i].kind != TK_NAME || strcmp(toks[i].text, "sub")) continue;
+        if (toks[i + 1].kind != TK_NAME) continue;
+        if (sub_index(toks[i + 1].text) >= 0) continue;
+        int j = i + 2;
+        if (!(toks[j].kind == TK_OP && toks[j].text[0] == '(')) continue;
+        if (nsubs >= (int)(sizeof stab / sizeof stab[0])) {
+            fprintf(stderr, "too many subs in one module\n");
+            exit(2);
+        }
+        snprintf(stab[nsubs].name, sizeof stab[nsubs].name, "%s", toks[i + 1].text);
+        stab[nsubs].nparams = 0;
+        j++;
+        if (!(toks[j].kind == TK_OP && toks[j].text[0] == ')')) {
+            for (;;) {
+                if (toks[j].kind != TK_NAME) break;
+                if (stab[nsubs].nparams >= 8) { fprintf(stderr, "a sub takes 8 arguments\n"); exit(2); }
+                snprintf(stab[nsubs].params[stab[nsubs].nparams],
+                         sizeof stab[nsubs].params[0], "%s", toks[j].text);
+                stab[nsubs].nparams++;
+                j++;
+                if (toks[j].kind == TK_OP && toks[j].text[0] == ',') { j++; continue; }
+                break;
+            }
+        }
+        if (!(toks[j].kind == TK_OP && toks[j].text[0] == ')')) continue;
+        j++;
+        while (j < ntoks && !(toks[j].kind == TK_OP && toks[j].text[0] == '{')) j++;
+        stab[nsubs].start = j;
+        stab[nsubs].nfix = 0;
+        stab[nsubs].used = 0;
+        stab[nsubs].spliced = 0;
+        nsubs++;
+    }
+}
+
 /* `sub NAME() { ... }` at cur: record its body's token range and walk over it. */
 static void sub_record(void) {
     if (nsubs >= (int)(sizeof stab / sizeof stab[0])) {
@@ -1973,24 +2021,28 @@ static void sub_record(void) {
         exit(2);
     }
     cur++;                                        /* the `sub` keyword */
-    snprintf(stab[nsubs].name, sizeof stab[nsubs].name, "%s", toks[cur].text);
+    int slot = sub_index(toks[cur].text);
+    if (slot < 0) slot = nsubs;
+    if (slot == nsubs) {
+        snprintf(stab[slot].name, sizeof stab[slot].name, "%s", toks[cur].text);
+    }
     cur++;
     expect("(");
-    stab[nsubs].nparams = 0;
+    stab[slot].nparams = 0;
     if (!peek_is(")")) {
         do {
-            if (stab[nsubs].nparams >= 8) { fprintf(stderr, "a sub takes 8 arguments\n"); exit(2); }
-            snprintf(stab[nsubs].params[stab[nsubs].nparams],
-                     sizeof stab[nsubs].params[0], "%s", toks[cur].text);
-            stab[nsubs].nparams++;
+            if (stab[slot].nparams >= 8) { fprintf(stderr, "a sub takes 8 arguments\n"); exit(2); }
+            snprintf(stab[slot].params[stab[slot].nparams],
+                     sizeof stab[slot].params[0], "%s", toks[cur].text);
+            stab[slot].nparams++;
             cur++;
         } while (take(","));
     }
     expect(")");
-    stab[nsubs].start = cur;                      /* the `{` of the body */
-    stab[nsubs].nfix = 0;
-    stab[nsubs].used = 0;
-    stab[nsubs].spliced = 0;
+    stab[slot].start = cur;                      /* the `{` of the body */
+    stab[slot].nfix = 0;
+    stab[slot].used = 0;
+    stab[slot].spliced = 0;
     int depth = 0;
     while (toks[cur].kind != TK_EOF) {
         if (toks[cur].kind == TK_OP && toks[cur].text[0] == '{') depth++;
@@ -1999,8 +2051,8 @@ static void sub_record(void) {
         }
         cur++;
     }
-    stab[nsubs].end = cur;
-    nsubs++;
+    stab[slot].end = cur;
+    if (slot == nsubs) nsubs++;
 }
 
 /* Every `sub` of the module, before anything is parsed: the call sites and the frame's decls
@@ -2044,7 +2096,7 @@ static void sub_scan_decls(size_t from, size_t to, seed_decl *decls, int *ndecls
         for (i++; i < to; i++) {
             if (toks[i].kind == TK_OP && toks[i].text[0] == ';') break;
             if (toks[i].kind != TK_NAME) continue;
-            if (*ndecls >= 8192) { fprintf(stderr, "too many declarations\n"); exit(2); }
+            if (*ndecls >= SEED_MAX_DECLS) { fprintf(stderr, "too many declarations\n"); exit(2); }
             decls[*ndecls].name = toks[i].text;
             decls[*ndecls].bytes = 8;
             decls[*ndecls].region = 0;

@@ -264,6 +264,79 @@ store64(out + 8, load64(e + 8));
 store64(out + 16, 0);
 return 0;
 }
+# runtime_allocate(): allocate_prepare + publish in one step on a row the leaf picks itself
+# (docs/23 4.9). No transaction and no caller-chosen id. The allocator state is a cell of four
+# words behind the Allocator capability (id 3 of the capability table, rows of 24 bytes: id 0,
+# generation 8, address 16; the cell: pool_first_id 0, pool_count 8, next_id 16, one word
+# reserved) -- the context struct is untouched. The parameters are the five words of
+# allocate_prepare's shape without the id (type_id, initial_size, capacity, align, flags), a
+# pointer that must be 0 (where the transaction stood), and the out handle. Every check comes
+# before the first write, so a refusal changes nothing: the arguments (6), the capability (13),
+# a free row of the pool (9), room in the bump region (9). The payload is zero-filled for its
+# capacity; the row goes LIVE with generation + 1 (a handle of its earlier life is refused 12),
+# with pin_count = flags & 1 (the pin flag keeps the sliding pass off it).
+fn runtime_allocate(c, type_id, initial_size, capacity, a, flags, zero, out) {
+var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, n, fnd, hay, needle, i, j, lo, hi, mi, id, first, count, next;
+rt_ctx(6);
+if (out == 0) { refuse 6; }
+if (type_id == 0) { refuse 6; }
+if (initial_size > capacity) { refuse 6; }
+if (a == 0) { refuse 6; }
+if ((a & (a - 1)) != 0) { refuse 6; }
+if ((flags & ~1) != 0) { refuse 6; }
+if (zero != 0) { refuse 6; }
+cap = 0;
+i = 0;
+while (i < load64(c + 48)) {
+ if (load64(load64(c + 56) + i * 24) == 3) { cap = load64(load64(c + 56) + i * 24 + 16); }
+ i = i + 1;
+}
+if (cap == 0) { refuse 13; }
+first = load64(cap);
+count = load64(cap + 8);
+next = load64(cap + 16);
+if (count == 0) { refuse 9; }
+if (next < first) { next = first; }
+if (next - first >= count) { next = first; }
+id = 0;
+j = 0;
+while (j < count) {
+ x = first + ((next - first + j) % count);
+ rt_entry(e, x);
+ if (e != 0) {
+  if (load64(e + 48) == 0) {
+   if (id == 0) { id = x; }
+  }
+ }
+ j = j + 1;
+}
+if (id == 0) { refuse 9; }
+p = (load64(c + 88) + a - 1) & ~(a - 1);
+if (p < load64(c + 88)) { refuse 9; }
+if (p > load64(c + 80)) { refuse 9; }
+if (capacity > load64(c + 80) - p) { refuse 9; }
+rt_entry(e, id);
+i = 0;
+while (i < capacity) {
+ store8(load64(c + 64) + p + i, 0);
+ i = i + 1;
+}
+store64(e + 8, load64(e + 8) + 1);
+store64(e + 16, type_id);
+store64(e + 24, load64(c + 64) + p);
+store64(e + 32, initial_size);
+store64(e + 40, capacity);
+store64(e + 48, 1);
+store64(e + 56, 0);
+store64(e + 64, flags & 1);
+store64(e + 72, 0);
+store64(c + 88, p + capacity);
+store64(cap + 16, id + 1);
+store64(out + 0, id);
+store64(out + 8, load64(e + 8));
+store64(out + 16, 0);
+return 0;
+}
 fn runtime_publish(c, t) {
 var e, m, b, hh, base, cap, cnt, tom, span, st, slot, p, x, y, n, fnd, hay, needle, i, j, lo, hi, mi;
 if (t == 0) { refuse 13; }

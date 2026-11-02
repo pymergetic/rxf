@@ -20,6 +20,19 @@
  *   SLOT    a = byte offset in the frame, b = width
  *   LITERAL a = the value (at most 8 bytes), b = width
  *   OBJECT  a = durable object id, b = width; the value is the payload address
+ *   HANDLE  a = the byte offset in the frame of a 24-byte handle (id, generation, offset),
+ *           b = the width the operand denotes where it resolves (MOVE copies min(width, b))
+ *
+ * A HANDLE operand is resolved by the halving search of the entry table at EACH use, in the
+ * instruction that uses it, and nowhere else (docs/23 4.9): the id is not found 13 UNBOUND, a
+ * row of another generation 12 STALE_GENERATION (never rebound to a reused row), a row that is
+ * not LIVE 13 UNBOUND, an offset or a width past the size of the row 6, a handle that does not
+ * lie in the frame 6. The address it resolves to is the operand of that one instruction (a
+ * source of MOVE/FIELD/CONSTRUCT/LESS, a pointer parameter of a leaf): it is never written to a
+ * slot, so a frame holds identities and never addresses (S7) and a slide of the payload between
+ * two instructions (S8) is invisible to the program. There is no HANDLE destination, and a
+ * HANDLE where a handle is taken by value (a parameter of shape letter H of a leaf, a 24-byte
+ * parameter of a call card) is refused 6: a dereference where a value is meant.
  *
  * Edge: target, n, then n copies of (operand, destination slot, width). All
  * sources are read before any destination is written.
@@ -40,7 +53,7 @@
  *
  * A CALL names its callee one of two ways, and both are the same call step:
  *
- *   - a leaf id (1..48, the function table of the context), then n operands; or
+ *   - a leaf id (1..51, the function table of the context), then n operands; or
  *   - RXF_GRAPH_CALL (word 1 is 0: there is no leaf 0), then one program operand
  *     (OBJECT: a = the object id the callee's program words are bound at, b = 0)
  *     and n argument operands.  The callee is a program of its own: its parameters
@@ -83,18 +96,46 @@
 #define RXF_GRAPH_NONE (~0ULL)
 /* Word 1 of a CALL that names a program rather than a leaf: 0, the id no leaf has. */
 #define RXF_GRAPH_CALL 0ULL
+
+/* The value words of a run (docs/23 4.9 step 10): what a frame slot, an argument, a return
+ * and a literal carry is one word, and a word is read as one of two things:
+ *
+ *   - an int word: bits 63 and 62 are the same (the sign extension of bit 62), the
+ *     sign-extended 63-bit word. That is the int range the data model exposes,
+ *     [-2^62, 2^62 - 1] -- exactly where a MicroPython small int of a 64-bit port is the
+ *     same number as the word (docs/23 6: MicroPython is the reference).
+ *   - the None word, RXF_WORD_NONE: the one word with bit 62 set and no other. None is a
+ *     singleton -- `is` and `is not` lower to word equality with it -- and no int word is
+ *     it, so the read is exact for every value in the int range.
+ *
+ * The words the range does not take and None does not name are the wrap words: what an
+ * add, subtract or multiply leaves where MicroPython answers a bignum (docs/23 6, the
+ * one-sided pins). They are words like any other to the numeric leaves (they add and
+ * compare raw), and no value face reads one as a Python value.
+ *
+ * An absent argument binds the None word: a run entry whose argc is below the argument
+ * words the program declares fills every word of the parameters it does not reach with
+ * RXF_WORD_NONE -- so `= None` defaults fold to the very word a caller passes explicitly,
+ * and a callee cannot tell the two apart (which is what Python means). A call card is
+ * never short: its operand count is program text and a count that is not the callee's
+ * parameter count is refused 6, and a lowerer that stages a default stages the None word
+ * as the literal it is. A parameter whose width is not a whole number of words refuses
+ * OUT_OF_RANGE when its argument is absent: the None word is a frame word and is never
+ * cut.
+ */
+#define RXF_WORD_NONE 0x4000000000000000ULL
 /* The run cell: the payload that carries the frames of a run's active call chain. The
  * frames are variable-length cells carved (base, size) from it, their sizes the exact
  * frame bytes the programs declare; the arena's slot classes (base x factor) steer where
  * a cell lands, never how big it is -- the cell header keeps the exact byte sizes
  * (docs/20, S6/S7). The budget is cell bytes: the sum of the active frames must fit,
  * and a chain past it is refused RXF_REFUSE_CELL_BUDGET. */
-#define RXF_GRAPH_CELL_BYTES 8192U
+#define RXF_GRAPH_CELL_BYTES 32768U
 /* The depth budget of a run: how many frame links (base + size of the run cell) may be
  * open at once -- the entry's frame is one of them -- and a call past the last link is
  * refused RXF_REFUSE_CALL_DEPTH. The budget is links, not bytes: the bytes are bounded
  * by RXF_GRAPH_CELL_BYTES, and depth never costs native stack. */
-#define RXF_GRAPH_CALL_DEPTH 8U
+#define RXF_GRAPH_CALL_DEPTH 16U
 
 /* The ids of the capabilities of the runtime context (words 6 and 7 of it: how many, and the table
  * of id, generation, address). */
@@ -123,7 +164,31 @@
 #define RXF_UART_FIFO_TX 320U
 #define RXF_UART_FIFO_BLOCK 576U
 
-enum rxf_graph_operand { RXF_OPERAND_SLOT = 0, RXF_OPERAND_LITERAL = 1, RXF_OPERAND_OBJECT = 2 };
+/* The Allocator capability (docs/23 4.9): its address is a cell of four words -- the allocator
+ * state of docs/17 phase 2 -- that the leaf runtime_allocate reads and writes. The context
+ * struct is untouched (ABI 2 stays): the allocator is reached through the capability table like
+ * the channel and the uart. A seat that runs no dynamic guest binds none, and the leaf answers
+ * UNBOUND. The pool is the run of entry rows [pool_first_id, pool_first_id + pool_count) of
+ * the sorted entry table that the context builder reserved free (state 0). */
+#define RXF_CAPABILITY_ALLOCATOR 3ULL
+/* The words of the allocator cell, as byte offsets: the first id of the pool, how many rows it
+ * has, where the scan for a free row starts (written by the leaf), and a word reserved for the
+ * growth of docs/17 phase 2 (the leaf neither reads nor writes it). */
+#define RXF_ALLOCATOR_POOL_FIRST_ID 0U
+#define RXF_ALLOCATOR_POOL_COUNT 8U
+#define RXF_ALLOCATOR_NEXT_ID 16U
+#define RXF_ALLOCATOR_GENERATION 24U
+#define RXF_ALLOCATOR_CELL_BYTES 32U
+/* The flag of runtime_allocate: the new row is pinned (pin_count 1), so the sliding pass
+ * leaves its payload where it is until runtime_unpin (the pbuf case of docs/17 decision 4). */
+#define RXF_ALLOCATE_PINNED 1ULL
+
+enum rxf_graph_operand {
+    RXF_OPERAND_SLOT = 0,
+    RXF_OPERAND_LITERAL = 1,
+    RXF_OPERAND_OBJECT = 2,
+    RXF_OPERAND_HANDLE = 3
+};
 
 enum rxf_graph_mode { RXF_MODE_ZERO = 0, RXF_MODE_NONZERO = 1 };
 
@@ -216,7 +281,13 @@ enum rxf_graph_leaf {
      * the run's arguments, the words of the arguments, and the word its answer is written to.
      * The callee runs in the run cell of a run of its own, and the call goes on where the
      * answer() of the interpreter would leave it (docs/20 S7). */
-    RXF_LEAF_GRAPH_RUN = 49
+    RXF_LEAF_GRAPH_RUN = 49,
+    /* The allocation leaves of the handle lane (docs/23 4.9): runtime_allocate allocates a
+     * zero-filled object in one step on a row of the pool the Allocator capability names -- no
+     * transaction, no caller-chosen id -- and runtime_release (the existing release) gives a row
+     * back to the pool. */
+    RXF_LEAF_RUNTIME_ALLOCATE = 50,
+    RXF_LEAF_RUNTIME_RELEASE = 51
 };
 
 #ifndef RXF_INLINE
@@ -285,6 +356,7 @@ RXF_INLINE rxf_u32 shape_of(rxf_u64 leaf) {
     case RXF_LEAF_RUNTIME_RESOLVE:
         return RXF_SHAPE_HQO;
     case RXF_LEAF_RUNTIME_ALLOCATE_PREPARE:
+    case RXF_LEAF_RUNTIME_ALLOCATE:
         return RXF_SHAPE_QQQQQPO;
     case RXF_LEAF_RUNTIME_PUBLISH:
     case RXF_LEAF_RUNTIME_ROLLBACK:
@@ -298,6 +370,7 @@ RXF_INLINE rxf_u32 shape_of(rxf_u64 leaf) {
         return RXF_SHAPE_HQ;
     case RXF_LEAF_RUNTIME_PIN:
     case RXF_LEAF_RUNTIME_UNPIN:
+    case RXF_LEAF_RUNTIME_RELEASE:
         return RXF_SHAPE_H;
     case RXF_LEAF_RUNTIME_APPEND:
         return RXF_SHAPE_HPQQ;

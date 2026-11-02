@@ -6,9 +6,9 @@
  *   1. It embeds the words of the seven programs (build/crypto_words.c, compiled from the
  *      .rxfs sources by tools/native/crypto_build.py at build time -- bytes, never a second
  *      copy of the program).
- *   2. At init it hands each program to the in-image compiler (native/compile.c, docs/18),
+ *   2. At init it hands each program to the in-image compiler (native/compile.rxfs, docs/18),
  *      so the calls run as the native code of the machine when the compiler takes the
- *      program. A program the compiler refuses stays on the interpreter of native/graph.c:
+ *      program. A program the compiler refuses stays on the interpreter of native/graph.rxfs:
  *      the same words, the same answer, just slower.
  *   3. Each ABI call stages its buffers in the flat memory a run lives in and runs the
  *      program that faces it -- the same (status, value) shape the tests run, and the same
@@ -24,7 +24,6 @@
 #include <sys/mman.h>
 
 #include "../basics.h"
-#include "../compile.h"
 #include "../graph.h"
 #include "../stdlib_memory.h"
 #include "../stdlib_runtime.h"
@@ -32,9 +31,36 @@
 #include "include/pm_crypto.h"
 #include "words.h"
 
-/* The safe point of compiled code (native/safe.c): a back edge rings it with the area of the
- * Channel of the context. */
+/* The safe point of compiled code (native/safe/safe.rxfs): a back edge rings it with the area
+ * of the Channel of the context. */
 rxf_u32 rxf_safe_point(rxf_runtime_context *, void *);
+
+/* The request of the in-image compiler (native/compile.rxfs, docs/30 section 11): the eight
+ * words the run reads and writes -- out_size and at are written through it on every path,
+ * refusals included. It is spelled here, beside the safe point, and not in a header of
+ * native/: tests/test_native.py pins that directory to the four checked-in ABI headers, and
+ * the fill is this struct's one C reader. */
+typedef struct {
+    rxf_u64 program;      /* the words of the program */
+    rxf_u64 program_size; /* their bytes */
+    rxf_u64 out;          /* where the code is written */
+    rxf_u64 out_capacity; /* the room there is */
+    rxf_u64 work;         /* the two-pass room (the tables of the passes) */
+    rxf_u64 work_capacity;
+    rxf_u64 out_size; /* what the code needs: written by the run */
+    rxf_u64 at;       /* the word a refusal points at: written by the run */
+} rxf_compile_request;
+
+_Static_assert(sizeof(rxf_compile_request) == 64, "compile request ABI");
+_Static_assert(__builtin_offsetof(rxf_compile_request, out_size) == 48, "out size offset");
+_Static_assert(__builtin_offsetof(rxf_compile_request, at) == 56, "at offset");
+
+/* The compiler itself: the program of the request compiled to the native code of this
+ * machine. Every exit is a refusal-shaped status (nothing is stored through an out) --
+ * RXF_OK with the code written, RXF_REFUSE_UNSUPPORTED where a word has no machine shape
+ * (the program stays on the interpreter of native/graph.rxfs), RXF_REFUSE_OUT_OF_MEMORY
+ * when the room is too small (out_size says then what the code needs). */
+rxf_u32 rxf_compile_program(rxf_runtime_context *, rxf_compile_request *);
 
 /* The error the ABI names (include/pm_crypto.h), and the refusals of the words. */
 #define PM_OK 0
@@ -49,8 +75,8 @@ rxf_u32 rxf_safe_point(rxf_runtime_context *, void *);
 #define PM_MEM_DATA_AT 0x200000ULL
 /* The work region every program of the card asks for (the words claim at most 1280). */
 #define PM_MEM_WORK 2048ULL
-/* The area of the Channel capability a run's safe points ring (native/safe.c): the rings
- * start at word 30 of it and nothing rings here, so the doors are just quiet. */
+/* The area of the Channel capability a run's safe points ring (native/safe/safe.rxfs): the
+ * rings start at word 30 of it and nothing rings here, so the doors are just quiet. */
 #define PM_AREA_BYTES 320U
 
 /* The faces of the words, exactly as the programs name them. */
@@ -68,7 +94,7 @@ rxf_u32 rxf_safe_point(rxf_runtime_context *, void *);
 /* The words of the programs (build/crypto_words.c). */
 
 /* The compiled shape of a program: what the interpreter is, with the handle gone
- * (native/compile.h). */
+ * (docs/18). */
 typedef rxf_u32 (*pm_entry_fn)(rxf_runtime_context *, rxf_u64, rxf_u64, rxf_u64 *);
 
 #define PM_LEAVES 48
@@ -94,7 +120,8 @@ typedef struct {
 static pm_program p_sha256, p_blake2s, p_chacha, p_aes, p_hkdf, p_hkdf_b2s, p_x25519;
 static int pm_ready;
 
-/* ---- the leaves the words call ---------------------------------------------------------------- */
+/* ---- the leaves the words call ----------------------------------------------------------------
+ */
 
 rxf_u32 rxf_wrapping_add_uint64_t(rxf_u64, rxf_u64, rxf_u64 *);
 rxf_u32 rxf_wrapping_subtract_uint64_t(rxf_u64, rxf_u64, rxf_u64 *);
@@ -182,7 +209,8 @@ static void leaves_of(pm_program *p) {
     }
 }
 
-/* ---- one program, opened and compiled --------------------------------------------------------- */
+/* ---- one program, opened and compiled ---------------------------------------------------------
+ */
 
 static void program_open(pm_program *p, const char *name) {
     const pm_words *w;
@@ -231,8 +259,8 @@ static void program_compile(pm_program *p) {
     if (!p->scratch)
         return;
     for (rxf_u64 bytes = 1u << 16;;) {
-        void *room = mmap(0, (size_t)bytes, PROT_READ | PROT_WRITE,
-                          MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        void *room =
+            mmap(0, (size_t)bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (room == MAP_FAILED)
             return;
         rxf_compile_request r;
@@ -288,7 +316,8 @@ static rxf_u32 program_run(pm_program *p, const rxf_u64 *args, rxf_u64 argc, rxf
     return rxf_graph_run(&p->context, p->handle, (rxf_u64)(unsigned long)args, argc, out);
 }
 
-/* ---- the flat memory of a call ---------------------------------------------------------------- */
+/* ---- the flat memory of a call ----------------------------------------------------------------
+ */
 
 typedef struct {
     rxf_u8 *bytes;
@@ -337,7 +366,8 @@ static void memory_read(pm_memory *m, rxf_u64 address, void *out, rxf_u64 len) {
     memcpy(out, m->bytes + (address - m->base), (size_t)len);
 }
 
-/* ---- the module pair -------------------------------------------------------------------------- */
+/* ---- the module pair --------------------------------------------------------------------------
+ */
 
 int32_t pm_crypto_init(void) {
     if (pm_ready)
@@ -349,8 +379,8 @@ int32_t pm_crypto_init(void) {
     program_open(&p_hkdf, "hkdf");
     program_open(&p_hkdf_b2s, "hkdf_blake2s");
     program_open(&p_x25519, "x25519");
-    if (!p_sha256.words || !p_blake2s.words || !p_chacha.words || !p_aes.words ||
-        !p_hkdf.words || !p_hkdf_b2s.words || !p_x25519.words) {
+    if (!p_sha256.words || !p_blake2s.words || !p_chacha.words || !p_aes.words || !p_hkdf.words ||
+        !p_hkdf_b2s.words || !p_x25519.words) {
         pm_crypto_deinit();
         return PM_ERR_ARGUMENT;
     }
@@ -368,10 +398,10 @@ int32_t pm_crypto_init(void) {
     static const uint8_t abc[3] = {'a', 'b', 'c'};
     uint8_t digest[32];
     pm_crypto_sha256(digest, abc, 3);
-    static const uint8_t want[32] = {
-        0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea, 0x41, 0x41, 0x40,
-        0xde, 0x5d, 0xae, 0x22, 0x23, 0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17,
-        0x7a, 0x9c, 0xb4, 0x10, 0xff, 0x61, 0xf2, 0x00, 0x15, 0xad};
+    static const uint8_t want[32] = {0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea,
+                                     0x41, 0x41, 0x40, 0xde, 0x5d, 0xae, 0x22, 0x23,
+                                     0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c,
+                                     0xb4, 0x10, 0xff, 0x61, 0xf2, 0x00, 0x15, 0xad};
     if (memcmp(digest, want, 32) != 0) {
         pm_crypto_deinit();
         return PM_ERR_ARGUMENT;
@@ -395,7 +425,8 @@ static int32_t ready(void) {
     return pm_ready ? PM_OK : pm_crypto_init();
 }
 
-/* ---- the hashes ------------------------------------------------------------------------------- */
+/* ---- the hashes -------------------------------------------------------------------------------
+ */
 
 void pm_crypto_sha256(uint8_t out[32], const uint8_t *data, size_t len) {
     pm_memory m;
@@ -442,7 +473,7 @@ void pm_crypto_blake2s_keyed(uint8_t *out, size_t out_len, const uint8_t *key, s
     rxf_u64 a_key = memory_place(&m, key, key_len);
     rxf_u64 a_data = memory_place(&m, data, len);
     rxf_u64 a_out = memory_take(&m, out_len);
-    rxf_u64 args[7] = {a_key, (rxf_u64)key_len, a_data, (rxf_u64)len,
+    rxf_u64 args[7] = {a_key, (rxf_u64)key_len, a_data,         (rxf_u64)len,
                        a_out, (rxf_u64)out_len, memory_work(&m)};
     rxf_u64 value;
     if (program_run(&p_blake2s, args, 7, &value) == RXF_OK)
@@ -450,7 +481,8 @@ void pm_crypto_blake2s_keyed(uint8_t *out, size_t out_len, const uint8_t *key, s
     memory_close(&m);
 }
 
-/* ---- X25519 (RFC 7748) ------------------------------------------------------------------------ */
+/* ---- X25519 (RFC 7748) ------------------------------------------------------------------------
+ */
 
 static int32_t x25519_run(uint8_t out[32], const uint8_t scalar[32], const uint8_t *point,
                           rxf_u64 op) {
@@ -479,7 +511,8 @@ int32_t pm_crypto_x25519(uint8_t out[32], const uint8_t scalar[32], const uint8_
     return x25519_run(out, scalar, point, PM_X25519_SECRET);
 }
 
-/* ---- AEAD (the two flavors of one face) -------------------------------------------------------- */
+/* ---- AEAD (the two flavors of one face) --------------------------------------------------------
+ */
 
 static int32_t aead_run(pm_program *p, rxf_u64 op, uint8_t *out, size_t *out_len,
                         const uint8_t key[32], const uint8_t nonce[12], const uint8_t *aad,
@@ -496,13 +529,15 @@ static int32_t aead_run(pm_program *p, rxf_u64 op, uint8_t *out, size_t *out_len
     rxf_u64 args[10];
     rxf_u64 argc;
     if (chacha) {
-        rxf_u64 staged[10] = {op,   a_key,  a_nonce, 0,        a_aad,
-                              (rxf_u64)aad_len, a_text, (rxf_u64)text_len, a_out, memory_work(&m)};
+        rxf_u64 staged[10] = {
+            op,    a_key,          a_nonce, 0, a_aad, (rxf_u64)aad_len, a_text, (rxf_u64)text_len,
+            a_out, memory_work(&m)};
         memcpy(args, staged, sizeof(staged));
         argc = 10;
     } else {
-        rxf_u64 staged[9] = {op,   a_key,  a_nonce, a_aad,
-                             (rxf_u64)aad_len, a_text, (rxf_u64)text_len, a_out, memory_work(&m)};
+        rxf_u64 staged[9] = {
+            op,    a_key,          a_nonce, a_aad, (rxf_u64)aad_len, a_text, (rxf_u64)text_len,
+            a_out, memory_work(&m)};
         memcpy(args, staged, sizeof(staged));
         argc = 9;
     }
@@ -550,7 +585,8 @@ int32_t pm_crypto_aead_open(int32_t cipher, uint8_t *out, size_t *out_len, const
     return PM_ERR_ARGUMENT;
 }
 
-/* ---- HKDF (RFC 5869 over the two hashes) ------------------------------------------------------ */
+/* ---- HKDF (RFC 5869 over the two hashes) ------------------------------------------------------
+ */
 
 static pm_program *hkdf_program(int32_t hash) {
     if (hash == 0)
@@ -570,10 +606,9 @@ int32_t pm_crypto_hkdf_extract(int32_t hash, uint8_t out[32], const uint8_t *sal
     rxf_u64 a_salt = memory_place(&m, salt, salt_len);
     rxf_u64 a_ikm = memory_place(&m, ikm, ikm_len);
     rxf_u64 a_out = memory_take(&m, 32);
-    rxf_u64 args[11] = {PM_HKDF_EXTRACT, a_salt,          (rxf_u64)salt_len,
-                        a_ikm,           (rxf_u64)ikm_len, 0,
-                        0,               0,                a_out,
-                        32,              memory_work(&m)};
+    rxf_u64 args[11] = {
+        PM_HKDF_EXTRACT, a_salt, (rxf_u64)salt_len, a_ikm, (rxf_u64)ikm_len, 0, 0, 0,
+        a_out,           32,     memory_work(&m)};
     rxf_u64 value;
     rxf_u32 status = program_run(p, args, 11, &value);
     if (status == RXF_OK)
@@ -595,9 +630,9 @@ int32_t pm_crypto_hkdf_expand(int32_t hash, uint8_t *out, size_t out_len, const 
     rxf_u64 a_prk = memory_place(&m, prk, 32);
     rxf_u64 a_info = memory_place(&m, info, info_len);
     rxf_u64 a_out = memory_take(&m, out_len);
-    rxf_u64 args[11] = {PM_HKDF_EXPAND,   0,   0,   0,
-                        0,                a_prk, a_info, (rxf_u64)info_len,
-                        a_out,            (rxf_u64)out_len, memory_work(&m)};
+    rxf_u64 args[11] = {
+        PM_HKDF_EXPAND, 0, 0, 0, 0, a_prk, a_info, (rxf_u64)info_len, a_out, (rxf_u64)out_len,
+        memory_work(&m)};
     rxf_u64 value;
     rxf_u32 status = program_run(p, args, 11, &value);
     if (status == RXF_OK)

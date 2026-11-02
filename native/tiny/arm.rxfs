@@ -138,22 +138,51 @@ proc a_begin {
     a_mov(X21, 3);
     bytes(0xF100001F | (q0 << 10) | (2 << 5), 4);
     q1 = size;
-    bytes(0x54000000, 4);
+    bytes(0x54000009, 4);
     bytes(0x528000C0, 4);
     call a_epilogue;
     if (q1 + 4) <= cap {
         g0 = q1;
-        g1 = 0x54000000 | (((size - q1) >> 2) << 5);
+        g1 = 0x54000000 | (((size - q1) >> 2) << 5) | 9;
         call patch32;
     }
     a_zero(X20, 0, frame);
 }
 
+# The parameter at slot g0, g1 wide, from g2 bytes into the arguments (x1), argc in x2. An argument
+# word the caller did not give (argc is below the argument words the program declares) is the None
+# word of native/graph.h, never the word of int 0; a parameter whose width is not a whole number
+# of words is given whole or refuses OUT_OF_RANGE, so the None word is never cut. This is
+# native/compile.rxfs m_be_param_a, instruction by instruction.
 proc a_param {
     q0 = g0;
     q1 = g1;
     q2 = g2;
-    a_copy(X20, q0, 1, q2, q1);
+    if (q1 & 7) == 0 {
+        q3 = 0;
+        while q3 < q1 {
+            a_load(8, X10, 1, q2 + q3);
+            a_imm(X9, 4611686018427387904);
+            # cmp x2, the index of the word
+            bytes(0xF100001F | (((q2 + q3) >> 3) << 10) | (2 << 5), 4);
+            # csel: the None word when argc is below or equal (ls)
+            bytes(0x9A800000 | (10 << 16) | (9 << 12) | (9 << 5) | 10, 4);
+            a_store(8, X10, X20, q0 + q3);
+            q3 = q3 + 8;
+        }
+    } else {
+        bytes(0xF100001F | (((q2 + q1 + 7) >> 3) << 10) | (2 << 5), 4);
+        q4 = size;
+        bytes(0x54000002, 4);
+        bytes(0x528000C0, 4);
+        call a_epilogue;
+        if (q4 + 4) <= cap {
+            g0 = q4;
+            g1 = 0x54000000 | (((size - q4) >> 2) << 5) | 2;
+            call patch32;
+        }
+        a_copy(X20, q0, 1, q2, q1);
+    }
 }
 
 proc a_move {

@@ -197,7 +197,7 @@ proc x_begin {
     byte(0xFA);
     bytes(q0, 4);
     byte(0x0F);
-    byte(0x84);
+    byte(0x86);
     q1 = size;
     bytes(0, 4);
     x_imm(RAX, OUT_OF_RANGE);
@@ -208,12 +208,49 @@ proc x_begin {
     x_zero(RBP, 0, frame);
 }
 
-# the parameter at slot g0, g1 wide, from g2 words into the arguments (rsi)
+# the parameter at slot g0, g1 wide, from g2 bytes into the arguments (rsi), argc in rdx.
+# An argument word the caller did not give (argc is below the argument words the program
+# declares) is the None word of native/graph.h, never the word of int 0; a parameter whose width
+# is not a whole number of words is given whole or refuses OUT_OF_RANGE, so the None word is
+# never cut. This is native/compile.rxfs m_be_param_x, instruction by instruction.
 proc x_param {
     q0 = g0;
     q1 = g1;
     q2 = g2;
-    x_copy(RBP, q0, RSI, q2, q1);
+    if (q1 & 7) == 0 {
+        q3 = 0;
+        while q3 < q1 {
+            x_load(8, RAX, RSI, q2 + q3);
+            x_imm(RCX, 4611686018427387904);
+            # cmp rdx, the index of the word
+            x_rex(1, 7, RDX);
+            byte(129);
+            byte(192 | (7 << 3) | (RDX & 7));
+            bytes((q2 + q3) >> 3, 4);
+            # cmovbe rax, rcx: below or equal, the word was not given
+            x_rex(1, RAX, RCX);
+            byte(15);
+            byte(70);
+            byte(192 | ((RAX & 7) << 3) | (RCX & 7));
+            x_store(8, RAX, RBP, q0 + q3);
+            q3 = q3 + 8;
+        }
+    } else {
+        x_rex(1, 7, RDX);
+        byte(129);
+        byte(192 | (7 << 3) | (RDX & 7));
+        bytes((q2 + q1 + 7) >> 3, 4);
+        byte(15);
+        byte(131);
+        q4 = size;
+        bytes(0, 4);
+        x_imm(RAX, OUT_OF_RANGE);
+        call x_epilogue;
+        g0 = q4;
+        g1 = size - (q4 + 4);
+        call patch32;
+        x_copy(RBP, q0, RSI, q2, q1);
+    }
 }
 
 # MOVE: the slot g0, g1 wide, from the operand (ok, oa), of which g2 bytes are there

@@ -1,5 +1,5 @@
 # The words of the in-image composer: the numbers of its request and work memory, the layout of
-# the arena it reads (RXFB v6, the structs of src/pymergetic/rxftk/core/ground.h), and the few
+# the arena it reads (the v7 objects of src/pymergetic/rxftk/core/ground.h), and the few
 # expressions it repeats.
 #
 # The composer takes a Graph (a typed object tree) of the live image and writes the words of a
@@ -13,7 +13,7 @@
 # program needs.
 
 # ---- the request (words of 8 bytes) -----------------------------------------------------------
-const R_ARENA = 0;           # the bytes of the live image (RXFB v6)
+const R_ARENA = 0;           # the bytes of the live image (the v7 arena)
 const R_ARENA_SIZE = 8;
 const R_TARGET = 16;         # the handle to compose: a SemanticGraph, or a Function
 const R_TARGET_KIND = 24;    # 0 a SemanticGraph (a Plan), 1 a Function (an Expression)
@@ -29,30 +29,53 @@ const OK = 0;
 const OUT_OF_MEMORY = RXF_REFUSE_OUT_OF_MEMORY;
 const BAD_SOURCE = RXF_REFUSE_TYPE_MISMATCH;
 
-# ---- the arena layout (ground.h) --------------------------------------------------------------
-const ARENA_HEADER = 192;
-const H_INDEX_OFF = 48;      # directory of index chunk cell offsets
-const H_CHUNKS = 80;         # index_chunks
-const H_HANDLES = 88;        # handle_count
-const H_CELLS_OFF = 56;      # start of the cell stream
-const H_NAMES_OFF = 64;      # NAME block that takes the next name
-const H_ROOT = 112;          # root module handle
+# ---- the arena layout (ground.h, docs/32) -----------------------------------------------------
+# The arena is the v7 one: a 4 KiB superblock, then objects. The object index (the first object,
+# its record at 4096) holds the slot table every handle resolves through; a record is 24 bytes
+# with its payload inline behind it; names are symbol ids of sys/syms; the semantic face of an
+# object (its type, flags, position) is a row of sys/specs; its references are the rows of the
+# table sys/relations/<path>.
+const SB_MAGIC = 0x41465852;   # "RXFA"
+const SB_ROOT = 24;            # root handle (u32)
+const IX_COUNT = 4120;         # the slot head: entries published (u32), then capacity (u32)
+const IX_ENTRIES = 4128;       # the slot entries, 16 bytes each: kind u16, gen u16, 0 u32, slot u64
+const IX_ENTRY = 4;            # log2 of an entry
+const IX_SYMS = 1;             # the index of sys/syms (docs/32 2)
 
-const CELL_BYTES = 64;       # the fixed part of a cell
-const C_TYPE = 0;
-const C_PARENT = 8;
-const C_PAYLOAD_SIZE = 16;
-const C_GENERATION = 24;
-const C_NAME = 32;
-const C_FLAGS = 40;
-const C_REF_COUNT = 44;
-const C_FORWARD = 48;
-const C_INDEX = 56;
+# a handle is (generation << 20) | index
+const H_INDEX_MASK = 0xFFFFF;
+const H_GEN_SHIFT = 20;
+const H_GEN_MASK = 0xFFF;
+const HANDLE32_NONE = 0xFFFFFFFF;
 
-const REF_BYTES = 24;        # target, role, kind/binding, index
+# the record of an object (pymergetic_rxf_object)
+const OBJ_KIND = 0;            # u16
+const OBJ_GEN = 2;             # u16
+const OBJ_NAME = 6;            # u16: a symbol id, 0 anonymous
+const OBJ_PARENT = 8;          # u32: a handle
+const OBJ_LINK = 12;           # u32: the next sibling under the parent
+const OBJ_PAYLOAD = 20;        # u32: the payload room in bytes
+const OBJ_MODULE = 1;          # kind: a module; its payload opens with the chain head
+const OBJ_HEADER = 24;         # the record, then the payload
+const MODULE_HEAD = 8;         # the children chain head (u32) and the count (u32)
+# What the composer calls a cell is the frame of a value: the address X with the value at
+# X + CELL_BYTES. For a module that is eight bytes behind the record, for any other object the
+# record itself, so a payload field lies at `cell + CELL_BYTES + offset` whatever the kind.
+const CELL_BYTES = OBJ_HEADER;
+
+# a row of sys/specs (pymergetic_rxf_spec), keyed by the index of the handle
+const SPEC_ROW = 24;
+const SP_TYPE = 0;             # u32: a handle, HANDLE32_NONE untyped
+const SP_FLAGS = 4;            # u32: kind | state | owner
+
+# sys/syms: the head (count u32, capacity u32), the offsets u32 each, then the strings
+const SY_OFFSETS = 8;
+
+# a reference row of a relation table (pymergetic_rxf_ref)
+const REF_BYTES = 24;          # target, role, kind/binding, index
 const R_TARGET_FIELD = 0;
 const R_ROLE = 8;
-const R_KIND_INDEX = 16;     # kind (u16) | binding (u16) << 16, then index (u32) at 20
+const R_KIND_INDEX = 16;       # kind (u16) | binding (u16) << 16, then index (u32) at 20
 
 # the payload of a Field (ground.h): flags, the type of the value, the offset in the owner
 const F_FLAGS = 4;
@@ -65,15 +88,7 @@ const FIELD_REF = 0x8;       # PYMERGETIC_RXF_FIELD_FLAG_REF: the field holds a 
 const T_SIZE = 8;
 const T_FLAGS = 36;
 
-const INDEX_CHUNK = 4096;    # entries in an index chunk; chunk = handle >> 12
-const KIND_MASK = 0xFF;
-const KIND_BLOCK = 255;
-const KIND_DEAD = 254;
 const HANDLE_NONE = 0xFFFFFFFFFFFFFFFF;
-
-# the flags of a cell: kind 8 bits, state 6 bits, owner 4 bits
-const FLAG_STATE_SHIFT = 8;
-const FLAG_STATE_MASK = 0x3F;
 
 # ---- what a run keeps in the frame (words that pass between procs) and in work -----------------
 # The frame of a program is RXF_GRAPH_FRAME (1024) bytes. Only words a proc passes to another live
@@ -82,10 +97,10 @@ const FLAG_STATE_MASK = 0x3F;
 # the numbers one procedure sets for another (the scalars), at W_*
 const W_SP = 0;              # the stack of the procs
 const W_ARENA = 8;           # the arena base
-const W_HANDLES = 16;
-const W_INDEX_OFF = 24;
-const W_CHUNKS = 32;
-const W_CELLS_OFF = 40;
+const W_HANDLES = 16;        # the entries of the object index
+const W_SYMS = 24;           # the arena offset of the payload of sys/syms
+const W_SPECS = 32;          # the arena offset of the payload of sys/specs
+const W_RELS = 40;           # the handle of sys/relations
 const W_ROOT = 48;
 const W_OUT = 56;
 const W_OUT_CAP = 64;        # in words
@@ -118,22 +133,28 @@ const NMAP = 2048;           # rows of the map (a power of two: the walk masks w
 const MAP_BYTES = (NMAP * MAP_ROW);
 const W_MAP_EPOCH = (W_MAP + MAP_BYTES);   # the request whose rows the map holds
 
-# The chains of the children of every parent (kids_build, tree.rxfs): W_KHEAD[p] is the first child
-# of the parent p and W_KNEXT[h] the next child of the same parent, both 32-bit handles in handle
-# order. Built once a request; what the arena or the room between here and the plan's tables will
-# not hold builds nothing -- the epoch stays old and the gathers scan the arena as they did.
-const W_KIDS_EPOCH = (W_MAP_EPOCH + 8);    # the request the chains were built for
-const W_KIDS_H = (W_MAP_EPOCH + 16);       # how many handles the chains cover
-const KID_MAX = 24000;                     # the most handles the chains cover (8 bytes a handle)
-const W_KHEAD = (W_MAP_EPOCH + 24);        # the first child of a parent (32-bit)
-const W_KNEXT = (W_KHEAD + (KID_MAX << 2));   # the next child of the same parent (32-bit)
-const NONE32 = 0xFFFFFFFF;                 # the child a chain does not have
+# The index of the relation tables (rels_build, tree.rxfs). A table is named after the path of the
+# object it belongs to, so the references of an object are found by hashing its path: rows of
+# (hash of the table's name, the handle of the table | 1 << 32), open addressed, built once a
+# request (the epoch says which request the rows are of). The path of the object being asked about
+# is built at W_PATH, its segments gathered at W_PSEG on the way.
+const W_RELH_EPOCH = (W_MAP_EPOCH + 8);    # the request the rows were built for
+const W_RELH = 0x12000;                    # between the map and the plan (the room the child chains had)
+const RELH_ROW = 16;
+const NRELH = 8192;                        # rows (a power of two: the probe masks with NRELH - 1)
+const RELH_FILL = 6144;                    # the most tables the rows take
+const RELH_TAIL = 16;                      # the last bytes of a name the hash looks at
+const W_PATH = (W_RELH + (NRELH * RELH_ROW));
+const PATH_MAX = 512;                      # the longest path (with its NUL)
+const W_PSEG = (W_PATH + PATH_MAX);        # (name address, length) of each segment, leaf first
+const NPSEG = 64;
 
 # ---- the bits and pieces the composer repeats -------------------------------------------------
 const NONE = RXF_GRAPH_NONE;
 const SLOT = RXF_OPERAND_SLOT;
 const LITERAL = RXF_OPERAND_LITERAL;
 const OBJECT = RXF_OPERAND_OBJECT;
+const HANDLE = RXF_OPERAND_HANDLE;
 # the program opcodes and jump modes of native/graph.h (what a word of the program carries)
 const CALL = RXF_OP_CALL;
 const MOVE = RXF_OP_MOVE;
@@ -156,6 +177,10 @@ const BIG = 1 << 40;
 fn word_at(i) = load64(load64(work + W_OUT) + ((i) << 3));
 # `n` bytes at `at_` of the arena
 fn arena_q(at_) = load64(load64(work + W_ARENA) + (at_));
+# the 32, 16 and 8 bits at `at_` of the arena (a record's handles, symbol ids and kind)
+fn arena_d(at_) = (load32(load64(work + W_ARENA) + (at_)) & 0xFFFFFFFF);
+fn arena_h(at_) = (load16(load64(work + W_ARENA) + (at_)) & 0xFFFF);
+fn arena_b(at_) = (load8(load64(work + W_ARENA) + (at_)) & 0xFF);
 # the bits of one word against the bits of another (the language has no ^ of its own)
 fn xor64_(a, b) = ((((a) & ~(b)) | ((~(a)) & (b))));
 # 3 * n
@@ -170,9 +195,8 @@ fn xrow(n) = (((n) << 4) + ((n) << 3));
 fn xmap(n) = ((n) << 5);
 # 2048 * n (the stride of one level of the Expression call recursion)
 fn xfr(n) = ((n) << 11);
-# the cell offset of a handle, or HANDLE_NONE when the slot is free (tree.rxfs answers this)
-# align a byte count up to 16 (the payload of a cell)
-fn align16(n) = (((n) + 15) & ~15);
+# the row of sys/specs of a handle: 24 * its index, from the table
+fn spec_at(h) = (load64(work + W_SPECS) + (((h) & H_INDEX_MASK) << 4) + (((h) & H_INDEX_MASK) << 3));
 fn wordsof(n) = (((n) + 7) >> 3);    # how many words hold n bytes
 fn edge_of(n) = ((n) >> 6);          # the edge a SuccessorArgument names (index / 64)
 
@@ -197,10 +221,10 @@ const KIND_LITERAL = 2;
 const KIND_OPERATION_RESULT = 3;
 const KIND_BOUND = 4;
 const KIND_OBJECT = 5;
-# the ABI value role and the function implementation (the enums of the image, read as scalars)
-const ABI_OUTPUT = 3;         # AbiValueRole.Output: a result handed back through an output
-const FN_SEMANTIC = 1;        # FunctionImplementation.Semantic: a body that is a call
-const FN_NATIVE = 2;          # FunctionImplementation.Native: a leaf of the interpreter
+# the effect bits and the function implementation (the enums of the image, read as scalars)
+const EFFECT_WRITE = 2;      # Effects.Write: its result is written through its memory arguments
+const FN_SEMANTIC = 1;       # FunctionImplementation.Semantic: a body that is a call
+const FN_NATIVE = 2;         # FunctionImplementation.Native: a leaf of the interpreter
 
 # the Terminator of a block (the Terminator of the image)
 const T_GOTO = 1;
@@ -378,8 +402,8 @@ const NX_SEMVAL = 608;               # "SemanticValue" (the type of a frame valu
 const NX_SEMBLK = 624;               # "SemanticBlock" (the type of a block)
 # the names the Expression face (M4) reads by (expr.rxfs): the Function/Call/Argument model
 const NX_EVR = 640;                  # "ValueReference" (the type of a function's value refs)
-const NX_EABISIG = 656;              # "ABISignature"
-const NX_EABILOC = 672;              # "ABIValueLocation"
+const NX_EFF = 656;                  # "effects" (the effect bits of a function)
+const NX_VOID = 672;                 # "void" (the type of a status-only answer)
 const NX_EIMPL = 696;                # "implementation"
 const NX_EBODY = 712;                # "body"
 const NX_EKIND = 720;                # "kind"
@@ -389,12 +413,12 @@ const NX_EKPARAM = 752;              # "Parameter" (a ValueKind)
 const NX_EKBOUND = 768;              # "Bound" (a ValueKind)
 const NX_EKOPRES = 776;              # "OperationResult" (a ValueKind)
 const NX_ERESULT = 792;              # "Result" (a signature's results)
-const NX_EVRROLE = 800;              # "value_role"
-const NX_EOUTPUT = 816;              # "Output"
 const NX_ESIZE = 824;                # "size" (of a type)
 const NX_ESIG = 832;                 # "signature"
 const NX_EARGT = 848;                # "Argument" (the type of a call's arguments)
 const NX_ECALLT = 864;               # "Call" (the type of the body of a Semantic function)
+const NX_EINTYPE = 880;              # "InputType" (the role of the type of an input; 2 words)
+const NX_EOBJHANDLE = 896;           # "ObjectHandle" (the marker type of a handle read through; 2 words)
 
 # ---- the Expression face: what it keeps while it lays a Function out (a region of its own) -----
 # Clear of the plan (W_PLAN) and of the hash (W_HMSG), and inside the work the request declares.
