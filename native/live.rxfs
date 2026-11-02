@@ -2932,6 +2932,13 @@ sub s_build_table() {
         }
         bt_h = bt_h + 1;
     }
+    # The relation index is derived from the same world and goes with it: a table
+    # that is rebuilt over a moved arena (a compaction's copy, a rollback) leaves the
+    # per-index relation words of the world before it, and every reference count a
+    # relink then reads is that of an object that is no longer there.
+    if (bt_r == 1) {
+        m_build_rels();
+    }
 }
 
 # resolve(p, n) -> rv_r (handle)
@@ -6835,7 +6842,6 @@ macro m_open() {
                                 } else {
                                     callsub s_build_table();
                                     if (bt_r == 1) {
-                                        m_build_rels();
                                         store32(ar + 140, 1);
                                         op_r = 1;
                                     }
