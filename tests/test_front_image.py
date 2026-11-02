@@ -34,7 +34,7 @@ import rxfc
 
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import physical
-from pymergetic.rxftk.live.front import model_of
+from pymergetic.rxftk.live.front import model_of, place_in
 
 from . import live_world as lw
 from . import rxf_world as w
@@ -124,22 +124,9 @@ def value_at(channel: lw.Channel, path: str) -> int:
     machine = channel.machine
     assert machine.linked.live is not None
     arena_at, _ = machine.linked.live.regions["arena"]
-    arena = channel.arena()
-    image = running_image()
-    handle = image.resolve(path)
-    assert handle is not None
-    type_handle = image.get(handle)["type"]
-    values = dict(image.fields(type_handle))
-    variable = "Variable" in values.get("flags", "")
-    prefix = image.layout(type_handle)["prefix"] if variable else 0
-    # A handle is image-local (docs/32 1.2): the world handle names the object in
-    # the world, the map says which arena handle32 it became, and locate gives the
-    # byte offset of its value in that arena.
-    from pymergetic.rxftk.core.arena import ObjectArena
-
-    arena_handle = link.arena_map(image)[handle]
-    _record, value = ObjectArena.attach(arena).locate(arena_handle)
-    return arena_at + value + prefix
+    # The object lives in the running image (the front end made `selfedit` there, the starter
+    # has none): the dump is the arena as it lies in the machine, read as the v7 arena it is.
+    return place_in(channel.arena(), arena_at, path)
 
 
 @pytest.fixture(scope="module")

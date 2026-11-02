@@ -196,6 +196,14 @@ def value_places(arena: bytes, image: Image) -> dict[str, int]:
     }
 
 
+def place_in(arena: bytes, at: int, path: str) -> int:
+    """Where the value of an object lies in the memory of a machine whose arena, mapped at `at`,
+    holds the bytes `arena`: the payload behind the chain head of a module and the fixed part of
+    its type (docs/32 1.2). What `Front.place` answers, for a caller that has the dump."""
+    image = model_of(arena)
+    return at + value_places(arena, image)[path] + _value_prefix(image, image.handle(path))
+
+
 def entries(image: Image, module: str = MODULE) -> list[Entry]:
     """The Functions of `module` and the ids they run under (read-only facts)."""
     parent = image.resolve(module)
