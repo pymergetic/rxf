@@ -31,6 +31,7 @@ import rxfc
 
 from pymergetic.rxftk.core import tree
 from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.live.front import model_of
 
 from . import live_world as lw
 from .snippets import STARTER
@@ -154,7 +155,7 @@ def test_the_image_composes_its_graphs_as_the_host_composer_does(running, base: 
     machine = channel.machine
     live = machine.linked.live
     assert live is not None
-    expected = Image.from_bytes(base)
+    expected = model_of(base)
 
     # the composer becomes the image in one delta: the words of native/compose/compose.rxfs, and an
     # object for what it writes. The host makes the words with rxfc.py; the composer is a program
@@ -179,7 +180,7 @@ def test_the_image_composes_its_graphs_as_the_host_composer_does(running, base: 
     out_at = value_at(channel, SELFEDIT_OUT)
 
     arena = channel.arena()
-    live_image = Image.from_bytes(arena)
+    live_image = model_of(arena)
     targets = graph_handles(live_image)
     placed = link.arena_map(live_image)
     reference = {target: cell_of_arena(arena, placed, target) for target in targets}
@@ -253,7 +254,7 @@ def test_the_image_object_id_is_the_sha256_of_the_path(running, base: bytes):
     machine = channel.machine
     live = machine.linked.live
     assert live is not None
-    expected = Image.from_bytes(base)
+    expected = model_of(base)
 
     words = rxfc.compile_file(COMPOSE)
     compose_text = authored(
@@ -273,7 +274,7 @@ def test_the_image_object_id_is_the_sha256_of_the_path(running, base: bytes):
     out_at = value_at(channel, SELFEDIT_OUT)
 
     arena = channel.arena()
-    live_image = Image.from_bytes(arena)
+    live_image = model_of(arena)
     for handle in bound_targets(live_image):
         machine.write(
             request_at,
@@ -313,7 +314,7 @@ def test_the_image_writes_the_program_of_clamp_word_for_word(running, base: byte
     machine = channel.machine
     live = machine.linked.live
     assert live is not None
-    expected = Image.from_bytes(base)
+    expected = model_of(base)
 
     words = rxfc.compile_file(COMPOSE)
     compose_text = authored(
@@ -333,7 +334,7 @@ def test_the_image_writes_the_program_of_clamp_word_for_word(running, base: byte
     out_at = value_at(channel, SELFEDIT_OUT)
 
     arena = channel.arena()
-    live_image = Image.from_bytes(arena)
+    live_image = model_of(arena)
     c = compose.Composer(live_image)
     for path in IMAGE_CARRIERS:
         target = resolve_graph(live_image, path)
@@ -382,7 +383,7 @@ def test_the_image_writes_the_expression_of_a_function_word_for_word(running, ba
     machine = channel.machine
     live = machine.linked.live
     assert live is not None
-    expected = Image.from_bytes(base)
+    expected = model_of(base)
 
     words = rxfc.compile_file(COMPOSE)
     compose_text = authored(
@@ -402,7 +403,7 @@ def test_the_image_writes_the_expression_of_a_function_word_for_word(running, ba
     out_at = value_at(channel, SELFEDIT_OUT)
 
     arena = channel.arena()
-    live_image = Image.from_bytes(arena)
+    live_image = model_of(arena)
     c = compose.Composer(live_image)
     for path in EXPRESSION_CARRIERS:
         target = resolve_function(live_image, path)

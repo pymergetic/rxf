@@ -31,12 +31,11 @@ import struct
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, Self
 
 from pymergetic.rxftk.live.client import Client
 from pymergetic.rxftk.live.front import Front, Region
 from pymergetic.rxftk.live.link import (
-    HEAD_SIZE,
     Head,
     LinkError,
     RingLink,
@@ -241,7 +240,7 @@ class Machine:
                 "the machine is closed: this process no longer runs the image"
             )
 
-    def __enter__(self) -> Machine:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *problem: object) -> None:

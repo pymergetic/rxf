@@ -34,10 +34,12 @@ import rxfc
 
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import physical
+from pymergetic.rxftk.live.front import model_of
 
 from . import live_world as lw
 from . import rxf_world as w
 from .snippets import running_image
+from .support import digest_of
 from .test_rxfc import MACHINES
 from .test_tiny import IDS
 
@@ -110,9 +112,9 @@ def send(channel: lw.Channel, expected: Image, text: str) -> int:
     """One delta over the channel: compiled against the state the image is in (the host mirrors
     it), and accepted as the image agrees. What the image writes itself the host mirrors by hand
     before the next delta (set_bytes)."""
-    compiled = physical.from_xml(Image.from_bytes(expected.to_bytes()), ("delta.rxfd", text))
+    compiled = physical.from_xml(model_of(expected.to_bytes()), ("delta.rxfd", text))
     expected.apply(text)
-    assert channel.client.apply(compiled.data) == expected.digest()
+    assert channel.client.apply(compiled.data) == digest_of(expected)
     return compiled.creates
 
 
@@ -174,7 +176,7 @@ def test_the_image_compiles_the_source_and_the_function_it_makes_runs(running, b
     machine = channel.machine
     live = machine.linked.live
     assert live is not None
-    expected = Image.from_bytes(base)
+    expected = model_of(base)
 
     # the front end and the three objects its request names become the image in one delta: the
     # source of the program, the names of the numbers it may use, and the room for its words. The
@@ -253,7 +255,7 @@ def test_the_image_compiles_the_source_and_the_function_it_makes_runs(running, b
     written = words + bytes(OUT_ROOM - len(words))
     expected.apply(set_bytes(f"{SELFEDIT}.out", written))  # the host mirrors the self-write
     assert send(channel, expected, triple_text) > 0
-    assert channel.loaded().digest() == expected.digest()
+    assert digest_of(channel.loaded()) == digest_of(expected)
     status, value = machine.run(
         identity(expected, f"{TRIPLE_FUNCTION}.bytecode"), struct.pack("<Q", N)
     )
@@ -324,7 +326,7 @@ def test_the_image_compiles_its_own_sources_and_installs_the_successor(
     machine = channel.machine
     live = machine.linked.live
     assert live is not None
-    expected = Image.from_bytes(base)
+    expected = model_of(base)
     files = successor_sources()
     program = rxfc.compile_file(FRONT)  # the host's compiler makes the front end that boots
     for filename, text in files.items():
@@ -422,7 +424,7 @@ def test_the_image_compiles_its_own_sources_and_installs_the_successor(
     install = set_bytes(f"{FRONT_FUNCTION}.bytecode", words)
     expected.apply(set_bytes(f"{SELFEDIT}.out", words + bytes(out_room - len(words))))
     assert send(channel, expected, install) == 0
-    assert channel.loaded().digest() == expected.digest()
+    assert digest_of(channel.loaded()) == digest_of(expected)
 
     # the successor runs (same machine, no restart) and compiles the program of the test above
     assert send(channel, expected, set_bytes(f"{SELFEDIT}.source", TRIPLE.read_bytes())) == 0

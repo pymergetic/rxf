@@ -38,6 +38,7 @@ from pymergetic.rxftk.live.front import Front, NotReady, Region, identity, value
 from pymergetic.rxftk.server.live import Session
 
 from . import live_world as lw
+from .support import digest_of
 from .test_rxfc import MACHINES
 
 # Most tests here boot an emulated machine and compile on the image's own front end
@@ -374,7 +375,7 @@ def test_a_live_session_registers_the_world_of_the_image_it_runs(solo: Seat):
         assert attached is session.world
         assert attached.client.ping(b"the channel") == b"the channel"
         assert attached.client.resolve("") == HANDLE_ROOT
-        assert attached.client.digest() == solo.channel.loaded().digest()
+        assert attached.client.digest() == digest_of(solo.channel.loaded())
         outcome = Console(attached.front, io.StringIO()).submit(TRIPLE)
         assert outcome["ok"] is True
         assert outcome["path"] == f"{MODULE}.triple"
@@ -518,7 +519,7 @@ def test_the_frames_face_sees_what_the_world_face_installed(
         capsys.readouterr()  # what the world face printed
 
         assert main(["live", "digest", "shm:two-faces"]) == 0
-        assert capsys.readouterr().out.strip() == solo.channel.loaded().digest()
+        assert capsys.readouterr().out.strip() == digest_of(solo.channel.loaded())
 
         script = tmp_path / "faces.txt"
         script.write_text(
@@ -539,7 +540,7 @@ def test_the_frames_face_follows_the_registration_lifecycle(
     try:
         assert world.registered("shm:faces-lifecycle") is True
         assert main(["live", "digest", "shm:faces-lifecycle"]) == 0
-        assert capsys.readouterr().out.strip() == solo.channel.loaded().digest()
+        assert capsys.readouterr().out.strip() == digest_of(solo.channel.loaded())
     finally:
         session.close()
     assert world.registered("shm:faces-lifecycle") is False
@@ -686,4 +687,4 @@ def test_the_frames_face_waits_for_the_transaction_too(
             assert not worker.is_alive()
 
         assert status == [0]
-        assert capsys.readouterr().out.strip() == solo.channel.loaded().digest()
+        assert capsys.readouterr().out.strip() == digest_of(solo.channel.loaded())

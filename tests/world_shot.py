@@ -23,6 +23,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import uvicorn
+
 # playwright is a seat-optional dependency (only a seat with a browser records
 # shots): the checker resolves nothing on a seat that does not install it.
 from playwright.sync_api import sync_playwright  # pyright: ignore[reportMissingImports]

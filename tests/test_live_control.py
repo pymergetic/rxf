@@ -32,7 +32,7 @@ from .graph_programs import (
     slot,
 )
 from .snippets import running_image
-from .support import resolved
+from .support import digest_of, resolved
 
 pytestmark = [pytest.mark.nightly, pytest.mark.slow]
 
@@ -226,7 +226,7 @@ def test_a_running_program_serves_a_request_at_a_safe_point(
         answers = world.answers()
         assert [a.op for a in answers] == [op | frames.ANSWER for op in order]
         assert answers[0].payload == b"stopped" and all(a.status == 0 for a in answers)
-        assert answers[-1].payload.hex() == base.digest()
+        assert answers[-1].payload.hex() == digest_of(base)
     finally:
         world.close()
 
@@ -247,8 +247,8 @@ def test_a_change_made_while_the_program_runs_is_seen_by_its_next_iterations(
         assert value == (AT + 1) * old + (ROUNDS - AT - 1) * (old - 5)
         answers = world.answers()
         assert all(a.status == 0 for a in answers) and len(answers) == len(order)
-        assert answers[-1].payload.hex() == result.digest()
-        assert world.channel.client.digest() == result.digest()
+        assert answers[-1].payload.hex() == digest_of(result)
+        assert world.channel.client.digest() == digest_of(result)
         # and the context of the image is the one the linker writes for it
         from .test_live_native import matches_linker
 
@@ -323,6 +323,6 @@ def test_a_stopped_run_waits_for_the_host_and_goes_on_when_told(
         assert world.word(BREAK_REQUEST) == 0 and world.word(BREAK_ACK) == 0
         answers = world.answers()
         assert answers[-1].op == frames.BREAK | frames.ANSWER
-        assert answers[-2].payload.hex() == result.digest()
+        assert answers[-2].payload.hex() == digest_of(result)
     finally:
         world.close()

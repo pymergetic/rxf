@@ -32,11 +32,13 @@ from fastapi.testclient import TestClient
 
 from pymergetic.rxftk.core import tree
 from pymergetic.rxftk.core.object import Image
-from pymergetic.rxftk.live.front import identity
+from pymergetic.rxftk.live.front import identity, model_of
 from pymergetic.rxftk.server.app import PokeBody, SourceBody, create_app
 from pymergetic.rxftk.server.inspector import Inspector
 from pymergetic.rxftk.world import STREAM_ORDER, scene_arena, scene_json
 from pymergetic.rxftk.world.demo import demo_image, demo_inspector, demo_v7_image
+
+from .support import value_word
 
 pytestmark = pytest.mark.live
 
@@ -233,7 +235,7 @@ def test_the_serve_runner_boots_the_front_end_and_installs_for_real(image: Image
 
         # and the installed Function answers, executed by the image's own interpreter
         raw, _ = runner.client.emit()
-        running = Image.from_bytes(raw)
+        running = model_of(raw)
         wanted = identity(running, running.handle(f"{MODULE}.triple.bytecode"))
         assert runner.machine.run(wanted, struct.pack("<Q", 7)) == (0, 21)
 
@@ -265,7 +267,7 @@ def test_an_editor_poke_writes_to_the_running_image_and_refuses_without_one(
         # the write is in the running image: read the word back through its channel
         handle = runner.client.resolve(POKE_PATH)
         assert handle is not None
-        (written,) = struct.unpack("<Q", runner.client.payload(handle)[:8])
+        written = value_word(runner.client.payload(handle))
         assert written == 0xA5A5A5A5A5A5A5A5
         assert out["digest"] == runner.client.digest()
 

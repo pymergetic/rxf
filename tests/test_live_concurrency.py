@@ -41,9 +41,11 @@ from pymergetic.rxftk.console import world
 from pymergetic.rxftk.core import tree
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import cli, physical
-from pymergetic.rxftk.live.front import identity
+from pymergetic.rxftk.live.front import identity, model_of
 from pymergetic.rxftk.server.app import PokeBody, SourceBody, create_app
 from pymergetic.rxftk.server.live.runner import Runner
+
+from .support import value_word
 
 pytestmark = pytest.mark.live
 
@@ -174,7 +176,7 @@ def test_a_feed_poll_never_fails_or_corrupts_a_compile_install(image: Image):
         _assert_feed_healthy(polls)
 
         raw, _ = runner.client.emit()
-        running_image = Image.from_bytes(raw)
+        running_image = model_of(raw)
         wanted = identity(running_image, running_image.handle(f"{MODULE}.triple.bytecode"))
         assert runner.machine.run(wanted, struct.pack("<Q", 7)) == (0, 21)
 
@@ -202,7 +204,7 @@ def test_a_feed_poll_never_fails_or_corrupts_a_poke(image: Image):
 
         handle = runner.client.resolve(POKE_PATH)
         assert handle is not None
-        (written,) = struct.unpack("<Q", runner.client.payload(handle)[:8])
+        written = value_word(runner.client.payload(handle))
         assert written == POKE_VALUE
         assert body["digest"] == runner.client.digest()
 
@@ -247,7 +249,7 @@ def test_two_concurrent_mutations_serialize_as_two_intact_commits(image: Image):
         assert hello.commits > before.commits
 
         raw, _ = runner.client.emit()
-        running_image = Image.from_bytes(raw)
+        running_image = model_of(raw)
         for name, want in (("twice", 14), ("quad", 28)):
             wanted = identity(running_image, running_image.handle(f"{MODULE}.{name}.bytecode"))
             assert runner.machine.run(wanted, struct.pack("<Q", 7)) == (0, want)

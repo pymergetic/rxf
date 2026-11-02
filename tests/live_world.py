@@ -29,6 +29,7 @@ from pymergetic.rxftk.core.arena import (
 )
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live.client import Client
+from pymergetic.rxftk.live.front import model_of
 
 from . import graph_world as world
 from .emulator import Blob, Emulator, Integer
@@ -375,7 +376,7 @@ class Channel:
         return self.machine.read(address, committed + OBJECT_HEADER_SIZE + FREE_LINKS)
 
     def loaded(self) -> Image:
-        return Image.from_bytes(self.arena())
+        return model_of(self.arena())
 
 
 def _wrapped(

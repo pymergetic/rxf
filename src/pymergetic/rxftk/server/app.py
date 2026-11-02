@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from pymergetic.rxftk.core.kinds import Mobility
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live.client import LiveError
+from pymergetic.rxftk.live.front import model_of
 from pymergetic.rxftk.server import editor
 from pymergetic.rxftk.server import tutor as tutor_page
 from pymergetic.rxftk.server.inspector import Inspector
@@ -178,7 +179,7 @@ def create_app(image: Image, *, session: Session | None = None) -> FastAPI:
             # `world.front` is the front end of that same image: `editor.poke` rebases its mirror
             # around the apply (the poke is part of the image state), or the next compile or
             # install on this session would be refused a stale base.
-            running = Image.from_bytes(world.client.emit()[0])
+            running = model_of(world.client.emit()[0])
             return editor.poke(
                 world.client,
                 running,

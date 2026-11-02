@@ -262,10 +262,18 @@ def digest_of(data: bytes) -> str:
 
 def digest_of_base(base: Image) -> str:
     """The name an image answers for `base`: the hash of its v7 canonical bytes (docs/32 5.4),
-    the window the live image's dump digest covers (``live.arena_image.digest_of``)."""
+    the window the live image's dump digest covers (``live.arena_image.digest_of``).
+
+    A model that has no canonical arena (the writer refuses it: a world without its inventor, a
+    dangling reference) is no world a running image holds, so no image answers its name. It is
+    named by its own v6 digest then: the delta that carries it is refused by any image with
+    REASON_BASE, which is the right answer for a base that is not that image."""
     from . import arena_image
 
-    return arena_image.digest_of(base)
+    try:
+        return arena_image.digest_of(base)
+    except ValueError:
+        return base.digest()
 
 
 def from_xml(

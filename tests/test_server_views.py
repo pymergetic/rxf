@@ -31,6 +31,7 @@ from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.server.inspector import Inspector
 from pymergetic.rxftk.server.live import Session
 
+from .support import digest_of
 from .test_console import MACHINES, MODULE, TRIPLE, Seat, booted, seat_of
 
 # The tests that touch the live tree boot a machine through booted/seat_of and
@@ -335,7 +336,7 @@ def test_the_serve_instance_registers_the_world_while_it_serves(image: Image, so
             assert attached is session.world
             assert attached.client.ping(b"the channel") == b"the channel"
             assert attached.client.resolve("") == HANDLE_ROOT
-            assert attached.client.digest() == solo.channel.loaded().digest()
+            assert attached.client.digest() == digest_of(solo.channel.loaded())
             outcome = Console(attached.front, io.StringIO()).submit(TRIPLE)
             assert outcome["ok"] is True
             assert outcome["path"] == f"{MODULE}.triple"
@@ -419,7 +420,7 @@ def test_the_live_feed_reports_the_attached_image_and_its_runtime(image: Image, 
     assert got["refusal"] is None
     # what is attached is the very image the app inspects, named the way `rxf live info` names it
     assert got["image"] == {
-        "digest": image.digest(),
+        "digest": digest_of(image),
         "handles": hello.handles,
         "body_size": hello.body_size,
     }

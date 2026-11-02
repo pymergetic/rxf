@@ -16,6 +16,7 @@ import pytest
 
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import physical
+from pymergetic.rxftk.live.front import model_of
 
 from . import live_world as lw
 from .graph_programs import OP, assemble, call, edge, lit, move, slot
@@ -197,10 +198,10 @@ def test_a_function_made_of_existing_ones_is_compiled_in_the_running_image(
     """The new Function of the first self-edit (WP11), then compiled by the image itself, and edited again."""
     machine = fresh
     base = image.to_bytes()
-    expected = Image.from_bytes(base)
+    expected = model_of(base)
     text = authored(expected)
     expected.apply(text)
-    compiled = physical.from_xml(Image.from_bytes(base), ("double.rxfd", text))
+    compiled = physical.from_xml(model_of(base), ("double.rxfd", text))
     channel = lw.Channel(machine)
     # The answer is the digest of the result in the window the image speaks: the hash of its
     # v7 canonical bytes (docs/32 5.4), not the superseded `Image.digest()` (the RXFB-6 form).
@@ -215,7 +216,7 @@ def test_a_function_made_of_existing_ones_is_compiled_in_the_running_image(
     )
     # the data changes: the compiled code has the addresses of its moment, so the image compiles it
     # again after the change, and the code of the new moment does what the interpreter does
-    edited = Image.from_bytes(expected.to_bytes())
+    edited = model_of(expected.to_bytes())
     unit = resolved(edited, "pymergetic.rxf.application.unit_price")
     edited.set_payload(unit, struct.pack("<I", 135))
     channel.client.apply(physical.compile(expected, edited).data)

@@ -10,6 +10,17 @@ import link
 from pymergetic.rxftk.core.arena import ObjectArena
 from pymergetic.rxftk.core.object import Image
 
+# A module's payload opens with the arena's chain head (docs/32 1.2; native ground.h asserts
+# sizeof(pymergetic_rxf_module) == 8): the value of the module, and so the word a payload poke
+# writes at offset 0, starts behind it.
+MODULE_HEAD = 8
+
+
+def value_word(payload: bytes) -> int:
+    """The first word of the value of a module, read from the payload the channel answers."""
+    (word,) = struct.unpack_from("<Q", payload, MODULE_HEAD)
+    return word
+
 
 def model_copy(model: Image) -> Image:
     """A copy of the model: the world's own form round-trips (the arena bytes

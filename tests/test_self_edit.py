@@ -18,9 +18,11 @@ import pytest
 
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import physical
+from pymergetic.rxftk.live.front import model_of
 
 from . import live_world as lw
 from .snippets import running_image
+from .support import digest_of
 
 pytestmark = [pytest.mark.nightly, pytest.mark.slow]
 
@@ -55,7 +57,7 @@ def authored(base: Image) -> str:
     function = next(document.getroot().iter("Function"))
     # the digest of what the graph means: here, of the graph as written
     function.set("semantic_digest", hashlib.sha256(DOUBLE.read_bytes()).hexdigest())
-    probe = Image.from_bytes(base.to_bytes())
+    probe = model_of(base.to_bytes())
     probe.apply(DOUBLE.read_text(encoding="utf-8"))
     program = compose.programs(probe)[FUNCTION]
     function.append(graph_sync.bytecode(function, FUNCTION, program))
@@ -89,27 +91,27 @@ def test_the_image_takes_a_function_of_existing_ones_and_the_successor_runs_it(
 ):
     name, channel = running
     machine = channel.machine
-    start = Image.from_bytes(base)
+    start = model_of(base)
     assert number(machine.run(identity(start, f"{MAIN}.bytecode"))) == TOTAL
     # the Function is not there: the interpreter finds no program under its id
-    expected = Image.from_bytes(base)
+    expected = model_of(base)
     text = authored(expected)
     expected.apply(text)
     new = identity(expected, f"{FUNCTION}.bytecode")
     assert machine.run(new)[0] != 0
 
     # one delta, applied by the image, which writes the entry of the new program itself
-    compiled = physical.from_xml(Image.from_bytes(base), ("double.rxfd", text))
+    compiled = physical.from_xml(model_of(base), ("double.rxfd", text))
     assert compiled.creates > 0
-    assert channel.client.apply(compiled.data) == expected.digest()
+    assert channel.client.apply(compiled.data) == digest_of(expected)
     assert number(machine.run(new)) == 2 * TOTAL
     assert number(machine.run(identity(start, f"{MAIN}.bytecode"))) == TOTAL
 
     # the successor is the dump: what the host computes, and a machine started from it runs it
     successor, digest = channel.client.emit()
     assert successor == expected.compact().to_bytes()
-    assert digest == expected.digest()
-    fresh = lw.machine_of(name, Image.from_bytes(successor))
+    assert digest == digest_of(expected)
+    fresh = lw.machine_of(name, model_of(successor))
     try:
         assert number(fresh.run(new)) == 2 * TOTAL
     finally:
@@ -117,11 +119,11 @@ def test_the_image_takes_a_function_of_existing_ones_and_the_successor_runs_it(
             fresh.close()
 
     # the dump is editable XML with the same digest on the host
-    exported = Image.from_bytes(successor).export()
+    exported = model_of(successor).export()
     assert '<Function name="double"' in exported
     again = Image.empty()
     again.apply(exported)
-    assert again.digest() == expected.digest()
+    assert digest_of(again) == digest_of(expected)
 
     # edit the XML (a unit price from 125 to 135), send the difference to the running image
     edited_text = exported.replace(
@@ -130,8 +132,8 @@ def test_the_image_takes_a_function_of_existing_ones_and_the_successor_runs_it(
     assert edited_text != exported
     edited = Image.empty()
     edited.apply(edited_text)
-    change = physical.compile(Image.from_bytes(successor), edited)
-    assert channel.client.apply(change.data) == edited.digest()
+    change = physical.compile(model_of(successor), edited)
+    assert channel.client.apply(change.data) == digest_of(edited)
     total = number(machine.run(identity(start, f"{MAIN}.bytecode")))
     assert total != TOTAL
     assert number(machine.run(new)) == 2 * total

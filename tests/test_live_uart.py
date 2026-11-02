@@ -16,11 +16,12 @@ import pytest
 from pymergetic.rxftk.core.object import Image
 from pymergetic.rxftk.live import frames, physical
 from pymergetic.rxftk.live.client import Client
+from pymergetic.rxftk.live.front import model_of
 from pymergetic.rxftk.live.harness import HostImage
 
 from . import live_world as lw
 from .snippets import running_image
-from .support import resolved
+from .support import digest_of, resolved
 
 # Every test runs code on a machine the harness boots per test; the emulated seats
 # cost minutes each. Nightly material like test_compile.
@@ -206,17 +207,17 @@ def test_the_client_talks_to_the_image_over_the_uart(serial, image: Image):
     host = HostImage(raw)
     assert client.ping(b"over a wire") == b"over a wire"
     assert client.hello().handles == host.client.hello().handles
-    assert client.digest() == image.digest()
+    assert client.digest() == digest_of(image)
     assert client.resolve("pymergetic.rxf.application.main") == host.client.resolve(
         "pymergetic.rxf.application.main"
     )
     # a change goes in over the same wire and gives what the host gives
-    result = Image.from_bytes(raw)
+    result = model_of(raw)
     parent = result.resolve("pymergetic.rxf.application")
     fresh = result.add(parent, "fresh", 8, 0xFFFFFFFFFFFFFFFF, b"over the uart")
     result.add(fresh, "inner", 8, 0xFFFFFFFFFFFFFFFF, b"")
-    compiled = physical.compile(Image.from_bytes(raw), result)
-    assert client.apply(compiled.data) == result.digest()
+    compiled = physical.compile(model_of(raw), result)
+    assert client.apply(compiled.data) == digest_of(result)
     assert client.emit()[0] == result.compact().to_bytes()
     assert client.resolve("pymergetic.rxf.application.fresh.inner") is not None
 
@@ -374,16 +375,16 @@ def test_the_client_talks_to_a_wasm32_image_over_the_fifos(fifo, image: Image):
     raw = image.to_bytes()
     host = HostImage(raw)
     assert client.ping(b"over a wire") == b"over a wire"
-    assert client.digest() == image.digest()
+    assert client.digest() == digest_of(image)
     assert client.resolve("pymergetic.rxf.application.main") == host.client.resolve(
         "pymergetic.rxf.application.main"
     )
-    result = Image.from_bytes(raw)
+    result = model_of(raw)
     parent = resolved(result, "pymergetic.rxf.application")
     fresh = result.add(parent, "fresh", 8, 0xFFFFFFFFFFFFFFFF, b"over the fifos")
     result.add(fresh, "inner", 8, 0xFFFFFFFFFFFFFFFF, b"")
-    compiled = physical.compile(Image.from_bytes(raw), result)
-    assert client.apply(compiled.data) == result.digest()
+    compiled = physical.compile(model_of(raw), result)
+    assert client.apply(compiled.data) == digest_of(result)
     assert client.resolve("pymergetic.rxf.application.fresh.inner") is not None
 
 

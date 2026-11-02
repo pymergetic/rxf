@@ -40,7 +40,10 @@ pytest.importorskip("playwright")
 
 # playwright is a seat-optional dependency (the importorskip above): a seat
 # without a browser does not install it, and the checker resolves nothing there.
-from playwright.sync_api import Page, sync_playwright  # pyright: ignore[reportMissingImports]
+from playwright.sync_api import (  # pyright: ignore[reportMissingImports]
+    Page,
+    sync_playwright,
+)
 
 ROOT = Path(__file__).parents[1]
 DIGEST = re.compile(r"\b[0-9a-f]{64}\b")

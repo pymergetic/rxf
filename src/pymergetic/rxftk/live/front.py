@@ -161,6 +161,15 @@ def arena_at(machine: Machine, at: int) -> bytes:
     return machine.read(at, 192 + body)
 
 
+def model_of(arena: bytes) -> Image:
+    """The model of an arena in either form: the v7 one-arena image a running machine answers
+    (``arena_image.load``, magic ``RXFA``) or the v6 export (``Image.from_bytes``). The C++
+    loader reads only the v6 form, so a dump from a running image never goes through it."""
+    if arena[:4] == b"RXFA":
+        return arena_image.load(arena)
+    return Image.from_bytes(arena)
+
+
 def value_places(arena: bytes, image: Image) -> dict[str, int]:
     """Where the value of every object lies in the arena bytes, by path: the payload behind the
     record header and behind the chain head a module's payload opens with (docs/32 1.2). The
@@ -369,7 +378,7 @@ class Front:
         """The arena as it lies in the machine, and where the value of every object lies in it."""
         if self._live is None:
             arena = arena_at(self._machine, self._arena.at)
-            image = Image.from_bytes(arena)
+            image = model_of(arena)
             self._live = (image, value_places(arena, image))
         return self._live
 
@@ -432,7 +441,9 @@ class Front:
             identity=identity(image, image.handle(path)),
             code_identity=identity(image, code),
             byte_count=len(value_of(image, code)),
-            digest=image.digest(),
+            # the digest of the image in the window it answers (docs/32 5.4), not the RXFB-6
+            # `Image.digest()` of its mirror
+            digest=arena_image.digest_of(image),
         )
 
     @staticmethod
