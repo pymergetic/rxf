@@ -9,11 +9,11 @@
   ],
   "surroundingPairs": [["(", ")"], ["[", "]"], ["\"", "\""]],
   "indentationRules": {
-    "increaseIndentPattern": "^\\s*(def|class|enum|if|elif|else|for|while|match|case)\\b.*:\\s*(#.*)?$"
+    "increaseIndentPattern": "^\\s*(def|class|struct|if|elif|else|for|while)\\b.*:\\s*(#.*)?$"
   },
   "onEnterRules": [
     {
-      "beforeText": "^\\s*(def|class|enum|if|elif|else|for|while|match|case)\\b.*:\\s*(#.*)?$",
+      "beforeText": "^\\s*(def|class|struct|if|elif|else|for|while)\\b.*:\\s*(#.*)?$",
       "action": { "indent": "indent" }
     }
   ]

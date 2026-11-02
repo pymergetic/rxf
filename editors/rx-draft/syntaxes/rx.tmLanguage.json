@@ -9,7 +9,6 @@
     { "include": "#number" },
     { "include": "#function-definition" },
     { "include": "#type-definition" },
-    { "include": "#module-statement" },
     { "include": "#import-statement" },
     { "include": "#keyword" },
     { "include": "#constant" },
@@ -39,7 +38,7 @@
       "match": "\\b(?:0x[0-9a-fA-F_]+|0b[01_]+|[0-9][0-9_]*)\\b"
     },
     "function-definition": {
-      "match": "\\b(def)\\b(?:\\s+([A-Za-z_][\\w.]*(?:<[^>()]*>)?(?:\\[[^\\]]*\\])?))?\\s+([A-Za-z_]\\w*)\\s*(?=\\()",
+      "match": "\\b(def)\\b(?:\\s+([A-Za-z_][\\w.]*(?:<[^>]*>)?(?:\\[[^\\]]*\\])?))?\\s+([A-Za-z_]\\w*)\\s*(?=\\()",
       "captures": {
         "1": { "name": "storage.type.function.rx" },
         "2": { "patterns": [{ "include": "#type" }] },
@@ -47,17 +46,10 @@
       }
     },
     "type-definition": {
-      "match": "\\b(class|enum)\\s+([A-Za-z_]\\w*)",
+      "match": "\\b(class|struct)\\s+([A-Za-z_]\\w*)",
       "captures": {
         "1": { "name": "storage.type.class.rx" },
         "2": { "name": "entity.name.type.class.rx" }
-      }
-    },
-    "module-statement": {
-      "match": "\\b(module)\\s+([A-Za-z_][\\w.]*)",
-      "captures": {
-        "1": { "name": "keyword.control.module.rx" },
-        "2": { "name": "entity.name.namespace.rx" }
       }
     },
     "import-statement": {
@@ -72,11 +64,7 @@
       "patterns": [
         {
           "name": "keyword.control.flow.rx",
-          "match": "\\b(if|elif|else|for|in|while|match|case|return|break|continue|pass|try)\\b"
-        },
-        {
-          "name": "keyword.control.refusal.rx",
-          "match": "\\b(refuse|refuses)\\b"
+          "match": "\\b(if|elif|else|for|in|while|return|break|continue|pass)\\b"
         },
         {
           "name": "keyword.operator.word.rx",
@@ -84,7 +72,11 @@
         },
         {
           "name": "storage.modifier.rx",
-          "match": "\\b(const|unsafe)\\b"
+          "match": "\\b(const|ref)\\b"
+        },
+        {
+          "name": "storage.type.function.rx",
+          "match": "\\bfn\\b"
         }
       ]
     },
@@ -92,12 +84,7 @@
       "patterns": [
         { "name": "constant.language.rx", "match": "\\b(none|true|false)\\b" },
         { "name": "variable.language.self.rx", "match": "\\bself\\b" },
-        { "name": "constant.other.rx", "match": "\\b[A-Z][A-Z0-9_]+\\b" },
-        { "name": "constant.other.enum-member.rx", "match": "(?<=\\.)[A-Z][A-Za-z0-9]*\\b" },
-        {
-          "match": "^\\s+([A-Z][A-Za-z0-9]*)(?=\\s*=)",
-          "captures": { "1": { "name": "constant.other.enum-member.rx" } }
-        }
+        { "name": "constant.other.rx", "match": "\\b[A-Z][A-Z0-9_]+\\b" }
       ]
     },
     "type": {
