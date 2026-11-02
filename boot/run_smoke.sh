@@ -16,6 +16,11 @@
 set -u
 cd "$(dirname "$0")"
 
+# One writer at a time in build/: tools/native/boot_lock.py takes the same lock for the Python
+# writers, so a parallel lane waits here instead of corrupting the other's make.
+exec 9>.build.lock
+flock 9
+
 MAGIC="RXFOK"
 RESULT="rxf result 00000000 0000004b4f465852"
 LOG=build/smoke.log

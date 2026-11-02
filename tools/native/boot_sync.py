@@ -38,6 +38,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from pathlib import Path
 
+import boot_lock
 import source_sync
 
 RXF = "urn:pymergetic:rxf"
@@ -224,19 +225,20 @@ def source_name(source: str) -> str:
 
 def build() -> dict[str, bytes]:
     """``make -C boot``: the bytes of each body, by body name (the toolchain's)."""
-    done = subprocess.run(
-        ["make", "--no-print-directory", "all"],
-        cwd=BOOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if done.returncode != 0:
-        raise ValueError(f"make -C boot failed:\n{done.stdout}\n{done.stderr}")
-    return {
-        str(family["body"]): (BOOT / str(family["artifact"])).read_bytes()
-        for family in FAMILIES
-    }
+    with boot_lock.writing():
+        done = subprocess.run(
+            ["make", "--no-print-directory", "all"],
+            cwd=BOOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if done.returncode != 0:
+            raise ValueError(f"make -C boot failed:\n{done.stdout}\n{done.stderr}")
+        return {
+            str(family["body"]): (BOOT / str(family["artifact"])).read_bytes()
+            for family in FAMILIES
+        }
 
 
 def pins_of(starter: Path) -> dict[str, tuple[int, str]]:

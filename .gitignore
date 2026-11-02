@@ -218,3 +218,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# the boot build lock (tools/native/boot_lock.py, boot/run_smoke.sh)
+boot/.build.lock

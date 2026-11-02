@@ -18,6 +18,7 @@ import hashlib
 import shutil
 from pathlib import Path
 
+import boot_lock
 import boot_sync
 import pytest
 import source_sync
@@ -123,9 +124,10 @@ def test_the_uefi_body_reproduces_byte_for_byte():
     if missing:
         pytest.skip("boot build tools missing: " + ", ".join(missing))
     family = next(f for f in boot_sync.FAMILIES if f["body"] == "body_uefi")
-    first = boot_sync.build()[str(family["body"])]
-    (boot_sync.BOOT / str(family["artifact"])).unlink()
-    second = boot_sync.build()[str(family["body"])]
+    with boot_lock.writing():  # the artifact must not vanish under another lane's read
+        first = boot_sync.build()[str(family["body"])]
+        (boot_sync.BOOT / str(family["artifact"])).unlink()
+        second = boot_sync.build()[str(family["body"])]
     assert first == second
 
 
