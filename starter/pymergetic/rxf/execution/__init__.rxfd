@@ -47,6 +47,7 @@
     <Type name="CfgBlock" form="Form.Execution" align="1" />
     <Type name="CfgOp" form="Form.Execution" align="1" />
     <Type name="Code" form="Form.Opaque" size="64" align="1" flags="TypeFlags.Variable" node_kind="NodeKind.Code">
+      <Field name="body" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="96" />
       <Field name="byte_count" value_type="uint64_t" offset="48" />
       <Field name="effects" value_type="@kinds.Effects" offset="28" />
       <Field name="entry_offset" value_type="uint64_t" offset="40" />
@@ -57,6 +58,11 @@
       <Field name="semantic_digest" value_type="uint8_t" offset="56" count="32" />
       <Field name="semantic_version" value_type="uint32_t" offset="32" />
       <Field name="signature" flags="FieldFlags.Ref" value_type="uint64_t" offset="16" />
+      <Field name="source" flags="FieldFlags.Optional|Ref" value_type="uint64_t" offset="88" />
+    </Type>
+    <Type name="CodeBlob" form="Form.Opaque" size="40" align="1" flags="TypeFlags.Variable">
+      <Field name="byte_count" value_type="uint64_t" />
+      <Field name="content_digest" value_type="uint8_t" offset="8" count="32" />
     </Type>
     <Type name="CompilerProvenance" form="Form.Struct" size="40" align="8">
       <Field name="compiler_major" value_type="uint32_t" />
@@ -87,6 +93,11 @@
       <Field name="semantic_digest" value_type="uint8_t" offset="40" count="32" />
       <Field name="semantic_version" value_type="uint32_t" offset="12" />
       <Field name="signature" flags="FieldFlags.Ref" value_type="uint64_t" offset="16" />
+    </Type>
+    <Type name="HostEntry" form="Form.Struct" size="16" align="8" flags="TypeFlags.Variable|SelfDescribing">
+      <Field name="capability_count" value_type="uint32_t" offset="12" />
+      <Field name="entry" flags="FieldFlags.Ref" value_type="uint64_t" />
+      <Field name="kind" value_type="@kinds.HostKind" offset="8" />
     </Type>
     <Type name="Import" form="Form.Struct" size="24" align="8" node_kind="NodeKind.Import">
       <Field name="function" flags="FieldFlags.Ref" value_type="uint64_t" />
@@ -137,6 +148,12 @@
       <Field name="result_count" value_type="uint64_t" offset="16" />
       <Field name="results" flags="FieldFlags.Children" value_type="pymergetic.rxf.execution.Result" />
       <Field name="return_type" flags="FieldFlags.Ref" value_type="uint64_t" />
+    </Type>
+    <Type name="Source" form="Form.Opaque" size="48" align="1" flags="TypeFlags.Variable">
+      <Field name="arch" value_type="@kinds.SourceArch" offset="4" />
+      <Field name="byte_count" value_type="uint64_t" offset="8" />
+      <Field name="lang" value_type="@kinds.SourceLang" />
+      <Field name="semantic_digest" value_type="uint8_t" offset="16" count="32" />
     </Type>
     <Type name="Target" form="Form.Struct" size="24" align="4">
       <Field name="abi" value_type="uint32_t" offset="8" />

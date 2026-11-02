@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delta xmlns:rxf="urn:pymergetic:rxf">
+  <Module name="sources" category="ModuleCategory.Library">
+    <Alias name="kinds" target="pymergetic.rxf.kinds" flags="AliasFlags.Reexport" />
+  </Module>
+</delta>
