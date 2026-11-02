@@ -21,7 +21,9 @@ def compiler() -> str:
     return "clang-18" if shutil.which("clang-18") else "cc"
 
 
-def binary(sources: Sequence[Path], stem: str, mode: str = "") -> Path:
+def binary(
+    sources: Sequence[Path], stem: str, mode: str = "", extra: Sequence[str] = ()
+) -> Path:
     """The proof binary of ``sources`` for a mode ("" standard, "tsan", "asan"), compiled when
     a source changed."""
     cc = compiler()
@@ -32,6 +34,7 @@ def binary(sources: Sequence[Path], stem: str, mode: str = "") -> Path:
     elif mode == "asan":
         flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all",
                   "-DRXF_SMP_ASAN"]
+    flags += list(extra)
     digest = hashlib.sha256()
     for source in [*sources, Path(cc), Path(mode)]:
         digest.update(source.name.encode())

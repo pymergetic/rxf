@@ -181,7 +181,9 @@ def image() -> Image:
 
 
 @pytest.fixture(params=list(DEVICES))
-def serial(request: pytest.FixtureRequest, image: Image):
+def serial(request: pytest.FixtureRequest, image: Image, monkeypatch: pytest.MonkeyPatch):
+    # a device is a hook on a port or a memory range of the emulator: x86_64 runs in unicorn here
+    monkeypatch.setenv("RXF_EMULATOR", "unicorn")
     name, word_, base, shift, _ = DEVICES[request.param]
     spec = lw.link.LiveSpec(uart=base, uart_device=word_)
     machine = lw.machine_of(name, image, spec)

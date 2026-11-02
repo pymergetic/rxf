@@ -285,9 +285,12 @@ def test_a_break_with_the_continue_already_queued_gives_the_run_it_had(
 
 @pytest.mark.parametrize("machine", EMULATED)
 def test_a_stopped_run_waits_for_the_host_and_goes_on_when_told(
-    machine: str, image: Image
+    machine: str, image: Image, monkeypatch: pytest.MonkeyPatch
 ):
     import unicorn
+
+    # the test hooks the pump of the emulator: x86_64 runs in unicorn here
+    monkeypatch.setenv("RXF_EMULATOR", "unicorn")
 
     base = Image.from_bytes(image.to_bytes())
     old = the_value(base)
