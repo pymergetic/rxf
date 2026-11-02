@@ -69,9 +69,23 @@ Two consequences:
   the caller's slot and never leaves a reference to a frame that is gone.
 - **Only what a parent holds outlives the run.** An object that must survive its run is created in a
   parent that holds it (the module or another object), not in a frame. How a program says "this belongs
-  to that parent" is open (section 8).
+  to that parent" is open (section 9).
 
-## 6. Functions are variables
+## 6. Where names live
+
+- A **module variable** is bound to its module, a **class variable** to its class. Both are children of
+  that node, like any other member.
+- There is **no global as a separate concept**. A global is a variable on the **root node**; its name
+  is its path from the root.
+- **Everything of the system lives under `pymergetic.rxf`, including the simplest types** (the
+  integers and the rest). The language does not define them: it **assumes they exist**, and the
+  genesis of an image creates them before the first line of any program is read. Whatever a program
+  needs up to that point is there by construction.
+
+Compared with the tree as it stands, this moves the primitive types (`uint8_t`, `uint64_t`, ... are
+types of the root node today, with an alias in the module that uses them) under `pymergetic.rxf`.
+
+## 7. Functions are variables
 
 `fn<u16(Packet)>` is a type like any other, so a function is a variable of such a type, and a
 variable of that type can hold any function with that signature:
@@ -87,13 +101,20 @@ fn<u16(Packet)> measure = length_of
 the function is a **Function** object at its place in the tree, and `measure` is a variable that
 refers to it.
 
-## 7. Generics
+## 8. Generics
 
 `<>` is the one form: `Option<Packet>`, `fn<u16(Packet)>`. An instantiation is an object of its own;
 the same arguments are the same object.
 
-## 8. Open (nothing below is decided)
+## 9. Open (nothing below is decided)
 
+- **Instance variable or class variable.** A variable declared in a class body is a member of every
+  instance (a Field). A variable that is bound to the class itself needs a way to be written; C++ says
+  `static`, Python says "assigned in the class body". Open.
+- **Name lookup order** for an unqualified name: the activation, then the enclosing class, then the
+  module, then the root. Proposed, not agreed.
+- **The spelling of the base types**: `u8 u16 u32 u64` as in the sample, or the C names the tree
+  carries today (`uint8_t`, `uint64_t`).
 - **Copy or alias.** Whether assignment copies (as in C++) with `ref` making a reference, which would
   make `ref` a qualifier of any variable and a parameter the place where the difference shows
   (`def swap(self, ref Packet p)` changes the original, `def f(Packet p)` gets a copy). Proposed, not

@@ -1,7 +1,7 @@
 """Echo: bounce a packet back to where it came from."""
 
 import net.slip
-from core import u16, u32, Option
+from pymergetic.rxf import u16, u32, Option
 
 u16 MTU = 1500
 """Largest payload in bytes."""
