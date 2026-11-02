@@ -95,6 +95,7 @@ markers = [
   "slow: takes more than ten seconds (kept out of the pre-commit lane)",
   "nightly: emulator, boot, or per-test cold-start matrix (the nightly lane runs it)",
   "live: binds real sockets or ports (runs serial, never under xdist)",
+  "aarch64: the aarch64 seat (emulated): held back unless -m aarch64 or RXF_SEATS=all (tests/conftest.py)",
 ]
 addopts = "--strict-markers"
 filterwarnings = [

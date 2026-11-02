@@ -5,7 +5,8 @@
 #   live    the socket, server, and race tests: serial, never under xdist.
 #   nightly the emulator and per-test cold-start matrices: xdist per test.
 #   slice   what a slice gate needs: fast + slow parallel, then live serial.
-#   full    everything: slice, then nightly.
+#   aarch64 the aarch64 seat alone (emulated, slow, an open wall): never part of the lanes above.
+#   full    everything: slice, then nightly, then the aarch64 seat last, once those are green.
 # Any extra argument after the lane is passed to pytest as-is.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -36,13 +37,17 @@ case "$lane" in
     run -n auto -m "not nightly and not live" --durations=10 "$@"
     run -m live --durations=10 "$@"
     ;;
+  aarch64)
+    RXF_SEATS=all run -n auto -m aarch64 --durations=10 "$@"
+    ;;
   full)
     run -n auto -m "not nightly and not live" --durations=10 "$@"
     run -m live --durations=10 "$@"
     run -n auto -m nightly --durations=10 "$@"
+    RXF_SEATS=all run -n auto -m aarch64 --durations=10 "$@"
     ;;
   *)
-    echo "unknown lane: $lane (fast | slow | live | nightly | slice | full)" >&2
+    echo "unknown lane: $lane (fast | slow | live | nightly | slice | aarch64 | full)" >&2
     exit 2
     ;;
 esac
