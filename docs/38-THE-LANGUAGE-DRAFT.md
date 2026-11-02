@@ -42,6 +42,16 @@ and every function is a **Function** under it.
 The only marker in the sample is `ref`, which says the member refers to an object that someone else
 holds instead of being part of this one.
 
+**Nesting.** Everything is a node, so everything may be nested: a class in a class, a function in a
+function, a class in a function, a function in a class. A nested definition is a child node of the one
+that contains it, and its path says so (`Echo.Stats`, `Echo.handle.span`). In the sample, `Stats` is
+nested in `Echo` and `span` is nested in `handle`.
+
+A nested definition is a **node, not a closure**: it may use the names of the nodes around it (types,
+functions, class and module variables), but it does not capture the local variables of the activation
+around it. What it needs from there it is given as an argument. This keeps the rule of section 5
+intact: a variable is a slot of its own parent, and nothing keeps a frame alive.
+
 ## 5. Variables and who allocates
 
 A variable is a slot **allocated by its parent**: a member by the object, a module variable by the
@@ -108,6 +118,9 @@ the same arguments are the same object.
 
 ## 9. Open (nothing below is decided)
 
+- **Closures.** Whether a nested function may capture the locals of the activation around it. The draft
+  says no (see section 4); the alternative needs a frame to outlive its run as soon as the function
+  escapes.
 - **Instance variable or class variable.** A variable declared in a class body is a member of every
   instance (a Field). A variable that is bound to the class itself needs a way to be written; C++ says
   `static`, Python says "assigned in the class body". Open.

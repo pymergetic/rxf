@@ -17,6 +17,13 @@ class Echo:
     ref net.slip.Line line
     u32 count = 0
 
+    class Stats:
+        """Counters kept by one echo."""
+        u32 seen = 0
+        u32 span_total = 0
+
+    Stats stats
+
     def swap(self, Packet p):
         """Swap the two addresses in place."""
         u32 tmp = p.src
@@ -24,6 +31,10 @@ class Echo:
         p.dst = tmp
 
     def Option<Packet> handle(self, Packet p):
+        def u32 span(Packet q):
+            return q.dst - q.src
+        self.stats.seen += 1
+        self.stats.span_total += span(p)
         if p.dst == 0:
             return none
         self.swap(p)
