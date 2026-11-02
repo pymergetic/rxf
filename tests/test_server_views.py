@@ -25,9 +25,11 @@ from pymergetic.rxftk.core.arena import (
     HANDLE_NONE,
     HANDLE_ROOT,
     REF_SIZE,
+    ObjectArena,
 )
 from pymergetic.rxftk.core.kinds import Binding, Mobility, NodeKind, OwnerKind, RefKind
 from pymergetic.rxftk.core.object import Image
+from pymergetic.rxftk.live import arena_image
 from pymergetic.rxftk.server.inspector import Inspector
 from pymergetic.rxftk.server.live import Session
 
@@ -335,7 +337,7 @@ def test_the_serve_instance_registers_the_world_while_it_serves(image: Image, so
             attached = world.attach("shm:serve-runs")
             assert attached is session.world
             assert attached.client.ping(b"the channel") == b"the channel"
-            assert attached.client.resolve("") == HANDLE_ROOT
+            assert attached.client.resolve("") == solo.channel.client.resolve("")
             assert attached.client.digest() == digest_of(solo.channel.loaded())
             outcome = Console(attached.front, io.StringIO()).submit(TRIPLE)
             assert outcome["ok"] is True
@@ -424,10 +426,9 @@ def test_the_live_feed_reports_the_attached_image_and_its_runtime(image: Image, 
         "handles": hello.handles,
         "body_size": hello.body_size,
     }
-    assert (got["image"]["handles"], got["image"]["body_size"]) == (
-        image.handle_count,
-        image.body_size,
-    )
+    # the handles of the running image are the objects of the arena of this world (the model's own
+    # count and the v6 body size are other notions; the live arena is not compacted)
+    assert got["image"]["handles"] == ObjectArena.attach(arena_image.arena_of(image)).handle_count
     # `interpreter.version` is `Hello.version`: the version the running image answers
     assert got["interpreter"] == {"version": hello.version}
     assert got["counters"] == {
@@ -446,7 +447,10 @@ def test_the_live_feed_reports_the_attached_image_and_its_runtime(image: Image, 
     assert got["leaf"]["path"] == LIVE_LEAF and got["leaf"]["handle"] == handle
     running = solo.channel.loaded()
     assert got["leaf"]["state"] == Inspector(running).detail(LIVE_LEAF)["flags"]["state"]
-    assert got["leaf"]["state"]["value"] == running.get(handle)["state"]
+    # `handle` is the arena handle the image answers; the model has numbers of its own
+    in_model = running.resolve(LIVE_LEAF)
+    assert in_model is not None
+    assert got["leaf"]["state"]["value"] == running.get(in_model)["state"]
     json.dumps(got)
 
 
