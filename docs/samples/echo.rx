@@ -30,6 +30,10 @@ class Echo:
         self.count += 1
         return p
 
+def Packet make(u32 src, u32 dst):
+    Packet p = Packet(src, dst, 0)
+    return p
+
 def u16 length_of(Packet p):
     return p.length
 

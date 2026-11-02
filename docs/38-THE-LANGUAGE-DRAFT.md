@@ -42,11 +42,34 @@ and every function is a **Function** under it.
 The only marker in the sample is `ref`, which says the member refers to an object that someone else
 holds instead of being part of this one.
 
-## 5. Variables
+## 5. Variables and who allocates
 
-A variable is a slot **allocated by its parent**: a member by the object, a local by the function
-that declares it, a module variable by the module. Passing a variable on passes a reference to the
-parent's slot. Nothing is allocated by the receiver, so ownership is never in question.
+A variable is a slot **allocated by its parent**: a member by the object, a module variable by the
+module, a local by the activation of the function that declares it. Passing a variable on passes a
+reference to the parent's slot. Nothing is allocated by the receiver, so ownership is never in
+question.
+
+The first parent is the **run** (what threads and async became, [20](20-EXECUTION-POLICY.md)). A run
+owns its cell, and the activations of its calls are frames cut from that cell, the caller cutting the
+frame of the callee (at most 16 open, together within the cell budget, 32768 bytes as shipped). In the
+tree:
+
+```
+runs.7                 a Run
+  main                 the activation of the first function: its variables are slots
+    p                  a Packet
+    make               the activation of a call, cut by its caller
+      p                the Packet that make builds
+```
+
+Two consequences:
+
+- **The result of a call is a slot of the caller.** The caller allocates it, the callee writes into
+  it (the status-out ABI already works this way). A `return p` therefore writes the data of `p` into
+  the caller's slot and never leaves a reference to a frame that is gone.
+- **Only what a parent holds outlives the run.** An object that must survive its run is created in a
+  parent that holds it (the module or another object), not in a frame. How a program says "this belongs
+  to that parent" is open (section 8).
 
 ## 6. Functions are variables
 
@@ -71,8 +94,14 @@ the same arguments are the same object.
 
 ## 8. Open (nothing below is decided)
 
+- **Copy or alias.** Whether assignment copies (as in C++) with `ref` making a reference, which would
+  make `ref` a qualifier of any variable and a parameter the place where the difference shows
+  (`def swap(self, ref Packet p)` changes the original, `def f(Packet p)` gets a copy). Proposed, not
+  agreed.
+- **How a program says an object belongs to a holding parent.** Proposed:
+  `ref Packet q = self.packets.add(Packet(1, 2, 0))`, with a holder type still to be defined.
 - Enums, constants, error handling, `try`, loops and `match`: not yet.
-- The markers beyond `ref`, and whether their set is closed.
+- The markers beyond `ref` (and `const`), and whether their set is closed.
 - The implicit or explicit `self` (the sample is explicit, as in Python).
 - Operators, integer literals, strings other than docstrings.
 - The intrinsics and the interpreter ([37](37-THE-GRAPH-AND-ITS-ONE-LANGUAGE.md)).
