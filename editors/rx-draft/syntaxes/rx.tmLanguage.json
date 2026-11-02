@@ -72,7 +72,7 @@
         },
         {
           "name": "storage.modifier.rx",
-          "match": "\\b(const|ref)\\b"
+          "match": "\\b(const|static)\\b"
         },
         {
           "name": "storage.type.function.rx",
@@ -91,7 +91,7 @@
       "patterns": [
         {
           "name": "storage.type.primitive.rx",
-          "match": "\\b(?:u8|u16|u32|u64|i8|i16|i32|i64|usize)\\b"
+          "match": "\\b(?:u?int(?:8|16|32|64)_t|size_t)\\b"
         },
         {
           "name": "entity.name.type.rx",

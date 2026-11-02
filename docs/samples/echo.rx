@@ -1,37 +1,39 @@
 """Echo: bounce a packet back to where it came from."""
 
 import net.slip
-from pymergetic.rxf import u16, u32, Option
+from pymergetic.rxf.types import uint16_t, uint32_t
+from pymergetic.rxf.templates import Option
 
-u16 MTU = 1500
+uint16_t MTU = 1500
 """Largest payload in bytes."""
 
 struct Packet:
     """One datagram."""
-    u32 src
-    u32 dst
-    u16 length
+    uint32_t src
+    uint32_t dst
+    uint16_t length
 
 class Echo:
     """Swaps source and destination and sends the packet on."""
-    ref net.slip.Line line
-    u32 count = 0
+    static uint32_t created = 0
+    net.slip.Line line
+    uint32_t count = 0
 
     class Stats:
         """Counters kept by one echo."""
-        u32 seen = 0
-        u32 span_total = 0
+        uint32_t seen = 0
+        uint32_t span_total = 0
 
     Stats stats
 
-    def swap(self, Packet p):
+    def swap(Echo self, Packet p):
         """Swap the two addresses in place."""
-        u32 tmp = p.src
+        uint32_t tmp = p.src
         p.src = p.dst
         p.dst = tmp
 
-    def Option<Packet> handle(self, Packet p):
-        def u32 span(Packet q):
+    def Option<Packet> handle(Echo self, Packet p):
+        def uint32_t span(Packet q):
             return q.dst - q.src
         self.stats.seen += 1
         self.stats.span_total += span(p)
@@ -41,11 +43,15 @@ class Echo:
         self.count += 1
         return p
 
-def Packet make(u32 src, u32 dst):
+def Packet make(uint32_t src, uint32_t dst):
     Packet p = Packet(src, dst, 0)
     return p
 
-def u16 length_of(Packet p):
+def Packet duplicate(Packet p):
+    Packet q = copy(p)
+    return q
+
+def uint16_t length_of(Packet p):
     return p.length
 
-fn<u16(Packet)> measure = length_of
+fn<uint16_t(Packet)> measure = length_of
