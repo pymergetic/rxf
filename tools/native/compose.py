@@ -31,6 +31,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 import graph_header
+import seed_build
 
 from pymergetic.rxftk.core.object import Image
 
@@ -51,6 +52,11 @@ MOVES = frozenset(
     }
 )  # fmt: skip
 FRAME_VALUES = frozenset({"Parameter", "OperationResult", "Bound"})
+# The marker of a handle that is dereferenced where it is used (docs/23 4.9): an input whose
+# InputType is this type is a 24-byte handle in a slot, and a callee that takes its operand as a
+# pointer or a word (not as a handle by value) reads it through the HANDLE operand.
+OBJECT_HANDLE = "pymergetic.rxf.stdlib.types.ObjectHandle"
+FIELD_OPCODES = ("ReadTag", "ProjectPayload")
 
 
 class ComposeError(Exception):
@@ -183,6 +189,19 @@ class Composer:
         for option in (f"{parts[-2]}_{parts[-1]}", parts[-1]):
             if option in self.layout.leaves:
                 return self.layout.leaves[option]
+        raise ComposeError(f"{callee} is not a leaf of the interpreter")
+
+    def handle_positions(self, callee: str) -> frozenset[int]:
+        """The operands of a leaf that are taken as a handle by value (the letter ``H`` of
+        ``seed_build.LEAF_LETTERS``, after the context the runtime leaves take first): the
+        positions where a handle stays a slot and is never read through."""
+        parts = callee.split(".")
+        for option in (f"{parts[-2]}_{parts[-1]}", parts[-1]):
+            if option in self.layout.leaves:
+                letters = seed_build.LEAF_LETTERS[option]
+                if option.startswith("runtime_"):
+                    letters = letters[1:]
+                return frozenset(i for i, letter in enumerate(letters) if letter == "H")
         raise ComposeError(f"{callee} is not a leaf of the interpreter")
 
     def callee_program(self, callee: str) -> int | None:
@@ -355,6 +374,30 @@ class Plan:
             )
         return [c.operand(self.value(found[i])) for i in range(count)]
 
+    def marked(
+        self, op: int, inputs: list[Operand], keep: frozenset[int] = frozenset()
+    ) -> list[Operand]:
+        """An input whose ``InputType`` is ``ObjectHandle`` is dereferenced where it is used: a
+        slot becomes a HANDLE operand (a = the slot, b = RXF_GRAPH_NONE: the type does not say
+        what it points at, so no width is declared and the reader's own bounds the access)
+        unless the callee takes it by value (``keep``). Any other input is what it was."""
+        c = self.c
+        types = dict(c.references(op, "InputType"))
+        found = []
+        for index, operand in enumerate(inputs):
+            target = types.get(index)
+            if (
+                target is not None
+                and c.image.path(target) == OBJECT_HANDLE
+                and operand.kind == c.layout["OPERAND_SLOT"]
+                and index not in keep
+            ):
+                operand = Operand(
+                    c.layout["OPERAND_HANDLE"], operand.a, c.layout["GRAPH_NONE"]
+                )
+            found.append(operand)
+        return found
+
     def results(self, op: int) -> list[Value]:
         return [self.value(t) for _, t in sorted(self.c.references(op, "ResultValue"))]
 
@@ -404,6 +447,7 @@ class Plan:
                     out[1],
                     self.status(op),
                 ]
+                inputs = self.marked(op, inputs, c.handle_positions(callee))
             for operand in inputs:
                 words += operand.words()
             return words
@@ -416,11 +460,12 @@ class Plan:
                 result().width,
                 *inputs[0].words(),
             ]
-        if opcode in ("ReadTag", "ProjectPayload"):
+        if opcode in FIELD_OPCODES:
             offset = c.number(c.target(fields["target_field"]), "offset")
+            source = self.marked(op, inputs[:1])[0]
             return [
                 layout["OP_FIELD"], result().slot or 0, result().width,
-                *inputs[0].words(), offset, result().width,
+                *source.words(), offset, result().width,
             ]  # fmt: skip
         if opcode in ("ConstructOption", "ConstructResult"):
             return self.construct(op, inputs[0], result())
@@ -716,13 +761,26 @@ class Expression:
         raise ComposeError(f"{c.image.path(reference)}: a value of kind {found.kind}")
 
     def writes(self, function: int) -> bool:
-        """Whether the ABI of a native function hands its result back through an output location."""
+        """Whether the callee hands its result back through an output location.
+
+        The object ABI of a native function returns its value through ``out``
+        (docs/29), save two answers of the Signature: a result of type ``void``
+        is answered with the status alone (the value is written through the
+        memory an argument names), and so is a callee whose effects include
+        ``Write``. No other function kind hands a result back through a
+        location: the boot glue speaks the entry convention. What the register
+        maps said is derived from the Signature and the target; they live at
+        the call boundary, never in a delta (docs/32 5).
+        """
         c = self.c
-        return any(
-            word(c.fields(place).get("value_role")) == "Output"
-            for abi in c.children(function, "ABISignature")
-            for place in c.children(abi, "ABIValueLocation")
-        )
+        values = c.fields(function)
+        if word(values.get("implementation")) != "Native":
+            return False
+        if "Write" in str(values.get("effects", "")):
+            return False
+        signature = c.target(values["signature"])
+        results = c.children(signature, "Result")
+        return bool(results) and word(c.fields(results[0]).get("value_type")) != "void"
 
     def call(
         self, call: int, inner: Mapping[int, Operand], stack: tuple[int, ...]

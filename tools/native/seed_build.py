@@ -378,6 +378,7 @@ SOURCES: dict[str, tuple[str, str, str, int]] = {
     "utf8_validate": ("native/memory/memory.rxfs", "utf8_validate", "8p 8u", 8),
 
     # native/runtime/runtime.rxfs -- the runtime family
+    "runtime_allocate": ("native/runtime/runtime.rxfs", "runtime_allocate", "!pqqqqqpp", 0),
     "runtime_allocate_prepare": ("native/runtime/runtime.rxfs", "runtime_allocate_prepare", "!pqqqqqpp", 0),
     "runtime_append": ("native/runtime/runtime.rxfs", "runtime_append", "!pHpqq", 0),
     "runtime_begin_private": ("native/runtime/runtime.rxfs", "runtime_begin_private", "!pHqp", 0),
@@ -422,6 +423,21 @@ def fn_of(key: str, machine: str) -> str:
 # native/graph.rxfs, the compiler of native/compile.rxfs, the pump of
 # native/live.rxfs); a key is one of these or a row of SOURCES.
 PROGRAMS = ("graph_run", "compile_program", "live_pump")
+
+# The `.rxfs` file each program source lives in; with the row's source this is the
+# build history the Source objects of the image carry (docs/31 §3).
+PROGRAM_SOURCE = {
+    "graph_run": "native/graph.rxfs",
+    "compile_program": "native/compile.rxfs",
+    "live_pump": "native/live.rxfs",
+}
+
+
+def source_of(key: str) -> str:
+    """The `.rxfs` file a key is compiled from: the row's source, or a program's."""
+    if key in SOURCES:
+        return SOURCES[key][0]
+    return PROGRAM_SOURCE[key]
 
 
 def is_seed(key: str) -> bool:
@@ -500,7 +516,7 @@ def code(machine: str, key: str) -> str:
         import live_build
 
         return live_build.code(machine)
-    source, fn, shape, storew = SOURCES[key]
+    source, _fn, shape, storew = SOURCES[key]
     argv = [str(seed_bin()), "codegen", TARGET[machine], "object", str(storew),
             "#" + fn_of(key, machine)]
     if shape.startswith("!"):
@@ -508,7 +524,7 @@ def code(machine: str, key: str) -> str:
         argv.extend(f"@{letters}" for letters in call_type_letters())
     else:
         argv.extend(shape.split())
-    return seed_cache.run(argv, (PACKAGE / source).read_text())
+    return seed_cache.run(argv, (PACKAGE / source).read_text(), label=f"{source} ({machine})")
 
 
 def compile_body(machine: str, body: str, params: str, specs: str, storew: int) -> str:
@@ -516,7 +532,7 @@ def compile_body(machine: str, body: str, params: str, specs: str, storew: int) 
     source = f"fn f({params}) {{ {body} }}\n"
     argv = [str(seed_bin()), "codegen", TARGET[machine], "object", str(storew), "!" + specs,
             *(f"@{letters}" for letters in call_type_letters())]
-    return seed_cache.run(argv, source)
+    return seed_cache.run(argv, source, label=f"compiled body ({machine})")
 
 
 def wasm_body(key: str) -> bytes:
@@ -539,6 +555,8 @@ LEAF_LETTERS = {
     "runtime_begin_private": "pHqp",
     "runtime_resolve": "pHqp",
     "runtime_allocate_prepare": "pqqqqqpp",
+    "runtime_allocate": "pqqqqqpp",
+    "runtime_release": "pH",
     "runtime_publish": "pp",
     "runtime_rollback": "pp",
     "runtime_borrow": "pHq",

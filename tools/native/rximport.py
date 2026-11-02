@@ -66,9 +66,14 @@ The subset of LLVM IR this prototype imports (anything else raises ``Unsupported
                select/phi of addresses -- the bytes move through the ``memory_copy`` leaf), a
                load/store of a ptr value (the address word read or written as 8 bytes), a
                call of a leaf-shaped
-               function, the intrinsics llvm.umin/umax/smin/smax.i64 (as select),
+               function, the intrinsics llvm.umin/umax/smin/smax.iN (a compare and a
+               select; the signed ones compare the sign-extended words), llvm.abs.iN (a
+               signed compare against zero, a negate and a select), llvm.bswap.i16/i32/i64
+               (one shift and one mask per byte, or'ed: the delta vocabulary is unchanged),
                llvm.fshl/fshr.iN (as two masked shifts and a select), llvm.memcpy and
-               llvm.memset (as the ``memory_copy`` / ``memory_fill`` leaves),
+               llvm.memset (as the ``memory_copy`` / ``memory_fill`` leaves), llvm.memmove
+               (as one byte per step of a direction-aware loop over ``memory_copy``: an
+               overlap-safe move walks the far end first),
                llvm.{uadd,sadd,usub,ssub}.with.overflow.iN (the sum is one wrapping leaf and
                the overflow one compare; extractvalue/insertvalue carry the { i64, i1 }),
                llvm.{umul,smul}.with.overflow.iN (the product is one wrapping leaf and the
@@ -249,8 +254,8 @@ Frame-size policy (what a MicroPython C frame maps to):
                     (``local_round`` of slots.c passes ``&t`` to ``memory_copy``).
 
     The frame of a function is the sum over every non-literal value of its width rounded up to
-    8 bytes (a wide slot counts 16). The budget is the run cell: ``RXF_GRAPH_CELL_BYTES`` (8192
-    bytes, native/graph.h) must hold the frame -- the run carves the active chain's frames as
+    8 bytes (a wide slot counts 16). The budget is the run cell: ``RXF_GRAPH_CELL_BYTES``
+    (native/graph.h) must hold the frame -- the run carves the active chain's frames as
     variable-length (base, size) links of one cell, and refuses a chain whose sum does not fit
     (RXF_REFUSE_CELL_BUDGET), never spilled and never split. When a function's frame cannot fit
     the cell, ``lower()`` refuses with ``Unsupported``
@@ -475,6 +480,9 @@ GRAPH_COPY = graph_header.numbers()["RXF_GRAPH_COPY"]  # what one edge's copies 
 # a program of its own, not a body the caller's frame was never meant to hold (only a
 # callee whose frame would not fit a whole run cell is refused outright in lower_inline)
 INLINE_WORDS = 48
+# the bytes of a wide local's slot of the frame, and of the cell a local rides in across a call
+# card (an address-taken local is one 16-byte slot: a larger one is refused where it is made)
+LOCAL_CELL_BYTES = 16
 FULL = rxemit.FULL  # the word's mask, one home (the emitter's narrow-integer helpers)
 # what a narrow (i1/i8/i16/i32) value is: the low bits of its word. Every operation of the
 # subset leaves its result in this form, so a value is always the zero-extension of the
@@ -542,6 +550,24 @@ def pointer_width(model: DataModel) -> int:
 
 
 # ---- the layout of the types a getelementptr walks -------------------------------------------
+
+
+def split_parenthesized(body: str) -> list[str]:
+    """The comma-separated items of the body of a constant expression, at the top level of its
+    parentheses (``i64 add (i64 x, i64 8), i64 1`` is two items: the first nests a pair)."""
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    for at, char in enumerate(body):
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        elif char == "," and depth == 0:
+            parts.append(body[start:at])
+            start = at + 1
+    parts.append(body[start:])
+    return parts
 
 
 def split_top(body: str) -> list[str]:
@@ -918,9 +944,22 @@ LABEL = r"(?:[A-Za-z0-9_.$-]+|\"(?:[^\"\\]|\\.)*\")"
 # address word N (the immediate objects of MicroPython's REPR A arrive this way), and a
 # ``getelementptr`` of a global names that global (the subset imports no globals: the use
 # refuses at lowering with the global's name, never a parse error of the whole module)
+def _balanced(depth: int) -> str:
+    """The text between one pair of parentheses, with up to ``depth`` pairs nested inside it
+    (the ``re`` module has no recursion: a constant expression nests to a fixed depth)."""
+    inner = r"[^()]"
+    for _ in range(depth):
+        inner = rf"(?:[^()]|\({inner}*\))"
+    return rf"{inner}*"
+
+
+# the integer arithmetic of a constant expression (``LWIP_MEM_ALIGN`` of a static array folds to
+# ``sub (i64 add (i64 ptrtoint (ptr @g to i64), i64 7), i64 1)`` in an operand): the cast and
+# getelementptr forms above, and the wrapping words of the arithmetic leaves
 CONST_EXPR = (
-    r"(?:inttoptr|addrspacecast|bitcast|ptrtoint|getelementptr(?:\s+inbounds)?)"
-    r"\s*\((?:[^()]|\([^()]*\))*\)"
+    r"(?:inttoptr|addrspacecast|bitcast|ptrtoint|getelementptr(?:\s+inbounds)?"
+    r"|(?:add|sub|mul|shl|lshr)(?:\s+(?:nuw|nsw))*)"
+    rf"\s*\({_balanced(4)}\)"
 )
 OPERAND = rf"(?:{CONST_EXPR}|{VALUE})"
 # one argument of a call: a type, its parameter attributes (``noundef``, ``align 8``,
@@ -1715,6 +1754,7 @@ class Lowering:
         self.pointers: set[str] = set()  # names that hold an address (ptr params and results)
         self.ptr_params: set[str] = set()  # the pointer parameters: a pointer to a caller's value
         self.stored_params: set[str] = set()  # the pointer params written through (an out cell)
+        self.card_answer: MOperand | None = None  # the answer of the call card lowered last
         self.out_cells: dict[str, LValue] = {}  # the out cell of each written-through param
         self.out_alias: dict[str, str] = {}  # caller local -> the out cell key it reads
         self.standalone = False  # a program of its own (an inline call takes its params)
@@ -2003,7 +2043,52 @@ class Lowering:
             return self.call(
                 self.current, "wrapping_add_uint64_t", [made, self.literal(offset & FULL)]
             )
+        arithmetic = re.fullmatch(
+            r"(add|sub|mul|shl|lshr)(?:\s+(?:nuw|nsw))*\s*\((.*)\)", text, re.DOTALL
+        )
+        if arithmetic:
+            return self.expr_arithmetic(
+                arithmetic.group(1), split_parenthesized(arithmetic.group(2)), text
+            )
         raise Unsupported(f"{self.fn.name}: a constant expression operand ({text})")
+
+    def expr_arithmetic(self, op: str, parts: list[str], text: str) -> MOperand:
+        """``add/sub/mul/shl/lshr (T a, T b)`` of a constant expression: the operands are
+        constants, casts of a cell's address or expressions of their own (nested to any depth),
+        and the answer is the wrapping word of the type -- folded here where both are
+        constants, one leaf call into the block being lowered where an address is in it (a
+        cell's address is known only when the run places it)."""
+        if len(parts) != 2:
+            raise Unsupported(f"{self.fn.name}: a constant expression of {op} needs two operands ({text})")
+        words: list[MOperand] = []
+        type_name = ""
+        for part in parts:
+            found = re.fullmatch(rf"({TYPE})\s+(.+)", part.strip(), re.DOTALL)
+            if found is None:
+                raise Unsupported(f"{self.fn.name}: a constant expression operand ({text})")
+            type_name = type_name or found.group(1)
+            words.append(self.narrow_operand(Operand.parse(found.group(2)), self.mask_of(type_name)))
+        mask = self.mask_of(type_name)
+        a, b = words
+        if a[0] == "literal" and b[0] == "literal":
+            x, y = a[1], b[1]
+            folded = {
+                "add": x + y, "sub": x - y, "mul": x * y,
+                "shl": x << y if y < 64 else 0, "lshr": x >> y if y < 64 else 0,
+            }[op]  # fmt: skip
+            return self.literal(folded & mask)
+        if self.current is None:
+            raise ParseError(f"{self.fn.name}: a constant expression outside a block")
+        key = {
+            "add": "wrapping_add_uint64_t", "sub": "wrapping_subtract_uint64_t",
+            "mul": "wrapping_multiply_uint64_t",
+            "shl": "shift_left_uint64_t", "lshr": "shift_right_uint64_t",
+        }[op]  # fmt: skip
+        if op in ("shl", "lshr"):
+            made = self.call(self.current, key, [a, b], input_types=[U64, U32])
+        else:
+            made = self.call(self.current, key, [a, b])
+        return rxemit.and_mask(self.at(self.current), made, mask)
 
     def gep_offset(self, ty: str, indices: list[int]) -> int:
         """The bytes a ``getelementptr``'s constant indices walk: the first index scales
@@ -2041,17 +2126,6 @@ class Lowering:
         self.lower_body()
         self.own_terminus()
         self.harmonize_widths()
-        if self.card_calls and any(not self.out_position(name) for name in self.stored_params):
-            # what the out-cell model of docs/23 4.1 cannot name: a body that calls a
-            # program and writes through a pointer its caller gave in a shape the pass
-            # cannot make an out cell of. Every out position now rides as the Object its
-            # caller passes (the handle its three words); what is left of this class is
-            # refused rather than left writing the wind.
-            raise Unsupported(
-                f"{self.fn.name}: a pointer to a value (the body writes through a pointer its "
-                "caller gave, and a call card frame cannot carry it: only an inlined body "
-                "reaches a caller's cell)"
-            )
         if not self.function_results and self.has_reachable_cycle():
             # a body with no Return that the entry can reach a cycle in (an endless loop)
             # answers nothing: it stays refused rather than imported as a graph that
@@ -2307,7 +2381,7 @@ class Lowering:
                         for position, (type_name, _) in enumerate(self.functions[inst.callee].params)
                         if type_name == "ptr"
                     }
-                elif inst.callee.startswith("llvm.memcpy"):
+                elif inst.callee.startswith(("llvm.memcpy", "llvm.memmove")):
                     pointers = {0, 1}
                 elif inst.callee.startswith("llvm.memset"):
                     pointers = {0}
@@ -2330,6 +2404,18 @@ class Lowering:
                     name = argument.name
                     if position in pointers and name is not None and name in allocas:
                         taken.add(name)
+        for block in self.fn.blocks:
+            for inst in block.insts:
+                if inst.op == "alloca" and inst.name in taken and inst.type is not None:
+                    size = type_size(inst.type, self.structs, self.model)
+                    if size > LOCAL_CELL_BYTES:
+                        # a wide local is one slot of the frame: its bytes past the slot
+                        # would be the next values' -- refused where the slot is made
+                        raise Unsupported(
+                            f"{self.fn.name}: the address of the local {inst.name} "
+                            f"({inst.type}, {size} bytes) is taken, and a local this pass "
+                            f"can address is one slot of {LOCAL_CELL_BYTES} bytes"
+                        )
         self.wide_names = taken
         self.narrow_names = allocas - taken
         # where each local is stored, by block: a load must see a store of its own block, so
@@ -3337,6 +3423,51 @@ class Lowering:
             self.pointers.add(inst.name)
         return join
 
+    def local_cell_argument(
+        self, target: LBlock, slot: MOperand,
+        copies: list[tuple[MOperand, LValue, MOperand]],
+    ) -> MOperand:
+        """The argument a call card gets for a pointer to one of this frame's locals.
+
+        A callee runs in a frame of its own: a slot of the caller's frame is no address it can
+        name (the call copies the bytes of the value it is handed, not the place it stands),
+        and the run cell is no memory a callee may point into (S7). So the local rides in a
+        CELL this body owns -- an Object of the arena, the way a static is -- and the call
+        passes the flat address the cell has, which is what the callee reads and writes
+        through like any pointer. The bytes go in before the call (the slot into the cell)
+        and come back after it (the cell into the slot): what the callee reads is what the
+        caller held and what it wrote is what the caller reads next, over one call or many.
+
+        The cell is one place per argument position, not one per activation, and a body that
+        reaches itself (through the callee, or through a function word) must find it as it left it: so
+        the call SAVES what the cell held before it fills it and puts that back after the bytes
+        have come home -- an inner activation hands the cell back exactly as the outer one had
+        it, the discipline of a stack kept in the frame (the allocation leaf of docs/23 4.9
+        replaces the cell with a block per activation; until then the save is what keeps a
+        recursive run right). The one thing it does not cover is two runs of one graph in
+        flight at once (a static is shared the same way)."""
+        # one cell per argument position of a call, shared by every call of the module: each
+        # call fills it and hands it back, so the cell of the first local of any call is one
+        # place (the registry is the globals' own, so an undone inline takes it back with them)
+        index = len(copies)
+        cell = self.global_values.get(f"localcell{index}")
+        if cell is None:
+            cell = self.value(
+                "Object", self.graph, f"localcell{index}",
+                width=LOCAL_CELL_BYTES, type_path=WIDE,
+                object_id=object_id_of(f"{self.module}.localcell{index}"),
+                payload=bytes(LOCAL_CELL_BYTES),
+            )  # fmt: skip
+            self.global_values[f"localcell{index}"] = cell
+            self.object_paths.add(cell.path)
+        saved = self.move_value(target, self.literal(0), width=LOCAL_CELL_BYTES)
+        self.slots.add(saved[1])  # a slot: the copies take its own address
+        size = self.literal(LOCAL_CELL_BYTES)
+        self.call_void(target, "memory_copy", [saved, size, ("value", cell.path), size, size])
+        self.call_void(target, "memory_copy", [("value", cell.path), size, slot, size, size])
+        copies.append((slot, cell, saved))
+        return self.address_value(target, ("value", cell.path))
+
     def lower_card(self, inst: Inst, target: LBlock, name: str) -> LBlock:
         """A call of a program: the call card of ``native/graph.h`` -- the callee's
         words are named by their object id, its parameters are the call's arguments as
@@ -3347,6 +3478,8 @@ class Lowering:
         function of another module (the composer resolves it against the image)."""
         self.card_calls = True  # the body calls a program: it is a program of its own
         arguments = []
+        # (the local's slot, the cell it rode in, the slot that kept the cell's bytes meanwhile)
+        copies: list[tuple[MOperand, LValue, MOperand]] = []
         for index, (type_name, argument) in enumerate(inst.args):
             local = argument.name
             if (
@@ -3374,6 +3507,14 @@ class Lowering:
                 self.pointers.add(local)
                 arguments.append(("value", self.out_cell(key, index).path))
                 continue
+            if type_name == "ptr":
+                given = self.frame_moperand(target, argument)
+                if given[0] == "value" and given[1] in self.slots:
+                    # a pointer to a LOCAL of this frame: the callee has a frame of its own and
+                    # no way to name a slot of ours, so the bytes ride in a cell this body owns
+                    # (docs/23 4.1) and the callee gets the address that cell has
+                    arguments.append(self.local_cell_argument(target, given, copies))
+                    continue
             arguments.append(
                 self.address_value(
                     target,
@@ -3399,7 +3540,20 @@ class Lowering:
                  for type_name, _ in inst.args],
                 result, name)
         )  # fmt: skip
-        self.note(inst.name, ("value", result.path))
+        for slot, cell, saved in copies:
+            size = self.literal(LOCAL_CELL_BYTES)
+            # what the callee wrote into the cell is the local's now; the cell is handed back as
+            # it was found
+            self.call_void(target, "memory_copy", [slot, size, ("value", cell.path), size, size])
+            self.call_void(target, "memory_copy", [("value", cell.path), size, saved, size, size])
+        answer: MOperand = ("value", result.path)
+        if inst.type == "ptr":
+            # a carrier is not a word: a leaf given a wide value that is no slot would be handed
+            # the carrier's own address (the frame's, not the flat address it carries), so the
+            # address word is copied out of its first bytes before anything reads it
+            answer = self.move_value(target, answer, width=8)
+        self.card_answer = answer  # what the card answered (the copies back follow its op)
+        self.note(inst.name, answer)
         if inst.type == "ptr" and inst.name is not None:  # the result holds an address
             self.pointers.add(inst.name)
         return target
@@ -3411,13 +3565,15 @@ class Lowering:
         intrinsic = callee[len("llvm.") :]
         if intrinsic.startswith("lifetime."):
             return None
-        if intrinsic in ("umin.i64", "umax.i64", "smin.i64", "smax.i64"):
-            a = self.operand(inst.args[0][1])
-            b = self.operand(inst.args[1][1])
-            signed = intrinsic[0] == "s"
-            if intrinsic.startswith(("umin", "smin")):
-                return self.lower_select(self.less(target, a, b, signed), a, b, inst.name, target)
-            return self.lower_select(self.less(target, b, a, signed), a, b, inst.name, target)
+        extreme = re.fullmatch(r"([us])(min|max)\.i(\d+)", intrinsic)
+        if extreme and f"i{extreme.group(3)}" in MASKS:
+            return self.lower_extreme(inst, target, extreme.group(1) == "s", extreme.group(2) == "min")
+        absolute = re.fullmatch(r"abs\.i(\d+)", intrinsic)
+        if absolute and f"i{absolute.group(1)}" in MASKS:
+            return self.lower_abs(inst, target, int(absolute.group(1)))
+        swap = re.fullmatch(r"bswap\.i(\d+)", intrinsic)
+        if swap and int(swap.group(1)) in (16, 32, 64):
+            return self.lower_bswap(inst, target, int(swap.group(1)))
         if intrinsic.startswith(("fshl.i", "fshr.i")):
             width = int(intrinsic.rsplit(".i", 1)[1])
             a = self.operand(inst.args[0][1])
@@ -3442,7 +3598,76 @@ class Lowering:
         if found:
             self.lower_with_overflow(inst, target, found.group(1), int(found.group(2)))
             return None
+        if intrinsic.startswith("memmove."):
+            return self.lower_memmove(inst, target)
         raise Unsupported(f"{self.fn.name}: the intrinsic {inst.callee}")
+
+    def lower_memmove(self, inst: Inst, target: LBlock) -> LBlock:
+        """``llvm.memmove.p0.p0.i64(dst, src, len, volatile)`` -> one byte per step of a
+        loop that walks the far end first where the copy would overwrite its own source.
+
+        The ``memory_copy`` leaf copies forward only, so a move whose ranges may overlap
+        needs the other direction (clang keeps ``memmove`` exactly where the ranges may
+        meet: lwIP's ``lwip_itoa`` and ``netif_index_to_name`` shift bytes inside one
+        buffer). One loop serves both directions: the step is 1 where ``dst <= src`` and
+        all-ones (-1) where not, the first position is 0 or ``len - 1``, and every
+        iteration moves the byte at ``src + p`` to ``dst + p``. The delta vocabulary is
+        unchanged (docs/23 4.8): blocks, a Branch, and the leaves memcpy lowers to. A
+        local's own bytes refuse here (a frame slot, not flat memory: the pass does no
+        arithmetic on the address of a local's own bytes)."""
+        if len(inst.args) < 3:
+            raise ParseError(f"{self.fn.name}: a memmove without its operands")
+        dst = self.frame_moperand(target, inst.args[0][1])
+        src = self.frame_moperand(target, inst.args[1][1])
+        length = self.operand(inst.args[2][1])
+        for held in (dst, src):
+            if held[0] == "value" and held[1] in self.slots:
+                raise Unsupported(
+                    f"{self.fn.name}: the intrinsic {inst.callee} of a local's own bytes "
+                    "(a frame slot, not flat memory: the pass does no arithmetic on the "
+                    "address of a local's own bytes)"
+                )
+        one = self.literal(1)
+        # the walk: forward where dst <= src (a copy that cannot reach its own source
+        # ahead of itself), backward where not -- step 1 or -1, first position 0 or
+        # len - 1 (the wrap of the words is the two's complement the step walks in)
+        forward = self.negate(target, self.less(target, src, dst, False), one)
+        doubled = self.call(target, "wrapping_add_uint64_t", [forward, forward])
+        step = self.call(target, "wrapping_subtract_uint64_t", [doubled, one])
+        span = self.call(target, "wrapping_subtract_uint64_t", [length, one])
+        first = self.call(
+            target, "wrapping_multiply_uint64_t", [self.negate(target, forward, one), span]
+        )
+        header = self.new_block()
+        body = self.new_block()
+        over = self.new_block()
+        index = self.value(
+            "Bound", header.path, f"blkparam[{len(header.params)}]", owner_block=header.path
+        )
+        header.params.append(index)
+        position = self.value(
+            "Bound", header.path, f"blkparam[{len(header.params)}]", owner_block=header.path
+        )
+        header.params.append(position)
+        at_source = self.call(body, "wrapping_add_uint64_t", [src, ("value", position.path)])
+        at_destination = self.call(
+            body, "wrapping_add_uint64_t", [dst, ("value", position.path)]
+        )
+        self.call_void(body, "memory_copy", [at_destination, one, at_source, one, one])
+        next_index = self.call(body, "wrapping_add_uint64_t", [("value", index.path), one])
+        next_position = self.call(
+            body, "wrapping_add_uint64_t", [("value", position.path), step]
+        )
+        body.terminator = "Goto"
+        body.successors = [(header.path, [next_index, next_position])]
+        done = self.call(header, "equal_uint64_t", [("value", index.path), length])
+        header.terminator = "Branch"
+        # edges[0] is taken while the index has not reached the length (the byte runs)
+        header.condition = self.own_condition(self.negate(header, done, one), header)
+        header.successors = [(body.path, []), (over.path, [])]
+        target.terminator = "Goto"
+        target.successors = [(header.path, [self.literal(0), first])]
+        return over
 
     def lower_with_overflow(
         self, inst: Inst, target: LBlock, kind: str, width: int
@@ -3612,10 +3837,10 @@ class Lowering:
                         Inst("call", type=inst.type, callee=card, args=list(inst.args)),
                         target, card,
                     )
-                    made = arm.ops[-1].result
+                    made = self.card_answer
                     if made is None:
                         raise ParseError(f"{self.fn.name}: a call card that produced no result")
-                    self.note(inst.name, ("value", made.path))
+                    self.note(inst.name, made)
                     if inst.type == "ptr" and inst.name is not None:
                         self.pointers.add(inst.name)
                     return target
@@ -3634,14 +3859,14 @@ class Lowering:
         for index, (word, card) in enumerate(arms):
             same = self.call(current, "equal_uint64_t", [callee, self.literal(word & FULL)])
             arm = self.new_block()
-            called = self.lower_card(
+            self.lower_card(
                 Inst("call", type=inst.type, callee=card, args=list(inst.args)), arm, card
             )
-            made = called.ops[-1].result
+            made = self.card_answer
             if made is None:
                 raise ParseError(f"{self.fn.name}: a call card that produced no result")
             arm.terminator = "Goto"
-            arm.successors = [(join.path, [("value", made.path)])]
+            arm.successors = [(join.path, [made])]
             if index == len(arms) - 1:
                 # the fall-through: a word no arm names (the refuse of the boundary above)
                 fall = self.new_block()
@@ -3665,6 +3890,78 @@ class Lowering:
             f"{self.fn.name}: a C++ exception edge ({inst.raw!r}): the subset refuses "
             "exceptions (invoke, landingpad and resume never lower)"
         )
+
+    def lower_extreme(self, inst: Inst, target: LBlock, signed: bool, least: bool) -> LBlock:
+        """``llvm.{u,s}{min,max}.iN(a, b)`` of every width of the subset: one compare and
+        a select between the two operands as they stand (a narrow value is already the
+        low bits of its word, and the answer is one of them, so it stays in that form).
+        The unsigned order compares the words; the signed one compares the sign-extended
+        words (the 64-bit ones take the flip of ``less``)."""
+        if len(inst.args) != 2:
+            raise ParseError(f"{self.fn.name}: {inst.callee} without both operands")
+        mask = self.mask_of(inst.args[0][0])
+        a = self.narrow_operand(inst.args[0][1], mask)
+        b = self.narrow_operand(inst.args[1][1], mask)
+        left, right = a, b
+        if signed:
+            left = rxemit.sext_value(self.at(target), a, mask)
+            right = rxemit.sext_value(self.at(target), b, mask)
+        first, second = (left, right) if least else (right, left)
+        return self.lower_select(self.less(target, first, second, signed), a, b, inst.name, target)
+
+    def lower_abs(self, inst: Inst, target: LBlock, width: int) -> LBlock:
+        """``llvm.abs.iN(x, int_min_is_poison)``: ``x`` where its sign bit is clear and
+        ``0 - x`` (in the width) where it is set. INT_MIN negates to itself, which is the
+        answer of the form that does not poison it and a legal one of the form that does."""
+        if len(inst.args) != 2:
+            raise ParseError(f"{self.fn.name}: {inst.callee} without its operand and flag")
+        mask = self.mask_of(f"i{width}")
+        x = self.narrow_operand(inst.args[0][1], mask)
+        negative = self.less(
+            target, rxemit.sext_value(self.at(target), x, mask), self.literal(0), signed=True
+        )
+        flipped = rxemit.and_mask(
+            self.at(target), self.call(target, "wrapping_subtract_uint64_t", [self.literal(0), x]), mask
+        )
+        return self.lower_select(negative, flipped, x, inst.name, target)
+
+    def lower_bswap(self, inst: Inst, target: LBlock, width: int) -> LBlock:
+        """``llvm.bswap.iN(x)`` for N = 16, 32, 64: the bytes of the word in the opposite
+        order, as one shift and one mask per byte or'ed together -- the delta vocabulary
+        gains nothing (the shift leaves, the mask and the or are the ones every other
+        lowering of the subset uses). Byte ``i`` of the input (bits 8i..8i+7) lands at
+        bits ``N-8-8i``: a left shift by the difference where that is a gain, a right
+        shift where it is a loss, and the byte's own mask keeps the neighbours out (the
+        one byte the shift already isolates takes none)."""
+        if len(inst.args) != 1:
+            raise ParseError(f"{self.fn.name}: {inst.callee} without its operand")
+        mask = self.mask_of(f"i{width}")
+        x = self.narrow_operand(inst.args[0][1], mask)
+        total: MOperand | None = None
+        for index in range(width // 8):
+            source = 8 * index
+            landing = width - 8 - 8 * index
+            if landing == source:  # the bytes of the middle of a word that stay put
+                part = rxemit.and_mask(self.at(target), x, 0xFF << landing)
+            elif landing > source:
+                part = self.call(
+                    target, "shift_left_uint64_t", [x, self.literal(landing - source)],
+                    input_types=[U64, U32],
+                )  # fmt: skip
+                if landing + 8 != 64:  # past the word's top the shift already dropped it
+                    part = rxemit.and_mask(self.at(target), part, 0xFF << landing)
+            else:
+                part = self.call(
+                    target, "shift_right_uint64_t", [x, self.literal(source - landing)],
+                    input_types=[U64, U32],
+                )  # fmt: skip
+                if source + 8 != width:  # the top byte is alone after its shift
+                    part = rxemit.and_mask(self.at(target), part, 0xFF << landing)
+            total = part if total is None else self.call(target, "bit_or_uint64_t", [total, part])
+        if total is None:
+            raise ParseError(f"{self.fn.name}: a byte swap of no bytes")
+        self.note(inst.name, total)
+        return target
 
     def funnel(
         self, target: LBlock, inst: Inst, a: MOperand, b: MOperand, c: MOperand, width: int, left: bool

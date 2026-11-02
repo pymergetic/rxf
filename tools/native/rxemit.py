@@ -137,6 +137,9 @@ class LValue:
     type_path: str = U64
     object_id: int | None = None  # an Object value: the id of the cell it resolves to
     payload: bytes | None = None  # an Object value: the cell's initial bytes (its data)
+    # an Object value of a cell that another module of the image owns (an imported module's
+    # cell): the value names it and carries its bytes, the delta writes no cell for it
+    foreign: bool = False
 
 
 # an operand of the model: the path of a value, or a constant that a Literal object stands for
@@ -310,7 +313,7 @@ def _cells(graphs: list[LGraph]) -> list[str]:
     taken: set[str] = set()
     for graph in graphs:
         for value in graph.values:
-            if value.kind != "Object" or value.object_id is None:
+            if value.kind != "Object" or value.object_id is None or value.foreign:
                 continue
             if value.object_id in seen:
                 continue

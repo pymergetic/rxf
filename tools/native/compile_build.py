@@ -7,19 +7,21 @@ encoder helpers macros, the state of ``rxf_cc`` the state of ``compile_program``
 seed CLI (``native/seed/seed.c``) over that file and returns the code of
 ``compile_program`` per machine -- the object-ABI body of
 ``f(params..., out) -> status``, here spelled ``!pp``:
-``compile_program(context, request)``. The request is the struct of
-``native/compile.h`` (program, program_size, out, out_capacity, work,
-work_capacity, out_size, at); the run writes out_size and at through it and every
-exit is a ``refuse <status>``.
+``compile_program(context, request)``. The request is the struct of program,
+program_size, out, out_capacity, work, work_capacity, out_size, at; the run writes
+out_size and at through it and every exit is a ``refuse <status>``. There is no
+``native/compile.h``: the request type is declared where it is used, in the fill
+(``native/crypto/pm_crypto.c``), the way ``rxf_safe_point`` is -- ``tests/test_native.py``
+pins ``native/*.h`` to the four headers it has, and a fifth would break that pin.
 
     python tools/native/compile_build.py            # hex of the three machines
     python tools/native/compile_build.py --json     # {machine: hex}
 
 The wasm32 body's ``call_indirect`` names a leaf's function type by the position of
 the leaf's signature in the type section of whoever composes the snippets: the
-composer (``tests/wasm.py module_of``) puts one type per leaf in the order of the
-leaf ids, so ``call_types()`` is that list, one entry per leaf, and the ``@`` argv
-must be it (the same list ``graph_build`` passes).
+composer (``tools/native/wasm_module.py``'s ``module_of``) puts one type per leaf
+in the order of the leaf ids, so ``call_types()`` is that list, one entry per
+leaf, and the ``@`` argv must be it (the same list ``graph_build`` passes).
 """
 
 from __future__ import annotations
@@ -84,7 +86,7 @@ def code(machine: str) -> str:
         SELF,
         *(f"@{letters}" for letters in call_types()),
     ]
-    return seed_cache.run(argv, source())
+    return seed_cache.run(argv, source(), label=f"{SOURCE.name} ({machine})")
 
 
 def build() -> dict[str, str]:

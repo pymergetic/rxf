@@ -13,17 +13,18 @@ With a ``LiveSpec`` the arena has headroom behind it and the image ends in the l
 ``area`` is the ``pymergetic_rxf_live_area`` of ``core/live/live.h`` and the capability table
 (words 6 and 7 of the context) holds one entry, the Channel, that points at it.
 
-The arena is the RXFB v6 image as ``Image.to_bytes()`` makes it, byte for byte,
-and so are the Code cells in it: the machine code of the leaves and the
-interpreter is where the arena has it, and a function slot points there. The
-object entries are the runtime view of the arena: one per live object, sorted by
-id, with the payload address of the cell. They are derived and recomputed on
-every link, never edited.
+The arena is the v7 one-arena image (docs/32 1) that ``tools/native/arena_export.py``
+makes from the world, byte for byte, and so are the Code cells in it: the machine
+code of the leaves and the interpreter is where the arena has it, and a function
+slot points there. The object entries are the runtime view of the arena: one per
+live object, sorted by id, with the address of the object's value in the arena -
+past the record's payload head (a module owns its chain head first) and the type's
+fixed part. They are derived and recomputed on every link, never edited.
 
 An object is found by an id that no delta holds a handle of: the ``object_id``
 of a ``SemanticObject``, else the first 8 bytes of the SHA-256 of the path. The
 value of an object is the variable part of its payload when its type is
-variable (a Code is its bytes, a semantic object its data), else all of it.
+variable (a CodeBlob is the bytes of its codes, a semantic object its data), else all of it.
 """
 
 from __future__ import annotations
@@ -32,11 +33,19 @@ import hashlib
 import struct
 from dataclasses import dataclass, field
 
+import arena_export
 import graph_header
+import programs
 from compose import object_id
 
+from pymergetic.rxftk.core.arena import (
+    MODULE_SIZE,
+    OBJ_MODULE,
+    OBJECT_HEADER_SIZE,
+    SUPERBLOCK_SIZE,
+    ObjectArena,
+)
 from pymergetic.rxftk.core.object import Image
-from pymergetic.rxftk.live.harness import table_slots
 
 HANDLE_NONE = (1 << 64) - 1
 CONTEXT_BYTES = 144
@@ -44,7 +53,6 @@ CONTEXT_VERSION = 2
 SLOT_BYTES = 24
 ENTRY_BYTES = 80
 MEMBER_BYTES = 72
-CELL_BYTES = 64
 LIVE = 1
 JOURNAL_CAPACITY = 8
 SPARE = 8  # free entries, ids 1..SPARE, for what a program allocates
@@ -58,6 +66,9 @@ CODE_ENTRY_OFFSET = 40  # Code.entry_offset
 CAPABILITY_BYTES = 24
 CAPABILITY_CHANNEL = graph_header.numbers()["RXF_CAPABILITY_CHANNEL"]
 CAPABILITY_UART = graph_header.numbers()["RXF_CAPABILITY_UART"]
+CAPABILITY_ALLOCATOR = graph_header.numbers()["RXF_CAPABILITY_ALLOCATOR"]
+ALLOCATOR_CELL_BYTES = graph_header.numbers()["RXF_ALLOCATOR_CELL_BYTES"]
+POOL_FIRST = 1 << 20  # the id of the first free row of the allocator pool (docs/23 4.9)
 UART_FIFO_BLOCK = graph_header.numbers()["RXF_UART_FIFO_BLOCK"]
 AREA_BYTES = 272
 PAGE = 4096
@@ -101,6 +112,11 @@ class LiveSpec:
     # What the device is (the generation word of the capability, native/graph.h): 1 is the one of
     # the machine (the 16550 on ports on x86_64, the PL011 in memory on aarch64).
     uart_device: int = 1
+    # The rows of the allocator pool (docs/23 4.9): that many free rows of the entry table, ids
+    # from POOL_FIRST on, and the Allocator capability that names them (the next capability after
+    # the channel and the uart). 0 binds none: the leaf runtime_allocate answers UNBOUND, which is
+    # what a seat that runs no dynamic guest wants.
+    pool: int = 0
 
 
 @dataclass(frozen=True)
@@ -154,31 +170,47 @@ class Linked:
         return struct.pack("<3Q", self.ids[path], generation, offset)
 
 
-def arena_cells(arena: bytes) -> list[int]:
-    """The cell offset of every handle of an arena, or -1 for a free slot."""
-    index_off, _ = struct.unpack_from("<QQ", arena, 48)
-    chunks, handles = struct.unpack_from("<QQ", arena, 80)
-    directory = struct.unpack_from(f"<{chunks}Q", arena, index_off)
-    found: list[int] = []
-    for handle in range(handles):
-        chunk, slot = divmod(handle, graph_chunk())
-        (entry,) = struct.unpack_from(
-            "<Q", arena, directory[chunk] + CELL_BYTES + 8 * slot
-        )
-        found.append(-1 if entry & 1 else entry)
-    return found
+def table_slots(arena: bytes, headroom: int = 4) -> int:
+    """A lookup table for the handles a v7 arena can hold, twice over.
+
+    The slot table is the first object of the arena at its fixed place (docs/32 1:
+    the anchor a cold attach needs) and its head carries the count and capacity.
+    """
+    count, capacity = struct.unpack_from(
+        "<II", arena, SUPERBLOCK_SIZE + OBJECT_HEADER_SIZE
+    )
+    assert count <= capacity, "the slot table never publishes past its capacity"
+    want = 2 * capacity * headroom // 4
+    slots = 1024
+    while slots < want:
+        slots *= 2
+    return slots
 
 
-def graph_chunk() -> int:
-    return 4096
+def arena_of(image: Image) -> bytes:
+    """The arena of a linked image: the v7 one-arena image (docs/32 1) that `link`
+    places at its region, byte for byte. The host build serves these same bytes, so
+    a parity test compares like with like."""
+    return arena_export.place_world(programs.filled(image))[0].to_bytes()
+
+
+def arena_map(image: Image) -> dict[int, int]:
+    """Where each world object landed in that arena: world handle -> arena handle32.
+
+    A handle is image-local (docs/32 1.2), so a reader that holds the world's
+    handle needs this to name the same object in the arena. It is derived, not
+    stored: the path is the identity across images."""
+    _, placed = arena_export.place_world(programs.filled(image))
+    return dict(placed)
 
 
 def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) -> Linked:
     """The image as it sits in memory at ``base`` for one machine."""
     if machine not in MACHINES:
         raise LinkError(f"no machine {machine}")
-    arena = image.to_bytes()
-    cells = arena_cells(arena)
+    image = programs.filled(image)  # the built code, from its recipe (Wave 4b step 2)
+    made, placed = arena_export.place_world(image)  # the v7 arena (docs/32 1)
+    arena = made.to_bytes()
     prefixes: dict[int, int] = {}
 
     def prefix(handle: int) -> int:
@@ -192,30 +224,57 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
             )
         return prefixes[type_handle]
 
+    def value(handle: int) -> int:
+        """Where an object's value sits in the arena: past the record's payload
+        head (a module owns its chain head first) and the type's fixed part."""
+        target = placed[handle]
+        kind = made.load(target)[0]
+        return made.locate(target)[1] + (MODULE_SIZE if kind == OBJ_MODULE else 0)
+
+    def room_of(handle: int) -> int:
+        """The slots an object's value takes in the arena, chain head excluded
+        (docs/32 5.4: the canonical form reads the room back as the object's
+        size): the record's payload word less a module's chain head."""
+        target = placed[handle]
+        kind = made.load(target)[0]
+        record = made.locate(target)[0]
+        room = struct.unpack_from("<I", arena, record + 20)[0]
+        return room - (MODULE_SIZE if kind == OBJ_MODULE else 0)
+
     # The entries: where the value of each live object is, in the arena
     rows: list[tuple[int, int, int, int, str]] = []  # id, type id, offset, size, path
-    for handle, cell in enumerate(cells):
-        if cell < 0 or not image.live(handle):
+    for handle in range(image.handle_count):
+        if not image.live(handle):
             continue
         info = image.get(handle)
-        if info["kind"] in (254, 255) or info["type"] == HANDLE_NONE:
+        if info["kind"] in (254, 255) or (
+            info["type"] == HANDLE_NONE and not info["payload"]
+        ):
             continue  # a block or dead cell, or an object that has no type and no value
-        offset = prefix(handle)
-        size = len(info["payload"]) - offset
+        typed = info["type"] != HANDLE_NONE
+        offset = prefix(handle) if typed else 0
+        # The size is the room left after a module's chain head and the type's
+        # fixed words, never the tree's exact value length: that length is not
+        # in the record, and the RELINK twin derives its rows from the arena
+        # alone (native/live.rxfs m_relink). Both sides write the one number the
+        # arena carries, or a rebind cannot restore the context byte for byte.
+        size = room_of(handle) - offset
         fields = (
             dict(image.fields(handle))
             if image.type_name(handle) == "SemanticObject"
             else {}
         )
-        type_path = image.path(info["type"])
-        type_id = int.from_bytes(
-            hashlib.sha256(type_path.encode()).digest()[:8], "little"
-        )
+        type_id = 0  # an object with a value and no type: no type id (docs/32 1.2)
+        if typed:
+            type_path = image.path(info["type"])
+            type_id = int.from_bytes(
+                hashlib.sha256(type_path.encode()).digest()[:8], "little"
+            )
         rows.append(
             (
                 object_id(image, handle, fields),
                 type_id,
-                cell + CELL_BYTES + offset,
+                value(handle) + offset,
                 size,
                 image.path(handle),
             )
@@ -228,13 +287,23 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
         )
 
     # The places
-    leaf_ids = graph_header.leaves()
+    # the slot table lists the leaves the image's graph.run wires: an image may wire fewer
+    # leaves than the header names (docs/23 4.9, step 0), so the header grows ahead of a starter
+    wired = _wired(image)
+    leaf_ids = {
+        key: identifier
+        for key, identifier in graph_header.leaves().items()
+        if identifier in wired
+    }
     journal = CONTEXT_BYTES
     slots_at = journal + JOURNAL_CAPACITY * MEMBER_BYTES
     count_slots = len(leaf_ids)
     entries_at = slots_at + count_slots * SLOT_BYTES
     entries_at = (entries_at + ALIGN - 1) // ALIGN * ALIGN
-    count_entries = SPARE + len(rows)
+    pool = live.pool if live else 0
+    if any(POOL_FIRST <= i < POOL_FIRST + pool for i in ids):
+        raise LinkError("an object takes an id of the allocator pool")
+    count_entries = SPARE + len(rows) + pool
     entries_room = count_entries + (live.entries if live else 0)
     arena_at = (entries_at + entries_room * ENTRY_BYTES + ALIGN - 1) // ALIGN * ALIGN
     arena_room = len(arena)
@@ -244,13 +313,19 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
     scratch_at = heap_at + HEAP_BYTES
     total = scratch_at + SCRATCH_BYTES
     block_at: dict[str, tuple[int, int]] = {}
-    area_at = capabilities_at = 0
+    area_at = capabilities_at = allocator_at = 0
     table_size = 0
     if live:
         table_size = table_slots(arena)
+        # The undo log holds the before-image of every granule of the arena
+        # (docs/32 3: the journal grows with the arena): one 72-byte record per
+        # 64-byte granule, plus its bitmap (a bit per granule) and the head.
+        # Sized from the arena, never below live.log.
+        granules = (arena_room + 63) // 64
+        log_room = granules * 72 + granules // 8 + 24
         sizes = {
             "arena": arena_room,
-            "log": live.log,
+            "log": max(live.log, log_room),
             "stage": live.stage,
             "work": table_size * 4 + live.scratch,
             "emit": arena_room,
@@ -261,6 +336,10 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
         area_at = total
         capabilities_at = area_at + AREA_BYTES
         total = capabilities_at + (2 * CAPABILITY_BYTES + ALIGN - 1) // ALIGN * ALIGN
+        if pool:
+            # a third capability and the allocator cell behind the table
+            allocator_at = capabilities_at + 3 * CAPABILITY_BYTES
+            total = allocator_at + (ALLOCATOR_CELL_BYTES + ALIGN - 1) // ALIGN * ALIGN
         for name, size in sizes.items():
             if name == "arena":
                 block_at[name] = (arena_at, size)
@@ -274,7 +353,7 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
             total += UART_FIFO_BLOCK
 
     paths = {row[4]: row[0] for row in rows}
-    code_of = _code(image, machine, cells)
+    code_of = _code(image, machine, made, placed)
 
     def address(path: str) -> int:
         handle = image.resolve(path)
@@ -292,11 +371,12 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
             identifier if machine == "wasm32" else address(target)
         )
         slot_bytes += struct.pack("<3Q", identifier, 1, slots_by_leaf[identifier])
-    entry_bytes = bytearray()
+    # the entry table is sorted by id: the spare rows, the objects of the image, the pool
+    entries: dict[int, bytes] = {}
     for spare in range(1, SPARE + 1):
-        entry_bytes += struct.pack("<10Q", spare, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+        entries[spare] = struct.pack("<10Q", spare, 0, 0, 0, 0, 0, 0, 0, 0, 0)
     for identifier, type_id, where, size, _ in rows:
-        entry_bytes += struct.pack(
+        entries[identifier] = struct.pack(
             "<10Q",
             identifier,
             1,
@@ -309,8 +389,11 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
             0,
             0,
         )
+    for i in range(pool):
+        entries[POOL_FIRST + i] = struct.pack("<10Q", POOL_FIRST + i, *[0] * 9)
+    entry_bytes = bytearray(b"".join(entries[i] for i in sorted(entries)))
     memory = bytearray(total)
-    capability_count = 1 + (live.uart is not None) if live else 0
+    capability_count = 1 + (live.uart is not None) + (pool > 0) if live else 0
     context = struct.pack(
         "<18Q",
         CONTEXT_VERSION, CONTEXT_BYTES,
@@ -344,6 +427,13 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
         if live.uart is not None:
             device = base + block_at["uart"][0] if "uart" in block_at else live.uart
             table_bytes += struct.pack("<3Q", CAPABILITY_UART, live.uart_device, device)
+        if pool:
+            table_bytes += struct.pack(
+                "<3Q", CAPABILITY_ALLOCATOR, 1, base + allocator_at
+            )
+            memory[allocator_at : allocator_at + ALLOCATOR_CELL_BYTES] = struct.pack(
+                "<4Q", POOL_FIRST, pool, POOL_FIRST, 0
+            )
         memory[capabilities_at : capabilities_at + len(table_bytes)] = table_bytes
         block = LiveBlock(
             base + area_at,
@@ -364,6 +454,17 @@ def link(image: Image, machine: str, base: int, live: LiveSpec | None = None) ->
     )
 
 
+def _wired(image: Image) -> set[int]:
+    """The ids of the leaves the image's ``graph.run`` has a ``Leaf`` reference for."""
+    run = image.resolve(RUN)
+    assert run is not None
+    return {
+        index
+        for _, role, index, _, _ in image.get(run)["refs"]
+        if role is not None and word(image.path(role)) == "Leaf"
+    }
+
+
 def _leaf(image: Image, identifier: int) -> str:
     """The path of the Function that is the leaf with this id."""
     run = image.resolve(RUN)
@@ -378,7 +479,9 @@ def _leaf(image: Image, identifier: int) -> str:
     raise LinkError(f"{RUN} has no leaf {identifier}")
 
 
-def _code(image: Image, machine: str, cells: list[int]) -> dict[int, int]:
+def _code(
+    image: Image, machine: str, made: ObjectArena, placed: dict[int, int]
+) -> dict[int, int]:
     """For each Function with code for the machine, the arena offset of its first byte."""
     found: dict[int, int] = {}
     wanted = MACHINES[machine]
@@ -390,13 +493,17 @@ def _code(image: Image, machine: str, cells: list[int]) -> dict[int, int]:
         info = image.get(handle)
         payload = info["payload"]
         (entry,) = struct.unpack_from("<Q", payload, CODE_ENTRY_OFFSET)
-        found[info["parent"]] = (
-            cells[handle] + CELL_BYTES + len(payload) - _data_bytes(payload) + entry
-        )
+        # The bytes live in the CodeBlob the code's body names: the entry is an
+        # offset into that blob's value, not the (now empty) code payload.
+        body = image.resolve(dict(image.fields(handle)).get("body", ""))
+        if body is None or image.type_name(body) != "CodeBlob":
+            raise LinkError(f"{image.path(handle)} says no blob for its bytes")
+        blob = image.get(body)
+        blob_at = made.locate(placed[body])[1] + _blob_prefix(image, blob["type"])
+        found[info["parent"]] = blob_at + entry
     return found
 
 
-def _data_bytes(payload: bytes) -> int:
-    """The bytes of the code after the fixed part of a Code payload."""
-    (byte_count,) = struct.unpack_from("<Q", payload, 48)
-    return byte_count
+def _blob_prefix(image: Image, type_handle: int) -> int:
+    """Where the bytes of a CodeBlob start in its payload: after the fixed part."""
+    return image.layout(type_handle)["prefix"]

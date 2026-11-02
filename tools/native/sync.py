@@ -11,8 +11,11 @@ the sources of truth for the bytes are the Seed sources of `native/**/*.rxfs`
   derived from the shape of the function (the C operands the seed spells) and
   the semantic ABI of the x86_64 set (same arguments, same meaning, the wasm32
   way of passing).
+* ``sources/``: the build history -- one module and one ``Source`` object per
+  file of ``native/`` with its text and the digest of the text, named on every
+  function its code was built from (docs/31 §3).
 
-Both are rewritten on every run, so a changed source shows up here.
+All of it is rewritten on every run, so a changed source shows up here.
 
     python tools/native/sync.py [--check] [STARTER]
 
@@ -24,19 +27,22 @@ from __future__ import annotations
 
 import copy
 import shutil
-import struct
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+import blob_sync
+import boot_sync
 import compose
 import graph_header
 import graph_sync
+import host_sync
 import live_sync
 import native_build
-import seed_build
+import programs
+import source_sync
 
 from pymergetic.rxftk.core import tree
 
@@ -47,11 +53,8 @@ ET.register_namespace("rxf", RXF)
 
 BIOS = "x86_64_bios"
 WASM = "wasm32"
-BIOS_ABI = "sysv_bios_status_out"
-WASM_ABI = "wasm_c_status_out"
 PROVENANCE_TAG = "CompilerProvenance"
 GENERATED_CODE = {BIOS, WASM}
-GENERATED_ABI = {BIOS_ABI, WASM_ABI}
 
 
 class SyncError(Exception):
@@ -89,99 +92,15 @@ def word(value: str | None) -> str:
 
 
 def snippet_key(parts: tuple[str, ...], name: str, known: set[str]) -> str:
-    """``checked.add_int8_t`` is ``checked_add_int8_t``, ``memory.copy`` is ``memory_copy``."""
-    module = parts[-1]
-    if module == "__init__" and len(parts) > 1:
-        module = parts[-2]
-    options = [f"{module}_{name}", name]
-    if "convert" in parts:
-        options.insert(0, f"convert_{module}_{name}")
-    for option in options:
-        if option in known:
-            return option
-    raise SyncError(f"{'/'.join(parts)}: {name} has no source in native/")
+    """``checked.add_int8_t`` is ``checked_add_int8_t``, ``memory.copy`` is ``memory_copy``.
 
-
-def retarget(code: ET.Element, signature: str, new: str) -> None:
-    """Point the AbiSignature reference of a Code object at another ABISignature."""
-    for ref in code.findall(f"{{{RXF}}}ref"):
-        if word(ref.get("role")) == "AbiSignature":
-            ref.set("target", ref.get("target", "").rsplit(".", 1)[0] + "." + new)
-            return
-    raise SyncError("a Code object without an AbiSignature reference")
-
-
-def value_class_of(location: ET.Element) -> str:
-    return word(location.get("value_class"))
-
-
-def order(locations: list[ET.Element]) -> list[ET.Element]:
-    """The locations in the order of the C parameters: context, arguments, output."""
-
-    def rank(location: ET.Element) -> tuple[int, int]:
-        role = word(location.get("value_role"))
-        index = int(location.get("semantic_index", "0"))
-        return {"HiddenContext": (0, 0), "Argument": (1, index), "Output": (2, 0)}[role]
-
-    return sorted(
-        (loc for loc in locations if word(loc.get("value_role")) != "Status"), key=rank
-    )
-
-
-def wasm_type_of(location: ET.Element) -> str:
-    """The wasm value type a location is passed as."""
-    width = int(location.get("width", "0"))
-    if value_class_of(location) == "Float":
-        return "f32" if width == 4 else "f64"
-    if value_class_of(location) == "Pointer":
-        output = word(location.get("value_role")) == "Output"
-        return "i64" if width == 8 and not output else "i32"
-    return "i64" if width == 8 else "i32"
-
-
-def wasm_abi(
-    template: ET.Element, params: tuple[str, ...], results: tuple[str, ...], label: str
-) -> ET.Element:
-    """The wasm32 ABI of a function: the semantic ABI of the x86_64 set, passed
-    the wasm32 way. ``params`` and ``results`` are what the seed's shape of the
-    function derives (``seed_build.wasm_params``): the C ABI of the body the
-    wasm32 ``Code`` object holds."""
-    abi = copy.deepcopy(template)
-    abi.set("name", WASM_ABI)
-    abi.set("target", "@targets.wasm32_wasm_c")
-    abi.set("kind", "@kinds.AbiKind.Wasm")
-    locations = [c for c in abi if c.tag == "ABIValueLocation"]
-    ordered = order(locations)
-    if len(ordered) != len(params):
-        raise SyncError(
-            f"{label}: the C function takes {len(params)} parameters "
-            f"{params}, its ABI describes {len(ordered)}"
-        )
-    if results != ("i32",):
-        raise SyncError(f"{label}: expected a status result, got {results}")
-    for index, location in enumerate(ordered):
-        passing = word(location.get("passing"))
-        if passing == "Stack":  # a struct by value: wasm32 passes it by address
-            location.set("passing", "@kinds.AbiPassing.Pointer")
-        elif (
-            value_class_of(location) == "Pointer"
-            and word(location.get("value_role")) != "Output"
-            and location.get("width") == "8"
-        ):
-            # The C function says how wide the address is: a real pointer on
-            # wasm32, or a 64-bit address carried in a u64.
-            address = "8" if params[index] == "i64" else "4"
-            location.set("width", address)
-            location.set("alignment", address)
-        if wasm_type_of(location) != params[index]:
-            raise SyncError(
-                f"{label}: parameter {index} is {params[index]} in the C "
-                f"function, the ABI says {wasm_type_of(location)}"
-            )
-        location.set("register_bank", "@kinds.RegisterBank.Local")
-        location.set("register_count", "1")
-        location.set(DATA, (bytes(8) + struct.pack("<I", index)).hex())
-    return abi
+    The one rule lives in ``graph_sync`` (the builder that fills a body from its
+    recipe maps a function path to its key the same way); this is the error of
+    the sync."""
+    try:
+        return graph_sync.snippet_key(parts, name, known)
+    except graph_sync.GraphSyncError as error:
+        raise SyncError(str(error)) from error
 
 
 def sync_file(
@@ -201,33 +120,31 @@ def sync_file(
         codes = {c.get("name"): c for c in function if c.tag == "Code"}
         if "x86_64_linux" not in codes:
             continue
-        label = f"{'/'.join(parts)}:{function.get('name')}"
         key = snippet_key(parts, str(function.get("name")), known)
         for child in list(function):
-            if (child.tag == "Code" and child.get("name") in GENERATED_CODE) or (
-                child.tag == "ABISignature" and child.get("name") in GENERATED_ABI
-            ):
+            if child.tag == "ABISignature":
+                # a register map is derived at the call boundary from the
+                # Signature and the target (docs/32 5): never in a delta
                 function.remove(child)
+                removed += 1
+            elif child.tag == "Code":
+                for ref in list(child):
+                    if (
+                        ref.tag == f"{{{RXF}}}ref"
+                        and word(ref.get("role")) == "AbiSignature"
+                    ):
+                        child.remove(ref)  # the map it names is derived
+                        removed += 1
+                if child.get("name") in GENERATED_CODE:
+                    function.remove(child)
         linux = codes["x86_64_linux"]
-        signatures = {s.get("name"): s for s in function if s.tag == "ABISignature"}
-        template = next(
-            s
-            for s in signatures.values()
-            if word(s.get("target")) == "x86_64_linux_sysv"
-        )
         refresh(function, key, bytes_of)
         # BIOS: the same bytes under the BIOS target.
-        abi = copy.deepcopy(template)
-        abi.set("name", BIOS_ABI)
-        abi.set("target", "@targets.x86_64_bios_sysv")
         code = copy.deepcopy(linux)
         code.set("name", BIOS)
         code.set("runtime_target", "@targets.x86_64_bios_sysv")
-        retarget(code, str(template.get("name")), BIOS_ABI)
-        function.extend((abi, code))
-        # wasm32: the body the seed makes for that target, and an ABI that follows
-        # from the shape of the function (the C operands its seed spells).
-        abi = wasm_abi(template, seed_build.wasm_params(key), ("i32",), label)
+        function.append(code)
+        # wasm32: the body the seed makes for that target.
         code = copy.deepcopy(linux)
         code.set("name", WASM)
         code.set("runtime_target", "@targets.wasm32_wasm_c")
@@ -235,8 +152,7 @@ def sync_file(
         body = bytes_of["wasm32"][key]
         code.set("byte_count", str(len(body) // 2))
         code.set(DATA, body)
-        retarget(code, str(template.get("name")), WASM_ABI)
-        function.extend((abi, code))
+        function.append(code)
         set_provenance(function)
         changed += 1
     if changed or removed:
@@ -326,12 +242,13 @@ def sync(starter: Path, check: bool = False) -> tuple[int, bool]:
         work = Path(directory) / "starter"
         shutil.copytree(starter, work)
         live_sync.write_live(work)
+        paths = leaf_paths(work, set(bytes_of["x86_64"]))
         graph_sync.write_interpreter(
             work,
             bytes_of,
             {
                 key: path
-                for key, path in leaf_paths(work, set(bytes_of["x86_64"])).items()
+                for key, path in paths.items()
                 if key in graph_header.leaves()
             },
         )
@@ -340,7 +257,17 @@ def sync(starter: Path, check: bool = False) -> tuple[int, bool]:
             parts = path.relative_to(work).with_suffix("").parts
             total += sync_file(path, parts, bytes_of)
         write_provenance(work / "pymergetic" / "rxf" / "targets.rxfd")
+        source_sync.write_sources(work, paths)
+        boot_sync.write_codes(work)  # the glue's code, pinned to what make builds
+        host_sync.write_hosts(work)  # the entry every host shape runs (docs/31 §5)
+        # ``sync_file`` strips every CompilerProvenance object (the recipes are
+        # regenerated, never patched in place), so the glue's recipe is written
+        # back before anything loads the tree to link it.  The compiled bodies
+        # move into their CodeBlob objects first: a newly authored Function
+        # carries body references that only those blobs resolve.
+        blob_sync.write_blobs(work)
         sync_bytecode(work)
+        programs.strip(work)  # the built code is source and recipe, not stored
         image = tree.load(work)
         canonical = Path(directory) / "canonical"
         tree.write(image, canonical)

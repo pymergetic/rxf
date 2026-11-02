@@ -20,6 +20,8 @@ from __future__ import annotations
 import hashlib
 import os
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 # .cache/ is gitignored (line 47 of the package's .gitignore); the path is stable
@@ -36,8 +38,13 @@ def key_of(argv: list[str], source: str) -> str:
     ).hexdigest()
 
 
-def run(argv: list[str], source: str) -> str:
-    """The seed CLI's stdout for ``argv`` over ``source``: memoed in memory, then on disk."""
+def run(argv: list[str], source: str, label: str = "") -> str:
+    """The seed CLI's stdout for ``argv`` over ``source``: memoed in memory, then on disk.
+
+    A cold miss runs the compiler, which takes a minute or two -- so it says so on
+    stderr (what is building, then the elapsed seconds). Silence there reads as a
+    hang. Warm hits stay silent: only the miss pays the wait.
+    """
     key = key_of(argv, source)
     hit = MEMORY.get(key)
     if hit is not None:
@@ -46,9 +53,13 @@ def run(argv: list[str], source: str) -> str:
     if path.exists():
         hit = path.read_text().strip()
     else:
+        what = label or "seed code"
+        print(f"building {what} (cold cache, a minute or two)...", file=sys.stderr, flush=True)
+        started = time.monotonic()
         hit = subprocess.run(
             argv, input=source, capture_output=True, text=True, check=True
         ).stdout.strip()
+        print(f"built {what} in {time.monotonic() - started:.1f}s", file=sys.stderr, flush=True)
         CACHE.mkdir(parents=True, exist_ok=True)
         # The workers race here by design (same key, same bytes): write under a
         # name of this process and rename, which is atomic on the same filesystem.

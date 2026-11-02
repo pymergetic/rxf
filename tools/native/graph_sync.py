@@ -1,8 +1,8 @@
 """The interpreter and the programs of semantic functions, written into the starter files.
 
-* ``graph.run`` is a native Function like the leaves: its Code and ABI are made
-  from a copy of ``runtime.append`` (one handle, one pointer, two words in the
-  same registers), with the bytes of ``native/graph.rxfs`` (the seed build,
+* ``graph.run`` is a native Function like the leaves: its Code is made from a
+  copy of ``runtime.append`` (one handle, one pointer, two words in the same
+  registers), with the bytes of ``native/graph.rxfs`` (the seed build,
   ``tools/native/native_build.py``). It names the leaves it
   calls, by their id in ``native/graph.h``, with one ``Leaf`` reference each.
 * Every semantic Function with a ``SemanticGraph`` gets one ``Code`` of format
@@ -17,7 +17,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import xml.etree.ElementTree as ET
-from collections.abc import Mapping
+from collections.abc import Container, Mapping
 from pathlib import Path
 
 import graph_header
@@ -30,10 +30,6 @@ FOUNDATION = Path("pymergetic/rxf/foundation")
 INTERPRETER = "pymergetic.rxf.foundation.graph.run"
 BYTECODE = "bytecode"
 COMPOSED_ENTRY = "composed_entry"
-# What a location keeps when it takes the role of another: where it is.
-POSITION = {"name", INDEX, "association", "semantic_index", DATA}
-ABIS = ("sysv_status_out", "sysv_uefi_status_out")
-ABIS_AARCH64 = ("aapcs64_linux_status_out", "aapcs64_status_out")
 CODES = {
     "x86_64_linux": "x86_64",
     "x86_64_uefi": "x86_64",
@@ -42,8 +38,7 @@ CODES = {
 }
 # run(context, program: handle, args: address, argc: words, out: pointer)
 # takes append(context, handle, transaction: pointer, source: address, count: word)
-# with the pointer last: the roles move by one, the registers stay where they are.
-CLASSES = "0303030103"
+# with the pointer last: its Signature says so, and no register map is stored.
 SIGNATURE = ("@model.Ref", "@model.Ref", "@model.Ref", "uint64_t", "@model.Ref")
 
 
@@ -71,27 +66,6 @@ def semantic_digest() -> str:
     return hashlib.sha256(f"{INTERPRETER}\n{program_format}".encode()).hexdigest()
 
 
-def retake_roles(abi: ET.Element) -> None:
-    """Pass the roles of append's three middle arguments on: 2 to 4, 3 to 2, 4 to 3."""
-    locations = {c.get("name"): c for c in abi if c.tag == "ABIValueLocation"}
-    first, second, third = (locations[f"argument[{n}]"] for n in (2, 3, 4))
-    donors = {
-        "argument[2]": second,
-        "argument[3]": third,
-        "argument[4]": first,
-    }
-    saved = {
-        name: {k: v for k, v in donor.attrib.items() if k not in POSITION}
-        for name, donor in donors.items()
-    }
-    for name, kept in saved.items():
-        location = locations[name]
-        for key in [k for k in location.attrib if k not in POSITION]:
-            del location.attrib[key]
-        location.attrib.update(kept)
-    abi.set(DATA, bytes.fromhex(CLASSES).hex())
-
-
 def interpreter(
     runtime: ET.Element,
     bytes_of: Mapping[str, Mapping[str, str]],
@@ -117,8 +91,7 @@ def interpreter(
             for parameter, kind in zip(parameters, SIGNATURE, strict=True):
                 parameter.set("value_type", kind)
         elif child.tag == "ABISignature":
-            if child.get("name") in ABIS + ABIS_AARCH64:
-                retake_roles(child)
+            function.remove(child)  # a derived register map: never in a delta
         elif child.tag == "Code" and child.get("name") in CODES:
             data = bytes_of[CODES[str(child.get("name"))]]["graph_run"]
             child.set("semantic_digest", digest)
@@ -128,6 +101,10 @@ def interpreter(
             child.set("semantic_digest", digest)
     leaves = graph_header.leaves()
     for name, number in sorted(leaves.items(), key=lambda item: item[1]):
+        if name not in leaf_paths:
+            # the header may name a leaf the starter has no Function for yet (docs/23 4.9: an
+            # image wires the leaves it has; step 9 adds the Function and this line wires it)
+            continue
         ET.SubElement(
             function,
             REF,
@@ -168,6 +145,30 @@ def write_interpreter(
 def module_prefix(parts: tuple[str, ...]) -> str:
     """The path above the module a file defines (``__init__.rxfd`` defines its directory)."""
     return ".".join(parts[:-2] if parts[-1] == "__init__" else parts[:-1])
+
+
+def snippet_key(parts: tuple[str, ...], name: str, known: Container[str]) -> str:
+    """The snippet key a Function of a file names: ``numeric/bitwise.rxfd``'s
+    ``bit_and_int8_t`` is ``bitwise_bit_and_int8_t``, ``memory/__init__.rxfd``'s
+    ``copy`` is ``memory_copy``. One rule for the writer of the starter and the
+    builder that fills a body from its recipe."""
+    module = parts[-1]
+    if module == "__init__" and len(parts) > 1:
+        module = parts[-2]
+    options = [f"{module}_{name}", name]
+    if "convert" in parts:
+        options.insert(0, f"convert_{module}_{name}")
+    for option in options:
+        if option in known:
+            return option
+    raise GraphSyncError(f"{'/'.join(parts)}: {name} has no source in native/")
+
+
+def key_of_path(path: str, known: Container[str]) -> str:
+    """``snippet_key`` over a dotted function path (``pymergetic.rxf.x.y`` is the
+    file of module ``pymergetic.rxf.x``, function ``y``)."""
+    parts = tuple(path.split("."))
+    return snippet_key(parts[:-1], parts[-1], known)
 
 
 def functions_in(parent: ET.Element, prefix: str) -> list[tuple[str, ET.Element]]:
