@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
 import native_build
+import seed_build
 import sync
 
 from .snippets import STARTER
@@ -238,34 +239,49 @@ def steps() -> list[Step]:
     ]  # fmt: skip
 
 
-def stdlib_code() -> dict[str, dict[str, bytes]]:
-    """The code of every stdlib leaf in the starter, per machine.
-
-    A machine ``Code`` carries no bytes: the starter keeps source and recipe, and
-    the built bytes live in the ``CodeBlob`` its ``body`` names (tools/native/
-    programs.py, ``_built_object``). Reading the Code element is reading a name.
-    """
-    found: dict[str, dict[str, bytes]] = {}
+def _stdlib_functions():
+    """The (snippet key, Function element) of every stdlib leaf that has machine code."""
     for path in sorted(STARTER.rglob("*.rxfd")):
         parts = path.relative_to(STARTER).with_suffix("").parts
         for function in ET.parse(path).getroot().iter("Function"):
-            codes = {c.get("name"): c for c in function if c.tag == "Code"}
-            if "wasm32" not in codes:
+            if not any(c.tag == "Code" and c.get("name") == "wasm32" for c in function):
                 continue
             try:
                 key = sync.snippet_key(parts, str(function.get("name")), SYMBOLS)
             except sync.SyncError:
                 continue
-            blobs = {c.get("name"): c for c in function if c.tag == "CodeBlob"}
-            found[key] = {
-                machine: bytes.fromhex(_blob_hex(blobs, machine))
-                for machine in ("x86_64", "aarch64", "wasm32")
-            }
+            yield key, function
+
+
+def stdlib_code() -> dict[str, dict[str, bytes]]:
+    """The code of every stdlib leaf in the starter, per machine.
+
+    The starter stores the source and the recipe of a body, never its bytes
+    (tools/native/programs.py: a built body is filled at image formation). The
+    bytes are what the recipe builds (``seed_build.code``, by the same key the
+    fill uses), so the machines run the code a seat links. Only the leaves of
+    ``SYMBOLS`` are built, not every snippet of ``native/``.
+    """
+    return {
+        key: {
+            machine: bytes.fromhex(seed_build.code(machine, key))
+            for machine in ("x86_64", "aarch64", "wasm32")
+        }
+        for key, _ in _stdlib_functions()
+    }
+
+
+def stdlib_pins() -> dict[str, dict[str, tuple[int, str]]]:
+    """What the starter pins of every stdlib leaf body, per machine: the byte count and the
+    SHA-256 of the bytes (the ``CodeBlob`` named ``body_<machine>``; tools/native/blob_sync.py)."""
+    found: dict[str, dict[str, tuple[int, str]]] = {}
+    for key, function in _stdlib_functions():
+        blobs = {c.get("name"): c for c in function if c.tag == "CodeBlob"}
+        found[key] = {
+            machine: (
+                int(str(blobs[f"body_{machine}"].get("byte_count"))),
+                str(blobs[f"body_{machine}"].get("content_digest")),
+            )
+            for machine in ("x86_64", "aarch64", "wasm32")
+        }
     return found
-
-
-def _blob_hex(blobs: dict[str | None, ET.Element], machine: str) -> str:
-    """The hex of one body blob. A CodeBlob has no children, so `blob or default`
-    takes the default: an Element with no children is falsy."""
-    blob = blobs.get(f"body_{machine}")
-    return "" if blob is None else (blob.get(sync.DATA) or "")

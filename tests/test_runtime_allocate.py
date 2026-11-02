@@ -18,6 +18,7 @@ written here from the design, not from the leaf.
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 import struct
 from dataclasses import dataclass
@@ -628,9 +629,9 @@ def test_the_host_seat_zero_fills_the_payload_it_carves():
 def test_the_transactional_writers_are_byte_identical_to_the_starters(machine):
     """``allocate_prepare``, ``publish``, ``rollback`` and the rest of the writers stay the
     transactional API of the live engine: the bytes the Seed builds are the bytes the starter
-    stores (the pin of a byte-identical lane), and ``runtime_release`` -- now leaf 51 -- is the
-    same function it was."""
-    stored = scenario.stdlib_code()
+    pins (byte count and SHA-256, the pin of a byte-identical lane), and ``runtime_release`` --
+    now leaf 51 -- is the same function it was."""
+    pins = scenario.stdlib_pins()
     for key in (
         "runtime_allocate_prepare",
         "runtime_publish",
@@ -641,7 +642,8 @@ def test_the_transactional_writers_are_byte_identical_to_the_starters(machine):
         "runtime_pin",
         "runtime_unpin",
     ):
-        assert bytes.fromhex(seed_build.code(machine, key)) == stored[key][machine], key
+        built = bytes.fromhex(seed_build.code(machine, key))
+        assert (len(built), hashlib.sha256(built).hexdigest()) == pins[key][machine], key
 
 
 # ---- the seats: the linker binds the allocator where a seat asks for one ----------------------------
