@@ -129,7 +129,10 @@ def reason_of(message: str) -> str:
     for phrase, name in REASONS:
         if phrase in message:
             return name
-    return "other: " + re.sub(r"line \d+: ", "", message.split(": ", 1)[-1])[:60]
+    text = re.sub(r"line \d+: ", "", message.split(": ", 1)[-1])
+    # A message is "headline (explanation)": the headline is the group's name. A length cut
+    # would stop mid-word and merge two messages that merely begin alike.
+    return "other: " + text.split(" (", 1)[0]
 
 
 def tried(

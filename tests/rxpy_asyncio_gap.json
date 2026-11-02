@@ -33,7 +33,7 @@
       ],
       [
         "run_until_complete",
-        "other: run_until_complete answers a word on one path and None on an"
+        "other: run_until_complete answers a word on one path and None on another"
       ],
       [
         "run",
@@ -75,7 +75,7 @@
       "for (the subset loops with while)": 2,
       "global of a name that is not an integer cell": 3,
       "inheritance": 2,
-      "other: run_until_complete answers a word on one path and None on an": 1,
+      "other: run_until_complete answers a word on one path and None on another": 1,
       "raise (the exception seam)": 2,
       "try/except (the nlr seam of S11)": 1
     }
@@ -190,7 +190,7 @@
     "defs": [
       [
         "open_connection",
-        "other: an import inside a def (imports are module-level statements:"
+        "other: an import inside a def"
       ]
     ],
     "dropped": 7,
@@ -205,7 +205,7 @@
       "an attribute store on an object held in a name": 1,
       "an object held in a name or a parameter (no cell the graph can resolve)": 1,
       "async def (the coroutine frame of 4.5)": 4,
-      "other: an import inside a def (imports are module-level statements:": 1,
+      "other: an import inside a def": 1,
       "yield (the coroutine frame of 4.5)": 5
     }
   },

@@ -890,7 +890,7 @@ a construct of the def, not of the file's glue) the answer per top-level stateme
 | `sleep` (`core.py`) | compiles |
 | `_promote_to_task` (`core.py`) | a conditional expression |
 | `create_task` (`core.py`) | raise (the exception seam) |
-| `run_until_complete` (`core.py`) | other: run_until_complete answers a word on one path and None on an |
+| `run_until_complete` (`core.py`) | other: run_until_complete answers a word on one path and None on another |
 | `run` (`core.py`) | compiles |
 | `get_event_loop` (`core.py`) | a name the subset cannot bind (a class or a global of no cell) |
 | `current_task` (`core.py`) | raise (the exception seam) |
@@ -900,7 +900,7 @@ a construct of the def, not of the file's glue) the answer per top-level stateme
 | `ph_delete` (`task.py`) | is / is not / in / not in (identity and membership) |
 | `wait_for_ms` (`funcs.py`) | compiles |
 | `gather` (`funcs.py`) | *args, **kwargs or a keyword-only parameter |
-| `open_connection` (`stream.py`) | other: an import inside a def (imports are module-level statements: |
+| `open_connection` (`stream.py`) | other: an import inside a def |
 
 | reason (first refusal of a def, a method, a class or a statement) | count |
 |---|---|
@@ -929,8 +929,8 @@ a construct of the def, not of the file's glue) the answer per top-level stateme
 | an expression or a control statement at module level | 1 |
 | del | 1 |
 | is / is not / in / not in (identity and membership) | 1 |
-| other: an import inside a def (imports are module-level statements: | 1 |
-| other: run_until_complete answers a word on one path and None on an | 1 |
+| other: an import inside a def | 1 |
+| other: run_until_complete answers a word on one path and None on another | 1 |
 <!-- rxpy_gap:end -->
 
 Reading it: **2 of 15 top-level defs, 0 of 12 top-level classes and 5 of 38 methods compile.**
