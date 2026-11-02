@@ -98,6 +98,7 @@ Read in order:
 29. [The Honors](36-THE-HONORS.md)
 30. [The lwIP card, slice 1: the import table](35-LWIP-IMPORT-TABLE.md)
 31. [The graph and its one language](37-THE-GRAPH-AND-ITS-ONE-LANGUAGE.md)
+32. [The one language, draft 0](38-THE-LANGUAGE-DRAFT.md)
 
 These documents specify RXF independently of any runtime provider. The optional Metal binding
 is described separately in [`integrations/metal.md`](integrations/metal.md).
