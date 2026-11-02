@@ -376,7 +376,11 @@ class Channel:
         return self.machine.read(address, committed + OBJECT_HEADER_SIZE + FREE_LINKS)
 
     def loaded(self) -> Image:
-        return model_of(self.arena())
+        """The world of the running image, as the image itself answers it: its dump, the
+        canonical form (docs/32 5.4). The arena as it lies in memory is storage - free spans,
+        the order objects were made in, and the derived relation rows of an object an apply made
+        only once the image rebuilds - so a model of it is not the image's world."""
+        return model_of(self.client.emit()[0])
 
 
 def _wrapped(
