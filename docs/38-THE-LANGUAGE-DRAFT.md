@@ -2,14 +2,15 @@
 
 Status: **draft, built one element at a time with the owner**. Companion of
 [37](37-THE-GRAPH-AND-ITS-ONE-LANGUAGE.md). Nothing here is implemented. The document holds what the
-owner has fixed (sections 1 to 9) and, at the end, what is still open.
+owner has fixed (sections 1 to 10) and, at the end, what is still open.
 
-The sample is [`samples/echo.rx`](samples/echo.rx). The draft highlighting is `editors/rx-draft`
+The samples are [`samples/echo.rx`](samples/echo.rx) and
+[`samples/parse_blocks.rx`](samples/parse_blocks.rx). The draft highlighting is `editors/rx-draft`
 (hand-written while the grammar is open).
 
 The language looks and behaves like Python (layout by indentation, `def`, `class`, `import`,
 docstrings, `#` comments, variables that refer to objects) and is typed like C++ (the type before the
-name, `<>` for generics, `const`, `static`).
+name, `<>` for generics, `const`, `static`, `weak`).
 
 ## 1. Module
 
@@ -64,26 +65,9 @@ reference, never the object. A global is a variable on the root node.
 **There is no function stack, and a call is an instance.** A function is an object like any other
 (section 7), and calling it creates an **instance** of it, exactly as calling a class does. The
 variables the body declares, its parameters and its result are the **fields** of that instance. The
-instance is allocated by the **caller** and assigned to the **active run**, which is itself only an
-object id. The **run** (what threads and async became, [20](20-EXECUTION-POLICY.md)) is the origin of
-all memory, and everything a run creates lives in the run. Because nothing belongs to a function,
-`return p` passes the reference and nothing is moved or copied; the instance of the call is freed by
-its reference count like any other object, and the result lives on if the caller holds it.
-
-The run has a **quota** of memory; a call that cannot be allocated within it is refused with
-`OutOfMemory`.
-
-A program can name runs where it must cross their boundary: `run.current` is the run it is in and
-`run.spawn(f, args)` starts another run that executes `f(args)` and returns a reference to it. The
-names are a proposal; the need is agreed.
-
-```
-runs.7                 a Run
-  main                 the first call; the variables the caller allocated for it
-    p                  a Packet
-    make               a call; the variables main allocated for it
-      p                the Packet that make builds (still alive after make returns, if referenced)
-```
+instance is allocated by the **caller**. `return p` passes the reference and nothing is moved or
+copied; the instance of the call is freed by its reference count like any other object, and the
+result lives on if the caller holds it.
 
 **Lifetime is by reference count.** An object lives while something refers to it; the last release
 frees it. Definitions (modules, classes, functions) are nodes of the tree and live as long as the tree.
@@ -92,7 +76,7 @@ frees it. Definitions (modules, classes, functions) are nodes of the tree and li
 alive, and using it after the object has gone is a `Dangling` refusal. A parent that refers to its
 child strongly and is referred to by it `weak` is the usual shape.
 
-**Reference counts are atomic**, since runs share objects.
+**Reference counts are atomic**, since carriers share objects.
 
 **A reference to a dead object is a refusal, not undefined behaviour.** The id carries a generation
 that no longer matches (`Dangling`). This is checked at run time. When an image is edited (a delta is
@@ -113,8 +97,8 @@ open).
   first line of any program is read.
 - The base types keep their C names: `uint8_t`, `uint16_t`, `uint32_t`, `uint64_t`, `int8_t`, ... They
   are grouped under `pymergetic.rxf`; the sample uses `pymergetic.rxf.types` for them and
-  `pymergetic.rxf.templates` for the generic ones (`Option`, `list`, `fn`). The grouping is a proposal
-  (section 11).
+  `pymergetic.rxf.templates` for the generic ones (`Option`, `list`, `belt`, `fn`). The grouping is a
+  proposal (section 12).
 - **Lookup of an unqualified name** goes from the inside out: the activation, then the members of each
   enclosing node outwards, then the module, then the root. A local of an enclosing function is not
   found (section 4). A path is always unambiguous (`pymergetic.rxf.types.uint32_t`).
@@ -155,10 +139,10 @@ always:
 
 | Declared / derived | What a call costs |
 |---|---|
-| not recursive | **one instance per function and run, reused**: a call allocates nothing |
+| not recursive | **one instance per function and carrier, reused**: a call allocates nothing |
 | tail recursion | the call **reuses its own instance**: the parameters are overwritten and the function jumps; nothing grows |
-| recursion to depth N | **one allocation** of N instances, taken from the run once |
-| unbounded | one instance per call from the run; the quota ends it (`OutOfMemory`) |
+| recursion to depth N | **one allocation** of N instances, taken once |
+| unbounded | one instance per call; the quota ends it (`OutOfMemory`) |
 
 A recursion that exceeds its declared depth is refused. Whether the recursion of a function that is
 not a tail call can be **flattened** as well (for instance when what is combined is associative, so
@@ -169,71 +153,73 @@ Proposed spelling, a clause after the signature: `recursion none`, `recursion ta
 
 ## 8. Generics
 
-`<>` is the one form: `Option<Packet>`, `fn<uint16_t(Packet)>`. An instantiation is an object of its
-own; the same arguments are the same object.
+`<>` is the one form: `Option<Packet>`, `fn<uint16_t(Packet)>`, `belt<Record>`. An instantiation is an
+object of its own; the same arguments are the same object.
 
 ## 9. Layout and typing
 
 The type comes first everywhere (`uint32_t sum = 0`, `def uint16_t checksum(Packet self)`); blocks are
 formed by indentation.
 
-## 10. Direction: workflows first
+## 10. Concurrency: belts and carriers, no runs in the language
 
-The owner's example: a run has to parse a million elements. The caller fills a block of 1000, the
-blocks are worked off in parallel, and at the end the results are put together again. The sketch is
-[`samples/parse_blocks.rx`](samples/parse_blocks.rx).
+There is almost nothing besides the intrinsics ([37](37-THE-GRAPH-AND-ITS-ONE-LANGUAGE.md)):
+everything else is composed. So there is no separate kind of thing that "runs":
 
-**A run per block is far too heavy**, and a run per element is absurd: a run is a cell with a budget
-of its own, and it exists to be an independent, isolated line of execution (a connection, a task that
-lives for a while). Parallel work on **data** does not need that. What it needs is **work that is
-available and known somewhere, and carriers that take it**. The machine already works like this: a run
-is data in a ring, and any carrier that is free reads it and goes on
-([20](20-EXECUTION-POLICY.md)). The change is that the unit on the belt is a **light item** (a
-function and its block), not a run.
+- **A waiting call is an object with a wait state** that must be processed at some point. That is all
+  a "run" is: not a machine concept, a **named unit of human intent** - a connection, a session, the
+  boot - worth a name in the tree, and its objects hang together by the parent-child hierarchy they
+  are part of, which is what a run would otherwise provide.
+- **Concurrency is belts** (`belt<T>`, a bounded queue between stages). A stage is a function that
+  takes an item and returns the next one. Work that lies in a collection is a belt fed by a cursor
+  (`source.blocks(1000).map(parse_block)`, the sketch
+  [`samples/parse_blocks.rx`](samples/parse_blocks.rx)); work that appears over time is a belt fed by
+  its producer.
+- **CPUs are consumers**: at the end of the day a CPU is something that has to be fed with pipes so
+  that it is busy. Free carriers take the next item (one atomic add on the belt's cursor); a carrier
+  that finds nothing parks. The **plumbing schema** - how the belts are wired - decides how
+  efficiently things run; the machine's ready ring is one belt, and the map above is a belt with a
+  cursor.
+- **Straight-line code stays straight**: inside a stage, ordinary sequential code is allowed; the
+  compiler cuts it at wait points into steps (a waiting call is an object, section 5).
+- **Runs as a word are gone from the language.** The machine below may keep its run cell as the shape
+  of a parked call ("what suspends is data", [20](20-EXECUTION-POLICY.md)); the language names belts,
+  stages and named units of intent, not runs. `run.spawn` and `run.current` are withdrawn.
+- **The quota** belongs to the pipeline (its belts and the objects it holds), refused with
+  `OutOfMemory` when exhausted.
+- **On hardware**: a belt maps naturally onto FPGA fabric (a stage is a block, a belt is a stream
+  between blocks). The plumbing schema, not the language, is what would be laid out there.
 
-The proposed form is a **map over a collection** that the system spreads over the free carriers:
+Open: what a failing item does to the others on the belt (cancel or drain), how a pipeline takes its
+quota share, and whether `map` is a library function (proposed) or a construct such as `parallel for`.
 
-- the collection is cut into blocks (`blocks(source, 1000)`);
-- the carriers take the next block by **increasing one shared cursor** (one atomic add), so there is no
-  queue to manage and nothing waits for a producer;
-- every block has its own **result slot**, indexed by the block, so the results are in order without a
-  lock and without a merge step in the middle;
-- the function runs on the carrier's own run, and a function that cannot recurse keeps **one reused
-  instance per run** (section 7), so a block costs no allocation for the call itself.
+## 11. Locks
 
-Whether a function may be spread this way is **derived** from the graph: it must not write an object
-that it did not make itself (its effects say what it writes). That is the same fact the lock rules of
-section 11 use.
+A lock is **dynamic and smart**: it covers what an action on a variable **affects**, not a relation
+between locks. Proposed rules:
 
-**Runs stay** for what is really independent and long-lived, and for crossing their boundary
-(`run.current`, `run.spawn`, section 5).
+- an action locks **the objects it writes**, nothing else; reads do not lock (the id carries a
+  generation, a read that meets a changed one is repeated);
+- **the parent comes in without a rule of its own**: adding, removing or replacing a child writes
+  the parent's list of children, so the parent is in the write set; a plain write to a child does
+  not write the parent, so the parent stays free;
+- an invariant that spans a parent and a child is kept by an action that **writes both**, so both are
+  locked; there is no separate dependency declaration;
+- locks are taken as the action reaches them. If one would break the order by object id, it is only
+  *tried*; when that fails, the action releases what it holds and starts again. Nothing waits in a
+  cycle, so there is no deadlock.
 
-A second shape is a **pipeline** with a bounded belt between stages, for work that is produced over
-time instead of lying in a collection (the ready ring is the machine's belt).
+Open: what an **action** is. Proposed: a single store is atomic by itself, and a block
+(`with atomic:`) makes several stores one action.
 
-Open: what a failing block does to the others (cancel or finish), how a `map` takes its share of the
-caller's quota, and whether `map` is a library function (proposed) or a construct such as
-`parallel for`.
+## 12. Open
 
-## 11. Open
-
-1. **Locks, derived.** The owner wants locks derived automatically, by simple rules, without a large
-   cost. Proposed rules:
-   - an action locks **the objects it writes**, nothing else; reads do not lock (the id carries a
-     generation, a read that meets a changed one is repeated);
-   - **the parent comes in without a rule of its own**: adding, removing or replacing a child writes
-     the parent's list of children, so the parent is in the write set; a plain write to a child does
-     not write the parent, so the parent stays free;
-   - an invariant that spans a parent and a child is kept by an action that **writes both**, so both are
-     locked; there is no separate dependency declaration;
-   - locks are taken as the action reaches them. If one would break the order by object id, it is only
-     *tried*; when that fails, the action releases what it holds and starts again. Nothing waits in a
-     cycle, so there is no deadlock.
-   Open: what an **action** is. Proposed: a single store is atomic by itself, and a block
-   (`with atomic:`) makes several stores one action.
-2. **The syntax and the default of the recursion clause**, and whether non-tail recursion may be
+1. **The syntax and the default of the recursion clause**, and whether non-tail recursion may be
    flattened.
-3. **The name of the deep copy.**
+2. **The name of the deep copy.**
+3. **Belt basics**: the capacity of a belt, what happens when a producer meets a full belt, whether a
+   belt may be closed from either end, and how a named unit of intent is written (a belt, or a class
+   whose fields are belts).
 4. Not yet discussed: operators and literals, control flow, error handling, enums and constants,
    strings and arrays, the intrinsics and the interpreter
    ([37](37-THE-GRAPH-AND-ITS-ONE-LANGUAGE.md)).

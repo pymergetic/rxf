@@ -1,12 +1,12 @@
 """Parse a large source in blocks, in parallel, and put the result together again in order.
 
-A sketch for the workflow direction (docs/38, section 10). There is no run per block: the blocks lie
-on a belt, and the carriers that are free take them. Nothing in it is agreed except what the earlier
-sections fix; map and blocks are proposals.
+A sketch for the workflow direction (docs/38, section 10). No run per block: blocks lie on a belt,
+free carriers take them, and a stage that waits is an object with a wait state. Nothing here is
+agreed except what the earlier sections fix; belt, map and blocks are proposals.
 """
 
 from pymergetic.rxf.types import uint8_t, uint32_t
-from pymergetic.rxf.templates import list
+from pymergetic.rxf.templates import belt
 
 class Record:
     """One parsed element."""
@@ -21,8 +21,5 @@ def list<Record> parse_block(list<uint8_t> block):
     return out
 
 def list<Record> parse_all(list<uint8_t> source):
-    list<list<Record>> parts = map(parse_block, blocks(source, 1000))
-    list<Record> result = list<Record>()
-    for list<Record> part in parts:
-        result.extend(part)
-    return result
+    belt<list<Record>> parts = source.blocks(1000).map(parse_block)
+    return parts.collect()
