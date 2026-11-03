@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RXF: the machinery, one pass</title>
+<style>
+:root {
+  --foreground: #1a1a1a; --muted-foreground: #666; --card: #ffffff;
+  --muted: #f2f2f2; --border: #d9d9d9; --blue: #3b82f6; --success: #16a34a;
+  background: #ffffff;
+}
+body { margin: 0; padding: 24px; background: #ffffff; font: 14px/1.5 system-ui, sans-serif; }
+.vis-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+.vis-blue { background: var(--blue); }
+.vis-success { background: var(--success); }
+.vis-chart-meta { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+.vis-chart-meta h3 { margin: 0; font-size: 15px; }
+.vis-chart-meta span { color: var(--muted-foreground); }
+.vis-legend { color: var(--muted-foreground); font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="rx-machinery">
+<style>
+#rx-machinery{font-size:13px}
+#rx-machinery .vis-chart-meta{margin-bottom:10px}
+#rx-machinery svg{width:100%;height:auto;display:block}
+#rx-machinery svg text{fill:var(--foreground)}
+#rx-machinery .muted{fill:var(--muted-foreground)}
+#rx-machinery .band rect{fill:var(--card);stroke:var(--foreground);stroke-width:1.5px}
+#rx-machinery .stage rect{fill:var(--muted);stroke:var(--foreground);stroke-width:1px}
+#rx-machinery .carrier circle{fill:var(--card);stroke:var(--foreground);stroke-width:1.5px}
+#rx-machinery .wire{stroke:var(--foreground);stroke-width:1.5px;fill:none;vector-effect:non-scaling-stroke}
+#rx-machinery .guide{stroke:var(--border);stroke-width:1px;fill:none;stroke-dasharray:4 3;vector-effect:non-scaling-stroke}
+#rx-machinery .slot{stroke:var(--muted-foreground);stroke-width:1px;fill:var(--muted);vector-effect:non-scaling-stroke}
+#rx-machinery .item{stroke:var(--foreground);stroke-width:1px;fill:var(--card);vector-effect:non-scaling-stroke}
+</style>
+
+<div class="vis-chart-meta">
+  <div class="vis-chart-meta-copy">
+    <h3>The machinery, one pass from source to serial line</h3>
+    <span>read the belt network, then how one item runs</span>
+  </div>
+  <div class="vis-legend">
+    <span class="vis-legend-item"><span class="vis-swatch vis-blue"></span>work item</span>
+    <span class="vis-legend-item"><span class="vis-swatch vis-success"></span>carrier</span>
+  </div>
+</div>
+
+<svg viewBox="0 0 736 900" role="img" aria-label="The belt network of the echo workflow above, and below it the path of one item through the carrier, a stage, the interpreter and the arena">
+  <defs>
+    <marker id="af" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--foreground)"/>
+    </marker>
+  </defs>
+
+  <text x="10" y="16" class="vis-chart-text">1 &#183; the plumbing (objects, the part a CPU never sees)</text>
+
+  <g class="band">
+    <rect x="10" y="26" width="130" height="38" rx="8"/>
+    <text x="75" y="50" text-anchor="middle" class="vis-chart-text">belt&#8202;&lt;Packet&gt;</text>
+  </g>
+  <g class="stage">
+    <rect x="208" y="24" width="140" height="42" rx="8"/>
+    <text x="278" y="44" text-anchor="middle" class="vis-chart-text">Echo.handle</text>
+    <text x="278" y="60" text-anchor="middle" class="muted vis-chart-text">pure stage</text>
+  </g>
+  <g class="stage">
+    <rect x="416" y="24" width="140" height="42" rx="8"/>
+    <text x="486" y="44" text-anchor="middle" class="vis-chart-text">Reassemble</text>
+    <text x="486" y="60" text-anchor="middle" class="muted vis-chart-text">stateful stage</text>
+  </g>
+  <g class="band">
+    <rect x="616" y="26" width="110" height="38" rx="8"/>
+    <text x="671" y="50" text-anchor="middle" class="vis-chart-text">belt&#8202;&lt;uint8_t&gt;</text>
+  </g>
+  <g class="wire" marker-end="url(#af)"><path d="M 140 45 C 170 45 178 45 204 45"/></g>
+  <g class="wire" marker-end="url(#af)"><path d="M 348 45 C 378 45 386 45 412 45"/></g>
+  <g class="wire" marker-end="url(#af)"><path d="M 556 45 C 586 45 594 45 612 45"/></g>
+  <g class="stage">
+    <rect x="208" y="106" width="140" height="42" rx="8"/>
+    <text x="278" y="126" text-anchor="middle" class="vis-chart-text">slip.send</text>
+    <text x="278" y="142" text-anchor="middle" class="muted vis-chart-text">side branch</text>
+  </g>
+  <g class="wire" marker-end="url(#af)"><path d="M 278 66 C 278 80 278 88 278 102"/></g>
+
+  <g class="carrier">
+    <circle cx="620" cy="100" r="17"/>
+    <text x="620" y="105" text-anchor="middle" class="vis-chart-text">C1</text>
+  </g>
+  <text x="648" y="97" class="muted vis-chart-text">any free carrier</text>
+  <text x="648" y="113" class="muted vis-chart-text">sets on any node</text>
+
+  <line x1="10" y1="170" x2="726" y2="170" class="guide"/>
+
+  <text x="10" y="196" class="vis-chart-text">2 &#183; one item, one carrier (what a CPU actually does)</text>
+
+  <g class="carrier">
+    <circle cx="60" cy="230" r="17"/>
+    <text x="60" y="235" text-anchor="middle" class="vis-chart-text">C2</text>
+  </g>
+  <g class="wire" marker-end="url(#af)"><path d="M 80 230 C 110 230 118 230 146 230"/></g>
+  <g>
+    <rect x="150" y="214" width="30" height="32" rx="4" class="slot"/>
+    <rect x="150" y="214" width="14" height="32" rx="4" class="item"/>
+    <text x="165" y="262" text-anchor="middle" class="muted vis-chart-text">take: one atomic add</text>
+  </g>
+  <g class="wire" marker-end="url(#af)"><path d="M 184 230 C 214 230 222 230 250 230"/></g>
+
+  <g class="stage">
+    <rect x="254" y="200" width="150" height="60" rx="8"/>
+    <text x="329" y="222" text-anchor="middle" class="vis-chart-text">call instance</text>
+    <text x="329" y="240" text-anchor="middle" class="muted vis-chart-text">fields = the variables</text>
+  </g>
+  <g class="wire" marker-end="url(#af)"><path d="M 408 230 C 438 230 446 230 474 230"/></g>
+
+  <g>
+    <rect x="478" y="200" width="150" height="60" rx="8" class="slot"/>
+    <text x="553" y="222" text-anchor="middle" class="vis-chart-text">the graph of the body</text>
+    <text x="553" y="240" text-anchor="middle" class="muted vis-chart-text">blocks &#183; ops &#183; intrinsics</text>
+  </g>
+  <g class="wire" marker-end="url(#af)"><path d="M 553 264 C 553 290 553 298 553 322"/></g>
+
+  <g>
+    <rect x="440" y="326" width="226" height="54" rx="8" class="slot"/>
+    <text x="553" y="348" text-anchor="middle" class="vis-chart-text">the arena</text>
+    <text x="553" y="366" text-anchor="middle" class="muted vis-chart-text">parent-child = context, refs = topology</text>
+  </g>
+  <g class="wire" marker-end="url(#af)"><path d="M 436 353 C 400 353 392 353 364 353"/></g>
+  <g>
+    <rect x="180" y="330" width="180" height="46" rx="8" class="slot"/>
+    <text x="270" y="358" text-anchor="middle" class="vis-chart-text">lock: the write set only</text>
+  </g>
+
+  <line x1="10" y1="410" x2="726" y2="410" class="guide"/>
+
+  <text x="10" y="436" class="vis-chart-text">3 &#183; waiting is data, not a stack (why nothing blocks a CPU)</text>
+
+  <g>
+    <rect x="30" y="456" width="200" height="88" rx="8" class="slot"/>
+    <rect x="52" y="478" width="26" height="26" rx="4" class="item"/>
+    <rect x="84" y="478" width="26" height="26" rx="4" class="item"/>
+    <rect x="116" y="478" width="26" height="26" rx="4" class="slot"/>
+    <text x="130" y="534" text-anchor="middle" class="muted vis-chart-text">belt&lt;T&gt;: bounded, ordered</text>
+  </g>
+  <g class="wire" marker-end="url(#af)"><path d="M 230 500 C 260 500 268 500 296 500"/></g>
+  <g>
+    <rect x="300" y="462" width="200" height="76" rx="8" class="slot"/>
+    <text x="400" y="488" text-anchor="middle" class="vis-chart-text">a parked call</text>
+    <text x="400" y="506" text-anchor="middle" class="muted vis-chart-text">object with a wait state</text>
+    <text x="400" y="524" text-anchor="middle" class="muted vis-chart-text">fields + where to resume</text>
+  </g>
+  <g class="wire" marker-end="url(#af)"><path d="M 500 500 C 530 500 538 500 566 500"/></g>
+  <g class="carrier">
+    <circle cx="586" cy="500" r="17"/>
+    <text x="586" y="505" text-anchor="middle" class="vis-chart-text">C3</text>
+  </g>
+  <text x="614" y="495" class="muted vis-chart-text">free again</text>
+
+  <line x1="10" y1="580" x2="726" y2="580" class="guide"/>
+
+  <text x="10" y="606" class="vis-chart-text">4 &#183; the three sources of work (what keeps the CPUs fed)</text>
+
+  <g>
+    <rect x="30" y="626" width="200" height="80" rx="8" class="slot"/>
+    <text x="130" y="650" text-anchor="middle" class="vis-chart-text">belts</text>
+    <text x="130" y="670" text-anchor="middle" class="muted vis-chart-text">producer writes,</text>
+    <text x="130" y="686" text-anchor="middle" class="muted vis-chart-text">a carrier drains</text>
+  </g>
+  <g>
+    <rect x="268" y="626" width="200" height="80" rx="8" class="slot"/>
+    <text x="368" y="650" text-anchor="middle" class="vis-chart-text">a shared cursor</text>
+    <text x="368" y="670" text-anchor="middle" class="muted vis-chart-text">over a collection that</text>
+    <text x="368" y="686" text-anchor="middle" class="muted vis-chart-text">already exists</text>
+  </g>
+  <g>
+    <rect x="506" y="626" width="200" height="80" rx="8" class="slot"/>
+    <text x="606" y="650" text-anchor="middle" class="vis-chart-text">parked calls</text>
+    <text x="606" y="670" text-anchor="middle" class="muted vis-chart-text">woken when what they</text>
+    <text x="606" y="686" text-anchor="middle" class="muted vis-chart-text">wait for arrives</text>
+  </g>
+  <g class="wire" marker-end="url(#af)"><path d="M 368 706 C 368 740 250 740 180 740"/></g>
+  <g class="wire" marker-end="url(#af)"><path d="M 606 706 C 606 740 480 740 420 740"/></g>
+  <g class="wire" marker-end="url(#af)"><path d="M 130 706 C 130 720 130 730 130 748"/></g>
+
+  <g>
+    <rect x="130" y="752" width="290" height="56" rx="8" class="slot"/>
+    <text x="275" y="776" text-anchor="middle" class="vis-chart-text">the machine's ready ring</text>
+    <text x="275" y="794" text-anchor="middle" class="muted vis-chart-text">one belt, the machine's own</text>
+  </g>
+  <g class="wire" marker-end="url(#af)"><path d="M 424 780 C 460 780 468 780 496 780"/></g>
+  <g class="carrier">
+    <circle cx="516" cy="780" r="17"/>
+    <text x="516" y="785" text-anchor="middle" class="vis-chart-text">C*</text>
+  </g>
+  <text x="544" y="776" class="muted vis-chart-text">the CPUs take from here;</text>
+  <text x="544" y="792" class="muted vis-chart-text">nothing else moves work</text>
+
+  <text x="10" y="850" class="muted vis-chart-text">Design consequence: a CPU is fed by belts, a waiting call is data, and the only</text>
+  <text x="10" y="868" class="muted vis-chart-text">hierarchy is the object tree. Runs exist only as names for human intent.</text>
+</svg>
+</div>
+
+</body>
+</html>

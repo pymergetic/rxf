@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RXF: stages, belts and carriers</title>
+<style>
+:root {
+  --foreground: #1a1a1a; --muted-foreground: #666; --card: #ffffff;
+  --muted: #f2f2f2; --border: #d9d9d9; --blue: #3b82f6; --success: #16a34a;
+  background: #ffffff;
+}
+body { margin: 0; padding: 24px; background: #ffffff; font: 14px/1.5 system-ui, sans-serif; }
+.vis-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+.vis-blue { background: var(--blue); }
+.vis-success { background: var(--success); }
+.vis-chart-meta { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+.vis-chart-meta h3 { margin: 0; font-size: 15px; }
+.vis-chart-meta span { color: var(--muted-foreground); }
+.vis-legend { color: var(--muted-foreground); font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="rx-belt-network">
+<style>
+#rx-belt-network{font-size:13px}
+#rx-belt-network .vis-chart-meta{margin-bottom:10px}
+#rx-belt-network svg{width:100%;height:auto;display:block}
+#rx-belt-network svg text{fill:var(--foreground)}
+#rx-belt-network .muted{fill:var(--muted-foreground)}
+#rx-belt-network .node-belt rect{fill:var(--card);stroke:var(--foreground);stroke-width:1.5px}
+#rx-belt-network .node-stage rect{fill:var(--muted);stroke:var(--foreground);stroke-width:1px}
+#rx-belt-network .carrier circle{fill:var(--card);stroke:var(--foreground);stroke-width:1.5px}
+#rx-belt-network .wire{stroke:var(--foreground);stroke-width:1.5px;fill:none;vector-effect:non-scaling-stroke}
+#rx-belt-network .guide{stroke:var(--border);stroke-width:1px;fill:none;stroke-dasharray:4 3;vector-effect:non-scaling-stroke}
+#rx-belt-network .slot{stroke:var(--muted-foreground);stroke-width:1px;fill:var(--muted);vector-effect:non-scaling-stroke}
+#rx-belt-network .item{stroke:var(--foreground);stroke-width:1px;fill:var(--card);vector-effect:non-scaling-stroke}
+#rx-belt-network .cur{stroke:var(--foreground);stroke-width:2px;vector-effect:non-scaling-stroke}
+#rx-belt-network .legend{font-size:12px}
+</style>
+
+<div class="vis-chart-meta">
+  <div class="vis-chart-meta-copy">
+    <h3>Stages, belts and carriers</h3>
+    <span>nodes between the pipes, CPUs set onto them</span>
+  </div>
+  <div class="vis-legend">
+    <span class="vis-legend-item"><span class="vis-swatch vis-blue"></span>work item</span>
+    <span class="vis-legend-item"><span class="vis-swatch vis-success"></span>carrier</span>
+  </div>
+</div>
+
+<svg viewBox="0 0 736 470" role="img" aria-label="A network of stage nodes connected by belts; free carriers sit on the stages and take items from the belts">
+  <defs>
+    <marker id="bf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--foreground)"/>
+    </marker>
+  </defs>
+
+  <text x="10" y="18" class="muted vis-chart-text">source (a million bytes)</text>
+  <g class="node-belt">
+    <rect x="10" y="28" width="150" height="40" rx="8"/>
+    <text x="85" y="52" text-anchor="middle" class="vis-chart-text">belt&#8202;&lt;block&gt;</text>
+  </g>
+  <g class="wire" marker-end="url(#bf)"><path d="M 160 48 C 210 48 210 118 258 118"/></g>
+  <text x="196" y="70" class="muted vis-chart-text" text-anchor="middle">cursor ++</text>
+
+  <g>
+    <rect x="120" y="86" width="26" height="26" rx="4" class="slot"/>
+    <rect x="120" y="86" width="12" height="12" rx="3" class="item"/>
+    <rect x="152" y="86" width="26" height="26" rx="4" class="slot"/>
+    <rect x="184" y="86" width="26" height="26" rx="4" class="slot"/>
+    <text x="164" y="128" class="muted vis-chart-text" text-anchor="middle">1000-blocks</text>
+  </g>
+
+  <g class="node-stage">
+    <rect x="258" y="92" width="132" height="52" rx="8"/>
+    <text x="324" y="114" text-anchor="middle" class="vis-chart-text">stage: parse_block</text>
+    <text x="324" y="132" text-anchor="middle" class="muted vis-chart-text">one item in, one out</text>
+  </g>
+  <g class="carrier">
+    <circle cx="324" cy="168" r="16"/>
+    <text x="324" y="173" text-anchor="middle" class="vis-chart-text">C1</text>
+  </g>
+  <text x="352" y="172" class="muted vis-chart-text">sets onto the node</text>
+
+  <g class="wire" marker-end="url(#bf)"><path d="M 390 118 C 440 118 440 88 488 88"/></g>
+  <g class="node-stage">
+    <rect x="488" y="62" width="130" height="52" rx="8"/>
+    <text x="553" y="84" text-anchor="middle" class="vis-chart-text">stage: validate</text>
+    <text x="553" y="102" text-anchor="middle" class="muted vis-chart-text">same node, own belt</text>
+  </g>
+  <g class="wire" marker-end="url(#bf)"><path d="M 390 132 C 440 132 440 190 488 190"/></g>
+  <g class="node-stage">
+    <rect x="488" y="164" width="130" height="52" rx="8"/>
+    <text x="553" y="186" text-anchor="middle" class="vis-chart-text">stage: hash</text>
+    <text x="553" y="204" text-anchor="middle" class="muted vis-chart-text">side branch</text>
+  </g>
+
+  <g class="carrier">
+    <circle cx="553" cy="240" r="16"/>
+    <text x="553" y="245" text-anchor="middle" class="vis-chart-text">C2</text>
+  </g>
+  <text x="581" y="244" class="muted vis-chart-text">free, takes any node</text>
+
+  <g class="node-belt">
+    <rect x="640" y="120" width="86" height="40" rx="8"/>
+    <text x="683" y="144" text-anchor="middle" class="vis-chart-text">belt</text>
+  </g>
+  <g class="wire" marker-end="url(#bf)"><path d="M 618 88 C 640 88 660 120 668 120"/></g>
+
+  <g>
+    <rect x="258" y="300" width="150" height="34" rx="6" class="slot"/>
+    <rect x="258" y="300" width="26" height="34" rx="4" class="item"/>
+    <rect x="290" y="300" width="26" height="34" rx="4" class="item"/>
+    <rect x="322" y="300" width="26" height="34" rx="4" class="item"/>
+    <text x="333" y="352" text-anchor="middle" class="muted vis-chart-text">result slots, by block index</text>
+    <line x1="348" y1="292" x2="348" y2="336" class="cur"/>
+    <text x="356" y="290" class="muted vis-chart-text">cursor</text>
+  </g>
+
+  <g class="wire" marker-end="url(#bf)"><path d="M 324 220 C 324 250 324 270 324 296"/></g>
+
+  <g class="carrier">
+    <circle cx="130" cy="240" r="16"/>
+    <text x="130" y="245" text-anchor="middle" class="vis-chart-text">C3</text>
+  </g>
+  <text x="158" y="238" class="muted vis-chart-text">parks when no belt</text>
+  <text x="158" y="254" class="muted vis-chart-text">has an item</text>
+
+  <line x1="30" y1="392" x2="706" y2="392" class="guide"/>
+  <text x="30" y="414" class="muted vis-chart-text">one CPU core = one carrier. It runs any stage;</text>
+  <text x="30" y="432" class="muted vis-chart-text">the plumbing (which belt feeds which node) decides the throughput.</text>
+  <text x="30" y="456" class="vis-chart-text">Nodes between the pipes: yes - every stage is an object, a CPU sets onto it for one item.</text>
+</svg>
+</div>
+
+</body>
+</html>
