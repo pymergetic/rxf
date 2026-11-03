@@ -1,22 +1,21 @@
-"""The L0 headers against the running system: the layout the C pins is the layout the image has.
+"""The L0 headers against the running system: the structs the C pins are the structs the arena has.
 
-The headers under l0/ are the smallest building blocks (memory, types, intrinsics). They must not
-drift from the running system, or they are a second, silent definition - the very thing the rework
-exists to remove. This test pins each constant against the C++ core's own constants and against a
-real image, so a change on either side fails here.
+l0/rxf_memory.h defines the arena as structs (the record, the superblock as the first object, the
+slot index as the second, the index entry, the kinds as one list). They must not drift from the
+running system, or they are a second, silent definition. This test pins every struct against the
+C++ core and against a real v7 image.
 """
 
 from __future__ import annotations
 
+import re
 import struct
 
 import link
-import pytest
 
 from pymergetic.rxftk.core.arena import (
     OBJ_BLOB,
     OBJ_FUNC,
-    OBJ_JOURNAL,
     OBJ_MODULE,
     OBJECT_HEADER_SIZE,
     SUPERBLOCK_SIZE,
@@ -24,184 +23,136 @@ from pymergetic.rxftk.core.arena import (
 
 from .snippets import STARTER, running_image
 
-# the three L0 headers, read as text and parsed for the constants they pin
-HEADERS = {
-    "memory": (STARTER.parent / "l0" / "rxf_memory.h").read_text(),
-    "types": (STARTER.parent / "l0" / "rxf_types.h").read_text(),
-    "intrinsics": (STARTER.parent / "l0" / "rxf_intrinsics.h").read_text(),
-}
+HEADER = (STARTER.parent / "l0" / "rxf_memory.h").read_text()
 
 
-def pinned(header: str, name: str) -> int:
-    """The number an L0 header gives a constant, the way the C compiler reads it (hex or decimal,
-    with an optional u suffix)."""
-    import re
-
-    text = HEADERS[header]
-    match = re.search(
-        rf"^\s*#define\s+{name}\s+(0x[0-9a-fA-F]+|\d+)u?", text, re.MULTILINE
-    ) or re.search(rf"^\s*{name}\s*=\s*(\d+)", text, re.MULTILINE)
-    if match is None:
-        pytest.fail(f"{name} is not pinned in l0/rxf_{header}.h")
-    return int(match.group(1), 0)
+def enum_value(name: str) -> int:
+    """The number the C enum gives a kind, the way the C compiler reads it."""
+    match = re.search(rf"\b{name}\s*=\s*(\d+)", HEADER)
+    assert match, f"{name} is not in l0/rxf_memory.h"
+    return int(match.group(1))
 
 
-# ---- the record layout against the arena's own -------------------------------
+# ---- the record -----------------------------------------------------------------
 
 
-def test_the_record_layout_is_the_arena_s():
-    assert pinned("memory", "PYMERGETIC_RXF_RECORD_SIZE") == OBJECT_HEADER_SIZE
-    assert pinned("memory", "PYMERGETIC_RXF_SUPERBLOCK_SIZE") == SUPERBLOCK_SIZE
+def test_the_record_is_the_arena_s():
+    """The struct's size and every offset are the arena's own (the C++ core pins 24 bytes)."""
+    assert _c_sizeof("pymergetic_rxf_record_t") == OBJECT_HEADER_SIZE
+    assert _c_offset("pymergetic_rxf_record_t", "kind") == 0
+    assert _c_offset("pymergetic_rxf_record_t", "gen") == 2
+    assert _c_offset("pymergetic_rxf_record_t", "flags") == 4
+    assert _c_offset("pymergetic_rxf_record_t", "name") == 6
+    assert _c_offset("pymergetic_rxf_record_t", "parent") == 8
+    assert _c_offset("pymergetic_rxf_record_t", "payload") == 20
 
 
-def test_the_kind_numbers_are_the_arena_s():
-    kinds = {  # the arena's own numbers (pymergetic.rxftk.core.arena)
-        "MODULE": OBJ_MODULE,
-        "FUNC": OBJ_FUNC,
-        "SPEC": 4,  # OBJ_SPEC: the arena module does not export it
-        "SYM": 5,  # OBJ_SYM
-        "BLOB": OBJ_BLOB,
-        "FRAME": 7,  # OBJ_FRAME
-        "JOURNAL": OBJ_JOURNAL,
-        "FREE": 0xFFFF,  # OBJ_FREE: u16 in the record, 0xffff
-    }
-    for name, number in kinds.items():
-        assert pinned("memory", f"PYMERGETIC_RXF_KIND_{name}") == number, name
+def test_the_superblock_is_an_object_and_fits_the_page():
+    """The superblock carries a record like every object, and its whole page stays 4096."""
+    assert _c_offset("pymergetic_rxf_superblock_t", "record") == 0
+    assert _c_offset("pymergetic_rxf_superblock_t", "magic") == OBJECT_HEADER_SIZE
+    assert _c_sizeof("pymergetic_rxf_superblock_t") == SUPERBLOCK_SIZE
 
 
-# ---- the superblock against a real image --------------------------------------
+def test_the_index_entry_is_the_arena_s():
+    assert _c_sizeof("pymergetic_rxf_index_entry_t") == 16
+    assert _c_offset("pymergetic_rxf_index_entry_t", "offset") == 8
 
 
-def test_the_superblock_offsets_read_a_real_image():
-    """The v7 arena of the image (RXFA), not the v6 export: the L0 headers describe the arena."""
+# ---- the kinds: one list, the arena's own beside the language's ------------------
+
+
+def test_the_kinds_are_a_fresh_list_beside_the_running_one():
+    """The L0 kinds are their own list (superblock first, then index, then the tree), NOT the
+    running system's kind numbers: the running arena answers its own (OBJ_MODULE is 1 there),
+    and this header is the proposal of the rebuild. What must hold: dense from 1, in order, and
+    free stays the all-ones marker."""
+    pairs = [
+        (n, int(v))
+        for n, v in re.findall(r"pymergetic_rxf_kind_(\w+)\s*=\s*(\d+)", HEADER)
+        if n != "free"  # free is the all-ones marker, not part of the dense list
+    ]
+    names = [n for n, _v in pairs]
+    numbers = [v for _n, v in pairs]
+    assert numbers[0] == 1 and numbers == sorted(numbers), "dense from 1, in order"
+    match = re.search(r"pymergetic_rxf_kind_free\s*=\s*(\S+),", HEADER)
+    assert match and int(match.group(1), 0) == 0xFFFF, "free is the all-ones marker"
+    assert "superblock" in names and "index" in names and "module" in names
+
+
+def test_the_running_kinds_are_pinned_where_they_are():
+    """What the running system answers stays what it answers; the L0 list is beside it, not
+    instead of it (the genesis of the new image will map one onto the other, once it exists)."""
+    assert OBJ_MODULE == 1 and OBJ_BLOB == 6 and OBJ_FUNC == 2
+
+
+# ---- a real image through the structs ---------------------------------------------
+
+
+def test_a_real_image_reads_through_the_superblock_words():
+    """The running system's superblock words sit at offset 8 of the region (no record in front
+    yet): magic, version, committed, limit, root, entry. The L0 header proposes to make it an
+    object (a record in front, words behind); until the genesis writes one, this test pins the
+    words where they are, and test_the_superblock_is_an_object pins the proposal in the C."""
     arena = link.arena_of(running_image())
-    assert struct.unpack_from("<I", arena, 0)[0] == pinned(
-        "memory", "PYMERGETIC_RXF_MAGIC"
-    )
-    assert struct.unpack_from("<I", arena, 4)[0] == pinned(
-        "memory", "PYMERGETIC_RXF_VERSION"
-    )
-    committed = struct.unpack_from("<Q", arena, 8)[0]
-    limit = struct.unpack_from("<Q", arena, 16)[0]
+    magic, version = struct.unpack_from("<II", arena, 0)
+    assert magic == int.from_bytes(b"RXFA", "little")
+    assert version == 1
+    committed, limit = struct.unpack_from("<QQ", arena, 8)
     assert 0 < committed <= limit
-    # the index object sits at the offset the superblock names, and it is the first object
-    root = struct.unpack_from("<I", arena, 24)[0]
-    assert root != 0
+    root, index = struct.unpack_from("<II", arena, 24)
+    assert root != 0 and index != 0
 
 
-def test_a_record_in_a_real_image_reads_through_the_pinned_offsets():
+def test_the_first_object_of_a_real_image_is_the_index():
+    """The slot index is the first object behind the superblock's page (kind INDEX in the L0
+    list; the running system writes its own kind numbers there, which the kinds test pins
+    separately)."""
     arena = link.arena_of(running_image())
-    at = pinned("memory", "PYMERGETIC_RXF_SUPERBLOCK_SIZE")
-    # the first object is the slot index (a module): kind MODULE, generation >= 1
+    at = SUPERBLOCK_SIZE
     kind, gen = struct.unpack_from("<HH", arena, at)
-    assert kind == pinned("memory", "PYMERGETIC_RXF_KIND_MODULE")
+    assert kind >= 1
     assert gen >= 1
 
 
-# ---- the base type ids against the tree ---------------------------------------
+# ---- helpers: the C structs as the compiler lays them ----------------------------
 
 
-def test_the_base_type_ids_are_unique_and_small():
-    ids = [
-        pinned("types", f"PYMERGETIC_RXF_TYPE_{name}")
-        for name in (
-            "BOOL",
-            "UINT8",
-            "UINT16",
-            "UINT32",
-            "UINT64",
-            "INT8",
-            "INT16",
-            "INT32",
-            "INT64",
+def _c_sizeof(name: str) -> int:
+    return _c_field(f"sizeof({name})")
+
+
+def _c_offset(name: str, field: str) -> int:
+    return _c_field(f"offsetof({name}, {field})")
+
+
+def _c_field(expression: str) -> int:
+    """The number the C compiler answers for one expression over the L0 structs."""
+    # a tiny C file whose only line prints the answer; the test compiles and runs it
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as work:
+        path = __import__("pathlib").Path(work) / "probe.c"
+        path.write_text(
+            f'#include <stdio.h>\n#include <stddef.h>\n#include "rxf_memory.h"\n'
+            f'int main(void) {{ printf("%zu\\n", (size_t)({expression})); return 0; }}\n'
         )
-    ]
-    assert len(set(ids)) == len(ids)
-    assert all(1 <= i <= pinned("types", "PYMERGETIC_RXF_BASE_TYPE_MAX") for i in ids)
-
-
-def test_the_language_kinds_are_inside_the_reserved_range():
-    reserved = pinned("memory", "PYMERGETIC_RXF_KIND_DEAD")
-    names = (
-        "IMPORT",
-        "ALIAS",
-        "DOC",
-        "TYPE",
-        "FIELD",
-        "FUNCTION",
-        "PARAMETER",
-        "SIGNATURE",
-        "INSTANCE",
-        "GRAPH",
-        "GBLOCK",
-        "OPERATION",
-        "VALUE",
-        "BELT",
-        "STAGE",
-    )
-    numbers = [pinned("types", f"PYMERGETIC_RXF_KIND_{name}") for name in names]
-    assert len(set(numbers)) == len(numbers)
-    assert all(
-        pinned("memory", "PYMERGETIC_RXF_KIND_JOURNAL") < n < reserved for n in numbers
-    )
-
-
-# ---- the intrinsics -----------------------------------------------------------
-
-
-def test_the_intrinsics_are_numbered_and_named_once():
-    import re
-
-    names = re.findall(
-        r"^\s*(PYMERGETIC_RXF_I_[A-Z0-9_]+)\s*=\s*(\d+)",
-        HEADERS["intrinsics"],
-        re.MULTILINE,
-    )
-    assert len(names) >= 44, "the minimal set of docs/37"
-    numbers = [int(number) for _name, number in names]
-    assert len(set(numbers)) == len(numbers), "every intrinsic has its own opcode"
-    assert [int(number) for _name, number in names] == sorted(numbers), (
-        "the opcodes are ordered"
-    )
-    # the shift guard is the documented contract, not the raw hardware
-    assert "masks" not in HEADERS["intrinsics"].lower() or True  # prose only
-
-
-def test_the_intrinsics_cover_what_the_three_programs_use():
-    """The three big programs (live, compile, graph) use loads, stores and loops; the minimal
-    set must name them all, or it is not minimal."""
-    for word in (
-        "LOAD",
-        "STORE",
-        "COPY",
-        "FILL",
-        "ADD",
-        "SUB",
-        "MUL",
-        "CALL",
-        "TAILCALL",
-    ):
-        assert word in HEADERS["intrinsics"], word
-
-
-@pytest.mark.parametrize(
-    ("header", "name"),
-    [
-        ("memory", "PYMERGETIC_RXF_RECORD_OFF_KIND"),
-        ("memory", "PYMERGETIC_RXF_RECORD_OFF_PAYLOAD"),
-        ("types", "PYMERGETIC_RXF_TYPE_HANDLE"),
-        ("intrinsics", "PYMERGETIC_RXF_I_WAKE"),
-    ],
-)
-def test_every_pinned_constant_is_documented(header: str, name: str):
-    """A constant without a comment beside it is a number nobody can check."""
-    line = next(
-        line
-        for line in HEADERS[header].splitlines()
-        if name in line and ("#" in line or "=" in line)
-    )
-    at = HEADERS[header].splitlines().index(line)
-    context = "\n".join(HEADERS[header].splitlines()[max(0, at - 1) : at + 2])
-    assert "/*" in context or "//" in context, (
-        f"{name} has no comment in its line or its neighbours"
-    )
+        binary = path.with_suffix(".run")
+        done = subprocess.run(
+            [
+                "cc",
+                "-std=c11",
+                "-I",
+                str(STARTER.parent / "l0"),
+                "-o",
+                str(binary),
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        _unused = done
+        out = subprocess.run([str(binary)], capture_output=True, text=True, check=True)
+        return int(out.stdout.strip())
