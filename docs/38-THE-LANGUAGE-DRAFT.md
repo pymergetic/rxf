@@ -51,29 +51,39 @@ A nested definition is a **node, not a closure**: it may use the names of the no
 functions, class and module variables), but it does not capture the local variables of the activation
 around it. What it needs from there it is given as an argument.
 
-## 5. Variables
+## 5. Objects, variables and lifetime
 
-A variable is a slot **allocated by its parent**: a member by the object, a module variable by the
-module, a class variable (`static`) by the class, a global by the root node, a local by the activation
-of the function that declares it. There is no global as a separate concept: a global is a variable on
-the root node.
+**Everything is an object, numbers included.** A number is an immutable object; its identity cannot
+be seen, so a typed slot (`uint32_t`) may hold it inline without an id. Whether it is stored inline
+or as a cell is a matter of representation, not of the language.
 
-Where the storage physically lies is one of three places: the **run's frames** (locals), the
-**global** part of the tree (variables of the root and of modules), or the **heap** (what a holding
-parent keeps). A parameter may always be passed on from parent to parent; the object stays where its
-parent put it.
+**A variable is a reference.** A module variable, a class variable, a member, a parameter and a local
+are all slots that hold a reference to an object (an object id), as in Python. Assignment copies the
+reference, never the object. A global is a variable on the root node.
 
-The first parent is the **run** (what threads and async became, [20](20-EXECUTION-POLICY.md)). A run
-owns its cell, and the activations of its calls are frames cut from that cell, the caller cutting the
-frame of the callee (at most 16 open, together within the cell budget, 32768 bytes as shipped).
+**There is no function stack.** The **run** (what threads and async became,
+[20](20-EXECUTION-POLICY.md)) is the origin of all memory. The memory for the variables of a call is
+allocated by the **caller**, from the run, and everything a run creates lives in the run. Because
+nothing belongs to a function, `return p` passes the reference and nothing is moved or copied.
 
 ```
 runs.7                 a Run
-  main                 the activation of the first function: its variables are slots
+  main                 the first call; the variables the caller allocated for it
     p                  a Packet
-    make               the activation of a call, cut by its caller
-      p                the Packet that make builds
+    make               a call; the variables main allocated for it
+      p                the Packet that make builds (still alive after make returns, if referenced)
 ```
+
+**Lifetime is by reference count.** An object lives while something refers to it; the last release
+frees it. Definitions (modules, classes, functions) are nodes of the tree and live as long as the tree.
+
+**A reference to a dead object is a refusal, not undefined behaviour.** The id carries a generation
+that no longer matches (`Dangling`). This is checked at run time. When an image is edited (a delta is
+applied), the image already refuses a change that would leave a reference to an object that is gone,
+so the same rule holds at the moment objects are created.
+
+**`copy(p)`** makes a new object and returns a reference to it. The new object has a weak link to
+the object it was copied from (at the root of the copy only), visible as long as the original exists.
 
 ## 6. Names
 
@@ -118,28 +128,22 @@ own; the same arguments are the same object.
 The type comes first everywhere (`uint32_t sum = 0`, `def uint16_t checksum(Packet self)`); blocks are
 formed by indentation.
 
-## 10. Open (the owner's rule "variables are references" raised these)
+## 10. Open
 
-The owner decided that variables are **references** (object ids), as in Python, and that `copy()`
-returns a reference that carries a **link to the reference it was copied from**, visible as long as
-the original exists. There is no `ref` marker and no pointer-like behaviour. What follows from that is
-not yet fixed:
+These follow from "variables are references and the reference count ends a life":
 
-1. **Ownership against reference.** Every object has one parent, which owns it, and lives as long as
-   that parent. A variable only refers. Using a reference to an object whose parent is gone is a
-   refusal (the handle's generation no longer matches), not undefined behaviour. Open: is that
-   run-time refusal enough, or must the language reject at definition time a store that outlives the
-   object?
-2. **What `return p` does** with an object that lives in the frame of the callee. Proposed: the object
-   is **moved to the caller's frame** (its parent changes, its id stays valid), so nothing is copied.
-3. **What storing into a holder does** (`self.last = p`, `self.kept.append(p)`): store only the
-   reference, adopt the object (it becomes a child of the holder), or copy it. Proposed: a container
-   that owns its elements adopts them; assigning a member stores the reference.
-4. **Scalars.** Whether `uint32_t` values are copied by value (proposed) while instances of classes
-   are objects that are referred to.
-5. **What `copy()` copies.** The object and the children it owns (proposed), with every reference it
-   holds copied as a reference; and the link to the origin is weak (it dangles when the origin goes).
-6. **The grouping** of the base and generic types under `pymergetic.rxf`.
-7. Not yet discussed: operators and literals, control flow, error handling, enums and constants,
+1. **Cycles.** A reference count does not free objects that refer to each other. Options: accept the
+   leak, a `weak` marker for the back reference, or let the compaction pass reclaim what no root
+   reaches.
+2. **What `copy()` copies.** Without ownership in the tree there is no "owned subtree" to clone, so the
+   choice is the one of Python: **shallow** (a new object whose slots refer to the same objects as the
+   original) or **deep** (the objects it reaches as well). A shallow `copy` plus an explicit deep one
+   is proposed.
+3. **The reference count between runs.** Runs share objects; the count must be changed atomically.
+4. **What the 32768-byte run cell and 16 open calls (the machine's call budget) mean** when a call's
+   variables are allocated from the run. The numbers belong to the interpreter's own call links today.
+5. **The grouping of the base and generic types.** The sample uses `pymergetic.rxf.types` and
+   `pymergetic.rxf.templates` (agreed).
+6. Not yet discussed: operators and literals, control flow, error handling, enums and constants,
    strings and arrays, how a run is started, the intrinsics and the interpreter
    ([37](37-THE-GRAPH-AND-ITS-ONE-LANGUAGE.md)).
