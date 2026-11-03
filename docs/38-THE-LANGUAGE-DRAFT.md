@@ -114,7 +114,7 @@ open).
 - The base types keep their C names: `uint8_t`, `uint16_t`, `uint32_t`, `uint64_t`, `int8_t`, ... They
   are grouped under `pymergetic.rxf`; the sample uses `pymergetic.rxf.types` for them and
   `pymergetic.rxf.templates` for the generic ones (`Option`, `list`, `fn`). The grouping is a proposal
-  (section 10).
+  (section 11).
 - **Lookup of an unqualified name** goes from the inside out: the activation, then the members of each
   enclosing node outwards, then the module, then the root. A local of an enclosing function is not
   found (section 4). A path is always unambiguous (`pymergetic.rxf.types.uint32_t`).
@@ -177,7 +177,34 @@ own; the same arguments are the same object.
 The type comes first everywhere (`uint32_t sum = 0`, `def uint16_t checksum(Packet self)`); blocks are
 formed by indentation.
 
-## 10. Open
+## 10. Direction: workflows first
+
+The owner's example: a run has to parse a million elements. The caller fills a block of 1000, the
+blocks are worked off in parallel, and at the end the results are put together again. In this design
+that falls out of what is already fixed: a block is an object, a run is an object that is started with
+`run.spawn`, a result is a reference, nothing is shared that is not written, and the count of
+references frees a block when its run is done. The sketch is
+[`samples/parse_blocks.rx`](samples/parse_blocks.rx).
+
+The direction is to **design from the workflow down** and to keep the primitives to what a workflow
+needs: control flow, operators, calls, `run.spawn` and a way to wait for a result. The recursion
+clause of section 7 and its flattening are an optimisation that comes afterwards; a workflow replaces
+most of what recursion is used for.
+
+Two shapes are meant, and the first is the example: **fork and join** over blocks (results are joined
+in block order), and a **pipeline** with a bounded queue between its stages (the machine has the
+ready ring for it).
+
+Points the sketch already shows:
+
+- **A block is the grain.** A run per element is too heavy; a run per block of 1000 is not.
+- **Each block returns its own result** and the caller merges them; nothing is written by two runs, so
+  the lock rules (section 11, item 1) hardly come into play.
+- **A failing block** is a refusal that reaches the caller at the join; what happens to the other runs
+  (cancel or finish) is open.
+- **A run has a quota** (section 5); a block run is started with a part of the caller's.
+
+## 11. Open
 
 1. **Locks, derived.** The owner wants locks derived automatically, by simple rules, without a large
    cost. Proposed rules:
