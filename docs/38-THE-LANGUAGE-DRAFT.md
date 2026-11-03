@@ -73,6 +73,10 @@ its reference count like any other object, and the result lives on if the caller
 The run has a **quota** of memory; a call that cannot be allocated within it is refused with
 `OutOfMemory`.
 
+A program can name runs where it must cross their boundary: `run.current` is the run it is in and
+`run.spawn(f, args)` starts another run that executes `f(args)` and returns a reference to it. The
+names are a proposal; the need is agreed.
+
 ```
 runs.7                 a Run
   main                 the first call; the variables the caller allocated for it
@@ -134,6 +138,35 @@ refers to it.
 `self` is written out, as in Python, and it is typed like every other parameter: `def swap(Packet
 self, ...)`. In the object world it is a **Parameter** of the function.
 
+### Recursion
+
+A function **carries what is known about its own recursion**, as data of its object:
+
+- **Derived** from the graph, which names the callee of every call: whether the function is
+  recursive, **directly** or **indirectly** (through others), and whether its recursive calls are in
+  **tail position**.
+- **Declared** by the program: whether recursion is allowed at all, and to what **depth**.
+
+Recursion is an **error unless declared**. A function that is derived to be recursive and is not
+declared so is refused when it is defined (also when an image is edited).
+
+The declaration is what lets the machine choose how a call is stored, instead of one instance per call
+always:
+
+| Declared / derived | What a call costs |
+|---|---|
+| not recursive | **one instance per function and run, reused**: a call allocates nothing |
+| tail recursion | the call **reuses its own instance**: the parameters are overwritten and the function jumps; nothing grows |
+| recursion to depth N | **one allocation** of N instances, taken from the run once |
+| unbounded | one instance per call from the run; the quota ends it (`OutOfMemory`) |
+
+A recursion that exceeds its declared depth is refused. Whether the recursion of a function that is
+not a tail call can be **flattened** as well (for instance when what is combined is associative, so
+that an accumulator replaces the pending work) is not decided; tail calls are the certain case.
+
+Proposed spelling, a clause after the signature: `recursion none`, `recursion tail`,
+`recursion 64`, `recursion unbounded`.
+
 ## 8. Generics
 
 `<>` is the one form: `Option<Packet>`, `fn<uint16_t(Packet)>`. An instantiation is an object of its
@@ -146,23 +179,22 @@ formed by indentation.
 
 ## 10. Open
 
-1. **Locks, and what they cover.** The owner's rule: a lock is **dynamic and smart**. It is not about
-   relations between locks, it is about **what an action on a variable affects**. An operation on a
-   child that cannot matter to its parent does not lock the parent. So the set of objects a lock
-   covers is the **footprint of the action**, not a path in the tree. Proposed reading:
-   - the footprint of an action is the objects it writes plus the objects whose **derived** data
-     depends on what it writes; the graph already says what an operation touches (a store names its
-     target object and field);
-   - the parent is in the footprint only when the action is **structural** (adding, removing or
-     replacing a child) or when the parent declares data that depends on the child;
-   - locks are taken in one fixed order (by object id) and held for the action, which excludes
-     deadlock without looking at the tree;
-   - reads do not lock (the id carries a generation).
-   Open: whether dependencies are **declared** by the program or **derived** from the graph, whether a
-   lock covers an object or a single field, and how it interacts with the atomic reference count.
-   Locks do not replace `weak`: they coordinate access, they do not free cycles.
-2. **How a program names the active run** (to start another run, to ask which run it is in), and
-   whether the depth of calls is limited separately (recursion) or only by the run's quota.
+1. **Locks, derived.** The owner wants locks derived automatically, by simple rules, without a large
+   cost. Proposed rules:
+   - an action locks **the objects it writes**, nothing else; reads do not lock (the id carries a
+     generation, a read that meets a changed one is repeated);
+   - **the parent comes in without a rule of its own**: adding, removing or replacing a child writes
+     the parent's list of children, so the parent is in the write set; a plain write to a child does
+     not write the parent, so the parent stays free;
+   - an invariant that spans a parent and a child is kept by an action that **writes both**, so both are
+     locked; there is no separate dependency declaration;
+   - locks are taken as the action reaches them. If one would break the order by object id, it is only
+     *tried*; when that fails, the action releases what it holds and starts again. Nothing waits in a
+     cycle, so there is no deadlock.
+   Open: what an **action** is. Proposed: a single store is atomic by itself, and a block
+   (`with atomic:`) makes several stores one action.
+2. **The syntax and the default of the recursion clause**, and whether non-tail recursion may be
+   flattened.
 3. **The name of the deep copy.**
 4. Not yet discussed: operators and literals, control flow, error handling, enums and constants,
    strings and arrays, the intrinsics and the interpreter
