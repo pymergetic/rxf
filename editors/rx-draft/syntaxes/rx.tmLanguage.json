@@ -72,7 +72,7 @@
         },
         {
           "name": "storage.modifier.rx",
-          "match": "\\b(const|static)\\b"
+          "match": "\\b(const|static|weak)\\b"
         },
         {
           "name": "storage.type.function.rx",

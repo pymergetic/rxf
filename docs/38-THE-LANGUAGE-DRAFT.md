@@ -40,8 +40,8 @@ compile time.
 In the object world a class or struct is a **Type** object; every variable is a **Field** under it
 and every function is a **Function** under it.
 
-The markers are a **closed set of two**: `const` (read only) and `static` (bound to the class, not to
-each instance).
+The markers are a **closed set of three**: `const` (read only), `static` (bound to the class, not to
+each instance) and `weak` (a reference that does not keep its object alive, section 5).
 
 **Nesting.** Everything is a node, so everything may be nested: a class in a class, a function in a
 function, a class in a function, a function in a class. A nested definition is a child node of the one
@@ -61,10 +61,17 @@ or as a cell is a matter of representation, not of the language.
 are all slots that hold a reference to an object (an object id), as in Python. Assignment copies the
 reference, never the object. A global is a variable on the root node.
 
-**There is no function stack.** The **run** (what threads and async became,
-[20](20-EXECUTION-POLICY.md)) is the origin of all memory. The memory for the variables of a call is
-allocated by the **caller**, from the run, and everything a run creates lives in the run. Because
-nothing belongs to a function, `return p` passes the reference and nothing is moved or copied.
+**There is no function stack, and a call is an instance.** A function is an object like any other
+(section 7), and calling it creates an **instance** of it, exactly as calling a class does. The
+variables the body declares, its parameters and its result are the **fields** of that instance. The
+instance is allocated by the **caller** and assigned to the **active run**, which is itself only an
+object id. The **run** (what threads and async became, [20](20-EXECUTION-POLICY.md)) is the origin of
+all memory, and everything a run creates lives in the run. Because nothing belongs to a function,
+`return p` passes the reference and nothing is moved or copied; the instance of the call is freed by
+its reference count like any other object, and the result lives on if the caller holds it.
+
+The run has a **quota** of memory; a call that cannot be allocated within it is refused with
+`OutOfMemory`.
 
 ```
 runs.7                 a Run
@@ -76,6 +83,12 @@ runs.7                 a Run
 
 **Lifetime is by reference count.** An object lives while something refers to it; the last release
 frees it. Definitions (modules, classes, functions) are nodes of the tree and live as long as the tree.
+
+**Cycles** are broken with `weak`: a `weak` member or variable refers to an object without keeping it
+alive, and using it after the object has gone is a `Dangling` refusal. A parent that refers to its
+child strongly and is referred to by it `weak` is the usual shape.
+
+**Reference counts are atomic**, since runs share objects.
 
 **A reference to a dead object is a refusal, not undefined behaviour.** The id carries a generation
 that no longer matches (`Dangling`). This is checked at run time. When an image is edited (a delta is
@@ -130,20 +143,17 @@ formed by indentation.
 
 ## 10. Open
 
-These follow from "variables are references and the reference count ends a life":
-
-1. **Cycles.** A reference count does not free objects that refer to each other. Options: accept the
-   leak, a `weak` marker for the back reference, or let the compaction pass reclaim what no root
-   reaches.
-2. **What `copy()` copies.** Without ownership in the tree there is no "owned subtree" to clone, so the
+1. **What `copy()` copies.** Without ownership in the tree there is no "owned subtree" to clone, so the
    choice is the one of Python: **shallow** (a new object whose slots refer to the same objects as the
    original) or **deep** (the objects it reaches as well). A shallow `copy` plus an explicit deep one
-   is proposed.
-3. **The reference count between runs.** Runs share objects; the count must be changed atomically.
-4. **What the 32768-byte run cell and 16 open calls (the machine's call budget) mean** when a call's
-   variables are allocated from the run. The numbers belong to the interpreter's own call links today.
-5. **The grouping of the base and generic types.** The sample uses `pymergetic.rxf.types` and
-   `pymergetic.rxf.templates` (agreed).
-6. Not yet discussed: operators and literals, control flow, error handling, enums and constants,
+   is proposed. Not yet answered.
+2. **Locks.** Every object has a lock, and the tree gives the locks their dependencies: a lock on a
+   child is taken after the lock on its parent, which orders them without a separate rule. Open: what a
+   lock covers (one object, its subtree), what happens for references that cross the tree, and how it
+   interacts with the atomic reference count. Locks do not replace `weak`: they coordinate access, they
+   do not free cycles.
+3. **How a program names the active run** (for allocation and for starting another run).
+4. **The quota of a run**, and whether the depth of calls is limited separately (recursion).
+5. Not yet discussed: operators and literals, control flow, error handling, enums and constants,
    strings and arrays, how a run is started, the intrinsics and the interpreter
    ([37](37-THE-GRAPH-AND-ITS-ONE-LANGUAGE.md)).

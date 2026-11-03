@@ -23,6 +23,7 @@ class Echo:
         """Counters kept by one echo."""
         uint32_t seen = 0
         uint32_t span_total = 0
+        weak Echo owner
 
     Stats stats
 
