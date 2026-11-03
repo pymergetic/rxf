@@ -95,8 +95,11 @@ that no longer matches (`Dangling`). This is checked at run time. When an image 
 applied), the image already refuses a change that would leave a reference to an object that is gone,
 so the same rule holds at the moment objects are created.
 
-**`copy(p)`** makes a new object and returns a reference to it. The new object has a weak link to
-the object it was copied from (at the root of the copy only), visible as long as the original exists.
+**`copy(p)` is shallow, as in Python.** It makes a new object and returns a reference to it; the slots
+of the new object refer to the same objects as the slots of the original, so references stay as they
+are. The new object has a weak link to the object it was copied from (at the root of the copy only),
+visible as long as the original exists. A deep copy is a separate, explicit operation (its name is
+open).
 
 ## 6. Names
 
@@ -143,17 +146,24 @@ formed by indentation.
 
 ## 10. Open
 
-1. **What `copy()` copies.** Without ownership in the tree there is no "owned subtree" to clone, so the
-   choice is the one of Python: **shallow** (a new object whose slots refer to the same objects as the
-   original) or **deep** (the objects it reaches as well). A shallow `copy` plus an explicit deep one
-   is proposed. Not yet answered.
-2. **Locks.** Every object has a lock, and the tree gives the locks their dependencies: a lock on a
-   child is taken after the lock on its parent, which orders them without a separate rule. Open: what a
-   lock covers (one object, its subtree), what happens for references that cross the tree, and how it
-   interacts with the atomic reference count. Locks do not replace `weak`: they coordinate access, they
-   do not free cycles.
-3. **How a program names the active run** (for allocation and for starting another run).
-4. **The quota of a run**, and whether the depth of calls is limited separately (recursion).
-5. Not yet discussed: operators and literals, control flow, error handling, enums and constants,
-   strings and arrays, how a run is started, the intrinsics and the interpreter
+1. **Locks, and what they cover.** The owner's rule: a lock is **dynamic and smart**. It is not about
+   relations between locks, it is about **what an action on a variable affects**. An operation on a
+   child that cannot matter to its parent does not lock the parent. So the set of objects a lock
+   covers is the **footprint of the action**, not a path in the tree. Proposed reading:
+   - the footprint of an action is the objects it writes plus the objects whose **derived** data
+     depends on what it writes; the graph already says what an operation touches (a store names its
+     target object and field);
+   - the parent is in the footprint only when the action is **structural** (adding, removing or
+     replacing a child) or when the parent declares data that depends on the child;
+   - locks are taken in one fixed order (by object id) and held for the action, which excludes
+     deadlock without looking at the tree;
+   - reads do not lock (the id carries a generation).
+   Open: whether dependencies are **declared** by the program or **derived** from the graph, whether a
+   lock covers an object or a single field, and how it interacts with the atomic reference count.
+   Locks do not replace `weak`: they coordinate access, they do not free cycles.
+2. **How a program names the active run** (to start another run, to ask which run it is in), and
+   whether the depth of calls is limited separately (recursion) or only by the run's quota.
+3. **The name of the deep copy.**
+4. Not yet discussed: operators and literals, control flow, error handling, enums and constants,
+   strings and arrays, the intrinsics and the interpreter
    ([37](37-THE-GRAPH-AND-ITS-ONE-LANGUAGE.md)).
