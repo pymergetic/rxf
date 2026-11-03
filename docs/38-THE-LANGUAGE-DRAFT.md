@@ -180,29 +180,40 @@ formed by indentation.
 ## 10. Direction: workflows first
 
 The owner's example: a run has to parse a million elements. The caller fills a block of 1000, the
-blocks are worked off in parallel, and at the end the results are put together again. In this design
-that falls out of what is already fixed: a block is an object, a run is an object that is started with
-`run.spawn`, a result is a reference, nothing is shared that is not written, and the count of
-references frees a block when its run is done. The sketch is
+blocks are worked off in parallel, and at the end the results are put together again. The sketch is
 [`samples/parse_blocks.rx`](samples/parse_blocks.rx).
 
-The direction is to **design from the workflow down** and to keep the primitives to what a workflow
-needs: control flow, operators, calls, `run.spawn` and a way to wait for a result. The recursion
-clause of section 7 and its flattening are an optimisation that comes afterwards; a workflow replaces
-most of what recursion is used for.
+**A run per block is far too heavy**, and a run per element is absurd: a run is a cell with a budget
+of its own, and it exists to be an independent, isolated line of execution (a connection, a task that
+lives for a while). Parallel work on **data** does not need that. What it needs is **work that is
+available and known somewhere, and carriers that take it**. The machine already works like this: a run
+is data in a ring, and any carrier that is free reads it and goes on
+([20](20-EXECUTION-POLICY.md)). The change is that the unit on the belt is a **light item** (a
+function and its block), not a run.
 
-Two shapes are meant, and the first is the example: **fork and join** over blocks (results are joined
-in block order), and a **pipeline** with a bounded queue between its stages (the machine has the
-ready ring for it).
+The proposed form is a **map over a collection** that the system spreads over the free carriers:
 
-Points the sketch already shows:
+- the collection is cut into blocks (`blocks(source, 1000)`);
+- the carriers take the next block by **increasing one shared cursor** (one atomic add), so there is no
+  queue to manage and nothing waits for a producer;
+- every block has its own **result slot**, indexed by the block, so the results are in order without a
+  lock and without a merge step in the middle;
+- the function runs on the carrier's own run, and a function that cannot recurse keeps **one reused
+  instance per run** (section 7), so a block costs no allocation for the call itself.
 
-- **A block is the grain.** A run per element is too heavy; a run per block of 1000 is not.
-- **Each block returns its own result** and the caller merges them; nothing is written by two runs, so
-  the lock rules (section 11, item 1) hardly come into play.
-- **A failing block** is a refusal that reaches the caller at the join; what happens to the other runs
-  (cancel or finish) is open.
-- **A run has a quota** (section 5); a block run is started with a part of the caller's.
+Whether a function may be spread this way is **derived** from the graph: it must not write an object
+that it did not make itself (its effects say what it writes). That is the same fact the lock rules of
+section 11 use.
+
+**Runs stay** for what is really independent and long-lived, and for crossing their boundary
+(`run.current`, `run.spawn`, section 5).
+
+A second shape is a **pipeline** with a bounded belt between stages, for work that is produced over
+time instead of lying in a collection (the ready ring is the machine's belt).
+
+Open: what a failing block does to the others (cancel or finish), how a `map` takes its share of the
+caller's quota, and whether `map` is a library function (proposed) or a construct such as
+`parallel for`.
 
 ## 11. Open
 

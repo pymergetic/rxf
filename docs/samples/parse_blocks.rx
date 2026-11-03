@@ -1,11 +1,12 @@
 """Parse a large source in blocks, in parallel, and put the result together again in order.
 
-A sketch for the workflow direction (docs/38, section 11). Nothing in it is agreed except what the
-earlier sections fix; Run, list, run.spawn and result() are proposals.
+A sketch for the workflow direction (docs/38, section 10). There is no run per block: the blocks lie
+on a belt, and the carriers that are free take them. Nothing in it is agreed except what the earlier
+sections fix; map and blocks are proposals.
 """
 
 from pymergetic.rxf.types import uint8_t, uint32_t
-from pymergetic.rxf.templates import list, Run
+from pymergetic.rxf.templates import list
 
 class Record:
     """One parsed element."""
@@ -13,19 +14,15 @@ class Record:
     uint32_t value
 
 def list<Record> parse_block(list<uint8_t> block):
-    """Parse one block; runs as a run of its own."""
+    """Parse one block. Writes only what it made itself, so any carrier may take it."""
     list<Record> out = list<Record>()
     for uint32_t i in range(len(block)):
         out.append(parse_one(block, i))
     return out
 
 def list<Record> parse_all(list<uint8_t> source):
-    """The caller fills one block of 1000 at a time; every block is a run."""
-    list<Run> running = list<Run>()
-    for uint32_t start in range(0, len(source), 1000):
-        list<uint8_t> block = source.slice(start, 1000)
-        running.append(run.spawn(parse_block, block))
+    list<list<Record>> parts = map(parse_block, blocks(source, 1000))
     list<Record> result = list<Record>()
-    for Run r in running:
-        result.extend(r.result())
+    for list<Record> part in parts:
+        result.extend(part)
     return result
